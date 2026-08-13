@@ -247,7 +247,7 @@ export function CanvasBlock({
   const open = useCallback(() => {
     if (!host?.openCanvas || !summary) return;
     void host.openCanvas({
-      projectId: summary.projectId,
+      accessContext: host.contentAccessContext,
       canvasBlockId,
       titleSnapshot: summary.title,
     });

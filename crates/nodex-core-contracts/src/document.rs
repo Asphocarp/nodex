@@ -11,7 +11,67 @@ use crate::{
     ApplyResponse, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
-pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 6;
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 7;
+pub const OWNED_DOCUMENT_DESCRIPTOR_VERSION: u32 = 3;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OwnedDocumentAccessContext {
+    Library,
+    Project {
+        #[serde(rename = "projectId")]
+        project_id: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnedDocumentOwnerLifecycle {
+    Active,
+    Archived,
+    Deleted,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnedDocumentReadiness {
+    PendingGenesis,
+    Ready,
+    Failed,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OwnedDocumentSyncDescriptor {
+    Yjs {
+        #[serde(rename = "stateVector")]
+        state_vector: Vec<u8>,
+    },
+    CanvasScene,
+}
+
+/// Canonical identity and durable head for a Document as observed through one
+/// explicit access boundary. Library ownership and Project authorization are
+/// deliberately separate fields; adapters must validate this descriptor, not
+/// rewrite it into a caller-shaped identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnedDocumentDescriptor {
+    pub version: u32,
+    pub library_id: String,
+    pub access_context: OwnedDocumentAccessContext,
+    pub owner_block_id: String,
+    pub owner_type: String,
+    pub owner_lifecycle: OwnedDocumentOwnerLifecycle,
+    pub document_id: String,
+    pub store_epoch: String,
+    pub generation: i64,
+    pub head_seq: i64,
+    pub schema_key: String,
+    pub schema_version: i64,
+    pub readiness: OwnedDocumentReadiness,
+    pub sync: OwnedDocumentSyncDescriptor,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -167,10 +227,10 @@ pub enum OwnedDocumentRead {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OwnedDocumentReadValue {
     Descriptor {
-        descriptor: Value,
+        descriptor: OwnedDocumentDescriptor,
     },
     YjsSync {
-        descriptor: Value,
+        descriptor: OwnedDocumentDescriptor,
         update: Vec<u8>,
     },
     UpdateResource {

@@ -26,14 +26,15 @@ import {
 } from "./owned-block-document-query";
 
 const REQUEST: OwnedBlockDocumentRequest = {
-  projectId: "project-a",
+  accessContext: { kind: "project", projectId: "project-a" },
   ownerBlockId: "card-a",
 };
 
 const makeDescriptor = (
   overrides: Partial<OwnedDocumentDescriptor> = {},
 ): OwnedDocumentDescriptor => ({
-  projectId: REQUEST.projectId,
+  libraryId: "library-a",
+  accessContext: REQUEST.accessContext,
   ownerBlockId: REQUEST.ownerBlockId,
   ownerType: "page",
   ownerLifecycle: "active",
@@ -62,18 +63,16 @@ const captureBoundaryCode = (operation: () => unknown): string => {
 
 describe("owned Block Document renderer boundary", () => {
   test("validates Library descriptors without admitting Project coordinates", () => {
-    const { projectId: _projectId, ...descriptor } = makeDescriptor();
-    void _projectId;
     const ready = validateLibraryOwnedBlockDocumentDescriptor(
       REQUEST.ownerBlockId,
-      { ...descriptor, accessContext: { kind: "library" } },
+      { ...makeDescriptor(), accessContext: { kind: "library" } },
     );
     expect(ready.accessContext).toEqual({ kind: "library" });
     expect("projectId" in ready).toBe(false);
     expect(() => validateLibraryOwnedBlockDocumentDescriptor(
       REQUEST.ownerBlockId,
       makeDescriptor(),
-    )).toThrow("Library access context");
+    )).toThrow("requested access context");
   });
 
   test("accepts only the requested ready active nodex.page descriptor", () => {
@@ -132,8 +131,10 @@ describe("owned Block Document renderer boundary", () => {
       readonly descriptor: unknown;
     }> = [
       {
-        expected: "project_mismatch",
-        descriptor: makeDescriptor({ projectId: "project-b" }),
+        expected: "access_context_mismatch",
+        descriptor: makeDescriptor({
+          accessContext: { kind: "project", projectId: "project-b" },
+        }),
       },
       {
         expected: "owner_mismatch",
@@ -141,7 +142,11 @@ describe("owned Block Document renderer boundary", () => {
       },
       {
         expected: "unsupported_owner_type",
-        descriptor: makeDescriptor({ ownerType: "database" }),
+        descriptor: makeDescriptor({
+          ownerType: SYNCED_BLOCK_SOURCE_TYPE,
+          schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
+          schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
+        }),
       },
       {
         expected: "owner_not_active",
@@ -176,8 +181,8 @@ describe("owned Block Document renderer boundary", () => {
     const calls: string[] = [];
     const descriptor = await fetchOwnedBlockDocumentDescriptor(
       REQUEST,
-      async (projectId, ownerBlockId) => {
-        calls.push(`${projectId}/${ownerBlockId}`);
+      async (accessContext, ownerBlockId) => {
+        calls.push(`${JSON.stringify(accessContext)}/${ownerBlockId}`);
         return makeDescriptor({
           documentId: "server-owned-document",
           sync: { kind: "yjs", stateVector: new Uint8Array([4]) },
@@ -185,7 +190,9 @@ describe("owned Block Document renderer boundary", () => {
       },
     );
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify(["project-a/card-a"]));
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      '{"kind":"project","projectId":"project-a"}/card-a',
+    ]));
     expect(descriptor.documentId).toBe("server-owned-document");
     expect(descriptor.sync.kind).toBe("yjs");
   });
@@ -210,7 +217,10 @@ describe("owned Block Document renderer boundary", () => {
     let code = "none";
     try {
       await fetchOwnedBlockDocumentDescriptor(
-        { projectId: " project-a", ownerBlockId: "card-a" },
+        {
+          accessContext: { kind: "project", projectId: " project-a" },
+          ownerBlockId: "card-a",
+        },
         async () => {
           calls += 1;
           return makeDescriptor();
@@ -291,7 +301,12 @@ describe("owned Block Document renderer boundary", () => {
       fetchDescriptor: async () => makeDescriptor(),
     });
     expect(JSON.stringify(options.queryKey)).toBe(
-      JSON.stringify(["blockDocuments", "owned", "project-a", "card-a"]),
+      JSON.stringify([
+        "blockDocuments",
+        "owned",
+        { kind: "project", projectId: "project-a" },
+        "card-a",
+      ]),
     );
   });
 });

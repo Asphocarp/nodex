@@ -139,7 +139,8 @@ const syncResponse = (syncRequestId: string) => ({
   kind: "snapshot" as const,
   version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project" as const, projectId: "project-1" },
   documentId: descriptor.documentId,
   storeEpoch: descriptor.storeEpoch,
   generation: descriptor.generation,
@@ -308,7 +309,8 @@ function MockExcalidraw(props: {
 }
 
 const descriptor = {
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   ownerBlockId: "019f7399-7676-70ae-b2aa-168692b64d20",
   ownerType: "canvas",
   ownerLifecycle: "active",

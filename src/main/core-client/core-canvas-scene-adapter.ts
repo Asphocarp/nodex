@@ -184,9 +184,17 @@ export const createCoreCanvasSceneAdapter = (
             "Core Canvas sync escaped its Document boundary",
           );
         }
+        if (
+          response.accessContext.kind !== "project" ||
+          response.accessContext.projectId !== request.projectId
+        ) {
+          throw new CanvasSceneAdapterContractError(
+            "Core Canvas sync escaped its Project access boundary",
+          );
+        }
         return {
           ok: true,
-          value: { ...response, projectId: request.projectId },
+          value: response,
         };
       } catch (error) {
         return canvasErrorResult(error);

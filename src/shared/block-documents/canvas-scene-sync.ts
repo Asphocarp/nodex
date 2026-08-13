@@ -15,6 +15,7 @@ import {
   type PortableCanvasScene,
 } from "./canvas-scene";
 import type { LocalCommitCommandSuccess } from "../local-commit-delivery";
+import type { ContentAccessContext } from "../content-access-context";
 
 export const CANVAS_SCENE_SYNC_VERSION = 1 as const;
 export const MAX_CANVAS_SCENE_MUTATION_BYTES = 2 * 1024 * 1024;
@@ -153,7 +154,8 @@ export interface CanvasSceneSyncRequest {
 interface CanvasSceneSyncResponseBase {
   readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly syncRequestId: string;
-  readonly projectId: string;
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;

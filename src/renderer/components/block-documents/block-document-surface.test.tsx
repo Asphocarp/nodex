@@ -34,7 +34,8 @@ import {
 const descriptor = (
   overrides: Partial<PrimaryPageBlockDocumentDescriptor> = {},
 ): PrimaryPageBlockDocumentDescriptor => ({
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   ownerBlockId: "card-1",
   ownerType: "page",
   ownerLifecycle: "active",
@@ -143,7 +144,6 @@ describe("BlockDocumentSurface", () => {
     const adapter = new SurfaceTestAdapter();
     const view = render(
       <BlockDocumentSurface
-        projectId="project-1"
         descriptor={descriptor()}
         isActive
         dependencies={{ createAdapter: () => adapter }}
@@ -188,7 +188,6 @@ describe("BlockDocumentSurface", () => {
     };
     const view = render(
       <OwnedBlockDocumentSurface
-        projectId="project-1"
         descriptor={syncedDescriptor}
         isActive
         dependencies={{
@@ -234,7 +233,6 @@ describe("BlockDocumentSurface", () => {
     const ownedDescriptor = descriptor();
     const renderSurface = (isActive: boolean) => (
       <BlockDocumentSurface
-        projectId="project-1"
         descriptor={ownedDescriptor}
         isActive={isActive}
         localAwarenessState={{ user: { name: "Ada" } }}
@@ -321,9 +319,8 @@ describe("BlockDocumentSurface", () => {
       <>
         <Activity mode={activeProjectId === "alpha" ? "visible" : "hidden"}>
           <BlockDocumentSurface
-            projectId="alpha"
             descriptor={descriptor({
-              projectId: "alpha",
+              accessContext: { kind: "project", projectId: "alpha" },
               ownerBlockId: "alpha-card",
               documentId: "document:alpha-card",
             })}
@@ -335,9 +332,8 @@ describe("BlockDocumentSurface", () => {
         </Activity>
         <Activity mode={activeProjectId === "beta" ? "visible" : "hidden"}>
           <BlockDocumentSurface
-            projectId="beta"
             descriptor={descriptor({
-              projectId: "beta",
+              accessContext: { kind: "project", projectId: "beta" },
               ownerBlockId: "beta-card",
               documentId: "document:beta-card",
             })}
@@ -383,8 +379,7 @@ describe("BlockDocumentSurface", () => {
     betaAdapter.destroy();
   });
 
-  test("surfaces and copies startup diagnostics when the descriptor belongs to another Project", async () => {
-    const adapter = new SurfaceTestAdapter();
+  test("surfaces adapter failures without rewriting descriptor access identity", async () => {
     const originalClipboard = navigator.clipboard;
     const clipboardWrites: string[] = [];
     Object.defineProperty(navigator, "clipboard", {
@@ -395,18 +390,21 @@ describe("BlockDocumentSurface", () => {
         },
       },
     });
-    const mismatched: PrimaryPageBlockDocumentDescriptor = {
+    const libraryDescriptor: PrimaryPageBlockDocumentDescriptor = {
       ...descriptor(),
-      projectId: "other-project",
+      accessContext: { kind: "library" },
     };
+    let observedAccessContext: unknown;
     const dependencies: BlockDocumentSurfaceDependencies = {
-      createAdapter: () => adapter,
+      createAdapter: (accessContext) => {
+        observedAccessContext = accessContext;
+        throw new Error("Document adapter unavailable");
+      },
     };
     try {
       const view = render(
         <BlockDocumentSurface
-          projectId="project-1"
-          descriptor={mismatched}
+          descriptor={libraryDescriptor}
           isActive
           dependencies={dependencies}
         >
@@ -417,7 +415,7 @@ describe("BlockDocumentSurface", () => {
       await waitFor(() => {
         expect(
           view.getByText(
-            "Block Document surface Project does not match its descriptor",
+            "Document adapter unavailable",
           ),
         ).toBeTruthy();
       });
@@ -427,26 +425,28 @@ describe("BlockDocumentSurface", () => {
         view.getByRole("button", { name: "Copy diagnostics" }),
       );
       await waitFor(() => expect(clipboardWrites).toHaveLength(1));
-      expect(clipboardWrites[0]).toContain("Project: other-project");
+      expect(clipboardWrites[0]).toContain("Library: library-1");
+      expect(clipboardWrites[0]).toContain("Access: library");
+      expect(observedAccessContext).toEqual({ kind: "library" });
       expect(view.getByRole("button", { name: "Copied" })).toBeTruthy();
-      expect(adapter.subscriptions).toBe(0);
     } finally {
       Object.defineProperty(navigator, "clipboard", {
         configurable: true,
         value: originalClipboard,
       });
-      adapter.destroy();
     }
   });
 
   test("lets an embedding surface preserve its own shell around startup recovery", async () => {
-    const adapter = new SurfaceTestAdapter();
     const view = render(
       <BlockDocumentSurface
-        projectId="project-1"
-        descriptor={descriptor({ projectId: "other-project" })}
+        descriptor={descriptor()}
         isActive
-        dependencies={{ createAdapter: () => adapter }}
+        dependencies={{
+          createAdapter: () => {
+            throw new Error("Document adapter unavailable");
+          },
+        }}
         failureFallback={({ error, reload }) => (
           <section data-testid="embedding-shell">
             <span>{error.message}</span>
@@ -468,7 +468,6 @@ describe("BlockDocumentSurface", () => {
       view.queryByText("Couldn’t open this collaborative content."),
     ).toBeNull();
     view.unmount();
-    adapter.destroy();
   });
 
   test("automatically recreates a mounted surface after a whole-store reset", async () => {
@@ -485,7 +484,6 @@ describe("BlockDocumentSurface", () => {
     };
     const view = render(
       <BlockDocumentSurface
-        projectId="project-1"
         descriptor={descriptor()}
         isActive
         dependencies={dependencies}
@@ -520,7 +518,6 @@ describe("BlockDocumentSurface", () => {
     let reloads = 0;
     const view = render(
       <BlockDocumentSurface
-        projectId="project-1"
         descriptor={descriptor()}
         isActive
         dependencies={{ createAdapter: () => adapter }}

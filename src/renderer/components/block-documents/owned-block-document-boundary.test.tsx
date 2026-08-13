@@ -18,7 +18,8 @@ import {
 } from "./owned-block-document-boundary";
 
 const descriptor = (): OwnedDocumentDescriptor => ({
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   ownerBlockId: "card-1",
   ownerType: "page",
   ownerLifecycle: "active",
@@ -43,7 +44,7 @@ describe("OwnedBlockDocumentBoundary", () => {
     const view = render(
       <TestQueryProvider>
         <OwnedBlockDocumentBoundary
-          projectId="project-1"
+          accessContext={{ kind: "project", projectId: "project-1" }}
           ownerBlockId="card-1"
           dependencies={{ fetchDescriptor }}
         >
@@ -73,7 +74,7 @@ describe("OwnedBlockDocumentBoundary", () => {
     const view = render(
       <TestQueryProvider>
         <RegisteredOwnedBlockDocumentBoundary
-          projectId="project-1"
+          accessContext={{ kind: "project", projectId: "project-1" }}
           ownerBlockId="synced-source-1"
           dependencies={{
             fetchDescriptor: async () => ({

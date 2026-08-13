@@ -22761,11 +22761,116 @@
           }
         }
       },
+      "OwnedDocumentAccessContext": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "projectId",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project"
+                ]
+              },
+              "projectId": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "OwnedDocumentApplyRequest": {
         "$ref": "#/components/schemas/ModuleApplyRequest_OwnedDocumentIntent"
       },
       "OwnedDocumentApplyResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt"
+      },
+      "OwnedDocumentDescriptor": {
+        "type": "object",
+        "description": "Canonical identity and durable head for a Document as observed through one\nexplicit access boundary. Library ownership and Project authorization are\ndeliberately separate fields; adapters must validate this descriptor, not\nrewrite it into a caller-shaped identity.",
+        "required": [
+          "version",
+          "libraryId",
+          "accessContext",
+          "ownerBlockId",
+          "ownerType",
+          "ownerLifecycle",
+          "documentId",
+          "storeEpoch",
+          "generation",
+          "headSeq",
+          "schemaKey",
+          "schemaVersion",
+          "readiness",
+          "sync"
+        ],
+        "properties": {
+          "accessContext": {
+            "$ref": "#/components/schemas/OwnedDocumentAccessContext"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "headSeq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "libraryId": {
+            "type": "string"
+          },
+          "ownerBlockId": {
+            "type": "string"
+          },
+          "ownerLifecycle": {
+            "$ref": "#/components/schemas/OwnedDocumentOwnerLifecycle"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/OwnedDocumentReadiness"
+          },
+          "schemaKey": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "storeEpoch": {
+            "type": "string"
+          },
+          "sync": {
+            "$ref": "#/components/schemas/OwnedDocumentSyncDescriptor"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "OwnedDocumentEvent": {
         "oneOf": [
@@ -22948,11 +23053,68 @@
           }
         ]
       },
+      "OwnedDocumentOwnerLifecycle": {
+        "type": "string",
+        "enum": [
+          "active",
+          "archived",
+          "deleted"
+        ]
+      },
       "OwnedDocumentReadRequest": {
         "$ref": "#/components/schemas/ModuleReadRequest_OwnedDocumentRead"
       },
       "OwnedDocumentReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"
+      },
+      "OwnedDocumentReadiness": {
+        "type": "string",
+        "enum": [
+          "pending_genesis",
+          "ready",
+          "failed"
+        ]
+      },
+      "OwnedDocumentSyncDescriptor": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "stateVector",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "yjs"
+                ]
+              },
+              "stateVector": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas_scene"
+                ]
+              }
+            }
+          }
+        ]
       },
       "PageDocumentHeadImpact": {
         "type": "object",
@@ -28774,7 +28936,9 @@
                           "kind"
                         ],
                         "properties": {
-                          "descriptor": {},
+                          "descriptor": {
+                            "$ref": "#/components/schemas/OwnedDocumentDescriptor"
+                          },
                           "kind": {
                             "type": "string",
                             "enum": [
@@ -28791,7 +28955,9 @@
                           "kind"
                         ],
                         "properties": {
-                          "descriptor": {},
+                          "descriptor": {
+                            "$ref": "#/components/schemas/OwnedDocumentDescriptor"
+                          },
                           "kind": {
                             "type": "string",
                             "enum": [

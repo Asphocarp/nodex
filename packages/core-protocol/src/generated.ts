@@ -5587,8 +5587,42 @@ export interface components {
                 readonly kind: "maintenance_status";
             };
         };
+        readonly OwnedDocumentAccessContext: {
+            /** @enum {string} */
+            readonly kind: "library";
+        } | {
+            /** @enum {string} */
+            readonly kind: "project";
+            readonly projectId: string;
+        };
         readonly OwnedDocumentApplyRequest: components["schemas"]["ModuleApplyRequest_OwnedDocumentIntent"];
         readonly OwnedDocumentApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt"];
+        /**
+         * @description Canonical identity and durable head for a Document as observed through one
+         *     explicit access boundary. Library ownership and Project authorization are
+         *     deliberately separate fields; adapters must validate this descriptor, not
+         *     rewrite it into a caller-shaped identity.
+         */
+        readonly OwnedDocumentDescriptor: {
+            readonly accessContext: components["schemas"]["OwnedDocumentAccessContext"];
+            readonly documentId: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly headSeq: number;
+            readonly libraryId: string;
+            readonly ownerBlockId: string;
+            readonly ownerLifecycle: components["schemas"]["OwnedDocumentOwnerLifecycle"];
+            readonly ownerType: string;
+            readonly readiness: components["schemas"]["OwnedDocumentReadiness"];
+            readonly schemaKey: string;
+            /** Format: int64 */
+            readonly schemaVersion: number;
+            readonly storeEpoch: string;
+            readonly sync: components["schemas"]["OwnedDocumentSyncDescriptor"];
+            /** Format: int32 */
+            readonly version: number;
+        };
         readonly OwnedDocumentEvent: {
             readonly document_id: string;
             /** Format: int64 */
@@ -5639,8 +5673,20 @@ export interface components {
             readonly kind: "document_invalidated";
             readonly reason: components["schemas"]["DocumentInvalidationReason"];
         };
+        /** @enum {string} */
+        readonly OwnedDocumentOwnerLifecycle: "active" | "archived" | "deleted";
+        /** @enum {string} */
+        readonly OwnedDocumentReadiness: "pending_genesis" | "ready" | "failed";
         readonly OwnedDocumentReadRequest: components["schemas"]["ModuleReadRequest_OwnedDocumentRead"];
         readonly OwnedDocumentReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"];
+        readonly OwnedDocumentSyncDescriptor: {
+            /** @enum {string} */
+            readonly kind: "yjs";
+            readonly stateVector: readonly number[];
+        } | {
+            /** @enum {string} */
+            readonly kind: "canvas_scene";
+        };
         readonly PageDocumentHeadImpact: {
             readonly document_id: string;
             /** Format: int64 */
@@ -6898,11 +6944,11 @@ export interface components {
                 readonly contract_version: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
-                    readonly descriptor: unknown;
+                    readonly descriptor: components["schemas"]["OwnedDocumentDescriptor"];
                     /** @enum {string} */
                     readonly kind: "descriptor";
                 } | {
-                    readonly descriptor: unknown;
+                    readonly descriptor: components["schemas"]["OwnedDocumentDescriptor"];
                     /** @enum {string} */
                     readonly kind: "yjs_sync";
                     readonly update: readonly number[];

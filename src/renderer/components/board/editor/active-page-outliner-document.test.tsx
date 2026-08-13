@@ -73,7 +73,6 @@ const target: AvailablePageOutlinerTarget = {
   relationship: "child",
   targetBlockId: "nested-page",
   contentAccessContext: projectContentAccess("project-a"),
-  documentScopeId: "project-a",
   lifecycle: "active",
   inlineMode: "editable",
   fallbackTitle: "Nested Page",
@@ -105,7 +104,6 @@ const rowProps = (expanded: boolean): PageOutlinerRowChromeProps => ({
 
 const hostRuntime = {
   contentAccessContext: { kind: "project", projectId: "project-a" } as const,
-  documentScopeId: "project-a",
   projectName: "Project A",
   projectWorkspacePath: null,
   hostPageId: "host-page",

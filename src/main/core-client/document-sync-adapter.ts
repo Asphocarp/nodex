@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { components } from "@nodex/core-protocol";
 
 import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
 
@@ -95,17 +96,11 @@ interface CoreDocumentSyncAdapterOptions {
   readonly maxInitialOpenAttempts?: number;
 }
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
 class DocumentUpdateResourceIntegrityError extends Error {}
 
 const decodeCoreOwnedDocumentDescriptor = (
-  value: unknown,
+  value: components["schemas"]["OwnedDocumentDescriptor"],
 ): OwnedDocumentDescriptor => {
-  if (!isRecord(value) || !isRecord(value.sync)) {
-    throw new Error("Core Owned Document descriptor is invalid");
-  }
   if (value.sync.kind !== "yjs") {
     return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
       ...value,

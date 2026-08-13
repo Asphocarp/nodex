@@ -40,7 +40,10 @@ import {
   type PageScheduleSource,
 } from "@/lib/use-schedule-state";
 import { usePageStageCollapsedProperties } from "@/lib/use-page-stage-collapsed-properties";
-import { projectIdFromContentAccessContext } from "../../../../shared/content-access-context";
+import {
+  contentAccessContextKey,
+  projectIdFromContentAccessContext,
+} from "../../../../shared/content-access-context";
 import { normalizeRunInTarget, resolveDefaultRunInBaseBranch } from "./options";
 import type {
   PageStageMetadataMutationResult,
@@ -207,7 +210,6 @@ export function usePageStageController(
     sessionSnapshotRef,
     page: pageModel,
     contentAccessContext,
-    documentScopeId,
     projectWorkspacePath,
     onUpdate,
     onDelete,
@@ -225,6 +227,7 @@ export function usePageStageController(
   const executionProjectId = projectIdFromContentAccessContext(
     contentAccessContext,
   );
+  const documentScopeKey = contentAccessContextKey(contentAccessContext);
   const page = pageModel?.page ?? null;
   const databaseSemantic = pageModel?.databaseContext.kind === "member"
     ? pageModel.databaseContext.semanticProperties
@@ -329,14 +332,14 @@ export function usePageStageController(
   const rememberScrollTopForPage = useCallback((pageId: string | null, scrollTop: number) => {
     if (!pageId) return;
     lastKnownScrollTopRef.current = { pageId, scrollTop };
-    rememberScrollPosition(documentScopeId, pageId, scrollTop, editorSessionKey);
-  }, [documentScopeId, editorSessionKey]);
+    rememberScrollPosition(documentScopeKey, pageId, scrollTop, editorSessionKey);
+  }, [documentScopeKey, editorSessionKey]);
 
   const saveScrollTopForPage = useCallback((pageId: string | null, scrollTop: number) => {
     if (!pageId) return;
     lastKnownScrollTopRef.current = { pageId, scrollTop };
-    saveScrollPosition(documentScopeId, pageId, scrollTop, editorSessionKey);
-  }, [documentScopeId, editorSessionKey]);
+    saveScrollPosition(documentScopeKey, pageId, scrollTop, editorSessionKey);
+  }, [documentScopeKey, editorSessionKey]);
 
   const readCurrentScrollTopForPage = useCallback((pageId: string, element: HTMLDivElement | null) => {
     if (element && elementHasLayoutBox(element)) {
@@ -368,7 +371,7 @@ export function usePageStageController(
     scrollRestoreVersionRef.current += 1;
     const restoreVersion = scrollRestoreVersionRef.current;
     const saved = loadScrollPosition(
-      documentScopeId,
+      documentScopeKey,
       pageId,
       editorSessionKey,
     );
@@ -394,7 +397,7 @@ export function usePageStageController(
       if (remainingFrames > 0) requestAnimationFrame(retryRestore);
     };
     requestAnimationFrame(retryRestore);
-  }, [documentScopeId, editorSessionKey]);
+  }, [documentScopeKey, editorSessionKey]);
 
   const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
     const previousNode = scrollContainerRef.current;

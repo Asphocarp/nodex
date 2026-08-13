@@ -6,10 +6,8 @@ import {
   prepareLibraryOwnedBlockDocument,
   readLibraryPageDetail,
 } from "../../lib/api";
-import { libraryBlockDocumentSurfaceDependencies } from "../../lib/content-access-document-dependencies";
 import {
   type ReadyPageBlockDocumentDescriptor,
-  toLibraryDocumentSurfaceDescriptor,
   unwrapLibraryOwnedBlockDocumentPreparationResult,
   validateLibraryOwnedBlockDocumentDescriptor,
 } from "../../lib/owned-block-document";
@@ -93,8 +91,9 @@ export function WorkbenchLibraryPageSurface({
       const prepared = unwrapLibraryOwnedBlockDocumentPreparationResult(
         await prepareLibraryOwnedBlockDocument(pageId),
       );
-      const descriptor = toLibraryDocumentSurfaceDescriptor(
-        validateLibraryOwnedBlockDocumentDescriptor(pageId, prepared),
+      const descriptor = validateLibraryOwnedBlockDocumentDescriptor(
+        pageId,
+        prepared,
       );
       return await admitResourceAuthorityQuery(
         descriptor,
@@ -195,7 +194,6 @@ export function WorkbenchLibraryPageSurface({
       retainEditorSession
       page={stagePage}
       autoFocusTitle={stagePage.page.title.trim() === "Untitled"}
-      documentScopeId={document.data.projectId}
       projectName={null}
       documentAuthority={{
         kind: "yjs",
@@ -203,7 +201,6 @@ export function WorkbenchLibraryPageSurface({
         reload: async () => {
           await queryClient.resetQueries({ queryKey: documentQueryKey, exact: true });
         },
-        surfaceDependencies: libraryBlockDocumentSurfaceDependencies,
       }}
       onOpenDatabase={onOpenDatabase}
       onOpenPage={onOpenPage

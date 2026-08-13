@@ -63,7 +63,8 @@ const syncSnapshot = (syncRequestId: string) => ({
   kind: "snapshot" as const,
   version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
-  projectId: PROJECT_ID,
+  libraryId: "library:canvas",
+  accessContext: { kind: "project" as const, projectId: PROJECT_ID },
   documentId: DOCUMENT_ID,
   storeEpoch: STORE_EPOCH,
   generation: 1,
@@ -218,7 +219,8 @@ describe("Core Canvas scene adapter", () => {
     })).resolves.toMatchObject({
       ok: true,
       value: {
-        projectId: PROJECT_ID,
+        libraryId: "library:canvas",
+        accessContext: { kind: "project", projectId: PROJECT_ID },
         documentId: DOCUMENT_ID,
         headSeq: 0,
         kind: "snapshot",
@@ -275,7 +277,7 @@ describe("Core Canvas scene adapter", () => {
     });
   });
 
-  test("projects a granted Canvas response into its access Project", async () => {
+  test("rejects Canvas sync access drift instead of rewriting Core identity", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client);
     const subscription = {
@@ -287,15 +289,18 @@ describe("Core Canvas scene adapter", () => {
     const close = adapter.subscribe(subscription, () => undefined);
     client.enqueueDocumentCanvasSync({
       ...syncSnapshot("sync:granted"),
-      projectId: "project:compatibility-storage",
+      accessContext: {
+        kind: "project",
+        projectId: "project:wrong-authority",
+      },
     });
 
     await expect(adapter.sync({
       ...subscription,
       syncRequestId: "sync:granted",
     })).resolves.toMatchObject({
-      ok: true,
-      value: { projectId: PROJECT_ID, documentId: DOCUMENT_ID },
+      ok: false,
+      error: { code: "canvas_scene_corrupt" },
     });
 
     const physicalMutation = committedMutation();

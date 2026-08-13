@@ -56,7 +56,6 @@ const input = (
   loading: false,
   error: null,
   contentAccessContext: projectContentAccess("host-project"),
-  documentScopeId: "host-project",
   hostPageId: "host-page",
   ancestorPageIds: ["host-page"],
   ...overrides,
@@ -69,7 +68,6 @@ describe("resolvePageOutlinerTarget", () => {
       relationship: "reference",
       targetBlockId: "page-target",
       contentAccessContext: projectContentAccess("host-project"),
-      documentScopeId: "host-project",
       page: { title: "Canonical title" },
       inlineMode: "editable",
     });

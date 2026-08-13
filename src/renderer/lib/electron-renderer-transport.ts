@@ -35,7 +35,7 @@ import {
 import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type {
   LibraryOwnedDocumentDescriptor,
-  OwnedDocumentDescriptor,
+  ProjectOwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 import type {
@@ -216,14 +216,14 @@ export function createElectronRendererTransport(
         "block-document:owned:get",
         projectId,
         ownerBlockId,
-      ) as Promise<OwnedDocumentDescriptor>;
+      ) as Promise<ProjectOwnedDocumentDescriptor>;
     },
     prepareOwnedBlockDocument(projectId: string, ownerBlockId: string) {
       return bridge.invoke(
         "block-document:owned:prepare",
         projectId,
         ownerBlockId,
-      ) as Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
+      ) as Promise<DocumentSyncCommandResult<ProjectOwnedDocumentDescriptor>>;
     },
     prepareLibraryOwnedBlockDocument(ownerBlockId: string) {
       return bridge.invoke(

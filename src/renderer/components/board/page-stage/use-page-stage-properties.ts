@@ -308,10 +308,10 @@ export function usePageStageProperties(input: {
     property: property.property,
   }), [contentAccessContext]);
   const openRelationPage = useMemo(() => {
-    if (contentAccessContext.kind !== "project" || !onOpenPage) return undefined;
+    if (!onOpenPage) return undefined;
     return (pageId: string, title: string) => {
       void onOpenPage({
-        projectId: contentAccessContext.projectId,
+        accessContext: contentAccessContext,
         pageId,
         titleSnapshot: title,
       });

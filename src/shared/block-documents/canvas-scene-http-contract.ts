@@ -12,6 +12,7 @@ import {
   type CanvasSceneSyncRequest,
 } from "./canvas-scene-sync";
 import { parseLocalCommitApply } from "../local-commit-delivery";
+import { parseContentAccessContext } from "../content-access-context";
 import {
   canonicalizeCanvasSceneElement,
   canonicalizeCanvasSceneFile,
@@ -239,7 +240,8 @@ export const decodeCanvasSceneSyncResultHttp = (
       envelope.value.syncRequestId,
       "syncRequestId",
     ),
-    projectId: requireCanvasSceneIdentity(envelope.value.projectId, "projectId"),
+    libraryId: requireCanvasSceneIdentity(envelope.value.libraryId, "libraryId"),
+    accessContext: parseContentAccessContext(envelope.value.accessContext),
     documentId: requireCanvasSceneIdentity(envelope.value.documentId, "documentId"),
     storeEpoch: requireCanvasSceneIdentity(envelope.value.storeEpoch, "storeEpoch"),
     generation: requireInteger(envelope.value.generation, "generation", 1),

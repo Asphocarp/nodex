@@ -144,7 +144,11 @@ describe("long Card collaborative open lifecycle", () => {
     ).toBeGreaterThan(0);
     const adapter = new LongCardAdapter(serverDocument);
     const descriptor: PrimaryPageBlockDocumentDescriptor = {
-      projectId: "project-edited-long-card",
+      libraryId: "library-edited-long-card",
+      accessContext: {
+        kind: "project",
+        projectId: "project-edited-long-card",
+      },
       ownerBlockId: "card-edited-long-card",
       ownerType: "page",
       ownerLifecycle: "active",

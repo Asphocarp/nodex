@@ -42,7 +42,9 @@ import { toast } from "@/components/ui/toast";
 import { createUuidV7 } from "../../../../shared/uuid-v7";
 import {
   projectIdFromContentAccessContext,
+  type ContentCanvasNavigationTarget,
   type ContentAccessContext,
+  type ContentPageNavigationTarget,
 } from "../../../../shared/content-access-context";
 import {
   NodexPopover,
@@ -219,8 +221,6 @@ import {
 
 interface NfmEditorCommonProps {
   contentAccessContext: ContentAccessContext;
-  /** Renderer-local identity for the mounted collaborative Document surface. */
-  documentScopeId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
   sourcePageContext?: {
@@ -233,13 +233,9 @@ interface NfmEditorCommonProps {
   canStartThreadInSession?: boolean;
   linkedCodexThreads?: PageStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
-  onOpenPage?: (input: {
-    projectId: string;
-    pageId: string;
-    titleSnapshot?: string;
-  }) => void | Promise<void>;
+  onOpenPage?: (input: ContentPageNavigationTarget) => void | Promise<void>;
   onOpenDatabase?: BlockReferenceHostRuntime["openDatabase"];
-  onOpenCanvas?: BlockReferenceHostRuntime["openCanvas"];
+  onOpenCanvas?: (input: ContentCanvasNavigationTarget) => void | Promise<void>;
   onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
     targetSessionId?: string;
@@ -403,7 +399,7 @@ function buildThreadSectionThreadMap(
 export function NfmEditor(props: NfmEditorProps) {
   const source = props.source;
   const editorInstanceKey = getNfmEditorInstanceKey({
-    documentScopeId: props.documentScopeId,
+    accessContext: props.contentAccessContext,
     source,
   });
 
@@ -419,7 +415,6 @@ export function NfmEditor(props: NfmEditorProps) {
 
 function NfmEditorInstance({
   contentAccessContext,
-  documentScopeId,
   projectName = null,
   projectWorkspacePath,
   source,
@@ -2560,7 +2555,6 @@ function NfmEditorInstance({
         documentOwnerBlockId ?? sourcePageContext?.pageId;
       return {
         contentAccessContext,
-        documentScopeId,
         projectName,
         projectWorkspacePath: projectWorkspacePath ?? null,
         hostPageId: sourcePageContext?.pageId ?? null,
@@ -2594,7 +2588,6 @@ function NfmEditorInstance({
       onOpenPage,
       onOpenDatabase,
       onOpenCanvas,
-      documentScopeId,
       projectName,
       projectWorkspacePath,
       parentBlockReferenceRuntime?.ancestorPageIds,

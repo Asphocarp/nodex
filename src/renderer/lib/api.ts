@@ -30,7 +30,7 @@ import type {
 } from "../../shared/block-documents/canvas-scene-maintenance";
 import type {
   LibraryOwnedDocumentDescriptor,
-  OwnedDocumentDescriptor,
+  ProjectOwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 import type {
@@ -146,6 +146,14 @@ export function createLibraryDocumentSyncAdapter(): DocumentSyncAdapter {
   throw new Error("Library Document sync is unavailable for this renderer transport");
 }
 
+export function createDocumentSyncAdapterForContentAccess(
+  accessContext: ContentAccessContext,
+): DocumentSyncAdapter {
+  return accessContext.kind === "project"
+    ? createDocumentSyncAdapter(accessContext.projectId)
+    : createLibraryDocumentSyncAdapter();
+}
+
 export function createCanvasSceneSyncAdapter(
   projectId: string,
 ): CanvasSceneSyncAdapter {
@@ -173,7 +181,7 @@ export function compactCanvasScene(
 export function getOwnedDocumentDescriptor(
   projectId: string,
   ownerBlockId: string,
-): Promise<OwnedDocumentDescriptor> {
+): Promise<ProjectOwnedDocumentDescriptor> {
   return resolveRendererTransport().getOwnedDocumentDescriptor(
     projectId,
     ownerBlockId,
@@ -183,7 +191,7 @@ export function getOwnedDocumentDescriptor(
 export function prepareOwnedBlockDocument(
   projectId: string,
   ownerBlockId: string,
-): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>> {
+): Promise<DocumentSyncCommandResult<ProjectOwnedDocumentDescriptor>> {
   return resolveRendererTransport().prepareOwnedBlockDocument(
     projectId,
     ownerBlockId,
@@ -194,6 +202,17 @@ export function prepareLibraryOwnedBlockDocument(
   ownerBlockId: string,
 ): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>> {
   return resolveRendererTransport().prepareLibraryOwnedBlockDocument(ownerBlockId);
+}
+
+export function prepareOwnedBlockDocumentForContentAccess(
+  accessContext: ContentAccessContext,
+  ownerBlockId: string,
+): Promise<DocumentSyncCommandResult<
+  ProjectOwnedDocumentDescriptor | LibraryOwnedDocumentDescriptor
+>> {
+  return accessContext.kind === "project"
+    ? prepareOwnedBlockDocument(accessContext.projectId, ownerBlockId)
+    : prepareLibraryOwnedBlockDocument(ownerBlockId);
 }
 
 export async function mutateDocument(

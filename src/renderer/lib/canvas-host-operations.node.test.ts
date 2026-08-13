@@ -8,7 +8,10 @@ import {
 } from "../../shared/library-module";
 import { bindLibraryModuleApply } from "../../shared/library-module-transport";
 import { createUuidV7FromTimestamp } from "../../shared/uuid-v7";
-import { projectContentAccess } from "../../shared/content-access-context";
+import {
+  projectContentAccess,
+  type ContentAccessContext,
+} from "../../shared/content-access-context";
 import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
   applyLibraryModule,
@@ -57,7 +60,8 @@ function makeRuntime(input: {
       reloadRequired: false,
       writeFrozen: false,
       descriptor: {
-        projectId: "project-1",
+        libraryId: "library-1",
+        accessContext,
         documentId,
         authorization: null,
         ownerBlockId,
@@ -405,7 +409,7 @@ describe("Canvas host operations", () => {
 
   test("deletes a nested Canvas with the mounted host Document barrier", async () => {
     const apply = vi.fn(async (
-      receivedAccessContext: typeof accessContext,
+      receivedAccessContext: ContentAccessContext,
       request: LibraryModuleApplyRequest,
     ): Promise<LibraryModuleApplyResult> => {
       expect(receivedAccessContext).toEqual(accessContext);

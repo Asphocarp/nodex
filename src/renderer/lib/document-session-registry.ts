@@ -9,7 +9,7 @@ import {
 } from "@blocknote/core";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents";
 import type { BlockDocumentSurfaceRuntime } from "./block-document-surface-runtime";
-import { LIBRARY_DOCUMENT_SURFACE_SCOPE_ID } from "./owned-block-document";
+import { contentAccessContextKey } from "../../shared/content-access-context";
 
 interface RetainedBlockNoteEditor {
   readonly _tiptapEditor: {
@@ -50,9 +50,8 @@ export const makeDocumentSessionIdentity = (
   descriptor: OwnedDocumentDescriptor,
 ): string => [
   descriptor.storeEpoch,
-  descriptor.projectId === LIBRARY_DOCUMENT_SURFACE_SCOPE_ID
-    ? "library"
-    : `project:${descriptor.projectId}`,
+  descriptor.libraryId,
+  contentAccessContextKey(descriptor.accessContext),
   descriptor.documentId,
   descriptor.generation,
   descriptor.schemaKey,

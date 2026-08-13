@@ -672,7 +672,8 @@ export class CanvasSceneProvider {
       return;
     }
     if (
-      response.projectId !== this.options.projectId
+      response.accessContext.kind !== "project"
+      || response.accessContext.projectId !== this.options.projectId
       || response.documentId !== this.options.documentId
     ) {
       this.enterFatal("Canvas sync response crossed its Project or Document boundary");

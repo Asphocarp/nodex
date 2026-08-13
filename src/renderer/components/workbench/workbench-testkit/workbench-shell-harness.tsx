@@ -1022,16 +1022,16 @@ vi.mock("../workbench-database-view-surface", () => ({
 }));
 
 export const MockOwnedBlockDocumentBoundary = ({
-  projectId,
+  accessContext,
   ownerBlockId,
   dependencies,
   children,
 }: {
-  projectId: string;
+  accessContext: { kind: "library" } | { kind: "project"; projectId: string };
   ownerBlockId: string;
   dependencies?: {
     fetchDescriptor?: (
-      projectId: string,
+      accessContext: { kind: "library" } | { kind: "project"; projectId: string },
       ownerBlockId: string,
     ) => Promise<Record<string, unknown>>;
   };
@@ -1043,14 +1043,15 @@ export const MockOwnedBlockDocumentBoundary = ({
   const fetchDescriptor = dependencies?.fetchDescriptor;
   const [model, setModel] = useState<Record<string, unknown>>(() => {
     if (fetchDescriptor) {
-      return { status: "loading", projectId, ownerBlockId };
+      return { status: "loading", accessContext, ownerBlockId };
     }
     return {
       status: "ready",
-      projectId,
+      accessContext,
       ownerBlockId,
       descriptor: {
-        projectId,
+        libraryId: "library-test",
+        accessContext,
         ownerBlockId,
         ownerType: "page",
         ownerLifecycle: "active",
@@ -1068,14 +1069,14 @@ export const MockOwnedBlockDocumentBoundary = ({
   });
   const reload = useCallback(async (): Promise<void> => {
     if (!fetchDescriptor) return;
-    const descriptor = await fetchDescriptor(projectId, ownerBlockId);
+    const descriptor = await fetchDescriptor(accessContext, ownerBlockId);
     setModel({
       descriptor,
       status: "ready",
-      projectId,
+      accessContext,
       ownerBlockId,
     });
-  }, [fetchDescriptor, ownerBlockId, projectId]);
+  }, [accessContext, fetchDescriptor, ownerBlockId]);
   useEffect(() => {
     void reload();
   }, [reload]);

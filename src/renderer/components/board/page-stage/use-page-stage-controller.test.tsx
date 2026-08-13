@@ -57,7 +57,8 @@ function documentAuthority(): PageStageProps["documentAuthority"] {
   return {
     kind: "yjs",
     descriptor: {
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       ownerBlockId: "page-1",
       ownerType: "page",
       ownerLifecycle: "active",
@@ -82,7 +83,6 @@ function buildProps(overrides: Partial<PageStageProps> = {}): PageStageProps {
     page,
     contentAccessContext: { kind: "project", projectId: "project-1" },
     documentAuthority: documentAuthority(),
-    documentScopeId: "project-1",
     onClose: () => undefined,
     onUpdate: async (_pageId, updates) =>
       updatedResult(sourcePage, updates),
@@ -182,7 +182,6 @@ describe("usePageStageController", () => {
     const snapshots: PageStageSessionSnapshot[] = [];
     const result = renderController(buildProps({
       contentAccessContext: { kind: "library" },
-      documentScopeId: "library",
       onLeavePage: (snapshot) => snapshots.push(snapshot),
     }));
     await settleAsyncRender();

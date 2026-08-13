@@ -322,7 +322,11 @@ const canvasSyncSnapshot = (syncRequestId: string) => ({
   kind: "snapshot" as const,
   version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
-  projectId: canvasSubscribeRequest.projectId,
+  libraryId: "library:test",
+  accessContext: {
+    kind: "project" as const,
+    projectId: canvasSubscribeRequest.projectId,
+  },
   documentId: canvasSubscribeRequest.documentId,
   storeEpoch: "epoch:canvas",
   generation: 1,
@@ -331,16 +335,24 @@ const canvasSyncSnapshot = (syncRequestId: string) => ({
   scene: materializePortableCanvasScene({ elements: [] }),
 });
 
-const ownedDocumentDescriptorSnapshot = (projectId = "project:one") => ({
-  contract_version: 1 as const,
+const ownedDocumentDescriptorSnapshot = (
+  accessContext: { readonly kind: "project"; readonly projectId: string }
+    | { readonly kind: "library" } = {
+      kind: "project",
+      projectId: "project:one",
+    },
+) => ({
+  contract_version: 7 as const,
   store_epoch: "epoch:test",
   commit_head: 2,
   authorization: authorizedReadStampFixture({
-    deliveryAddress: {
-      kind: "project",
-      library_id: "library:test",
-      project_id: projectId,
-    },
+    deliveryAddress: accessContext.kind === "project"
+      ? {
+          kind: "project" as const,
+          library_id: "library:test",
+          project_id: accessContext.projectId,
+        }
+      : { kind: "library" as const, library_id: "library:test" },
     subject: { kind: "page", page_id: "page:one" },
     commitSeq: 2,
     storeEpoch: "epoch:test",
@@ -348,19 +360,20 @@ const ownedDocumentDescriptorSnapshot = (projectId = "project:one") => ({
   value: {
     kind: "descriptor" as const,
     descriptor: {
-      version: 2,
-      projectId,
+      version: 3,
+      libraryId: "library:test",
+      accessContext,
       ownerBlockId: "page:one",
       ownerType: "page",
-      ownerLifecycle: "active",
+      ownerLifecycle: "active" as const,
       documentId: "document:one",
       storeEpoch: "epoch:test",
       generation: 1,
       headSeq: 1,
       schemaKey: "nodex.page",
       schemaVersion: 1,
-      readiness: "ready",
-      sync: { kind: "yjs", stateVector: [] },
+      readiness: "ready" as const,
+      sync: { kind: "yjs" as const, stateVector: [] },
     },
   },
 });
@@ -1338,15 +1351,14 @@ describe("Desktop Document sync bridge", () => {
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
     });
-    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot(
-      "project:compatibility-storage",
-    ));
+    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
 
     await expect(bridge.getOwnedDocumentDescriptor(
       "project:one",
       "page:one",
     )).resolves.toMatchObject({
-      projectId: "project:one",
+      libraryId: "library:test",
+      accessContext: { kind: "project", projectId: "project:one" },
       ownerBlockId: "page:one",
       documentId: "document:one",
     });
@@ -1354,15 +1366,16 @@ describe("Desktop Document sync bridge", () => {
     projectClient.enqueueDocumentApply(preparedDocumentCommit(
       prepareOperationId("project:project:one"),
     ));
-    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot(
-      "project:compatibility-storage",
-    ));
+    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
     await expect(bridge.prepareOwnedBlockDocument(
       "project:one",
       "page:one",
     )).resolves.toMatchObject({
       ok: true,
-      value: { projectId: "project:one", documentId: "document:one" },
+      value: {
+        accessContext: { kind: "project", projectId: "project:one" },
+        documentId: "document:one",
+      },
     });
     expect(rootClient.documentApplies).toHaveLength(0);
     expect(projectClient.documentApplies[0]).toMatchObject({
@@ -1376,9 +1389,9 @@ describe("Desktop Document sync bridge", () => {
     rootClient.enqueueDocumentApply(preparedDocumentCommit(
       prepareOperationId("library"),
     ));
-    rootClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot(
-      "project:compatibility-storage",
-    ));
+    rootClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot({
+      kind: "library",
+    }));
     const libraryPrepared = await bridge.prepareLibraryOwnedBlockDocument(
       "page:one",
     );
@@ -1916,7 +1929,11 @@ describe("Desktop Document sync bridge", () => {
     )).resolves.toMatchObject({
       ok: true,
       value: {
-        projectId: canvasSubscribeRequest.projectId,
+        libraryId: "library:test",
+        accessContext: {
+          kind: "project",
+          projectId: canvasSubscribeRequest.projectId,
+        },
         documentId: canvasSubscribeRequest.documentId,
         headSeq: 0,
         kind: "snapshot",

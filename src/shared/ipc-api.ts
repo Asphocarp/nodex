@@ -48,7 +48,7 @@ import type {
 } from "./block-documents/document-presence";
 import type {
   LibraryOwnedDocumentDescriptor,
-  OwnedDocumentDescriptor,
+  ProjectOwnedDocumentDescriptor,
 } from "./block-documents/contracts";
 import type { BlockTransferCommandResult } from "./block-transfer";
 import type { ProjectionCursor } from "./projection-stream";
@@ -717,11 +717,11 @@ export interface IpcApi {
   };
   "block-document:owned:get": {
     args: [projectId: string, ownerBlockId: string];
-    result: OwnedDocumentDescriptor;
+    result: ProjectOwnedDocumentDescriptor;
   };
   "block-document:owned:prepare": {
     args: [projectId: string, ownerBlockId: string];
-    result: DocumentSyncCommandResult<OwnedDocumentDescriptor>;
+    result: DocumentSyncCommandResult<ProjectOwnedDocumentDescriptor>;
   };
   "library-block-document:owned:prepare": {
     args: [ownerBlockId: string];

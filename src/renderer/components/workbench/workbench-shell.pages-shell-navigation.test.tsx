@@ -423,12 +423,17 @@ describe("workbench session shell / pages-shell-navigation", () => {
     } | undefined;
     const documentAuthority = pageStageProps?.documentAuthority as {
       kind?: string;
-      descriptor?: { projectId?: string; ownerBlockId?: string };
+      descriptor?: {
+        accessContext?: { kind: string; projectId?: string };
+        ownerBlockId?: string;
+      };
     } | undefined;
-    expect(pageStageProps?.documentScopeId).toBe("beta");
     expect(pageModel?.page?.id).toBe("card-beta");
     expect(documentAuthority?.kind).toBe("yjs");
-    expect(documentAuthority?.descriptor?.projectId).toBe("beta");
+    expect(documentAuthority?.descriptor?.accessContext).toEqual({
+      kind: "project",
+      projectId: "beta",
+    });
     expect(documentAuthority?.descriptor?.ownerBlockId).toBe("card-beta");
   });
 
@@ -1016,7 +1021,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
     }).__mockPageStagePropsByPageId?.["parent-card"];
     const onOpenPage = props?.onOpenPage as ((input: {
-      projectId: string;
+      accessContext: { kind: "project"; projectId: string };
       pageId: string;
       titleSnapshot?: string;
     }) => void) | undefined;
@@ -1025,7 +1030,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     setInvokeCalls([]);
     await act(async () => {
       onOpenPage?.({
-        projectId: "alpha",
+        accessContext: { kind: "project", projectId: "alpha" },
         pageId: "nested-card",
         titleSnapshot: "Nested Card",
       });

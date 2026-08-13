@@ -30,6 +30,47 @@ const makeCard = (id: string, title: string): DatabasePageSummary => ({
 });
 
 describe("DatabaseViewReferenceSurface", () => {
+  test("preserves Library access when a referenced Page opens", () => {
+    const card = makeCard("card-a", "Card A");
+    const opened: unknown[] = [];
+    const model: DatabaseViewReadModel = {
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      commitSeq: 1,
+      authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
+      dataSourceId: "data-source:test",
+      view: {
+        id: "library-view",
+        databaseBlockId: "database-1",
+        projectId: null,
+        name: "Library view",
+        defaultLayout: "list",
+        config: {},
+        isPrimary: false,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      rows: [{ page: card, groupKey: null, subgroupKey: null, rankKey: "a" }],
+    };
+    const view = render(
+      <DatabaseViewReferenceSurface
+        referenceKey="library-view"
+        displayHint=""
+        model={model}
+        accessContext={{ kind: "library" }}
+        onOpenPage={(input) => opened.push(input)}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Open Card A" }));
+
+    expect(opened).toEqual([{
+      accessContext: { kind: "library" },
+      pageId: "card-a",
+      titleSnapshot: "Card A",
+    }]);
+  });
+
   test("does not mount a Database row that closes an ancestor Card cycle", () => {
     const card = makeCard("card-a", "Card A");
     const model: DatabaseViewReadModel = {
@@ -111,9 +152,9 @@ describe("DatabaseViewReferenceSurface", () => {
         disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         visibilityOverride
-        renderDocument={({ projectId, card }) => (
+        renderDocument={({ accessContext, card }) => (
           <div data-testid="database-row-document">
-            {projectId}:{card.id}
+            {accessContext.kind === "project" ? accessContext.projectId : "library"}:{card.id}
           </div>
         )}
       />,

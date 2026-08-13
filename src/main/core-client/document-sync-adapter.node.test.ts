@@ -107,19 +107,20 @@ const descriptorSnapshot = () => ({
   value: {
     kind: "descriptor" as const,
     descriptor: {
-      version: 2,
-      projectId: "project:one",
+      version: 3,
+      libraryId: "library:test",
+      accessContext: { kind: "project" as const, projectId: "project:one" },
       ownerBlockId: "page:one",
       ownerType: "page",
-      ownerLifecycle: "active",
+      ownerLifecycle: "active" as const,
       documentId: "document:one",
       storeEpoch: "epoch:test",
       generation: 1,
       headSeq: 2,
       schemaKey: "nodex.page",
       schemaVersion: 1,
-      readiness: "ready",
-      sync: { kind: "yjs", stateVector: [] },
+      readiness: "ready" as const,
+      sync: { kind: "yjs" as const, stateVector: [] },
     },
   },
 });
@@ -182,7 +183,8 @@ describe("Core Document sync adapter", () => {
       ownerBlockId: "page:one",
       clientSessionId: "renderer:descriptor",
     })).resolves.toMatchObject({
-      projectId: "project:one",
+      libraryId: "library:test",
+      accessContext: { kind: "project", projectId: "project:one" },
       ownerBlockId: "page:one",
       documentId: "document:one",
       headSeq: 2,
@@ -213,7 +215,8 @@ describe("Core Document sync adapter", () => {
     })).resolves.toMatchObject({
       ok: true,
       value: {
-        projectId: "project:one",
+        libraryId: "library:test",
+        accessContext: { kind: "project", projectId: "project:one" },
         ownerBlockId: "page:one",
         documentId: "document:one",
       },

@@ -17,8 +17,10 @@ use nodex_core_contracts::document::{
     DocumentMutationEffect, DocumentOptionalValue, DocumentOwnerCommand, DocumentRevisionKind,
     DocumentSemanticAnchor, DocumentSemanticBlockEtags, DocumentSemanticCommand,
     DocumentSemanticEtags, DocumentUpdateResource, DocumentUpdateResourceUnavailable,
-    DocumentUpdateResourceUnavailableReason, OwnedDocumentCommitValue, OwnedDocumentIntent,
-    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
+    DocumentUpdateResourceUnavailableReason, OWNED_DOCUMENT_DESCRIPTOR_VERSION,
+    OwnedDocumentAccessContext, OwnedDocumentCommitValue, OwnedDocumentDescriptor,
+    OwnedDocumentIntent, OwnedDocumentOwnerLifecycle, OwnedDocumentRead, OwnedDocumentReadValue,
+    OwnedDocumentReadiness, OwnedDocumentReceipt, OwnedDocumentSyncDescriptor,
 };
 use nodex_core_contracts::events::ResourceKey;
 use nodex_core_contracts::{
@@ -198,7 +200,8 @@ pub(crate) struct RealtimeDocumentBoundary {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CanvasSceneSyncSnapshot {
-    pub project_id: String,
+    pub library_id: String,
+    pub access_context: OwnedDocumentAccessContext,
     pub document_id: String,
     pub store_epoch: String,
     pub generation: i64,
@@ -280,7 +283,8 @@ impl OwnedDocumentModule {
                 authorize_canvas(connection, context, &authority, DocumentAccessKind::Read)?;
                 let loaded = load_canvas_scene(connection, &authority)?;
                 Ok(CanvasSceneSyncSnapshot {
-                    project_id: authority.head.library_id.clone(),
+                    library_id: authority.head.library_id.clone(),
+                    access_context: document_access_context(context),
                     document_id: authority.head.id.clone(),
                     store_epoch: read_store_epoch(connection)?,
                     generation: authority.head.generation,
@@ -337,7 +341,7 @@ impl OwnedDocumentModule {
                         commit_head,
                         authorization: Some(authorization),
                         value: OwnedDocumentReadValue::Descriptor {
-                            descriptor: authority_descriptor(&authority, &store_epoch),
+                            descriptor: authority_descriptor(context, &authority, &store_epoch)?,
                         },
                     })
                 })
@@ -364,7 +368,11 @@ impl OwnedDocumentModule {
                             commit_head: read_local_commit_head(connection)?,
                             authorization: None,
                             value: OwnedDocumentReadValue::YjsSync {
-                                descriptor: authority_descriptor(&authority, &store_epoch),
+                                descriptor: authority_descriptor(
+                                    &context,
+                                    &authority,
+                                    &store_epoch,
+                                )?,
                                 update,
                             },
                         })
@@ -4463,33 +4471,58 @@ fn insert_typed_receipt(
     )
 }
 
-fn authority_descriptor(authority: &DocumentAuthorityRow, store_epoch: &str) -> Value {
+fn document_access_context(context: &BoundModuleContext) -> OwnedDocumentAccessContext {
+    match context.project_id.as_ref() {
+        Some(project_id) => OwnedDocumentAccessContext::Project {
+            project_id: project_id.0.clone(),
+        },
+        None => OwnedDocumentAccessContext::Library,
+    }
+}
+
+fn authority_descriptor(
+    context: &BoundModuleContext,
+    authority: &DocumentAuthorityRow,
+    store_epoch: &str,
+) -> Result<OwnedDocumentDescriptor, StoreError> {
     let readiness = match authority.head.readiness {
-        DocumentReadiness::PendingGenesis => "pending_genesis",
-        DocumentReadiness::Ready => "ready",
-        DocumentReadiness::Failed => "failed",
+        DocumentReadiness::PendingGenesis => OwnedDocumentReadiness::PendingGenesis,
+        DocumentReadiness::Ready => OwnedDocumentReadiness::Ready,
+        DocumentReadiness::Failed => OwnedDocumentReadiness::Failed,
     };
     let sync = match authority.head.sync_engine {
-        DocumentSyncEngine::Yjs => json!({
-            "kind": "yjs",
-            "stateVector": authority.head.state_vector,
-        }),
-        DocumentSyncEngine::CanvasScene => json!({ "kind": "canvas_scene" }),
+        DocumentSyncEngine::Yjs => OwnedDocumentSyncDescriptor::Yjs {
+            state_vector: authority.head.state_vector.clone(),
+        },
+        DocumentSyncEngine::CanvasScene => OwnedDocumentSyncDescriptor::CanvasScene,
     };
-    json!({
-        "version": 2,
-        "documentId": authority.head.id,
-        "projectId": authority.head.library_id,
-        "ownerBlockId": authority.owner_block_id,
-        "ownerType": authority.owner_type,
-        "ownerLifecycle": authority.owner_lifecycle,
-        "storeEpoch": store_epoch,
-        "generation": authority.head.generation,
-        "headSeq": authority.head.head_seq,
-        "schemaKey": authority.head.schema_key,
-        "schemaVersion": authority.head.schema_version,
-        "readiness": readiness,
-        "sync": sync,
+    let owner_lifecycle = match authority.owner_lifecycle.as_str() {
+        "active" => OwnedDocumentOwnerLifecycle::Active,
+        "archived" => OwnedDocumentOwnerLifecycle::Archived,
+        "deleted" => OwnedDocumentOwnerLifecycle::Deleted,
+        _ => {
+            return Err(StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Owned Document owner lifecycle is invalid",
+                false,
+            ));
+        }
+    };
+    Ok(OwnedDocumentDescriptor {
+        version: OWNED_DOCUMENT_DESCRIPTOR_VERSION,
+        library_id: authority.head.library_id.clone(),
+        access_context: document_access_context(context),
+        owner_block_id: authority.owner_block_id.clone(),
+        owner_type: authority.owner_type.clone(),
+        owner_lifecycle,
+        document_id: authority.head.id.clone(),
+        store_epoch: store_epoch.to_owned(),
+        generation: authority.head.generation,
+        head_seq: authority.head.head_seq,
+        schema_key: authority.head.schema_key.clone(),
+        schema_version: authority.head.schema_version,
+        readiness,
+        sync,
     })
 }
 

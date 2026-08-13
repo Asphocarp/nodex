@@ -43,6 +43,7 @@ import {
 import { CanvasSceneBinding } from "@/lib/canvas-scene-binding";
 import { CanvasSceneProvider } from "@/lib/canvas-scene-provider";
 import { canvasDocumentSessionRegistry } from "@/lib/canvas-document-session";
+import { projectContentAccess } from "../../../shared/content-access-context";
 import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import { LayoutGrid } from "@/components/shared/icons/generic-icons";
@@ -118,7 +119,7 @@ export function CanvasDocumentSurface({
   if (!active) return null;
   return (
     <RegisteredOwnedBlockDocumentBoundary
-      projectId={projectId}
+      accessContext={projectContentAccess(projectId)}
       ownerBlockId={canvasBlockId}
     >
       {(model, controls) => {

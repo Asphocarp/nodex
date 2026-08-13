@@ -10,6 +10,7 @@ import type {
   RegisteredOwnedBlockDocumentModel,
 } from "@/lib/owned-block-document";
 import { queryKeys } from "@/lib/query-keys";
+import type { ContentAccessContext } from "../../../shared/content-access-context";
 
 export interface OwnedBlockDocumentBoundaryControls {
   /**
@@ -20,7 +21,7 @@ export interface OwnedBlockDocumentBoundaryControls {
 }
 
 export interface OwnedBlockDocumentBoundaryProps {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly ownerBlockId: string;
   readonly dependencies?: OwnedBlockDocumentQueryDependencies;
   readonly children: (
@@ -45,20 +46,20 @@ export interface RegisteredOwnedBlockDocumentBoundaryProps extends Omit<
  * inferred document ID or legacy fallback hidden inside this component.
  */
 export function OwnedBlockDocumentBoundary({
-  projectId,
+  accessContext,
   ownerBlockId,
   dependencies,
   children,
 }: OwnedBlockDocumentBoundaryProps) {
   const queryClient = useQueryClient();
   const model = useOwnedBlockDocument(
-    { projectId, ownerBlockId },
+    { accessContext, ownerBlockId },
     dependencies,
   );
 
   const reload = async (): Promise<void> => {
     await queryClient.resetQueries({
-      queryKey: queryKeys.blockDocuments.owned(projectId, ownerBlockId),
+      queryKey: queryKeys.blockDocuments.owned(accessContext, ownerBlockId),
       exact: true,
     });
   };
@@ -68,20 +69,20 @@ export function OwnedBlockDocumentBoundary({
 
 /** Registry-dispatched boundary for every supported document-bearing Block. */
 export function RegisteredOwnedBlockDocumentBoundary({
-  projectId,
+  accessContext,
   ownerBlockId,
   dependencies,
   children,
 }: RegisteredOwnedBlockDocumentBoundaryProps) {
   const queryClient = useQueryClient();
   const model = useRegisteredOwnedBlockDocument(
-    { projectId, ownerBlockId },
+    { accessContext, ownerBlockId },
     dependencies,
   );
 
   const reload = async (): Promise<void> => {
     await queryClient.resetQueries({
-      queryKey: queryKeys.blockDocuments.owned(projectId, ownerBlockId),
+      queryKey: queryKeys.blockDocuments.owned(accessContext, ownerBlockId),
       exact: true,
     });
   };

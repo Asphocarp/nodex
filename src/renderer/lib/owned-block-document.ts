@@ -16,12 +16,18 @@ import {
   BlockDocumentSchemaError,
   getOwnedDocumentSchemaRegistration,
 } from "../../shared/block-documents/document-schema-adapters";
+import {
+  contentAccessContextKey,
+  libraryContentAccess,
+  parseContentAccessContext,
+  type ContentAccessContext,
+} from "../../shared/content-access-context";
 
 export const PAGE_BLOCK_DOCUMENT_SCHEMA_KEY = PAGE_DOCUMENT_SCHEMA_KEY;
 export const PAGE_BLOCK_DOCUMENT_SCHEMA_VERSION = PAGE_DOCUMENT_SCHEMA_VERSION;
 
 export interface OwnedBlockDocumentRequest {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly ownerBlockId: BlockId;
 }
 
@@ -44,8 +50,6 @@ export interface ReadyLibraryPageBlockDocumentDescriptor
   readonly sync: { readonly kind: "yjs"; readonly stateVector: Uint8Array };
 }
 
-export const LIBRARY_DOCUMENT_SURFACE_SCOPE_ID = "library" as const;
-
 export interface ReadyRegisteredOwnedBlockDocumentDescriptor extends OwnedDocumentDescriptor {
   readonly ownerLifecycle: "active";
   readonly readiness: "ready";
@@ -56,7 +60,7 @@ export type OwnedBlockDocumentErrorCode =
   | "invalid_request"
   | "fetch_failed"
   | "invalid_descriptor"
-  | "project_mismatch"
+  | "access_context_mismatch"
   | "owner_mismatch"
   | "unsupported_owner_type"
   | "owner_not_active"
@@ -70,7 +74,7 @@ export interface OwnedBlockDocumentErrorModel {
 }
 
 interface OwnedBlockDocumentRequestModel {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly ownerBlockId: BlockId;
 }
 
@@ -117,7 +121,7 @@ export type RegisteredOwnedBlockDocumentQuerySnapshot =
     };
 
 export type OwnedDocumentDescriptorFetcher = (
-  projectId: string,
+  accessContext: ContentAccessContext,
   ownerBlockId: BlockId,
 ) => Promise<unknown>;
 
@@ -164,20 +168,29 @@ const isExactNonEmptyId = (value: unknown): value is string =>
 const requireValidRequest = (
   request: OwnedBlockDocumentRequest,
 ): OwnedBlockDocumentRequest => {
-  if (
-    isExactNonEmptyId(request.projectId) &&
-    isExactNonEmptyId(request.ownerBlockId)
-  ) {
-    return request;
+  if (!isExactNonEmptyId(request.ownerBlockId)) {
+    throw new OwnedBlockDocumentBoundaryError(
+      "invalid_request",
+      "Owned Block Document requests require an exact owner Block ID",
+    );
   }
-  throw new OwnedBlockDocumentBoundaryError(
-    "invalid_request",
-    "Owned Block Document requests require exact Project and owner Block IDs",
-  );
+  try {
+    return {
+      accessContext: parseContentAccessContext(request.accessContext),
+      ownerBlockId: request.ownerBlockId,
+    };
+  } catch (error) {
+    throw new OwnedBlockDocumentBoundaryError(
+      "invalid_request",
+      "Owned Block Document requests require an explicit access context",
+      { cause: error },
+    );
+  }
 };
 
 const requireDescriptorCore = (value: Record<string, unknown>): void => {
   if (
+    isExactNonEmptyId(value.libraryId) &&
     isExactNonEmptyId(value.documentId) &&
     isExactNonEmptyId(value.storeEpoch) &&
     Number.isSafeInteger(value.generation) &&
@@ -201,21 +214,16 @@ export const validateOwnedBlockDocumentDescriptor = (
   value: unknown,
 ): ReadyPageBlockDocumentDescriptor => {
   const requested = requireValidRequest(request);
-  if (
-    isRecord(value) &&
-    value.projectId === requested.projectId &&
-    value.ownerBlockId === requested.ownerBlockId &&
-    value.ownerType !== "page"
-  ) {
+  const registered = validateRegisteredOwnedBlockDocumentDescriptor(
+    requested,
+    value,
+  );
+  if (registered.ownerType !== "page") {
     throw new OwnedBlockDocumentBoundaryError(
       "unsupported_owner_type",
       "Page surfaces require a Page-owned Block Document",
     );
   }
-  const registered = validateRegisteredOwnedBlockDocumentDescriptor(
-    requested,
-    value,
-  );
   if (
     registered.schemaKey !== PAGE_BLOCK_DOCUMENT_SCHEMA_KEY ||
     registered.schemaVersion !== PAGE_BLOCK_DOCUMENT_SCHEMA_VERSION ||
@@ -239,51 +247,17 @@ export const validateLibraryOwnedBlockDocumentDescriptor = (
       "Library Owned Block Document requests require an exact owner Block ID",
     );
   }
-  if (!isRecord(value) || Object.hasOwn(value, "projectId")) {
-    throw new OwnedBlockDocumentBoundaryError(
-      "invalid_descriptor",
-      "Library Owned Block Document descriptors must use Library access context",
-    );
-  }
-  if (
-    !isRecord(value.accessContext) ||
-    value.accessContext.kind !== "library" ||
-    Object.keys(value.accessContext).length !== 1
-  ) {
+  const ready = validateOwnedBlockDocumentDescriptor(
+    { accessContext: libraryContentAccess, ownerBlockId },
+    value,
+  );
+  if (ready.accessContext.kind !== "library") {
     throw new OwnedBlockDocumentBoundaryError(
       "invalid_descriptor",
       "Library Owned Block Document access context is invalid",
     );
   }
-  const { accessContext: _accessContext, ...descriptor } = value;
-  void _accessContext;
-  const ready = validateOwnedBlockDocumentDescriptor(
-    {
-      projectId: LIBRARY_DOCUMENT_SURFACE_SCOPE_ID,
-      ownerBlockId,
-    },
-    {
-      ...descriptor,
-      projectId: LIBRARY_DOCUMENT_SURFACE_SCOPE_ID,
-    },
-  );
-  const { projectId: _surfaceScopeId, ...libraryDescriptor } = ready;
-  void _surfaceScopeId;
-  return {
-    ...libraryDescriptor,
-    accessContext: { kind: "library" },
-  };
-};
-
-export const toLibraryDocumentSurfaceDescriptor = (
-  descriptor: ReadyLibraryPageBlockDocumentDescriptor,
-): ReadyPageBlockDocumentDescriptor => {
-  const { accessContext: _accessContext, ...surfaceDescriptor } = descriptor;
-  void _accessContext;
-  return {
-    ...surfaceDescriptor,
-    projectId: LIBRARY_DOCUMENT_SURFACE_SCOPE_ID,
-  };
+  return { ...ready, accessContext: ready.accessContext };
 };
 
 export const validateRegisteredOwnedBlockDocumentDescriptor = (
@@ -297,10 +271,23 @@ export const validateRegisteredOwnedBlockDocumentDescriptor = (
       "Owned Block Document descriptor must be an object",
     );
   }
-  if (value.projectId !== requested.projectId) {
+  let descriptorAccessContext: ContentAccessContext;
+  try {
+    descriptorAccessContext = parseContentAccessContext(value.accessContext);
+  } catch (error) {
     throw new OwnedBlockDocumentBoundaryError(
-      "project_mismatch",
-      "Owned Block Document descriptor does not belong to the requested Project",
+      "invalid_descriptor",
+      "Owned Block Document descriptor has an invalid access context",
+      { cause: error },
+    );
+  }
+  if (
+    contentAccessContextKey(descriptorAccessContext) !==
+    contentAccessContextKey(requested.accessContext)
+  ) {
+    throw new OwnedBlockDocumentBoundaryError(
+      "access_context_mismatch",
+      "Owned Block Document descriptor does not match the requested access context",
     );
   }
   if (value.ownerBlockId !== requested.ownerBlockId) {
@@ -353,7 +340,10 @@ export const validateRegisteredOwnedBlockDocumentDescriptor = (
     );
   }
   requireDescriptorCore(value);
-  return value as unknown as ReadyRegisteredOwnedBlockDocumentDescriptor;
+  return {
+    ...value,
+    accessContext: descriptorAccessContext,
+  } as unknown as ReadyRegisteredOwnedBlockDocumentDescriptor;
 };
 
 const fetchDescriptor = async <T>(
@@ -364,7 +354,10 @@ const fetchDescriptor = async <T>(
   const requested = requireValidRequest(request);
   let descriptor: unknown;
   try {
-    descriptor = await fetcher(requested.projectId, requested.ownerBlockId);
+    descriptor = await fetcher(
+      requested.accessContext,
+      requested.ownerBlockId,
+    );
   } catch (error) {
     if (error instanceof OwnedBlockDocumentBoundaryError) throw error;
     throw new OwnedBlockDocumentBoundaryError(
@@ -417,7 +410,7 @@ export const makeOwnedBlockDocumentModel = (
   snapshot: OwnedBlockDocumentQuerySnapshot,
 ): OwnedBlockDocumentModel => {
   const identity = {
-    projectId: request.projectId,
+    accessContext: request.accessContext,
     ownerBlockId: request.ownerBlockId,
   };
   try {
@@ -448,7 +441,7 @@ export const makeRegisteredOwnedBlockDocumentModel = (
   snapshot: RegisteredOwnedBlockDocumentQuerySnapshot,
 ): RegisteredOwnedBlockDocumentModel => {
   const identity = {
-    projectId: request.projectId,
+    accessContext: request.accessContext,
     ownerBlockId: request.ownerBlockId,
   };
   try {

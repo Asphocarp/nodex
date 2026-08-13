@@ -17,7 +17,7 @@ export const CORE_CLIENT_REQUIREMENTS = {
     },
     {
       "module": "owned_document",
-      "contract_version": 6
+      "contract_version": 7
     },
     {
       "module": "project_workspace",
