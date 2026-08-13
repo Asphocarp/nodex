@@ -570,6 +570,10 @@ export const General: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("general-settings")} />,
 };
 
+export const Appearance: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("appearance")} />,
+};
+
 export const NotificationsNever: Story = {
   render: () => (
     <SettingsRouteShellStory

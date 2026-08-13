@@ -296,6 +296,7 @@ export interface BrowserSidebarTabSnapshot extends BrowserSidebarTabIdentity {
   title: string;
   faviconUrl?: string;
   isLoading: boolean;
+  isWaitingForResponse: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
   zoomPercent: number;

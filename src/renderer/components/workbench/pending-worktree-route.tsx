@@ -8,7 +8,7 @@ import {
 import {
   SessionPinFilledIcon,
   SessionPinIcon,
-  SpinnerIcon,
+  ActivitySpinnerIcon,
   TextActionPencilSmallIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
@@ -242,7 +242,7 @@ export function PendingWorktreeRouteView({
             >
               {busyAction === "auto-fix" ? (
                 <>
-                  <SpinnerIcon className="icon-xs" />
+                  <ActivitySpinnerIcon className="icon-xs" />
                   Starting…
                 </>
               ) : "Auto-fix"}
@@ -334,7 +334,7 @@ function PendingWorktreeRouteStatusSurface({
       className="flex h-full min-h-0 items-center justify-center bg-token-main-surface-primary px-6"
     >
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        {loading ? <SpinnerIcon className="icon-sm text-token-description-foreground" /> : null}
+        {loading ? <ActivitySpinnerIcon className="icon-sm text-token-description-foreground" /> : null}
         <div className="text-sm font-medium text-token-foreground">
           {loading
             ? "Loading worktree setup…"

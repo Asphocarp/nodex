@@ -1,4 +1,4 @@
-import { SidePanelSideChatIcon, SpinnerIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, SidePanelSideChatIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 
 export function SideChatLoadingPanel({ title }: { title: string }) {
@@ -7,7 +7,10 @@ export function SideChatLoadingPanel({ title }: { title: string }) {
       <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center text-center">
         <div className="relative mb-3 flex size-10 items-center justify-center rounded-xl bg-token-bg-secondary text-token-text-secondary">
           <SidePanelSideChatIcon className="icon-md opacity-40" />
-          <SpinnerIcon className="icon-xs absolute animate-spin text-token-text-secondary" />
+          <ActivitySpinnerIcon
+            className="icon-xs text-token-text-secondary"
+            containerClassName="absolute"
+          />
         </div>
         <div className="text-base font-semibold text-token-text-primary">{title}</div>
       </div>

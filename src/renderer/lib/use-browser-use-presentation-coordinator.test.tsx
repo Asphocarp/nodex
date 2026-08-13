@@ -566,6 +566,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
       url: "https://example.com",
       title: "Example Domain",
       isLoading: false,
+      isWaitingForResponse: false,
       canGoBack: false,
       canGoForward: false,
       zoomPercent: 100,

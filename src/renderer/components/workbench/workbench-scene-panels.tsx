@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
 import {
   isPanelActionTargetAllowed,
   type PanelNewTabAction,
@@ -13,6 +14,10 @@ import {
   type PageTitleProjectionStore,
 } from "@/lib/page-title-projection-store";
 import type { CommandKeymapState } from "../../../shared/command-keybindings";
+import {
+  makeBrowserSidebarTabKey,
+  type BrowserSidebarTabSnapshot,
+} from "../../../shared/browser-sidebar";
 import {
   listWorkbenchPanelLeaves,
 } from "../../../shared/workbench-panel-layout";
@@ -32,6 +37,11 @@ export interface WorkbenchScenePanelsProps {
   readonly project: Project | null;
   readonly projects: Project[];
   readonly currentLibraryId: string | null;
+  readonly browserViewScopeId: string;
+  readonly browserTabSnapshotByKey: ReadonlyMap<
+    string,
+    BrowserSidebarTabSnapshot
+  >;
   readonly pageTitleStore: PageTitleProjectionStore;
   readonly commands: WorkbenchSceneDurablePanelCommands;
   readonly isMac: boolean;
@@ -69,6 +79,9 @@ function makePanelItems(
   scene: WorkbenchSceneSnapshot,
   project: Project | null,
   currentLibraryId: string | null,
+  browserConversationId: string,
+  browserViewScopeId: string,
+  browserTabSnapshotByKey: ReadonlyMap<string, BrowserSidebarTabSnapshot>,
   pageTitleStore: PageTitleProjectionStore,
   panelId: PanelId,
   renderSurface: WorkbenchScenePanelsProps["renderSurface"],
@@ -91,6 +104,13 @@ function makePanelItems(
         surface,
         isProjectHomeRoot,
       );
+      const browserTabSnapshot = surface.kind === "browser"
+        ? browserTabSnapshotByKey.get(makeBrowserSidebarTabKey({
+            browserConversationId,
+            browserViewScopeId,
+            browserTabId: surface.config.browserTabId,
+          }))
+        : undefined;
       const title = scene.owner.kind === "pages"
         ? surface.titleSnapshot.trim() || presentation.title
         : presentation.title;
@@ -108,13 +128,24 @@ function makePanelItems(
         title,
         titleSource,
         icon: presentation.icon,
-        iconElement: isProjectHomeRoot && project ? (
-          <ProjectMarker
-            appearance={project.appearance}
-            className="size-4"
-            data-project-home-tab-marker="true"
+        iconElement: surface.kind === "browser" ? (
+          <BrowserTabFavicon
+            className="icon-xs"
+            faviconUrl={
+              browserTabSnapshot?.faviconUrl ?? surface.config.faviconUrl
+            }
+            isLoading={browserTabSnapshot?.isLoading ?? false}
+            isWaitingForResponse={
+              browserTabSnapshot?.isWaitingForResponse ?? false
+            }
           />
-        ) : undefined,
+        ) : isProjectHomeRoot && project ? (
+            <ProjectMarker
+              appearance={project.appearance}
+              className="size-4"
+              data-project-home-tab-marker="true"
+            />
+          ) : undefined,
         closable: surface.id !== scene.primary?.id,
         reorderable: surface.id !== scene.primary?.id,
         splittable: surface.id !== scene.primary?.id,
@@ -138,6 +169,8 @@ export function buildWorkbenchScenePanels({
   project,
   projects,
   currentLibraryId,
+  browserViewScopeId,
+  browserTabSnapshotByKey,
   pageTitleStore,
   commands,
   isMac,
@@ -163,6 +196,9 @@ export function buildWorkbenchScenePanels({
       scene,
       project,
       currentLibraryId,
+      ownerKey,
+      browserViewScopeId,
+      browserTabSnapshotByKey,
       pageTitleStore,
       panelId,
       renderSurface,

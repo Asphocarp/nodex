@@ -54,6 +54,7 @@ all Context providers to disappear in the first lifecycle cutover.
 | --- | --- | --- | --- |
 | `NodexQueryProvider` | One renderer `QueryClient`; main/server cache | Query policies and invalidation | Keep as deep server-state owner; pass the stable client into Maitai environment only |
 | `ThemeProvider` | Theme choice plus OS media query | localStorage; OS events | Theme is an App atom; OS preference is a read-only external atom; the remaining wrapper only applies root DOM classes |
+| `ReducedMotionProvider` | Resolved `system | on | off` interface-motion preference plus OS media query | localStorage; one app-scoped OS subscription | Preference is an App atom, OS state is a read-only external atom, and the provider publishes one resolved boolean to hook-driven motion consumers |
 | `SansFontSizeProvider` | Global font-size preference | Existing renderer storage helper | App atom; the remaining wrapper only applies root CSS variables |
 | `CodeFontSizeProvider` | Global code-font-size preference | Existing renderer storage helper | App atom; the remaining wrapper only applies the root CSS variable |
 | `FileLinkOpenerProvider` | Configured desktop opener preference | Existing renderer storage helper | Choice is an App atom; file references are routed explicitly by the Workbench `FileReferenceRouter` |

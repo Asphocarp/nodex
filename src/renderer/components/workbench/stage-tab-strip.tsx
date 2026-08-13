@@ -1,4 +1,4 @@
-import { PlusIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, PlusIcon } from "@/components/shared/icons";
 import { X } from "@/components/shared/icons/generic-icons";
 import { cn } from "../../lib/utils";
 
@@ -40,6 +40,7 @@ export function StageTabStrip({
           return (
             <button
               key={tab.id}
+              data-running-indicator={tab.running ? "true" : undefined}
               onClick={() => onSelect(tab.id)}
               title={tab.title ?? tab.label}
               className={cn(
@@ -51,10 +52,9 @@ export function StageTabStrip({
               )}
             >
               {tab.running && (
-                <span
-                  aria-hidden
-                  data-running-indicator="true"
-                  className="size-1.5 shrink-0 animate-pulse rounded-full bg-(--accent-blue)"
+                <ActivitySpinnerIcon
+                  className="size-2.5 text-(--accent-blue)"
+                  containerClassName="shrink-0"
                 />
               )}
               <span className={cn("truncate", tab.muted && "opacity-60")}>{tab.label}</span>

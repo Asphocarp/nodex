@@ -1,6 +1,13 @@
-import { createElement, type ReactNode, type SVGProps, useState } from "react";
-import { useReducedMotion } from "motion/react";
+import {
+  createElement,
+  type ComponentType,
+  type ElementType,
+  type ReactNode,
+  type SVGProps,
+  useState,
+} from "react";
 import { cn } from "@/lib/utils";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import type { CodexReasoningEffort } from "@/lib/types";
 import type { ProjectMarkerIcon } from "../../../../shared/project-appearance";
 import {
@@ -508,21 +515,26 @@ export function AutomationRunNowIcon({ className }: IconProps) {
 }
 
 export function ActivitySpinnerIcon({
+  as: Wrapper = "span",
   className,
   containerClassName,
+  icon: Icon = ActivitySpinnerGlyph,
   animationDurationMs,
 }: IconProps & {
+  as?: ElementType;
   containerClassName?: string;
+  icon?: ComponentType<IconProps>;
   animationDurationMs?: number;
 }) {
-  const reducedMotion = Boolean(useReducedMotion());
+  const reducedMotion = useResolvedReducedMotion();
   const [animationDelay] = useState(() => `-${Date.now() % 1_000}ms`);
 
   return (
-    <span
+    <Wrapper
+      data-activity-spinner="true"
       className={cn(
         !reducedMotion && "animate-spin",
-        "inline-flex h-fit w-fit items-center justify-center leading-none contain-layout contain-paint contain-style",
+        "inline-flex h-fit w-fit shrink-0 items-center justify-center leading-none contain-layout contain-paint contain-style",
         containerClassName,
       )}
       style={{
@@ -531,11 +543,17 @@ export function ActivitySpinnerIcon({
       }}
       aria-hidden="true"
     >
-      <svg width="24" height="24" viewBox="0 0 24 24" className={className ?? "icon-sm"} fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path opacity="0.3" d={SPINNER_FADED_PATH} fill="currentColor" />
-        <path d={SPINNER_ACTIVE_PATH} fill="currentColor" />
-      </svg>
-    </span>
+      <Icon className={className ?? "icon-sm"} />
+    </Wrapper>
+  );
+}
+
+function ActivitySpinnerGlyph({ className }: IconProps) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" className={className ?? "icon-sm"} fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path opacity="0.3" d={SPINNER_FADED_PATH} fill="currentColor" />
+      <path d={SPINNER_ACTIVE_PATH} fill="currentColor" />
+    </svg>
   );
 }
 
@@ -1082,15 +1100,6 @@ export function DownArrowIcon({ className }: IconProps) {
     <svg viewBox="0 0 20 20" className={cn("size-4", className)} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <line x1="10" y1="4" x2="10" y2="15.5" />
       <polyline points="4.5,10.5 10,16 15.5,10.5" />
-    </svg>
-  );
-}
-
-export function SpinnerIcon({ className }: IconProps) {
-  return (
-    <svg viewBox="0 0 16 16" className={cn("size-4 animate-spin", className)} fill="none">
-      <circle cx="8" cy="8" r="5.25" stroke="currentColor" strokeOpacity="0.28" strokeWidth="2" />
-      <path d="M8 2.75A5.25 5.25 0 0 1 13.25 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }

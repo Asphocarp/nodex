@@ -305,13 +305,14 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - MCP App host calls remain scoped to the original thread and server. Declared tools/resources are available through the fixed proxy, unknown methods and subscriptions fail explicitly, external links require HTTPS, and widget follow-up messages re-enter the original thread action with bounded JSON context appended to the prompt. Display-mode and intrinsic-height requests affect presentation only and cannot broaden the sandbox.
 - MCP fallback content blocks render normalized `text`, `image`, `audio`, `resource_link`, `embedded_resource`, and `unknown` blocks directly inside the expanded body. Visible annotation text is intentionally restricted to `audience`, `priority`, and `lastModified`; arbitrary annotation keys remain internal and are not displayed in the transcript.
 - The app-server `read_thread` dynamic tool returns `schemaVersion: 1`, thread metadata, newest-first paged turns, and optional truncated outputs as a successful `inputText` JSON result.
-- Transient tool labels use Nodex's `CodexShimmerText` wrapper. Active false renders plain text; active true uses the shared `loading-shimmer-pure-text` timing (`2s`, `steps(48,end)`, `-100%` to `250%`, reduced-motion disabled), with cadenced timing kept as an internal optional variant.
+- Transient tool labels use Nodex's `CodexShimmerText` wrapper. Inactive labels render plain text. Active labels default to the cadenced treatment: after a 600 ms delay, two clipped transform sweeps run once for 1,000 ms with `steps(48,end)`, then remain still until the next four-second cadence. Classic two-second `background-position` shimmer is an explicit variant reserved for the active Browser and background-Subagent working labels that require it. Both treatments become static for operating-system reduced motion, and an activity body can disable shimmer for its entire subtree.
 - Group headers have exactly three presentation states. `summary` is static and
   transitions immediately; `active` uses the selected tool's family label and
   icon with shimmer; `thinking` has no tool icon and shimmers the assigned
-  reasoning heading or generic `Thinking`. Nested command, web, MCP, and patch
-  rows retain their own subtype-specific animation rules, but running counts
-  cannot make a completed group summary shimmer.
+  reasoning heading or generic `Thinking`. Expanded activity-group bodies
+  disable shimmer for nested command, web, MCP, patch, and Subagent labels, so
+  one active group has at most its header sweep. Running counts cannot make a
+  completed group summary shimmer.
 - Completed group headers retain ordered typed parts until rendering instead of
   flattening facts into a projection-owned sentence. Part order is named MCP
   sources, loaded tools, unnamed MCP calls, file changes, stopped file creation,
@@ -334,7 +335,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Raw-consecutive subagent activity items form one compact inline group. Each group keeps the first-seen agent order and the latest event for each agent. Group wording prioritizes interrupted, then updated, then all-done, and a child is shown as done only when its background-agent state belongs to this turn and no later raw activity exists for that child; state from another parent turn cannot keep the row active. Anchored raw groups take precedence for turn state. If none exist, same-parent background rows with inline activity enabled may contribute null-anchor `hasActivity` / `hasActiveActivity` state for commentary ownership and collapse defaults, but that auxiliary state never creates a transcript node or DOM anchor.
 - Background child-agent composer UI uses the section title `Subagents`. Collapsed counts render as `# background agent` / `# background agents`; expanded summaries append `(@ to tag agents)`. Composer child rows append `is working`, `is awaiting instruction`, or `is done` according to the row status. Thread Summary presentation is owned by [Thread Summary Panel Behavior](thread-summary-panel-behavior.md).
 - A child agent with `needs_resume` counts as in progress only when its preserved runtime status is active. Catalog/sidebar status alone does not keep a resumed child row active.
-- Opening a child agent creates a transient right-panel `background-agent:<threadId>` tab with the child display name, a stable seed-based 5x5 pixel identicon, and the normal tab close chrome. These tabs are not durable project-session tabs.
+- Opening a child agent creates a transient right-panel `background-agent:<threadId>` tab with the child display name, a static theme-aware avatar, and the normal tab close chrome. The avatar hashes the stable seed from zero with `(hash * 31 + charCode) % 2147483647`, selects one of ten image pairs, and changes only when the resolved light/dark theme changes; active, waiting, and completed status never animate or replace that identity. These tabs are not durable project-session tabs.
 - Context compaction renders as a dedicated compact divider row instead of a generic system banner:
   - in progress: `Automatically compacting context` with Codex shimmer text
   - completed: `Context automatically compacted` with the compact completion icon

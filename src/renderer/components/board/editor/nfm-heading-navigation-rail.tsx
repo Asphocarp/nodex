@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
-import { useReducedMotion } from "motion/react";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import {
   collectMarkerNavigationObservationTargets,
   MarkerNavigationRail,
@@ -90,7 +90,7 @@ export function NfmHeadingNavigationRail({
 }: NfmHeadingNavigationRailProps) {
   const items = useHeadingNavigationItems(editor);
   const coarsePointer = useCoarsePointer();
-  const reducedMotion = Boolean(useReducedMotion());
+  const reducedMotion = useResolvedReducedMotion();
   const idleReady = useMarkerNavigationIdleReady(items.length, MIN_NFM_HEADING_NAVIGATION_ITEMS);
   const itemIdsKey = useMemo(() => items.map((item) => item.id).join("\n"), [items]);
 

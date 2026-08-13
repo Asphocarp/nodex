@@ -1,60 +1,41 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import { ChevronLeftIcon, ChevronRightIcon, ImagesIcon } from "@/components/shared/icons/generic-icons";
-import { motion, useReducedMotion } from "motion/react";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { cn } from "../../../../lib/utils";
 import { useTheme } from "../../../../lib/use-theme";
 import type { ThreadGeneratedImageGalleryItemModel } from "../../thread-stage-types";
 import { calculateGeneratedImageGalleryLayout } from "../../projection/generated-image-gallery-layout";
 import { ImagePreviewDialog } from "./user-message-attachments";
 import { useConversationImageAsset } from "./use-conversation-image-asset";
+import {
+  createGeneratedImageDotFieldConfig,
+  DOT_FIELD_BASE_SPACING,
+  DOT_FIELD_FIRST_WEIGHT,
+  DOT_FIELD_MIN_RADIUS,
+  DOT_FIELD_OPACITY_CUTOFF,
+  DOT_FIELD_OPACITY_DURATION_MS,
+  DOT_FIELD_OPACITY_POWER,
+  DOT_FIELD_RADIUS_FACTOR,
+  DOT_FIELD_SECOND_WEIGHT,
+  generatedImageDotFieldSmoothStep,
+  resolveGeneratedImageDotFieldFrame,
+} from "./generated-image-dot-field";
+import { getPendingImageAnimationClock } from "./pending-image-animation-clock";
+import "./generated-image-gallery.css";
 
 const EMPTY_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 const MAX_IMAGE_REFETCHES = 2;
 
-const DOT_FIELD_BASE_SPACING = 12;
-const DOT_FIELD_RADIUS_FACTOR = 0.16;
-const DOT_FIELD_MIN_RADIUS = 0.55;
-const DOT_FIELD_OPACITY_CUTOFF = 0.03;
-const DOT_FIELD_SIZE_FACTOR = 0.78;
-const DOT_FIELD_FIRST_WEIGHT = 1.2;
-const DOT_FIELD_SECOND_WEIGHT = 0.82;
-const DOT_FIELD_OPACITY_POWER = 1.18;
-const DOT_FIELD_DURATION_FACTOR = 1.2;
-const DOT_FIELD_DURATIONS = {
-  offsetX1: 4_500,
-  offsetY1: 6_330,
-  offsetX2: 5_600,
-  offsetY2: 5_750,
-  fieldSize1: 3_600,
-  fieldSize2: 2_400,
-} as const;
-
 function clampUnit(value: number): number {
   return Math.min(1, Math.max(0, value));
-}
-
-function smoothStep(value: number): number {
-  const clamped = clampUnit(value);
-  return clamped * clamped * (3 - 2 * clamped);
-}
-
-function cubicEaseInOut(value: number): number {
-  return value < 0.5
-    ? 4 * value * value * value
-    : 1 - ((-2 * value + 2) ** 3) / 2;
-}
-
-function triangleWave(value: number): number {
-  const remainder = value % 1;
-  return remainder <= 0.5 ? remainder * 2 : 2 - remainder * 2;
-}
-
-function interpolate(start: number, end: number, progress: number): number {
-  return start + (end - start) * progress;
-}
-
-function randomBetween(start: number, end: number): number {
-  return start + Math.random() * (end - start);
 }
 
 interface DotFieldGrid {
@@ -68,11 +49,69 @@ interface DotFieldGrid {
   readonly yPositions: Float32Array;
 }
 
-function GeneratedImageDotField() {
-  const reducedMotion = Boolean(useReducedMotion());
+const subscribeDocumentVisibility = (listener: () => void) => {
+  document.addEventListener("visibilitychange", listener);
+  return () => document.removeEventListener("visibilitychange", listener);
+};
+
+const readDocumentVisible = () => document.visibilityState !== "hidden";
+
+function useDocumentVisible(): boolean {
+  return useSyncExternalStore(
+    subscribeDocumentVisibility,
+    readDocumentVisible,
+    () => true,
+  );
+}
+
+function useElementIntersection(ref: RefObject<Element | null>): boolean {
+  const [intersecting, setIntersecting] = useState(
+    () => typeof IntersectionObserver === "undefined",
+  );
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setIntersecting(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      setIntersecting(entries[0]?.isIntersecting === true);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return intersecting;
+}
+
+interface GeneratedImageDotFieldStyle extends CSSProperties {
+  "--generated-image-dot-field-delay": string;
+}
+
+function GeneratedImageDotField({ active }: { active: boolean }) {
+  const reducedMotion = useResolvedReducedMotion();
   const { resolved: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const configRef = useRef<ReturnType<
+    typeof createGeneratedImageDotFieldConfig
+  > | null>(null);
+  configRef.current ??= createGeneratedImageDotFieldConfig();
+  const config = configRef.current;
+  const clock = getPendingImageAnimationClock();
+  const mountedAtRef = useRef<number | null>(null);
+  mountedAtRef.current ??= clock.now();
+  const mountedAt = mountedAtRef.current;
+  const documentVisible = useDocumentVisible();
+  const intersecting = useElementIntersection(containerRef);
+  const animationActive = active
+    && intersecting
+    && documentVisible
+    && !reducedMotion;
+  const elapsedMs = Math.max(0, clock.now() - mountedAt);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -81,46 +120,9 @@ function GeneratedImageDotField() {
     if (!container || !canvas || !context) return;
 
     const fullCircle = Math.PI * 2;
-    const color = getComputedStyle(container).color || (theme === "dark" ? "white" : "black");
-    const randomDuration = (duration: number) => (
-      duration * DOT_FIELD_DURATION_FACTOR * randomBetween(1, 1.35)
-    );
-    const durations = {
-      offsetX1: randomDuration(DOT_FIELD_DURATIONS.offsetX1),
-      offsetY1: randomDuration(DOT_FIELD_DURATIONS.offsetY1),
-      offsetX2: randomDuration(DOT_FIELD_DURATIONS.offsetX2),
-      offsetY2: randomDuration(DOT_FIELD_DURATIONS.offsetY2),
-      fieldSize1: randomDuration(DOT_FIELD_DURATIONS.fieldSize1),
-      fieldSize2: randomDuration(DOT_FIELD_DURATIONS.fieldSize2),
-    };
-    const phases = {
-      offsetX1: Math.random(),
-      offsetY1: Math.random(),
-      offsetX2: Math.random(),
-      offsetY2: Math.random(),
-      fieldSize1: Math.random(),
-      fieldSize2: Math.random(),
-    };
-    const bounds = {
-      x1Start: randomBetween(0.1, 0.32),
-      x1End: randomBetween(0.68, 0.9),
-      y1Start: randomBetween(0.1, 0.32),
-      y1End: randomBetween(0.68, 0.9),
-      x2Start: randomBetween(0.68, 0.9),
-      x2End: randomBetween(0.1, 0.32),
-      y2Start: randomBetween(0.68, 0.9),
-      y2End: randomBetween(0.1, 0.32),
-    };
-    const sizeRange = {
-      firstStart: randomBetween(0.42, 0.52),
-      firstEnd: randomBetween(0.62, 0.75),
-      secondStart: randomBetween(0.5, 0.62),
-      secondEnd: randomBetween(0.74, 0.9),
-    };
-
-    let animationFrame: number | null = null;
+    const color = getComputedStyle(container).color
+      || (theme === "dark" ? "white" : "black");
     let lastFrameAt = 0;
-    let startedAt: number | null = null;
     let grid: DotFieldGrid | null = null;
     let gridInvalidated = true;
 
@@ -172,52 +174,21 @@ function GeneratedImageDotField() {
       gridInvalidated = false;
     };
 
-    const draw = (timestamp: number) => {
-      if (!reducedMotion && lastFrameAt !== 0 && timestamp - lastFrameAt < 1_000 / 30) {
-        animationFrame = requestAnimationFrame(draw);
+    const draw = (timestamp: number, force = false) => {
+      if (
+        !force
+        && lastFrameAt !== 0
+        && timestamp - lastFrameAt < 1_000 / 30
+      ) {
         return;
       }
       lastFrameAt = timestamp;
-      startedAt ??= timestamp;
       if (gridInvalidated || !grid) rebuildGrid();
-      if (!grid) {
-        animationFrame = null;
-        return;
-      }
+      if (!grid) return;
 
-      const elapsed = timestamp - startedAt;
-      const phase = (duration: number, offset: number) => (
-        triangleWave(elapsed / duration + offset)
-      );
-      const firstX = interpolate(
-        bounds.x1Start,
-        bounds.x1End,
-        cubicEaseInOut(phase(durations.offsetX1, phases.offsetX1)),
-      );
-      const firstY = interpolate(
-        bounds.y1Start,
-        bounds.y1End,
-        smoothStep(phase(durations.offsetY1, phases.offsetY1)),
-      );
-      const secondX = interpolate(
-        bounds.x2Start,
-        bounds.x2End,
-        cubicEaseInOut(phase(durations.offsetX2, phases.offsetX2)),
-      );
-      const secondY = interpolate(
-        bounds.y2Start,
-        bounds.y2End,
-        smoothStep(phase(durations.offsetY2, phases.offsetY2)),
-      );
-      const firstSize = DOT_FIELD_SIZE_FACTOR * interpolate(
-        sizeRange.firstStart,
-        sizeRange.firstEnd,
-        smoothStep(phase(durations.fieldSize1, phases.fieldSize1)),
-      );
-      const secondSize = DOT_FIELD_SIZE_FACTOR * interpolate(
-        sizeRange.secondStart,
-        sizeRange.secondEnd,
-        smoothStep(phase(durations.fieldSize2, phases.fieldSize2)),
+      const frame = resolveGeneratedImageDotFieldFrame(
+        reducedMotion ? 0 : timestamp - mountedAt,
+        config,
       );
 
       context.save();
@@ -231,15 +202,30 @@ function GeneratedImageDotField() {
       for (let rowIndex = 0; rowIndex < grid.yPositions.length; rowIndex += 1) {
         const y = grid.yPositions[rowIndex] ?? 0;
         const normalizedY = grid.yNormals[rowIndex] ?? 0;
-        for (let columnIndex = 0; columnIndex < grid.xPositions.length; columnIndex += 1) {
+        for (
+          let columnIndex = 0;
+          columnIndex < grid.xPositions.length;
+          columnIndex += 1
+        ) {
           const x = grid.xPositions[columnIndex] ?? 0;
           const normalizedX = grid.xNormals[columnIndex] ?? 0;
-          const firstDistance = Math.hypot(normalizedX - firstX, normalizedY - firstY);
-          const secondDistance = Math.hypot(normalizedX - secondX, normalizedY - secondY);
-          const firstField = 1 - smoothStep(firstDistance / firstSize);
-          const secondField = 1 - smoothStep(secondDistance / secondSize);
+          const firstDistance = Math.hypot(
+            normalizedX - frame.firstX,
+            normalizedY - frame.firstY,
+          );
+          const secondDistance = Math.hypot(
+            normalizedX - frame.secondX,
+            normalizedY - frame.secondY,
+          );
+          const firstField = 1 - generatedImageDotFieldSmoothStep(
+            firstDistance / frame.firstSize,
+          );
+          const secondField = 1 - generatedImageDotFieldSmoothStep(
+            secondDistance / frame.secondSize,
+          );
           const opacity = clampUnit(
-            firstField * DOT_FIELD_FIRST_WEIGHT + secondField * DOT_FIELD_SECOND_WEIGHT,
+            firstField * DOT_FIELD_FIRST_WEIGHT
+              + secondField * DOT_FIELD_SECOND_WEIGHT,
           ) ** DOT_FIELD_OPACITY_POWER;
           if (opacity <= DOT_FIELD_OPACITY_CUTOFF) continue;
           context.globalAlpha = opacity;
@@ -250,53 +236,55 @@ function GeneratedImageDotField() {
         }
       }
       context.restore();
-      animationFrame = reducedMotion ? null : requestAnimationFrame(draw);
     };
 
     const resizeObserver = typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver(() => {
           gridInvalidated = true;
-          animationFrame ??= requestAnimationFrame(draw);
+          if (!animationActive) draw(clock.now(), true);
         });
     resizeObserver?.observe(container);
-    animationFrame = requestAnimationFrame(draw);
+    draw(clock.now(), true);
+    const unsubscribe = animationActive ? clock.subscribe(draw) : undefined;
+
     return () => {
-      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      unsubscribe?.();
       resizeObserver?.disconnect();
     };
-  }, [reducedMotion, theme]);
+  }, [animationActive, clock, config, mountedAt, reducedMotion, theme]);
 
   return (
-    <motion.div
+    <div
       ref={containerRef}
-      className="absolute inset-0 overflow-hidden"
-      initial={false}
-      animate={{ opacity: reducedMotion ? 0.38 : [0.38, 0.56, 0.38] }}
-      transition={reducedMotion ? { duration: 0 } : {
-        duration: 1.75,
-        ease: "easeInOut",
-        repeat: Infinity,
-      }}
+      className="nodex-generated-image-dot-field absolute inset-0 overflow-hidden"
+      data-animate={animationActive ? "true" : undefined}
+      data-generated-image-dot-field="true"
       style={{
-        maskImage: "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
-        WebkitMaskImage: "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
-      }}
+        "--generated-image-dot-field-delay":
+          `${-(elapsedMs % DOT_FIELD_OPACITY_DURATION_MS)}ms`,
+        maskImage:
+          "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
+        WebkitMaskImage:
+          "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
+      } as GeneratedImageDotFieldStyle}
     >
       <canvas ref={canvasRef} aria-hidden="true" className="block h-full w-full" />
-    </motion.div>
+    </div>
   );
 }
 
-function GeneratedImagePlaceholder({ hidden }: { hidden: boolean }) {
+export function GeneratedImagePlaceholder({ hidden }: { hidden: boolean }) {
   return (
     <div
       aria-busy="true"
       aria-hidden={hidden || undefined}
       aria-label={hidden ? undefined : "Generating image..."}
+      aria-live={hidden ? undefined : "polite"}
       className="electron-dark:text-white/70 relative aspect-square w-full max-w-[400px] overflow-clip rounded-[36px] bg-token-bg-tertiary/70 text-token-text-secondary dark:text-white/70"
+      role={hidden ? undefined : "status"}
     >
-      <GeneratedImageDotField />
+      <GeneratedImageDotField active={!hidden} />
     </div>
   );
 }

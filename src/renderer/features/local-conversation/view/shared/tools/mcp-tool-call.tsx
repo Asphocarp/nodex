@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { PanelRightVisibleIcon } from "@/components/shared/icons";
+import { LoadingPlaceholder } from "@/components/ui/loading-placeholder";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import type {
   CodexMcpToolCallContentBlock,
@@ -336,11 +337,11 @@ function McpContentBlock({
 
 function McpAppLoadingPlaceholder({ resource }: { resource: McpRenderableResource | null }) {
   return (
-    <div
+    <LoadingPlaceholder
       role="status"
       aria-label="Loading MCP app"
       data-mcp-app-loading="true"
-      className="loading-shimmer-pure-text w-full overflow-hidden rounded-lg border border-token-border-light bg-token-input-background"
+      className="w-full rounded-lg border border-token-border-light bg-token-input-background"
       style={{ height: resolveMcpAppFrameHeight(resource?.metadata) }}
     />
   );

@@ -1,8 +1,7 @@
-import { ProjectActionsIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, ProjectActionsIcon } from "@/components/shared/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ExternalLink,
-  Loader2,
   Play,
   RotateCw,
   SquareTerminal,
@@ -125,21 +124,11 @@ function ProcessStatusDot({
   state?: ProcessActionState;
 }) {
   if (state === "stopping") {
-    return (
-      <span
-        aria-label="Stopping"
-        className="inline-flex size-2.5 animate-pulse rounded-full bg-token-description-foreground/60"
-      />
-    );
+    return <ActivitySpinnerIcon className="size-2.5" />;
   }
 
   if (state === "starting") {
-    return (
-      <span
-        aria-label="Starting"
-        className="inline-flex size-2.5 animate-pulse rounded-full bg-token-description-foreground/60"
-      />
-    );
+    return <ActivitySpinnerIcon className="size-2.5" />;
   }
 
   if (status === "not-found") {
@@ -180,7 +169,7 @@ function ProcessManagerActionMenu({
   const canRun = !busy && row.command.trim().length > 0 && Boolean(row.cwd?.trim());
   const resumeLabel = row.status === "not-found" ? "Start" : "Restart";
   const resumeIcon = busy
-    ? <Loader2 className="size-3.5 animate-spin" />
+    ? <ActivitySpinnerIcon className="size-3.5" />
     : row.status === "not-found"
     ? <Play className="size-3.5" />
     : <RotateCw className="size-3.5" />;
@@ -219,7 +208,7 @@ function ProcessManagerActionMenu({
       </NodexDropdownItem>
       <NodexDropdownSeparator />
       <NodexDropdownItem
-        leftSlot={busy ? <Loader2 className="size-3.5 animate-spin" /> : <StopCircle className="size-3.5" />}
+        leftSlot={busy ? <ActivitySpinnerIcon className="size-3.5" /> : <StopCircle className="size-3.5" />}
         disabled={!canStop}
         tooltipText={stopTooltip}
         onSelect={() => onStop(row)}

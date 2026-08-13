@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { NfmSideMenuChevronRightIcon, PageIcon, SpinnerIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, NfmSideMenuChevronRightIcon, PageIcon } from "@/components/shared/icons";
 import {
   resolveQueryFreshAccept,
   shouldConsumeStalePickerNavigation,
@@ -222,7 +222,7 @@ function NfmMoveToResultRow({
         </span>
       ) : null}
       {accepting && acceptable ? (
-        <SpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
+        <ActivitySpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
       ) : null}
     </button>
   );
@@ -594,7 +594,7 @@ export function NfmMoveToMenuSurface({
           })}
           {showDelayedLoading ? (
             <NodexDestinationPickerStatus>
-              <SpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
+              <ActivitySpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
               Loading…
             </NodexDestinationPickerStatus>
           ) : null}

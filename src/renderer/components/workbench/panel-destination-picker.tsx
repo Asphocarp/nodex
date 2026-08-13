@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { PageIcon, SpinnerIcon, SearchIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, PageIcon, SearchIcon } from "@/components/shared/icons";
 import { createNfmMoveToSearchIndex } from "@/components/board/editor/nfm-move-to-menu-search";
 import {
   resolveQueryFreshAccept,
@@ -217,7 +217,7 @@ function PanelDestinationResultRow({
         </span>
       ) : null}
       {accepting ? (
-        <SpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
+        <ActivitySpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
       ) : null}
     </button>
   );
@@ -556,7 +556,7 @@ export function PanelDestinationPickerSurface({
           })}
           {showDelayedLoading ? (
             <PanelDestinationStatusRow>
-              <SpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
+              <ActivitySpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
               Loading…
             </PanelDestinationStatusRow>
           ) : null}

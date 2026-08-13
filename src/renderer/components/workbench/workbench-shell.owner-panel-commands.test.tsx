@@ -39,6 +39,20 @@ function pageSurface(
   };
 }
 
+function browserSurface(id: string): WorkbenchSurfaceDescriptor {
+  return {
+    id,
+    kind: "browser",
+    titleSnapshot: "Browser",
+    stateKey: 0,
+    state: null,
+    config: {
+      browserTabId: `${id}:runtime`,
+      url: "about:blank",
+    },
+  };
+}
+
 function makeScene(owner: WorkbenchSceneOwner): WorkbenchSceneSnapshot {
   const initial = materializeInitialWorkbenchScene(owner, {
     identityFactory: {
@@ -82,6 +96,35 @@ function makeLayout(
 }
 
 describe("owner-scoped workbench panel commands", () => {
+  test("projects render the Browser runtime favicon in durable Scene tabs", async () => {
+    const owner = { kind: "project" as const, projectId: "alpha" };
+    const initial = makeScene(owner);
+    const scene = createWorkbenchSceneSurface(initial, {
+      panelId: "right",
+      surface: browserSurface("project-browser"),
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha")],
+      sessionsByProject: { alpha: [] },
+      initialWindowLayoutSnapshot: {
+        version: 7,
+        location: { kind: "project", projectId: "alpha" },
+        databaseSearchByProject: {},
+        scenesByOwnerKey: {
+          [makeWorkbenchSceneKey(owner)]: scene,
+        },
+      },
+      initialSelectedSessionId: null,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const browserTab = getPanelTabById(screen.container, "project-browser");
+    expect(
+      browserTab.querySelector('[data-browser-tab-icon-phase="settled"]'),
+    ).not.toBeNull();
+  });
+
   test("cycles and closes Project Scene tabs without a Session", async () => {
     const owner = { kind: "project" as const, projectId: "alpha" };
     const screen = renderWorkbench({

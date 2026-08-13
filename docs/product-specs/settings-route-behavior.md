@@ -87,6 +87,14 @@ Sans font size defaults to 15px and scales the renderer's shared sans typography
 tokens. Code font size defaults to 14px and scales the shared code/editor token.
 Both are Profile preferences, not Window Session layout.
 
+Appearance also owns the renderer-local `Reduced motion` preference. `System`
+tracks the operating-system media query, `On` reduces hook-driven interface
+motion, and `Off` allows it. The resolved preference governs shared activity
+spinners, Browser tab loading chrome, and Motion-based interface transitions;
+CSS shimmer and loading-placeholder media rules continue to honor the operating
+system directly. The preference is app-scoped presentation, persists in renderer
+storage, and is neither Window Session layout nor main-process state.
+
 ## Deep links and feature-owned state
 
 Feature entry points may open a Settings section with explicit context. Card

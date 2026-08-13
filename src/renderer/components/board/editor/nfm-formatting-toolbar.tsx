@@ -6,7 +6,7 @@ import {
 } from "@blocknote/react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { useId, useMemo, useRef, type ChangeEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { CheckmarkIcon, ChevronDownIcon, SpinnerIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, CheckmarkIcon, ChevronDownIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import {
@@ -438,7 +438,7 @@ function FilePanelRoot({
             </button>
           ))}
         </div>
-        {loading ? <SpinnerIcon className="size-3.5 text-token-description-foreground" /> : null}
+        {loading ? <ActivitySpinnerIcon className="size-3.5 text-token-description-foreground" /> : null}
       </div>
       <div>{activeTab?.tabPanel}</div>
     </div>

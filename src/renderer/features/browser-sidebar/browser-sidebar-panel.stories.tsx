@@ -308,6 +308,19 @@ export const LoadingLongUrl: Story = {
   ),
 };
 
+export const WaitingForFirstResponse: Story = {
+  render: () => (
+    <BrowserPanelStory
+      fixtureId="waiting-for-response"
+      snapshotOverrides={{
+        isLoading: true,
+        isWaitingForResponse: true,
+        pendingUrl: "https://design.example/research/loading-motion",
+      }}
+    />
+  ),
+};
+
 export const FindOpen: Story = {
   render: () => (
     <BrowserPanelStory
@@ -599,6 +612,7 @@ function makeBrowserSnapshot({
     url: "https://design.example/browser-platform",
     title: "Browser platform",
     isLoading: false,
+    isWaitingForResponse: false,
     canGoBack: true,
     canGoForward: true,
     zoomPercent: 100,

@@ -15,6 +15,7 @@ import {
   ComposerPlanModeIcon,
   ComposerPluginsIcon,
 } from "@/components/shared/icons";
+import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
 import { SubagentAvatar, SubagentGlyphIcon } from "@/features/local-conversation/view/shared/subagent-avatar";
 import {
   getWorkspaceFileDomTabId,
@@ -73,7 +74,10 @@ import type {
   Project,
   WorkbenchTabProjection,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import {
+  makeBrowserSidebarTabKey,
+  type BrowserSidebarTabSnapshot,
+} from "../../../shared/browser-sidebar";
 import {
   findWorkbenchPanelLeaf,
   listWorkbenchPanelLeaves,
@@ -145,6 +149,10 @@ interface WorkbenchPanelProjectionInput {
   readonly panelGroupTabsRef: MutableRefObject<PanelGroupTabsByPanel>;
   readonly panelTabMruByLeafRef: MutableRefObject<Record<string, string[]>>;
   readonly terminalSessionVersion: number;
+  readonly browserTabSnapshotByKey: ReadonlyMap<
+    string,
+    BrowserSidebarTabSnapshot
+  >;
   readonly browserBoundsSyncTriggerByPanel: Partial<
     Record<PanelId, MotionValue<number>>
   >;
@@ -198,34 +206,6 @@ function getTabIcon(
   kind: WorkbenchTabProjection["kind"],
 ): ComponentType<{ className?: string }> {
   return getPanelNewTabAction(kind).Icon;
-}
-
-function makeBrowserFaviconIcon(
-  faviconUrl: string,
-): ComponentType<{ className?: string }> {
-  return function BrowserFaviconIcon({ className }: { className?: string }) {
-    return (
-      <img
-        src={faviconUrl}
-        alt=""
-        className={cn("rounded-[2px] object-contain", className)}
-      />
-    );
-  };
-}
-
-function getBrowserTabIcon(
-  tab: WorkbenchTabProjection,
-): ComponentType<{ className?: string }> {
-  if (
-    tab.kind === "browser"
-    && "faviconUrl" in tab.config
-    && typeof tab.config.faviconUrl === "string"
-    && tab.config.faviconUrl.trim().length > 0
-  ) {
-    return makeBrowserFaviconIcon(tab.config.faviconUrl);
-  }
-  return getTabIcon(tab.kind);
 }
 
 function resolveProjectTargetTabChromeContext(
@@ -319,6 +299,7 @@ export function useWorkbenchPanelProjection({
   panelGroupTabsRef,
   panelTabMruByLeafRef,
   terminalSessionVersion,
+  browserTabSnapshotByKey,
   browserBoundsSyncTriggerByPanel,
   lifecycle,
   openers,
@@ -420,6 +401,13 @@ export function useWorkbenchPanelProjection({
             "path" in tab.config ? tab.config.path : undefined,
           )
         : null;
+      const browserTabSnapshot = !transientPanelTab && tab.kind === "browser"
+        ? browserTabSnapshotByKey.get(makeBrowserSidebarTabKey({
+            browserConversationId: session.id,
+            browserViewScopeId: surface.browserViewScopeId,
+            browserTabId: tab.browserTabId,
+          }))
+        : undefined;
 
       return {
         id: tab.id,
@@ -450,10 +438,20 @@ export function useWorkbenchPanelProjection({
                     ? SubagentGlyphIcon
                     : isProcessOutputPanelTab(tab)
                       ? SidePanelTerminalIcon
-                      : filesIcon
+                    : filesIcon
                         ?? (isProjectSessionFilesPreviewTab(tab)
                           ? getTabIcon(tab.kind)
-                          : getBrowserTabIcon(tab)),
+                          : getTabIcon(tab.kind)),
+        iconElement: !transientPanelTab && tab.kind === "browser" ? (
+          <BrowserTabFavicon
+            className="icon-xs"
+            faviconUrl={browserTabSnapshot?.faviconUrl ?? tab.config.faviconUrl}
+            isLoading={browserTabSnapshot?.isLoading ?? false}
+            isWaitingForResponse={
+              browserTabSnapshot?.isWaitingForResponse ?? false
+            }
+          />
+        ) : undefined,
         closable: isPanelTabClosable(tab),
         preview: transientPanelTab ? undefined : tab.preview,
         reorderable: transientPanelTab ? false : tab.preview !== true,
@@ -753,6 +751,7 @@ export function useWorkbenchPanelProjection({
     };
   }, [
     activateReviewTab,
+    browserTabSnapshotByKey,
     presentedPageIds,
     browserBoundsSyncTriggerByPanel,
     closeEphemeralPanelTab,

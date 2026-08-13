@@ -10,7 +10,7 @@ import { appScope, useScopeHandle } from "@/lib/maitai";
 import {
   CheckmarkIcon,
   RefreshIcon,
-  SpinnerIcon,
+  ActivitySpinnerIcon,
 } from "@/components/shared/icons";
 import {
   useRegisterContentSearchSource,
@@ -188,7 +188,7 @@ export function ThreadStartProgressPanel({
           ) : progress.phase === "ready" ? (
             <CheckmarkIcon className="size-3.5 shrink-0 text-(--accent-blue)" />
           ) : (
-            <SpinnerIcon className="size-3.5 shrink-0 text-(--foreground-tertiary)" />
+            <ActivitySpinnerIcon className="size-3.5 shrink-0 text-(--foreground-tertiary)" />
           )}
           <span>{progress.message || (isFailed ? "Message could not be sent." : "Sending message…")}</span>
         </div>
@@ -205,7 +205,7 @@ export function ThreadStartProgressPanel({
     <div className="w-full max-w-140 px-4">
       <div className="mb-3 flex items-center gap-2">
         {!isFailed ? (
-          <SpinnerIcon className="size-3.5 shrink-0 text-(--foreground-tertiary)" />
+          <ActivitySpinnerIcon className="size-3.5 shrink-0 text-(--foreground-tertiary)" />
         ) : null}
         <span className="text-sm font-medium text-(--foreground-secondary)">
           {progress.message || "Preparing worktree…"}
@@ -818,7 +818,7 @@ export function LocalConversationThreadBodyOwner({
                 className="mx-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-token-foreground px-3 text-sm font-medium text-token-background transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-40"
               >
                 {isRestoringArchivedThread ? (
-                  <SpinnerIcon className="icon-xs animate-spin" />
+                  <ActivitySpinnerIcon className="icon-xs" />
                 ) : (
                   <RefreshIcon className="icon-xs" />
                 )}

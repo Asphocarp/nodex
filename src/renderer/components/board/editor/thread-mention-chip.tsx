@@ -11,7 +11,6 @@ import {
   AlertCircle,
   CheckCircle2,
   Copy,
-  Loader2,
   Play,
 } from "@/components/shared/icons/generic-icons";
 
@@ -31,7 +30,7 @@ import {
 } from "@/lib/nfm/thread-mention-display";
 import { cn } from "@/lib/utils";
 import { threadMentionInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
-import { ThreadIcon, ArchiveIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, ThreadIcon, ArchiveIcon } from "@/components/shared/icons";
 import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
 
 export interface ThreadMentionProps {
@@ -91,7 +90,7 @@ function ThreadMentionStateIcon({
   resolving: boolean;
   missing: boolean;
 }) {
-  if (resolving) return <Loader2 className="inline-block size-3.5 shrink-0 animate-spin" />;
+  if (resolving) return <ActivitySpinnerIcon className="size-3.5 shrink-0" />;
   if (missing || thread?.statusType === "systemError") {
     return <AlertCircle className="inline-block size-3.5 shrink-0" />;
   }

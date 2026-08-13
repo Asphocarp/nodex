@@ -1,4 +1,11 @@
-import { useEffect, useRef, type ComponentPropsWithoutRef } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from "react";
 import { cn } from "../../../../lib/utils";
 
 export const CODEX_SHIMMER_CADENCE_MS = {
@@ -10,6 +17,22 @@ export const CODEX_SHIMMER_CADENCE_MS = {
 export const CODEX_SHIMMER_VARIANT = "cadenced" as const;
 
 type CodexShimmerVariant = "classic" | "cadenced";
+
+const CodexShimmerEnabledContext = createContext(true);
+
+export function CodexShimmerProvider({
+  children,
+  enabled,
+}: {
+  children: ReactNode;
+  enabled: boolean;
+}) {
+  return (
+    <CodexShimmerEnabledContext.Provider value={enabled}>
+      {children}
+    </CodexShimmerEnabledContext.Provider>
+  );
+}
 
 interface CodexShimmerTextProps extends ComponentPropsWithoutRef<"span"> {
   active?: boolean;
@@ -27,8 +50,10 @@ export function CodexShimmerText({
   variant = CODEX_SHIMMER_VARIANT,
   ...props
 }: CodexShimmerTextProps) {
+  const contextEnabled = useContext(CodexShimmerEnabledContext);
   const ref = useRef<HTMLSpanElement | null>(null);
-  const useCadenced = active && variant === "cadenced";
+  const effectiveActive = active && contextEnabled;
+  const useCadenced = effectiveActive && variant === "cadenced";
 
   useEffect(() => {
     if (!useCadenced) return;
@@ -67,9 +92,9 @@ export function CodexShimmerText({
     };
   }, [useCadenced]);
 
-  if (!active) {
+  if (!effectiveActive) {
     return (
-      <span className={className} {...props}>
+      <span className={className} data-codex-shimmer="static" {...props}>
         {children}
       </span>
     );
@@ -79,11 +104,12 @@ export function CodexShimmerText({
     <span
       ref={useCadenced ? ref : undefined}
       className={cn("loading-shimmer-pure-text", useCadenced && "codex-cadenced-shimmer", className)}
+      data-codex-shimmer={variant}
       {...props}
     >
       {children}
       {useCadenced ? (
-        <span aria-hidden="true" className="codex-cadenced-shimmer-sweep">
+        <span aria-hidden="true" className="codex-cadenced-shimmer-sweep" data-codex-shimmer-sweep="true">
           <span className="codex-cadenced-shimmer-highlight">{children}</span>
         </span>
       ) : null}

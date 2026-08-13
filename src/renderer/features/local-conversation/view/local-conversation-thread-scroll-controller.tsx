@@ -11,7 +11,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { CODEX_SHELL_PANEL_TRANSITION } from "../../../lib/codex-panel-motion";
 import { cn } from "../../../lib/utils";
 import {
@@ -185,7 +186,7 @@ function LocalConversationThreadScrollControllerProvider({
 }: {
   children: ReactNode;
 }) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const [isScrolledFromBottom, setIsScrolledFromBottom] = useState(false);
   const [responseSpacerState, setResponseSpacerState] =
@@ -685,7 +686,7 @@ export const LocalConversationThreadScrollLayout = forwardRef<
   contentWrapperClassName,
 }, ref) {
   const controller = useLocalConversationThreadScrollController();
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
   const footerRef = useRef<HTMLDivElement | null>(null);
   const preserveScrollPositionForNextLayout = controller.preserveScrollPositionForNextLayout;
   const scrollElement = controller.scrollElement;

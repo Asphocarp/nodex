@@ -8,7 +8,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -27,6 +28,7 @@ import { buildCodexCanonicalRequestIdentityKey } from "../../../../../../shared/
 import { resolvePromptTextareaSize } from "../prompt-textarea-size";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
+import { CodexShimmerText } from "../codex-shimmer-text";
 import {
   EXPLICIT_REQUEST_FORM_POLICY,
   activateRequestQuestionnaireOther,
@@ -99,9 +101,9 @@ export function UserInputTranscriptView({
   if (!completed) {
     return (
       <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-        <div className="loading-shimmer-pure-text text-size-chat select-none truncate text-token-foreground/30">
+        <CodexShimmerText className="text-size-chat select-none truncate text-token-foreground/30">
           Asking {questions.length === 1 ? "1 question" : `${questions.length} questions`}
-        </div>
+        </CodexShimmerText>
       </div>
     );
   }
@@ -610,7 +612,7 @@ function RequestComposerViewInstance({
   const activationLockRef = useRef<symbol | null>(null);
   const requestGenerationRef = useRef(0);
   const mountedRef = useRef(false);
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
 
   const isMultiQuestion = request.questions.length > 1;
   const currentIndex = state.questionIndex;

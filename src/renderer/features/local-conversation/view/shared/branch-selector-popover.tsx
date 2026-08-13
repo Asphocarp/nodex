@@ -3,7 +3,7 @@ import {
   BranchStatusIcon,
   CheckmarkIcon,
   PlusIcon,
-  SpinnerIcon,
+  ActivitySpinnerIcon,
 } from "@/components/shared/icons";
 import {
   NodexDialog,
@@ -345,7 +345,7 @@ function NodexDropdownScrollBranchList({
     <div className="vertical-scroll-fade-mask flex h-[200px] flex-col gap-1.5 overflow-y-auto">
       <NodexDropdownSectionLabel>Branches</NodexDropdownSectionLabel>
       {loading ? (
-        <NodexDropdownItem disabled leftSlot={<SpinnerIcon className="icon-xxs" />}>
+        <NodexDropdownItem disabled leftSlot={<ActivitySpinnerIcon className="icon-xxs" />}>
           Loading branches…
         </NodexDropdownItem>
       ) : error ? (

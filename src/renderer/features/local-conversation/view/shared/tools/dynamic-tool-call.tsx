@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CalendarClock, Check, Circle, CircleX, LoaderCircle } from "@/components/shared/icons/generic-icons";
+import { CalendarClock, Check, Circle, CircleX } from "@/components/shared/icons/generic-icons";
 import type { CodexDynamicToolCallView } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
 import {
@@ -11,7 +11,7 @@ import type { ToolComponentProps } from "./get-tool-component";
 import { ThreadActivityDisclosure } from "./tool-primitives";
 import { DynamicToolCallInspector } from "./dynamic-tool-call-inspector";
 import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
-import { AppActivityIcon, CreatedTaskIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, AppActivityIcon, CreatedTaskIcon } from "@/components/shared/icons";
 import {
   type CodexAppHandoffStatus,
   type CodexAppHandoffStep,
@@ -278,7 +278,7 @@ function HandoffProgressStepIcon({ status }: { status: HandoffProgressStepStatus
       case "failed":
         return <CircleX className={cn(className, "text-token-editor-error-foreground")} />;
       case "running":
-        return <LoaderCircle className={cn(className, "animate-spin")} />;
+        return <ActivitySpinnerIcon className={className} />;
       case "pending":
         return <Circle className={className} />;
     }

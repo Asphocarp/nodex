@@ -255,4 +255,37 @@ describe("sync-codex-theme-utilities", () => {
     ).toBe(true);
     expect(generatedCss.includes(".ignored-arbitrary")).toBe(false);
   });
+
+  test("keeps only keyframes referenced by retained utilities", () => {
+    const generatedCss = buildGeneratedUtilitiesCss(`
+      @keyframes retained-motion {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      @keyframes abandoned-motion {
+        from { transform: translateX(0); }
+        to { transform: translateX(100%); }
+      }
+
+      .icon-2xs {
+        animation: retained-motion 1s linear infinite;
+        width: 14px;
+        height: 14px;
+      }
+
+      .ignored-utility {
+        animation-name: abandoned-motion;
+      }
+    `);
+
+    expect(generatedCss.includes("@keyframes retained-motion")).toBe(true);
+    expect(generatedCss.includes("@keyframes abandoned-motion")).toBe(false);
+  });
+
+  test("documents the executable sync command in generated output", () => {
+    const generatedCss = buildGeneratedUtilitiesCss("");
+
+    expect(generatedCss).toContain("pnpm run sync:codex-theme:utilities");
+  });
 });

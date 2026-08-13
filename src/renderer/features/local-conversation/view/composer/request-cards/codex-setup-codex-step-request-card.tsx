@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronDownIcon, CloseIcon } from "@/components/shared/icons";
+import { LoadingResultsShimmer } from "@/components/ui/loading-results-shimmer";
 import {
   NodexPopover,
   NodexPopoverContent,
@@ -200,18 +201,13 @@ function ContextSourceRow({
 
 function ContextSkeleton() {
   return (
-    <>
-      {Array.from({ length: 3 }, (_, index) => (
-        <div key={index} aria-hidden className="flex min-h-10 animate-pulse items-center gap-3">
-          <div className="size-10 shrink-0 rounded-xl bg-token-foreground/10" />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <div className="h-4 w-28 rounded bg-token-foreground/10" />
-            <div className="h-4 w-52 rounded bg-token-foreground/10" />
-          </div>
-          <div className="h-9 w-20 shrink-0 rounded-full bg-token-foreground/10" />
-        </div>
-      ))}
-    </>
+    <LoadingResultsShimmer
+      className="min-h-34 justify-center"
+      lines={3}
+      maxWidth={92}
+      minWidth={62}
+      seed="setup-context-sources"
+    />
   );
 }
 
@@ -269,7 +265,13 @@ export function CodexSetupContextRequestCardView({
         </button>
       </div>
 
-      <div className="flex flex-col gap-2 px-4" aria-busy={isLoading}>
+      <div
+        aria-busy={isLoading}
+        aria-label={isLoading ? "Loading context sources" : undefined}
+        aria-live="polite"
+        className="flex flex-col gap-2 px-4"
+        role={isLoading ? "status" : undefined}
+      >
         {isLoading
           ? <ContextSkeleton />
           : recommendedSources.map((source) => (

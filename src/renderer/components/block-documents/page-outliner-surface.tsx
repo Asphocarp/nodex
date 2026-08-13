@@ -10,6 +10,7 @@ import {
   type RefCallback,
 } from "react";
 import { ExternalLink } from "@/components/shared/icons/generic-icons";
+import { LoadingResultsShimmer } from "@/components/ui/loading-results-shimmer";
 import {
   BlockDisclosureStateStore,
   blockDisclosureStateStore,
@@ -287,10 +288,16 @@ export function PageOutlinerBodySkeleton() {
     <div
       role="status"
       aria-label="Opening Page content"
-      className="space-y-2 py-1.5"
+      aria-live="polite"
+      className="py-1.5"
     >
-      <div className="h-3 w-[72%] animate-pulse rounded-sm bg-token-foreground/8 motion-reduce:animate-none" />
-      <div className="h-3 w-[48%] animate-pulse rounded-sm bg-token-foreground/8 motion-reduce:animate-none" />
+      <LoadingResultsShimmer
+        lines={2}
+        maxWidth={72}
+        minWidth={48}
+        seed="page-outliner-body"
+        size="sm"
+      />
     </div>
   );
 }

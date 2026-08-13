@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import type { SourceViewerProps } from "./source-viewer";
+import { LoadingResultsShimmer } from "./loading-results-shimmer";
 
 const loadSourceViewer = () => import("./source-viewer");
 const SourceViewerLazy = lazy(async () => ({
@@ -15,9 +16,19 @@ export function LazySourceViewer(props: SourceViewerProps) {
     <Suspense
       fallback={(
         <div
-          className="h-full min-h-24 animate-pulse bg-token-foreground/5"
           aria-label={`Loading ${props.ariaLabel}`}
-        />
+          aria-live="polite"
+          className="flex h-full min-h-24 items-start px-4 py-5"
+          role="status"
+        >
+          <LoadingResultsShimmer
+            lines={3}
+            maxWidth={88}
+            minWidth={58}
+            seed={`source-viewer:${props.ariaLabel}`}
+            size="sm"
+          />
+        </div>
       )}
     >
       <SourceViewerLazy {...props} />

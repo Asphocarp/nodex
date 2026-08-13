@@ -84,6 +84,7 @@ import {
   getBackgroundSubagentListRows,
 } from "../../projection/background-subagent-summary-model";
 import { SubagentAvatar } from "../shared/subagent-avatar";
+import { CodexShimmerText } from "../shared/codex-shimmer-text";
 import {
   useAutoReviewApprovalNudgeActions,
   useAutoReviewApprovalNudgeState,
@@ -710,17 +711,17 @@ function BackgroundAgentRow({
               <span className="flex min-w-0 items-center gap-1.5 text-token-foreground">
                 <SubagentAvatar
                   seed={row.conversationId}
-                  active={active}
                   className="icon-2xs pointer-events-none"
                 />
                 <span className="min-w-0 truncate font-medium">{row.displayName}</span>
               </span>
-              <span className={cn(
-                "shrink-0 whitespace-nowrap text-token-description-foreground",
-                active && "loading-shimmer-pure-text",
-              )}>
+              <CodexShimmerText
+                active={active}
+                variant="classic"
+                className="shrink-0 whitespace-nowrap text-token-description-foreground"
+              >
                 {statusText}
-              </span>
+              </CodexShimmerText>
             </button>
           </NodexTooltip>
           {row.diffStats ? (
@@ -760,7 +761,6 @@ function BackgroundAgentPanel({
           <SubagentAvatar
             key={row.conversationId}
             seed={row.conversationId}
-            active={row.status === "active"}
             className="size-4"
           />
         ))}

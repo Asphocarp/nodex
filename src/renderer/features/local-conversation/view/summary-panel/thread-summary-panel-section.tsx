@@ -6,10 +6,11 @@ import {
   useImperativeHandle,
   useState,
 } from "react";
-import { AnimatePresence, motion, useReducedMotion, useReducedMotionConfig } from "motion/react";
+import { AnimatePresence, motion, useReducedMotionConfig } from "motion/react";
 import { ChevronDownIcon } from "@/components/shared/icons";
 import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { CODEX_SUMMARY_PANEL_TRANSITION } from "../../../../lib/codex-panel-motion";
+import { useResolvedReducedMotion } from "../../../../lib/use-reduced-motion";
 import { cn } from "../../../../lib/utils";
 
 export const THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX = "thread-summary-panel-section-expanded-";
@@ -154,7 +155,7 @@ export const ThreadSummaryPanelSection = forwardRef<
   autoCollapse,
   onChange,
 }, ref) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useResolvedReducedMotion();
   const configuredReducedMotion = useReducedMotionConfig();
   const shouldUseReducedMotion = Boolean(prefersReducedMotion || configuredReducedMotion);
   const [persistedExpanded, setPersistedExpanded] = useState<boolean | null>(() => readPersistedSectionExpanded(sectionKey));

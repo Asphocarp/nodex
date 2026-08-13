@@ -36,6 +36,7 @@ describe("Browser Use presentation model", () => {
         url: "https://example.com",
         title: "Example",
         isLoading: false,
+        isWaitingForResponse: false,
         canGoBack: false,
         canGoForward: false,
         zoomPercent: 100,

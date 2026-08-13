@@ -1,0 +1,90 @@
+.nodex-loading-results-shimmer {
+  --loading-results-shimmer-base: color-mix(in srgb, var(--color-token-description-foreground) 10%, transparent);
+  --loading-results-shimmer-highlight: color-mix(in srgb, var(--color-token-description-foreground) 16%, transparent);
+  border-radius: var(--radius-md);
+  background-color: var(--loading-results-shimmer-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.nodex-loading-results-shimmer[data-size="sm"] {
+  height: calc(var(--spacing) * 3);
+}
+
+.nodex-loading-results-shimmer[data-size="md"] {
+  height: calc(var(--spacing) * 3.5);
+}
+
+.nodex-loading-results-shimmer[data-size="lg"] {
+  height: calc(var(--spacing) * 4);
+}
+
+.nodex-loading-results-shimmer::before {
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, var(--loading-results-shimmer-highlight) 50%, transparent 100%);
+  will-change: transform;
+  animation: nodex-loading-results-shimmer 3s linear infinite;
+  animation-delay: var(--loading-results-shimmer-delay, 0s);
+  position: absolute;
+  inset: 0;
+  transform: translate(-100%);
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .nodex-loading-results-shimmer {
+    corner-shape: var(--codex-corner-shape);
+  }
+}
+
+@keyframes nodex-loading-results-shimmer {
+  from {
+    transform: translate(-100%);
+  }
+
+  to {
+    transform: translate(100%);
+  }
+}
+
+.nodex-loading-placeholder {
+  overflow: hidden;
+}
+
+.nodex-loading-placeholder[data-animate="true"] {
+  --loading-placeholder-base: var(--color-token-main-surface-primary);
+  --loading-placeholder-peak: color-mix(in srgb, var(--color-token-description-foreground) 7%, var(--color-token-main-surface-primary));
+  background-color: var(--loading-placeholder-base);
+  position: relative;
+}
+
+.nodex-loading-placeholder[data-animate="true"]::before {
+  background-color: var(--loading-placeholder-peak);
+  opacity: 0;
+  content: "";
+  animation: nodex-loading-placeholder-pulse 3s ease-in-out infinite;
+  position: absolute;
+  inset: 0;
+}
+
+.dark .nodex-loading-placeholder[data-animate="true"] {
+  --loading-placeholder-peak: color-mix(in srgb, var(--color-token-description-foreground) 14%, var(--color-token-main-surface-primary));
+}
+
+@keyframes nodex-loading-placeholder-pulse {
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nodex-loading-results-shimmer::before,
+  .nodex-loading-placeholder[data-animate="true"]::before {
+    animation: none;
+  }
+}
