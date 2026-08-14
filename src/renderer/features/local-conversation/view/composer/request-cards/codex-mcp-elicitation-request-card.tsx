@@ -456,7 +456,7 @@ function UnsupportedMcpFormRequestCard({
     <FormShell>
       <div className="flex flex-col" onKeyDown={handleKeyDown}>
         <div className="flex flex-col gap-1 p-4">
-          <div className="text-sm font-medium">This version of Codex can’t show this request yet</div>
+          <div className="text-sm font-medium">Nodex can’t show this request yet</div>
           <div className="text-size-chat-sm text-token-description-foreground">
             {model.serverName} requested this form. You can skip it and keep going, or dismiss the request.
           </div>

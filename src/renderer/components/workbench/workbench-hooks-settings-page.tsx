@@ -71,14 +71,14 @@ const HOOK_EVENT_DESCRIPTIONS: Record<HookEventName, string> = {
   preToolUse: "Before a tool executes",
   permissionRequest: "When permission is requested",
   postToolUse: "After a tool executes",
-  preCompact: "Before ChatGPT compacts the conversation",
-  postCompact: "After ChatGPT compacts the conversation",
+  preCompact: "Before Nodex compacts the conversation",
+  postCompact: "After Nodex compacts the conversation",
   sessionStart: "When a new session starts",
   sessionEnd: "When a session ends",
   userPromptSubmit: "When the user submits a prompt",
   subagentStart: "When a subagent starts",
   subagentStop: "When a subagent stops",
-  stop: "Right before ChatGPT ends its turn",
+  stop: "Right before Nodex ends its turn",
 };
 
 const HOOK_SOURCE_LABELS: Record<CodexHooksSettingsSource, string> = {

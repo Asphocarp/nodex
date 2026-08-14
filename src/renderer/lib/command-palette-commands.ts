@@ -277,7 +277,7 @@ export function buildCommandPaletteCommands(
     command("showKeyboardShortcuts", "Configure", "Keyboard shortcuts", "Show available shortcuts and open customization", ["keyboard", "shortcuts", "hotkeys", "settings"], 710, {
       shortcut: shortcutLabel("showKeyboardShortcuts", "CmdOrCtrl+Shift+/"),
     }),
-    ...maybeMockCommand("installPrimaryRuntime", "Configure", "Install Codex Workspace", "Install the primary Codex workspace runtime", ["install", "workspace", "runtime"], 700),
+    ...maybeMockCommand("installPrimaryRuntime", "Configure", "Install Nodex Agent Runtime", "Install the primary Nodex agent runtime", ["install", "workspace", "runtime"], 700),
     ...maybeMockCommand("switchTheme", "Configure", "Switch theme", "Switch between light and dark theme", ["theme", "appearance", "light", "dark"], 690),
     ...maybeMockCommand("themePreset", "Configure", "Theme presets", "Choose a theme preset", ["theme", "preset", "appearance"], 680),
     ...maybeMockCommand("openSkills", "Skills", "Go to skills", "Open the skills surface", ["skills", "plugins"], 660),
@@ -287,9 +287,9 @@ export function buildCommandPaletteCommands(
       shortcut: shortcutLabel("openProcessManager", "Ctrl+Alt+M"),
     }),
     ...maybeMockCommand("openControlWindow", "App", "Open control window", "Open the control window", ["control", "window"], 610),
-    ...maybeMockCommand("logOut", "App", "Log out", "Log out of Codex account", ["logout", "account"], 600),
+    ...maybeMockCommand("logOut", "App", "Log out", "Log out of your account", ["logout", "account"], 600),
     ...maybeMockCommand("feedback", "App", "Feedback", "Send feedback", ["feedback", "support"], 590),
-    ...maybeMockCommand("openAvatarOverlay", "App", "Wake Pet", "Wake the Codex pet", ["pet", "avatar"], 580),
-    ...maybeMockCommand("tuckAwayPetOverlay", "App", "Tuck Away Pet", "Hide the Codex pet", ["pet", "avatar"], 570),
+    ...maybeMockCommand("openAvatarOverlay", "App", "Wake Pet", "Wake the Nodex pet", ["pet", "avatar"], 580),
+    ...maybeMockCommand("tuckAwayPetOverlay", "App", "Tuck Away Pet", "Hide the Nodex pet", ["pet", "avatar"], 570),
   ];
 }

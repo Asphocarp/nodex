@@ -164,7 +164,7 @@ The Thread-stage permission dropdown must use these exact visible labels:
 - `Custom (config.toml)`
 
 Dropdown copy:
-- Title row: `How should Codex actions be approved?`
+- Title row: `How should Nodex actions be approved?`
 - Learn-more affordance: `Learn more`
 - `Ask for approval`: `Always ask to edit external files and use the internet`
 - `Approve for me`: `Only ask for actions detected as potentially unsafe`

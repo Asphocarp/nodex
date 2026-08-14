@@ -217,13 +217,13 @@ export function buildAutomaticApprovalReviewSummary(
   const trimmedRationale = review.rationale?.trim() ?? "";
   if (trimmedRationale.length > 0) return trimmedRationale;
   if (review.status === "inProgress") {
-    return "A carefully prompted reviewer agent is reviewing this request before ChatGPT runs it";
+    return "A carefully prompted reviewer agent is reviewing this request before Nodex runs it";
   }
   if (review.status === "aborted") {
-    return "A carefully prompted reviewer agent stopped reviewing this request before ChatGPT ran it";
+    return "A carefully prompted reviewer agent stopped reviewing this request before Nodex ran it";
   }
   if (review.status === "timedOut") {
-    return "A carefully prompted reviewer agent timed out before ChatGPT ran this request";
+    return "A carefully prompted reviewer agent timed out before Nodex ran this request";
   }
   return "A carefully prompted reviewer agent reviewed this request.";
 }

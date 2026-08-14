@@ -68,7 +68,7 @@ import {
 import { ProjectMarkerPicker } from "./project-marker-picker";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 
-const PRIMARY_SOURCE_TOOLTIP = "ChatGPT will run in this folder and look inside it for AGENTS.md and skills";
+const PRIMARY_SOURCE_TOOLTIP = "Nodex will run in this folder and look inside it for AGENTS.md and skills";
 
 export interface ProjectDialogSubmitInput {
   appearance: ProjectAppearance;
@@ -253,7 +253,7 @@ export function ProjectSourcesEditor({
           onClick={() => void addFolder()}
         >
           <FolderPlusIcon className="icon-sm text-token-description-foreground" />
-          {empty ? "Add folders ChatGPT can read and edit" : "Add folder"}
+          {empty ? "Add folders Nodex can read and edit" : "Add folder"}
         </button>
       </motion.div>
     </NodexDialogBody>

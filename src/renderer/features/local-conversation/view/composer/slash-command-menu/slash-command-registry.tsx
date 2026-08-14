@@ -95,7 +95,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       onSelect: async () => {
         if (!threadId || !input.actions.onCompactThread) return;
         if (input.model.isThreadRunning) {
-          toast.danger("Wait for Codex to finish responding before compacting");
+          toast.danger("Wait for Nodex to finish responding before compacting");
           return;
         }
         await runCommand("Failed to compact thread", async () => {

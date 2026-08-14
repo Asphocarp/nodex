@@ -66,7 +66,7 @@ describe("CodexImplementPlanRequestCard", () => {
       />,
     );
     const input = view.getByPlaceholderText(
-      "No, and tell Codex what to do differently",
+      "No, and tell Nodex what to do differently",
     );
 
     await act(async () => {

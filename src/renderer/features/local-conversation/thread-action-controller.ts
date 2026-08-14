@@ -366,11 +366,11 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       });
     },
     onInterruptTurn: async (turnId) => {
-      const threadId = requireActiveThreadId(input.activeThreadId, "Stopping Codex");
+      const threadId = requireActiveThreadId(input.activeThreadId, "Stopping Nodex");
       await input.codexControl.interruptTurn(threadId, turnId);
     },
     onResumeInterruptedTurn: async () => {
-      const threadId = requireActiveThreadId(input.activeThreadId, "Resuming Codex");
+      const threadId = requireActiveThreadId(input.activeThreadId, "Resuming Nodex");
       await captureTurnOrigin(input.currentSessionId, threadId, input.projectId);
       await input.codexControl.resumeInterruptedTurn(threadId, {
         ...(input.projectId === null ? {} : { projectId: input.projectId }),

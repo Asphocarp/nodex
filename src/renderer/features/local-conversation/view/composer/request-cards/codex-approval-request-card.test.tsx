@@ -42,7 +42,7 @@ describe("CodexApprovalRequestCard", () => {
     expect(Boolean(rendered.includes("in /workspace/nodex"))).toBe(false);
     expect(Boolean(rendered.includes("Yes"))).toBe(true);
     expect(Boolean(rendered.includes("Yes, and don't ask again for commands that start with"))).toBe(true);
-    expect(Boolean(rendered.includes("No, and tell Codex what to do differently"))).toBe(true);
+    expect(Boolean(rendered.includes("No, and tell Nodex what to do differently"))).toBe(true);
     expect(Boolean(rendered.includes("Skip"))).toBe(true);
     expect(Boolean(rendered.includes("Submit"))).toBe(true);
     expect(container.querySelector(".request-input-panel__inline-freeform")).not.toBeNull();

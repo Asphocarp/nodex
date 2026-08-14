@@ -295,7 +295,7 @@ function AgentConfigPopoverBody({
   const modelHelp = visibleModels.length === 0
     ? "Model list unavailable. Existing values are preserved until changed."
     : props.model && !modelIsVisible
-      ? "This model is not currently visible from Codex."
+      ? "This model is not currently available in Nodex."
       : null;
 
   return (

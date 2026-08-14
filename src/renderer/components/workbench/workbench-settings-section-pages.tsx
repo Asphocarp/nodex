@@ -164,7 +164,7 @@ export function GeneralSettingsPage({
           label="Default permissions mode"
           description={permissionState?.mode === "full-access"
             ? FULL_ACCESS_PERMISSION_DESCRIPTION
-            : "Choose the preset used for new local Codex threads."}
+            : "Choose the preset used for new local tasks."}
         >
           <PermissionModeDropdown
             selectedMode={permissionState?.mode ?? "custom"}
@@ -625,12 +625,12 @@ export function GitSettingsPage({
   return (
     <SettingsPageSurface
       title="Git"
-      subtitle="Branch naming and instructions used by Codex for Git operations."
+      subtitle="Branch naming and instructions used by Nodex for Git operations."
     >
       <SectionBlock title="Branches">
         <SettingRow
           label="Branch prefix"
-          description="Prefix used when Codex creates new branches."
+          description="Prefix used when Nodex creates new branches."
         >
           <WorktreeAutoBranchPrefixSettingControl
             disabled={branchSaving}

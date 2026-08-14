@@ -20,7 +20,7 @@ export interface WorkbenchAutomationFirstRunSuggestion {
 }
 
 export const WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT =
-  "Let's set up a scheduled task together. First, explain how scheduled tasks work in Codex. Then interview me to figure out what I need scheduled and when it should run.";
+  "Let's set up a scheduled task together. First, explain how scheduled tasks work in Nodex. Then interview me to figure out what I need scheduled and when it should run.";
 
 export const WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS: readonly WorkbenchAutomationFirstRunSuggestion[] = [
   {
@@ -39,7 +39,7 @@ export const WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS: readonly WorkbenchAutom
     id: "project-monitor",
     iconName: "radar",
     name: "Project monitor",
-    prompt: "I want to set up a project monitor scheduled task. Briefly explain how scheduled tasks work in Codex, then ask me what project to watch, what changes matter, and when it should check in",
+    prompt: "I want to set up a project monitor scheduled task. Briefly explain how scheduled tasks work in Nodex, then ask me what project to watch, what changes matter, and when it should check in",
   },
 ];
 

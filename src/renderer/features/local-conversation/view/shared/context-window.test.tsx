@@ -19,7 +19,7 @@ describe("ContextWindowTooltipContent", () => {
     expect(view.getByText("Context window:").textContent).toBe("Context window:");
     expect(view.getByText("44% used (56% left)").textContent).toBe("44% used (56% left)");
     expect(view.getByText("113k / 258k tokens used").textContent).toBe("113k / 258k tokens used");
-    expect(view.getByText("Codex automatically compacts its context").textContent).toBe("Codex automatically compacts its context");
+    expect(view.getByText("Nodex automatically compacts its context").textContent).toBe("Nodex automatically compacts its context");
   });
 
   test("matches the Codex full branch without the auto-compaction line", () => {
@@ -37,7 +37,7 @@ describe("ContextWindowTooltipContent", () => {
 
     expect(view.getByText("71% full").textContent).toBe("71% full");
     expect(view.getByText("182k / 258k tokens used").textContent).toBe("182k / 258k tokens used");
-    expect(view.queryByText("Codex automatically compacts its context") === null).toBe(true);
+    expect(view.queryByText("Nodex automatically compacts its context") === null).toBe(true);
   });
 
   test("falls back to the Codex 0% tooltip when usage data is unavailable", () => {

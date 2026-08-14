@@ -203,7 +203,7 @@ function resolveOtherPromptLabel(question: RequestComposerQuestion): string {
   if (!question.options?.length) {
     return "Type your answer";
   }
-  return "Tell Codex what to do differently";
+  return "Tell Nodex what to do differently";
 }
 
 function resolveUserInputFocusTargetFromElement(element: Element | null): UserInputFocusTarget | null {

@@ -7682,7 +7682,7 @@ export class CodexService extends EventEmitter {
         sandbox: previous?.sandbox ?? null,
         autoReviewAvailable: previous?.autoReviewAvailable ?? false,
         configTarget,
-        customDescription: previous?.customDescription ?? "Codex will use its built-in permission defaults.",
+        customDescription: previous?.customDescription ?? "The agent will use its built-in permission defaults.",
       };
     }
 
@@ -7718,7 +7718,7 @@ export class CodexService extends EventEmitter {
       sandbox,
       autoReviewAvailable,
       configTarget,
-      customDescription: previous?.customDescription ?? "Codex will use its built-in permission defaults.",
+      customDescription: previous?.customDescription ?? "The agent will use its built-in permission defaults.",
     };
   }
 
@@ -7809,7 +7809,7 @@ export class CodexService extends EventEmitter {
 
   async getCustomPermissionModeDescription(projectId: string | null): Promise<string> {
     const state = await this.readPermissionState(projectId);
-    return state.customDescription ?? "Codex will use its built-in permission defaults.";
+    return state.customDescription ?? "The agent will use its built-in permission defaults.";
   }
 
   async setProjectPermissionMode(projectId: string | null, mode: CodexPermissionMode): Promise<CodexPermissionState> {
@@ -21424,7 +21424,7 @@ export class CodexService extends EventEmitter {
       : [...this.listKnownTurns(threadId)].reverse().find((turn) => turn.status === "inProgress") ?? null;
     const expectedTurnId = input.expectedTurnId ?? activeTurn?.turnId ?? null;
     if (!expectedTurnId) {
-      throw new Error("Codex is already running. Wait for the active turn to load or queue the follow-up instead.");
+      throw new Error("Nodex is already running. Wait for the active turn to load or queue the follow-up instead.");
     }
 
     this.logger.info("Steering Codex turn", {

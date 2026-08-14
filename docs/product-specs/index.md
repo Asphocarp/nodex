@@ -2,6 +2,7 @@
 
 | Spec | Status | Last Updated | Summary |
 |------|--------|--------------|---------|
+| brand-language.md | Active | 2026-08-14 | Product-wide Nodex naming boundary and the external ChatGPT/Codex names that remain explicit |
 | nodex-product-spec.md | Active | 2026-08-12 | Compact product promise, capability map, invariants, and routing to the narrow owning contracts |
 | product-foundations.md | Active | 2026-08-12 | First-run, Project lifecycle, Library navigation, grants, Workbench boundary, and product principles |
 | database-pages-and-views-behavior.md | Active | 2026-08-12 | Database View, Page creation, Page Stage, Property, Relation, and editor-owner behavior |

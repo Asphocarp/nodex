@@ -23,7 +23,7 @@ const READ_ONLY_PERMISSION_PROFILE_ID = ":read-only";
 const WORKSPACE_PERMISSION_PROFILE_ID = ":workspace";
 export const FULL_ACCESS_PERMISSION_PROFILE_ID = ":danger-full-access";
 const DEFAULT_CUSTOM_DESCRIPTION =
-  "No project or user Codex config was found. Codex will fall back to its built-in permission defaults.";
+  "No project or user Codex config was found. The agent runtime will fall back to its built-in permission defaults.";
 
 interface ResolvedPreset {
   preset: CodexPermissionPreset;
