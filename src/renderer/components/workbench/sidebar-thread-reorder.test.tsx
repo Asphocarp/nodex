@@ -65,6 +65,7 @@ function makeSidebarThreadPayload({
   getNextThreadId,
   getNextThreadKey,
   getPreviousThreadId,
+  itemId,
   sourceProjectKind = "local",
   targetProjectKind = "local",
   threadId,
@@ -75,6 +76,7 @@ function makeSidebarThreadPayload({
   getNextThreadId?: () => string | null;
   getNextThreadKey?: () => string | null;
   getPreviousThreadId?: () => string | null;
+  itemId?: string;
   sourceProjectKind?: "local" | "remote";
   targetProjectKind?: "local" | "remote";
   threadId: string | null;
@@ -83,6 +85,7 @@ function makeSidebarThreadPayload({
   return {
     kind: "sidebar-item",
     controller,
+    itemId,
     thread: {
       containerId,
       dragOverlay: threadKey,
@@ -535,7 +538,7 @@ describe("cross-container drag completion", () => {
     expect(externalDropCount).toBe(0);
   });
 
-  test("routes regular same-lane reorders through the semantic Thread move", async () => {
+  test("routes persisted same-lane Chats through Session order before Thread materialization", async () => {
     let dragEndCount = 0;
     let dragCancelCount = 0;
     const drops: unknown[] = [];
@@ -550,13 +553,15 @@ describe("cross-container drag completion", () => {
     const activePayload = makeSidebarThreadPayload({
       containerId: "project:alpha",
       controller,
-      threadId: "thread-beta",
+      itemId: "session-beta",
+      threadId: null,
       threadKey: "local:thread-beta",
     });
     const targetPayload = makeSidebarThreadPayload({
       containerId: "project:alpha",
       controller,
-      threadId: "thread-alpha",
+      itemId: "session-alpha",
+      threadId: null,
       threadKey: "local:thread-alpha",
     });
 
@@ -568,7 +573,7 @@ describe("cross-container drag completion", () => {
         overPayload: targetPayload,
       }),
       getThreadIdByThreadKey: () => null,
-      homeContainerIdByThreadId: new Map([["thread-beta", "project:alpha"]]),
+      homeContainerIdByThreadId: new Map(),
       onError() {},
       onThreadDrop(drop) {
         drops.push(drop);
@@ -579,15 +584,10 @@ describe("cross-container drag completion", () => {
     });
     await Promise.resolve();
 
-    expect(disposition).toBe("moved");
-    expect(dragEndCount).toBe(0);
-    expect(dragCancelCount).toBe(1);
-    expect(drops).toEqual([{
-      beforeThreadId: "thread-alpha",
-      sourceContainerId: "project:alpha",
-      targetContainerId: "project:alpha",
-      threadId: "thread-beta",
-    }]);
+    expect(disposition).toBe("reordered");
+    expect(dragEndCount).toBe(1);
+    expect(dragCancelCount).toBe(0);
+    expect(drops).toEqual([]);
   });
 
   test("does not submit or install optimistic state when a regular row returns home", async () => {

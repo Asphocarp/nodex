@@ -282,10 +282,9 @@ export function resolveComposerScopeIdentity(input: {
     : input.kind === "task"
       ? `task:${input.stableIdentity?.trim() || "unknown"}`
       : input.kind;
-  const nonce = input.focusComposerNonce ?? null;
   return {
-    identity: nonce === null ? base : `${base}:${nonce}`,
-    focusComposerNonce: nonce,
+    identity: base,
+    focusComposerNonce: input.focusComposerNonce ?? null,
   };
 }
 

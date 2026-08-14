@@ -7,7 +7,8 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
 use super::mutation::{
-    WorkspaceMutationEffects, finish_mutation, project_session_scope, workspace_event_anchor,
+    WorkspaceMutationEffects, finish_mutation, finish_no_op, project_session_scope,
+    workspace_event_anchor,
 };
 use super::session_mutation::{
     SessionInvalidationKind, finish_session_mutation, require_session, sqlite_now, validate_id,
@@ -35,6 +36,90 @@ pub(super) fn create_session(
         require_project(connection, library_id, project_id, true)?;
     }
     let title = normalize_session_title(title)?;
+    let now = insert_session_records(connection, session_id, project_id, &title, false)?;
+    finish_lifecycle_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "create_session",
+        project_id.into_iter().map(str::to_owned).collect(),
+        vec![session_id.to_owned()],
+        Vec::new(),
+        vec![project_session_scope(project_id)],
+        project_id,
+        now,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn ensure_default_draft_session(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    session_id: &str,
+    project_id: Option<&str>,
+    title: &str,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("session_id", session_id)?;
+    if let Some(project_id) = project_id {
+        validate_id("project_id", project_id)?;
+        require_project(connection, library_id, project_id, true)?;
+    }
+    let title = normalize_session_title(title)?;
+    let existing_session_id = connection
+        .query_row(
+            "SELECT id FROM project_sessions \
+             WHERE project_id IS ?1 AND is_default_draft = 1",
+            [project_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let project_ids = project_id.into_iter().map(str::to_owned).collect();
+    if let Some(existing_session_id) = existing_session_id {
+        let now = sqlite_now(connection)?;
+        return finish_no_op(
+            connection,
+            context,
+            store_epoch,
+            operation_id,
+            request_hash,
+            "ensure_default_draft_session",
+            project_ids,
+            vec![existing_session_id],
+            &now,
+        );
+    }
+    let now = insert_session_records(connection, session_id, project_id, &title, true)?;
+    finish_lifecycle_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "ensure_default_draft_session",
+        project_ids,
+        vec![session_id.to_owned()],
+        Vec::new(),
+        vec![project_session_scope(project_id)],
+        project_id,
+        now,
+    )
+}
+
+fn insert_session_records(
+    connection: &Connection,
+    session_id: &str,
+    project_id: Option<&str>,
+    title: &str,
+    is_default_draft: bool,
+) -> Result<String, StoreError> {
     if connection
         .query_row(
             "SELECT 1 FROM project_sessions WHERE id = ?1",
@@ -70,26 +155,18 @@ pub(super) fn create_session(
     connection.execute(
         "INSERT INTO project_sessions(\
            id, project_id, no_thread_fallback_title, \"order\", pinned, pinned_order, \
-           archived, archived_at, unread, \
+           archived, archived_at, unread, is_default_draft, \
            created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 0, 0, NULL, 0, NULL, 0, ?4, ?4)",
-        params![session_id, project_id, title, now],
+         ) VALUES (?1, ?2, ?3, 0, 0, NULL, 0, NULL, 0, ?4, ?5, ?5)",
+        params![
+            session_id,
+            project_id,
+            title,
+            i64::from(is_default_draft),
+            now
+        ],
     )?;
-    finish_lifecycle_mutation(
-        connection,
-        library_id,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        "create_session",
-        project_id.into_iter().map(str::to_owned).collect(),
-        vec![session_id.to_owned()],
-        Vec::new(),
-        vec![project_session_scope(project_id)],
-        project_id,
-        now,
-    )
+    Ok(now)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -158,6 +235,21 @@ pub(super) fn move_session(
             SessionInvalidationKind::None,
             now,
         );
+    }
+    if authority.is_default_draft {
+        let target_has_default = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM project_sessions \
+             WHERE project_id IS ?1 AND is_default_draft = 1 AND id <> ?2)",
+            params![project_id, session_id],
+            |row| row.get::<_, i64>(0),
+        )? == 1;
+        if target_has_default {
+            return Err(StoreError::new(
+                StoreErrorCode::Conflict,
+                "Target scope already owns a default-draft Project Session",
+                false,
+            ));
+        }
     }
     let next_pinned_order = if authority.pinned {
         Some(
@@ -294,6 +386,7 @@ pub(super) fn reorder_sessions(
                 pinned_order += 1;
             }
         }
+        super::sidebar::replace_lane_with_session_order(connection, project_id, &now)?;
     }
     finish_lifecycle_mutation(
         connection,

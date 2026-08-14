@@ -55,7 +55,7 @@ function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadAct
     },
     onOpenThread: () => {},
     onOpenTurnDiffReview: () => {},
-    onEnsureBlankSessionForProject: async () => ({ id: "session_1" }) as never,
+    onEnsureDefaultDraftSessionForProject: async () => ({ id: "session_1" }) as never,
     onRefreshProjectSessions: async () => [],
     onQueueingEnabledChange: () => {},
     onNewThreadProjectChange: () => {},
@@ -303,7 +303,7 @@ describe("createThreadStageActions settings routing", () => {
         }),
       } as unknown as ThreadActionControllerInput["codexControl"],
       currentSessionProjectId: "project_1",
-      onEnsureBlankSessionForProject: async () => ({ id: "session_2" }) as never,
+      onEnsureDefaultDraftSessionForProject: async () => ({ id: "session_2" }) as never,
       onOpenPendingWorktree: (clientThreadId, projectSessionId) => {
         calls.push(`open:${clientThreadId}:${projectSessionId}`);
       },
@@ -478,6 +478,9 @@ describe("createThreadStageActions settings routing", () => {
         events.push("materialize:draft-1");
         return { id: "session-real", projectId: "project_1" } as never;
       },
+      onCommitMaterializedProjectDraft: ({ sessionId }) => {
+        events.push(`commit:${sessionId}`);
+      },
       onRefreshProjectSessions: async () => {
         events.push("refresh:project_1");
         return [];
@@ -504,7 +507,10 @@ describe("createThreadStageActions settings routing", () => {
     expect(first).toBe(duplicate);
     releaseStart();
     await Promise.all([first, duplicate]);
-    expect(events.at(-1)).toBe("refresh:project_1");
+    expect(events.slice(-2)).toEqual([
+      "commit:session-real",
+      "refresh:project_1",
+    ]);
     expect(invokeMock).toHaveBeenCalledWith("browser-sidebar-command", {
       type: "capture-browser-use-route",
       browserConversationId: "session-real",
@@ -582,7 +588,7 @@ describe("createThreadStageActions settings routing", () => {
       cleanupThreadGoalMaterializedDraft: async (materialized) => {
         cleaned.push(materialized);
       },
-      onEnsureBlankSessionForProject: async () => {
+      onEnsureDefaultDraftSessionForProject: async () => {
         throw new Error("blank session failed");
       },
     });

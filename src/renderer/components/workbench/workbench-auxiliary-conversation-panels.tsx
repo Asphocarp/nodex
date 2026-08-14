@@ -106,7 +106,7 @@ export function BackgroundAgentSessionTab({
   const actions = useMemo(() => createThreadStageActions({
     activeThreadId: tab.threadId,
     codexControl,
-    onEnsureBlankSessionForProject: async () => activeSession,
+    onEnsureDefaultDraftSessionForProject: async () => activeSession,
     onRefreshProjectSessions: (projectId) =>
       projectId === null
         ? Promise.resolve([])
@@ -424,7 +424,7 @@ export function SideChatSessionTab({
   const actions = useMemo(() => createThreadStageActions({
     activeThreadId: tab.threadId,
     codexControl,
-    onEnsureBlankSessionForProject: async () => activeSession,
+    onEnsureDefaultDraftSessionForProject: async () => activeSession,
     onRefreshProjectSessions: onRefreshSessions,
     onQueueingEnabledChange,
     onOpenThread,

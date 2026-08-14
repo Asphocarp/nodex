@@ -42,11 +42,26 @@ the parent conversation.
 
 ## Starting and resuming
 
-Opening `New chat` creates only a Window-scoped draft. First submit creates or
-reuses exactly one Session, starts the Thread and first Turn, and links them.
-The initiating window keeps the draft surface until the canonical conversation
-and optimistic first user Turn are visible; a durable Thread link alone never
-causes a misleading empty transcript.
+Opening an ordinary `New chat` atomically ensures and selects the one durable
+default-draft Session for that Project, or the separate projectless scope.
+Repeated New Chat actions return that exact Session, including its existing
+composer, attachments, Scenes, and Terminal tabs. Explicit Page-backed, fork,
+and externally materialized threadless Sessions are ordinary Chats and are not
+eligible for this reuse.
+The default-draft role does not reserve a visual slot: the Session participates
+in the same persistent Project or projectless Chat order as every other Chat.
+Dragging it changes that Session order, and first Thread attachment preserves
+the chosen position.
+
+First submit starts the Thread and first Turn on the same Session and links them.
+Core refuses to replace an existing link with a different Thread, so concurrent
+first sends have one winner and Main removes the losing unlinked app-server
+Thread.
+The successful link graduates that Session from the default slot; archiving the
+draft also releases the slot, while restore and unlink do not reclaim it. The
+initiating window keeps the draft surface until the canonical conversation and
+optimistic first user Turn are visible; a durable Thread link alone never causes
+a misleading empty transcript.
 
 A direct local Project Chat runs from the primary source when present and a
 generated per-Chat workspace otherwise. `New worktree` requires a primary Git
@@ -109,7 +124,9 @@ watcher refresh, and explicit external-change conflict presentation.
 Terminal PTYs start from the Chat cwd or Project primary source and have one
 active Window Session input lease. Moving or closing a presentation does not
 silently kill the PTY; explicit kill, backend exit, Project cleanup, and app
-shutdown own termination.
+shutdown own termination. Before first send, a Session Terminal uses the real
+Project Session identity with no conversation identity; Thread attachment may
+add the real Thread association without replacing the PTY.
 
 The native PiP layer is Desktop-Host presentation, not transcript or Scene
 authority. It is shown only for a real active stream and is dismissed by the

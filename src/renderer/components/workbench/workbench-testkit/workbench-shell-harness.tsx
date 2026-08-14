@@ -1031,6 +1031,21 @@ vi.mock("../workbench-database-view-surface", () => ({
   },
 }));
 
+vi.mock("../workbench-db-view-panel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../workbench-db-view-panel")>();
+  return {
+    ...actual,
+    DbViewSessionTab: (
+      props: ComponentProps<typeof actual.DbViewSessionTab>,
+    ) => {
+      (globalThis as {
+        __lastDbViewSessionTabProps?: Record<string, unknown>;
+      }).__lastDbViewSessionTabProps = props as unknown as Record<string, unknown>;
+      return createElement(actual.DbViewSessionTab, props);
+    },
+  };
+});
+
 export const MockOwnedBlockDocumentBoundary = ({
   accessContext,
   ownerBlockId,
@@ -2044,6 +2059,7 @@ export function renderWorkbench({
   codexModels = DEFAULT_TEST_CODEX_MODELS,
   pendingWorktrees = [],
   libraryRoots = [],
+  defaultDraftSessionIdsByScope = {},
   initialWindowLayoutSnapshot,
 }: {
   projects?: Project[];
@@ -2076,6 +2092,7 @@ export function renderWorkbench({
   codexModels?: CodexModelOption[];
   pendingWorktrees?: readonly CodexPendingWorktreeEntry[];
   libraryRoots?: readonly LibraryNavigationNode[];
+  defaultDraftSessionIdsByScope?: Readonly<Record<string, string>>;
   initialWindowLayoutSnapshot?: WorkbenchLayoutSnapshot;
 } = {}) {
   const resolvedInitialSelectedSessionId = initialSelectedSessionId === undefined
@@ -2168,6 +2185,40 @@ export function renderWorkbench({
   let sessionState = projectlessSessions.length > 0
     ? { ...sessionsByProject, [projectlessSessionStateKey]: projectlessSessions }
     : sessionsByProject;
+  const defaultDraftSessionIds = new Map(
+    Object.entries(defaultDraftSessionIdsByScope),
+  );
+  const createdSessionCountsByScope = new Map<string, number>();
+  const createMockSession = (input: {
+    projectId: string | null;
+    noThreadFallbackTitle?: string;
+  }): ProjectSession => {
+    const sessionStateKey = input.projectId ?? projectlessSessionStateKey;
+    const existingSessions = sessionState[sessionStateKey] ?? [];
+    const shiftedSessions = existingSessions.map((session) => (
+      session.order >= 0 ? { ...session, order: session.order + 1 } : session
+    ));
+    const createdSessionSequence = (createdSessionCountsByScope.get(sessionStateKey) ?? 0) + 1;
+    createdSessionCountsByScope.set(sessionStateKey, createdSessionSequence);
+    const createdIdBase = `session:${input.projectId ?? "projectless"}:created`;
+    const session = makeSession({
+      id: createdSessionSequence === 1
+        ? createdIdBase
+        : `${createdIdBase}:${createdSessionSequence}`,
+      projectId: input.projectId,
+      noThreadFallbackTitle: input.noThreadFallbackTitle ?? "New chat",
+      displayTitle: input.noThreadFallbackTitle ?? "New chat",
+      order: 0,
+      thread: null,
+      tabs: [],
+      panels: makePanels({ rightCollapsed: true }),
+    });
+    sessionState = {
+      ...sessionState,
+      [sessionStateKey]: sortProjectSessionsForTest([...shiftedSessions, session]),
+    };
+    return session;
+  };
   let sidebarItemState = sidebarSnapshotItems;
   const runNowAutomationIds: string[] = [];
   const buildSidebarSnapshot = () => ({
@@ -2326,6 +2377,25 @@ export function renderWorkbench({
       return Object.values(sessionState)
         .flat()
         .find((session) => session.id === sessionId) ?? null;
+    }
+    if (channel === "project-sessions:reorder") {
+      const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
+      const orderedSessionIds = (args[1] as readonly string[]) ?? [];
+      const current = sessionState[projectId] ?? [];
+      const currentById = new Map(current.map((session) => [session.id, session] as const));
+      const seen = new Set<string>();
+      const ordered = orderedSessionIds.flatMap((sessionId) => {
+        const session = currentById.get(sessionId);
+        if (!session || seen.has(sessionId)) return [];
+        seen.add(sessionId);
+        return [session];
+      });
+      ordered.push(...current.filter((session) => !seen.has(session.id)));
+      sessionState = {
+        ...sessionState,
+        [projectId]: ordered.map((session, order) => ({ ...session, order })),
+      };
+      return undefined;
     }
     if (channel === "codex:sidebar:snapshot") {
       return buildSidebarSnapshot();
@@ -2849,6 +2919,10 @@ export function renderWorkbench({
           : session.thread,
       };
       sessionState = replaceSession(sessionState, updated);
+      const scope = session.projectId ?? projectlessSessionStateKey;
+      if (defaultDraftSessionIds.get(scope) === sessionId) {
+        defaultDraftSessionIds.delete(scope);
+      }
       sidebarItemState = sidebarItemState.filter((item) => (
         item.sessionId !== sessionId && item.threadId !== session.thread?.threadId
       ));
@@ -2960,28 +3034,24 @@ export function renderWorkbench({
     }
     if (channel === "project-sessions:create") {
       const input = (args[0] ?? {}) as { projectId: string | null; noThreadFallbackTitle?: string };
-      const sessionStateKey = input.projectId ?? projectlessSessionStateKey;
-      const existingSessions = sessionState[sessionStateKey] ?? [];
-      const insertOrder = 0;
-      const shiftedSessions = existingSessions.map((session) => (
-        session.order >= insertOrder
-          ? { ...session, order: session.order + 1 }
-          : session
-      ));
-      const session = makeSession({
-        id: `session:${input.projectId ?? "projectless"}:created`,
-        projectId: input.projectId,
-        noThreadFallbackTitle: input.noThreadFallbackTitle ?? "New thread",
-        displayTitle: input.noThreadFallbackTitle ?? "New thread",
-        order: insertOrder,
-        thread: null,
-        tabs: [],
-        panels: makePanels({ rightCollapsed: true }),
+      return createMockSession(input);
+    }
+    if (channel === "project-sessions:ensure-default-draft") {
+      const projectId = (args[0] ?? null) as string | null;
+      const scope = projectId ?? projectlessSessionStateKey;
+      const existingId = defaultDraftSessionIds.get(scope);
+      const existing = existingId
+        ? (sessionState[scope] ?? []).find((session) => (
+            session.id === existingId && !session.archived && !session.thread
+          ))
+        : null;
+      if (existing) return existing;
+      defaultDraftSessionIds.delete(scope);
+      const session = createMockSession({
+        projectId,
+        noThreadFallbackTitle: "New chat",
       });
-      sessionState = {
-        ...sessionState,
-        [sessionStateKey]: sortProjectSessionsForTest([...shiftedSessions, session]),
-      };
+      defaultDraftSessionIds.set(scope, session.id);
       return session;
     }
     if (channel === "window-session-view:tab-create") {
@@ -3495,6 +3565,9 @@ beforeEach(() => {
   delete (globalThis as {
     __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
   }).__lastWorkbenchDatabaseViewSurfaceProps;
+  delete (globalThis as {
+    __lastDbViewSessionTabProps?: Record<string, unknown>;
+  }).__lastDbViewSessionTabProps;
   delete (globalThis as { __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>> }).__mockPageStagePropsByPageId;
   delete (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks;
   delete (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks;

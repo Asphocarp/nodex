@@ -84,7 +84,9 @@ describe("workbench session shell / Project Agent Dock", () => {
 
     expect(screen.getByLabelText("Connected chat: New chat") !== null).toBe(true);
     expect(screen.getByLabelText("Project Agent Dock prompt") !== null).toBe(true);
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:create"))
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:ensure-default-draft"
+    )))
       .toBe(false);
   });
 
@@ -142,7 +144,9 @@ describe("workbench session shell / Project Agent Dock", () => {
     });
 
     await waitFor(() => {
-      expect(invokeCalls.filter((call) => call[0] === "project-sessions:create"))
+      expect(invokeCalls.filter((call) => (
+        call[0] === "project-sessions:ensure-default-draft"
+      )))
         .toHaveLength(1);
       expect(startThreadForSessionCalls).toHaveLength(1);
     });

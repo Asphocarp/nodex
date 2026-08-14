@@ -875,4 +875,126 @@ describe("useWorkbenchSessionCatalog", () => {
       projectId: null,
     });
   });
+
+  test("ensures the Core-owned default draft without scanning ordinary threadless Sessions", async () => {
+    const ordinary = makeSummary("session:page-chat", "alpha", {
+      displayTitle: "Page workspace",
+    });
+    const ensured = makeSummary("session:default", "alpha", {
+      noThreadFallbackTitle: "New chat",
+      displayTitle: "New chat",
+    }) as ProjectSession;
+    invokeMock.mockImplementation((channel: string, ...args: unknown[]) => {
+      if (channel === "workspace:tasks:list") {
+        return Promise.resolve(makeWindow([ordinary]));
+      }
+      if (channel === "project-sessions:ensure-default-draft") {
+        expect(args).toEqual(["alpha"]);
+        return Promise.resolve(ensured);
+      }
+      throw new Error(`Unexpected channel: ${channel}`);
+    });
+    const window = makeWindowPort({ kind: "project", projectId: "alpha" });
+    const { client, hook } = createHarness(window);
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state.kind)
+        .toBe("ready");
+    });
+
+    let presentation!: Awaited<ReturnType<
+      typeof hook.result.current.ensureDefaultDraft
+    >>;
+    await act(async () => {
+      presentation = await hook.result.current.ensureDefaultDraft("alpha");
+    });
+
+    expect(presentation.domain.id).toBe("session:default");
+    expect(client.getQueryData<ProjectSession>(
+      queryKeys.projectSessions.detail("session:default"),
+    )?.id).toBe("session:default");
+    expect(invokeMock.mock.calls.some(([channel]) => (
+      channel === "project-sessions:get"
+    ))).toBe(false);
+  });
+
+  test("commits canonical Session order for a pre-thread New Chat", async () => {
+    const chat = makeSummary("session:chat", "alpha", { order: 0 });
+    const draft = makeSummary("session:draft", "alpha", {
+      displayTitle: "New chat",
+      order: 1,
+    });
+    let canonical = [chat, draft];
+    let projectionRevision = 1;
+    invokeMock.mockImplementation((channel: string, ...args: unknown[]) => {
+      if (channel === "workspace:tasks:list") {
+        return Promise.resolve(makeWindow(canonical, { projectionRevision }));
+      }
+      if (channel === "project-sessions:reorder") {
+        expect(args).toEqual(["alpha", ["session:draft", "session:chat"]]);
+        canonical = [
+          { ...draft, order: 0 },
+          { ...chat, order: 1 },
+        ];
+        projectionRevision += 1;
+        return Promise.resolve();
+      }
+      throw new Error(`Unexpected channel: ${channel}`);
+    });
+    const { hook } = createHarness(
+      makeWindowPort({ kind: "project", projectId: "alpha" }),
+    );
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.presentations)
+        .toHaveLength(2);
+    });
+
+    await act(async () => {
+      await hook.result.current.reorder("alpha", ["session:draft", "session:chat"]);
+    });
+
+    await waitFor(() => {
+      expect(
+        hook.result.current.collectionsByProject.alpha.presentations
+          .map((presentation) => presentation.domain.id),
+      ).toEqual(["session:draft", "session:chat"]);
+    });
+  });
+
+  test("creates explicitly ordinary Sessions with the caller's title snapshot", async () => {
+    const created = makeSummary("session:page-chat", "alpha", {
+      noThreadFallbackTitle: "Roadmap",
+      displayTitle: "Roadmap",
+    }) as ProjectSession;
+    invokeMock.mockImplementation((channel: string, ...args: unknown[]) => {
+      if (channel === "workspace:tasks:list") {
+        return Promise.resolve(makeWindow([]));
+      }
+      if (channel === "project-sessions:create") {
+        expect(args).toEqual([{
+          projectId: "alpha",
+          noThreadFallbackTitle: "Roadmap",
+        }]);
+        return Promise.resolve(created);
+      }
+      throw new Error(`Unexpected channel: ${channel}`);
+    });
+    const window = makeWindowPort({ kind: "project", projectId: "alpha" });
+    const { hook } = createHarness(window);
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state.kind)
+        .toBe("ready");
+    });
+
+    let presentation!: Awaited<ReturnType<
+      typeof hook.result.current.createOrdinarySession
+    >>;
+    await act(async () => {
+      presentation = await hook.result.current.createOrdinarySession(
+        "alpha",
+        "Roadmap",
+      );
+    });
+
+    expect(presentation.domain.id).toBe("session:page-chat");
+  });
 });

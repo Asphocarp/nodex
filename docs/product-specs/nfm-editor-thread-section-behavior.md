@@ -197,7 +197,7 @@ Each section may optionally be bound to one Codex thread via the `thread` attrib
 
 If the section has no bound thread, clicking `Send` or pressing `Cmd/Ctrl+Enter` while inside that section:
 - opens the shared `Send to chat` thread picker
-- selecting `New chat / This session` starts a session-owned thread in the current empty session; selecting the bottom `New chat / This project` reuses or creates a blank session for the current project
+- selecting `New chat / This session` starts a session-owned thread in the current empty session; selecting the bottom `New chat / This project` atomically ensures the Project's Core-owned default-draft Chat
 - selecting an existing thread sends the section prompt to that thread
 - uses the section prompt body as the initial prompt
 - writes the selected or returned thread id into the section marker's `thread` attribute after a successful send

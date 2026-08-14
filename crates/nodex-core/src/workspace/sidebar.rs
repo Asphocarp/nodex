@@ -143,7 +143,13 @@ pub(super) fn move_thread(
             if let Some(roots) = runtime_workspace_roots {
                 super::execution::replace_writable_roots_records(connection, thread_id, roots)?;
             }
-            update_thread_lane_rank(connection, thread_id, target_project_id, placement)
+            update_thread_lane_rank(
+                connection,
+                thread_id,
+                &owner.session_id,
+                target_project_id,
+                placement,
+            )
         },
     )
 }
@@ -216,6 +222,32 @@ fn require_project(
 
 fn project_lane_scope(project_id: &str) -> String {
     format!("project:{project_id}")
+}
+
+pub(super) fn replace_lane_with_session_order(
+    connection: &Connection,
+    project_id: Option<&str>,
+    now: &str,
+) -> Result<(), StoreError> {
+    let (scope_key, lane_kind) = project_id.map_or_else(
+        || ("projectless".to_owned(), "projectless"),
+        |project_id| (project_lane_scope(project_id), "project"),
+    );
+    connection.execute(
+        "INSERT INTO workspace_sidebar_lanes(
+           scope_key, lane_kind, project_id, order_mode, revision, updated_at
+         ) VALUES (?1, ?2, ?3, 'manual', 1, ?4)
+         ON CONFLICT(scope_key) DO UPDATE SET
+           order_mode = 'manual',
+           revision = workspace_sidebar_lanes.revision + 1,
+           updated_at = excluded.updated_at",
+        params![scope_key, lane_kind, project_id, now],
+    )?;
+    connection.execute(
+        "DELETE FROM workspace_sidebar_positions WHERE scope_key = ?1",
+        [scope_key],
+    )?;
+    Ok(())
 }
 
 fn write_lane_order(
@@ -415,6 +447,7 @@ fn move_thread_membership(
 fn update_thread_lane_rank(
     connection: &Connection,
     moved_thread_id: &str,
+    moved_session_id: &str,
     target_project_id: Option<&str>,
     placement: &ProjectWorkspaceThreadPlacement,
 ) -> Result<(), StoreError> {
@@ -434,6 +467,23 @@ fn update_thread_lane_rank(
         [moved_thread_id],
     )?;
 
+    for scope_key in removed_scopes
+        .iter()
+        .filter(|scope_key| scope_key.as_str() != target_scope)
+    {
+        bump_lane_revision(connection, scope_key, &now)?;
+    }
+
+    if lane_uses_session_order(connection, &target_scope)? {
+        return update_session_lane_order_for_thread_move(
+            connection,
+            moved_session_id,
+            target_project_id,
+            placement,
+            &now,
+        );
+    }
+
     if matches!(placement, ProjectWorkspaceThreadPlacement::Default) {
         let mut changed_scopes = removed_scopes.into_iter().collect::<BTreeSet<_>>();
         if lane_is_manual(connection, &target_scope)? {
@@ -443,13 +493,6 @@ fn update_thread_lane_rank(
             bump_lane_revision(connection, &scope_key, &now)?;
         }
         return Ok(());
-    }
-
-    for scope_key in removed_scopes
-        .iter()
-        .filter(|scope_key| scope_key.as_str() != target_scope)
-    {
-        bump_lane_revision(connection, scope_key, &now)?;
     }
 
     if !lane_is_manual(connection, &target_scope)?
@@ -490,6 +533,87 @@ fn update_thread_lane_rank(
         params![target_scope, moved_thread_id, rank, revision, now],
     )?;
     Ok(())
+}
+
+fn lane_uses_session_order(connection: &Connection, scope_key: &str) -> Result<bool, StoreError> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM workspace_sidebar_lanes lane
+           WHERE lane.scope_key = ?1
+             AND lane.order_mode = 'manual'
+             AND NOT EXISTS (
+               SELECT 1 FROM workspace_sidebar_positions position
+               WHERE position.scope_key = lane.scope_key
+             )
+         )",
+        [scope_key],
+        |row| row.get::<_, i64>(0),
+    )? != 0)
+}
+
+fn update_session_lane_order_for_thread_move(
+    connection: &Connection,
+    moved_session_id: &str,
+    target_project_id: Option<&str>,
+    placement: &ProjectWorkspaceThreadPlacement,
+    now: &str,
+) -> Result<(), StoreError> {
+    if matches!(placement, ProjectWorkspaceThreadPlacement::Default) {
+        return replace_lane_with_session_order(connection, target_project_id, now);
+    }
+
+    let mut current = connection
+        .prepare(
+            "SELECT id FROM project_sessions
+             WHERE project_id IS ?1 AND archived = 0
+             ORDER BY \"order\", created_at, id",
+        )?
+        .query_map([target_project_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    current.retain(|session_id| session_id != moved_session_id);
+    let anchor_session_id = match placement {
+        ProjectWorkspaceThreadPlacement::Before { thread_id }
+        | ProjectWorkspaceThreadPlacement::After { thread_id } => Some(
+            connection
+                .query_row(
+                    "SELECT link.session_id
+                     FROM project_session_threads link
+                     JOIN project_sessions session ON session.id = link.session_id
+                     WHERE link.thread_id = ?1 AND session.project_id IS ?2",
+                    params![thread_id, target_project_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .ok_or_else(|| conflict("Thread placement anchor is no longer in its lane"))?,
+        ),
+        ProjectWorkspaceThreadPlacement::Start
+        | ProjectWorkspaceThreadPlacement::End
+        | ProjectWorkspaceThreadPlacement::Default => None,
+    };
+    let insertion_index = match placement {
+        ProjectWorkspaceThreadPlacement::Start => 0,
+        ProjectWorkspaceThreadPlacement::End => current.len(),
+        ProjectWorkspaceThreadPlacement::Before { .. } => current
+            .iter()
+            .position(|session_id| Some(session_id) == anchor_session_id.as_ref())
+            .ok_or_else(|| conflict("Thread placement anchor is no longer in its lane"))?,
+        ProjectWorkspaceThreadPlacement::After { .. } => current
+            .iter()
+            .position(|session_id| Some(session_id) == anchor_session_id.as_ref())
+            .map(|index| index + 1)
+            .ok_or_else(|| conflict("Thread placement anchor is no longer in its lane"))?,
+        ProjectWorkspaceThreadPlacement::Default => unreachable!("handled above"),
+    };
+    current.insert(insertion_index, moved_session_id.to_owned());
+    for (order, session_id) in current.iter().enumerate() {
+        let order =
+            i64::try_from(order).map_err(|_| invalid("Project Session order exceeds its bound"))?;
+        connection.execute(
+            "UPDATE project_sessions SET \"order\" = ?1, updated_at = ?2 WHERE id = ?3",
+            params![order, now, session_id],
+        )?;
+    }
+    replace_lane_with_session_order(connection, target_project_id, now)
 }
 
 fn lane_is_manual(connection: &Connection, scope_key: &str) -> Result<bool, StoreError> {

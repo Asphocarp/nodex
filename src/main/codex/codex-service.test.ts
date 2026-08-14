@@ -9213,6 +9213,71 @@ describe("codex-service hooks settings", () => {
 
 describe("codex-service startThreadForSession", () => {
 
+  test("rejects a second Thread start for an already linked Session", async () => {
+    const sessionId = "session-already-linked";
+    const threadId = "thread-already-linked";
+    const projectWorkspace = {
+      ...createTestProjectWorkspace(),
+      getProjectSession: async (candidateSessionId: string): Promise<ProjectSession | null> => (
+        candidateSessionId === sessionId
+          ? {
+              id: sessionId,
+              projectId: "alpha",
+              noThreadFallbackTitle: "Existing chat",
+              displayTitle: "Existing chat",
+              order: 0,
+              pinned: false,
+              pinnedOrder: null,
+              archived: false,
+              archivedAt: null,
+              unread: false,
+              thread: {
+                sessionId,
+                projectId: "alpha",
+                threadId,
+                threadPreview: "Existing chat",
+                modelProvider: "openai",
+                executionHostId: "local",
+                statusType: "idle",
+                statusActiveFlags: [],
+                archived: false,
+                createdAt: 1,
+                updatedAt: 1,
+                linkedAt: "2026-08-15T00:00:00.000Z",
+              },
+              createdAt: "2026-08-15T00:00:00.000Z",
+              updatedAt: "2026-08-15T00:00:00.000Z",
+            }
+          : null
+      ),
+    } as DesktopProjectWorkspacePort;
+    const service = createService({ projectWorkspace });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: string[] = [];
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      requests.push(method);
+      throw new Error(`Unexpected request: ${method}`);
+    };
+
+    try {
+      await expect(service.startThreadForSession({
+        projectId: "alpha",
+        sessionId,
+        prompt: "Do not create another Thread",
+        runInTarget: "localProject",
+      })).rejects.toThrow(
+        `Project session is already linked to Codex thread: ${threadId}`,
+      );
+      expect(requests).toEqual([]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("generates thread title through structured thread/start and turn/start flow", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {

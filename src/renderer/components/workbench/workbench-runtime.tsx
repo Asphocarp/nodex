@@ -1121,35 +1121,33 @@ export function WorkbenchRuntime({
   }): Promise<ProjectSessionDomain> => projectAgentDockMaterializer.materialize(
     input,
     {
-      createBlank: async (projectId) => (
-        await sessionCatalogRef.current.createBlank(projectId)
+      ensureDefaultDraft: async (projectId) => (
+        await sessionCatalogRef.current.ensureDefaultDraft(projectId)
       ).domain,
-      promoteDraftIdentity: ({ draftId, sessionId }) => {
-        threadScopeIdentityRegistry.register(`draft:${draftId}`, {
-          draftId,
-          projectSessionId: sessionId,
-        });
-      },
-      commitMaterializedSession: ({ projectId, draftId, sessionId }) => {
-        const owner = { kind: "project", projectId } as const;
-        workbenchWindowRef.current.setScene(owner, (stored) => {
-          const scene = stored ?? materializeInitialWorkbenchScene(owner);
-          const dock = scene.agentDock;
-          if (!dock || dock.newDraftId !== draftId) return scene;
-          return {
-            ...scene,
-            agentDock: {
-              ...dock,
-              newDraftId: createProjectAgentDockDraftId(),
-              binding: dock.binding.kind === "new"
-                ? { kind: "session", sessionId }
-                : dock.binding,
-            },
-          };
-        }, { recordHistory: false });
-      },
     },
-  ), [projectAgentDockMaterializer, threadScopeIdentityRegistry]);
+  ), [projectAgentDockMaterializer]);
+  const commitMaterializedProjectAgentDockDraft = useCallback((input: {
+    readonly projectId: string;
+    readonly draftId: string;
+    readonly sessionId: string;
+  }) => {
+    const owner = { kind: "project", projectId: input.projectId } as const;
+    workbenchWindowRef.current.setScene(owner, (stored) => {
+      const scene = stored ?? materializeInitialWorkbenchScene(owner);
+      const dock = scene.agentDock;
+      if (!dock || dock.newDraftId !== input.draftId) return scene;
+      return {
+        ...scene,
+        agentDock: {
+          ...dock,
+          newDraftId: createProjectAgentDockDraftId(),
+          binding: dock.binding.kind === "new"
+            ? { kind: "session", sessionId: input.sessionId }
+            : dock.binding,
+        },
+      };
+    }, { recordHistory: false });
+  }, []);
   useEffect(() => {
     if (!selectedProjectSceneId || !projectAgentDockBoundSessionId) return;
     if (!projectAgentDockSessionQuery.isSuccess) return;
@@ -2175,7 +2173,7 @@ export function WorkbenchRuntime({
     setProcessManagerOpen,
   });
   const {
-    ensureBlankSessionForProject,
+    ensureDefaultDraftSessionForProject,
     startNewChatInProject,
     startNewChatWithPrompt,
     openScheduledAutomationChatCreate,
@@ -2976,14 +2974,14 @@ export function WorkbenchRuntime({
       entry,
       new Set(projects.map((project) => project.id)),
     );
-    const session = await ensureBlankSessionForProject(targetProjectId);
+    const session = await ensureDefaultDraftSessionForProject(targetProjectId);
     setSettingsPath(null);
     setAutomationsPath(null);
     setNewThreadComposerIntentsBySessionId((current) => ({
       ...current,
       [session.id]: buildCancelledPendingWorktreeComposerIntent(entry, Date.now()),
     }));
-  }, [ensureBlankSessionForProject, projects, setAutomationsPath, setSettingsPath]);
+  }, [ensureDefaultDraftSessionForProject, projects, setAutomationsPath, setSettingsPath]);
   const {
     automationsRouteShell,
     pendingWorktreeRouteShell,
@@ -3273,7 +3271,7 @@ export function WorkbenchRuntime({
               targetLeafId: activeProjectScene.panels.bottom.layout.activeLeafId,
             });
           }}
-          onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+          onEnsureDefaultDraftSessionForProject={ensureDefaultDraftSessionForProject}
           onRefreshSessions={refreshProjectSessions}
           onOpenPageTab={openProjectScenePage}
           onOpenCanvasStage={openProjectSceneCanvas}
@@ -3460,7 +3458,7 @@ export function WorkbenchRuntime({
     activeProjectScene,
     activeSearchQuery,
     bottomPanelMotion.animatedSize,
-    ensureBlankSessionForProject,
+    ensureDefaultDraftSessionForProject,
     onLeavePageStage,
     openAttachedThreadSessionById,
     openBrowserSettings,
@@ -3975,8 +3973,9 @@ export function WorkbenchRuntime({
             : null
         }
         onMaterializeProjectDraft={materializeProjectAgentDockDraft}
+        onCommitMaterializedProjectDraft={commitMaterializedProjectAgentDockDraft}
         onRefreshProjectSessions={refreshProjectSessions}
-        onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+        onEnsureDefaultDraftSessionForProject={ensureDefaultDraftSessionForProject}
         onOpenPendingWorktree={(clientThreadId, projectSessionId) => {
           promoteThreadScopeToPending(
             threadScopeIdentityRegistry,
@@ -4136,8 +4135,8 @@ export function WorkbenchRuntime({
           threadBodyVisible:
             !activeSessionPanelModel.rightPanelFullWidth,
           onRefreshProjectSessions: refreshProjectSessions,
-          onEnsureBlankSessionForProject:
-            ensureBlankSessionForProject,
+          onEnsureDefaultDraftSessionForProject:
+            ensureDefaultDraftSessionForProject,
           onStartNewChatWithPrompt: startNewChatWithPrompt,
           onOpenPendingWorktree:
             setPendingWorktreeClientThreadId,
@@ -4299,6 +4298,7 @@ export function WorkbenchRuntime({
     onReorderProjects,
     onSetProjectPinned,
     onSetPinnedProjectOrder,
+    onReorderSessions: sessionCatalog.reorder,
     onMoveSidebarThread: moveSidebarThreadForSidebar,
     onReorderPinnedThreads: reorderPinnedSidebarThreads,
     onOpenSettings: openSettings,

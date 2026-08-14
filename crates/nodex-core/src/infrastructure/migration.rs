@@ -2439,6 +2439,52 @@ fn validate_v124_thread_execution_hosts(connection: &Connection) -> Result<(), S
     Ok(())
 }
 
+fn ensure_v125_default_draft_sessions(connection: &Connection) -> Result<(), StoreError> {
+    let column_count: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('project_sessions') \
+         WHERE name = 'is_default_draft'",
+        [],
+        |row| row.get(0),
+    )?;
+    if column_count == 0 {
+        connection.execute_batch(
+            "ALTER TABLE project_sessions \
+             ADD COLUMN is_default_draft INTEGER NOT NULL DEFAULT 0 \
+             CHECK (is_default_draft IN (0, 1));",
+        )?;
+    } else if column_count != 1 {
+        return Err(corrupt("Project Session default-draft column is ambiguous"));
+    }
+    connection.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_default_draft_project \
+           ON project_sessions(project_id) \
+           WHERE is_default_draft = 1 AND project_id IS NOT NULL; \
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_default_draft_projectless \
+           ON project_sessions(is_default_draft) \
+           WHERE is_default_draft = 1 AND project_id IS NULL;",
+    )?;
+    validate_v125_default_draft_sessions(connection)
+}
+
+fn validate_v125_default_draft_sessions(connection: &Connection) -> Result<(), StoreError> {
+    let invalid: i64 = connection.query_row(
+        "SELECT count(*) FROM project_sessions session \
+         WHERE session.is_default_draft NOT IN (0, 1) \
+            OR (session.is_default_draft = 1 AND session.archived <> 0) \
+            OR (session.is_default_draft = 1 AND EXISTS (\
+              SELECT 1 FROM project_session_threads link WHERE link.session_id = session.id\
+            ))",
+        [],
+        |row| row.get(0),
+    )?;
+    if invalid != 0 {
+        return Err(corrupt(format!(
+            "v125 Store contains {invalid} invalid default-draft Project Sessions"
+        )));
+    }
+    Ok(())
+}
+
 pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
@@ -2472,6 +2518,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v119_library_content_index_cleanup(connection)?;
         validate_v120_document_block_tombstones(connection)?;
         validate_v124_thread_execution_hosts(connection)?;
+        validate_v125_default_draft_sessions(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -2504,6 +2551,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v119_library_content_index_cleanup(connection)?;
         validate_v120_document_block_tombstones(connection)?;
         validate_v124_thread_execution_hosts(connection)?;
+        validate_v125_default_draft_sessions(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -2565,6 +2613,7 @@ pub fn prepare_profile_store_with_observer(
     validate_v119_library_content_index_cleanup(connection)?;
     validate_v120_document_block_tombstones(connection)?;
     validate_v124_thread_execution_hosts(connection)?;
+    validate_v125_default_draft_sessions(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2628,6 +2677,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_v119_library_content_index_cleanup(connection)?;
     validate_v120_document_block_tombstones(connection)?;
     validate_v124_thread_execution_hosts(connection)?;
+    validate_v125_default_draft_sessions(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2720,6 +2770,7 @@ fn upgrade_owned_store(
         121 => validate_exact_v121_schema(connection)?,
         122 => validate_exact_v122_schema(connection)?,
         123 => validate_exact_v123_schema(connection)?,
+        124 => validate_exact_v124_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2867,6 +2918,7 @@ fn upgrade_owned_store(
             validate_v121_page_key_invariants(transaction)?;
         }
         ensure_v124_thread_execution_hosts(transaction)?;
+        ensure_v125_default_draft_sessions(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2895,6 +2947,7 @@ fn upgrade_owned_store(
     validate_v119_library_content_index_cleanup(connection)?;
     validate_v120_document_block_tombstones(connection)?;
     validate_v124_thread_execution_hosts(connection)?;
+    validate_v125_default_draft_sessions(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -3341,6 +3394,7 @@ fn publish_current_store(
         ensure_v120_document_block_tombstones_schema(transaction)?;
         ensure_v121_page_key_authority(transaction, now)?;
         ensure_v124_thread_execution_hosts(transaction)?;
+        ensure_v125_default_draft_sessions(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -3395,6 +3449,7 @@ fn create_fresh_store(
         ensure_v120_document_block_tombstones_schema(transaction)?;
         ensure_v121_page_key_authority(transaction, now)?;
         ensure_v124_thread_execution_hosts(transaction)?;
+        ensure_v125_default_draft_sessions(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -7625,6 +7680,12 @@ fn validate_exact_v123_schema(connection: &Connection) -> Result<(), StoreError>
     validate_v121_page_key_invariants(connection)
 }
 
+fn validate_exact_v124_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 124)?;
+    validate_v121_page_key_invariants(connection)?;
+    validate_v124_thread_execution_hosts(connection)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -7638,7 +7699,8 @@ fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreErr
         CORE_SCHEMA_VERSION,
     )?;
     validate_v121_page_key_invariants(connection)?;
-    validate_v124_thread_execution_hosts(connection)
+    validate_v124_thread_execution_hosts(connection)?;
+    validate_v125_default_draft_sessions(connection)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7812,6 +7874,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 124 {
         ensure_v124_thread_execution_hosts(&expected)?;
     }
+    if schema_version >= 125 {
+        ensure_v125_default_draft_sessions(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -7964,6 +8029,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     if version >= 124 {
         ensure_v124_thread_execution_hosts(&expected)?;
     }
+    if version >= 125 {
+        ensure_v125_default_draft_sessions(&expected)?;
+    }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
@@ -8091,6 +8159,16 @@ mod tests {
     fn remove_v124_thread_execution_host_schema(connection: &Connection) -> Result<(), StoreError> {
         connection
             .execute_batch("ALTER TABLE codex_threads DROP COLUMN execution_host_id;")
+            .map_err(StoreError::from)
+    }
+
+    fn remove_v125_default_draft_schema(connection: &Connection) -> Result<(), StoreError> {
+        connection
+            .execute_batch(
+                "DROP INDEX idx_project_sessions_default_draft_project; \
+                 DROP INDEX idx_project_sessions_default_draft_projectless; \
+                 ALTER TABLE project_sessions DROP COLUMN is_default_draft;",
+            )
             .map_err(StoreError::from)
     }
 
@@ -8681,6 +8759,90 @@ mod tests {
             CORE_SCHEMA_VERSION
         );
         assert!(!reopened_again.preparation().created_fresh);
+    }
+
+    #[test]
+    fn v125_default_draft_slots_migrate_without_guessing() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    let now = "2026-08-15T00:00:00.000Z";
+                    crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                        transaction,
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, name, created, updated) \
+                         VALUES ('project:v124-default-draft', 'Migration', ?1, ?1)",
+                        [now],
+                    )?;
+                    for (session_id, project_id, title) in [
+                        (
+                            "session:v124-project",
+                            Some("project:v124-default-draft"),
+                            "Existing project chat",
+                        ),
+                        (
+                            "session:v124-projectless",
+                            None,
+                            "Existing projectless chat",
+                        ),
+                    ] {
+                        transaction.execute(
+                            "INSERT INTO project_sessions(\
+                               id, project_id, no_thread_fallback_title, \"order\", pinned, \
+                               pinned_order, archived, archived_at, unread, created_at, updated_at\
+                             ) VALUES (?1, ?2, ?3, 0, 0, NULL, 0, NULL, 0, ?4, ?4)",
+                            params![session_id, project_id, title, now],
+                        )?;
+                    }
+                    remove_v125_default_draft_schema(transaction)?;
+                    transaction.execute_batch(
+                        "UPDATE core_store_metadata SET store_format_version = 124 WHERE id = 1; \
+                         PRAGMA user_version = 124;",
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed owned v124 Store");
+        drop(kernel);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("migrate v124 Store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(124));
+        let migrated = upgraded
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT \
+                           (SELECT count(*) FROM pragma_table_info('project_sessions') \
+                            WHERE name = 'is_default_draft'), \
+                           (SELECT count(*) FROM project_sessions WHERE is_default_draft <> 0), \
+                           (SELECT count(*) FROM sqlite_schema WHERE type = 'index' AND name IN (\
+                              'idx_project_sessions_default_draft_project', \
+                              'idx_project_sessions_default_draft_projectless'\
+                            ))",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("read migrated default-draft schema");
+        assert_eq!(migrated, (1, 0, 2));
+        drop(upgraded);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen current Store");
+        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert!(!reopened.preparation().created_fresh);
     }
 
     #[test]

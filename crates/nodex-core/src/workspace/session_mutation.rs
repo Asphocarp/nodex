@@ -21,6 +21,7 @@ pub(super) struct SessionAuthority {
     pub(super) pinned: bool,
     pub(super) pinned_order: Option<i64>,
     pub(super) thread_id: Option<String>,
+    pub(super) is_default_draft: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -339,7 +340,8 @@ fn set_session_archived(
     let changed = if archived {
         connection.execute(
             "UPDATE project_sessions SET archived = 1, archived_at = ?1, pinned = 0, \
-               pinned_order = NULL, unread = 0, updated_at = ?1 WHERE id = ?2",
+               pinned_order = NULL, unread = 0, is_default_draft = 0, \
+               updated_at = ?1 WHERE id = ?2",
             params![now, session_id],
         )?
     } else {
@@ -399,6 +401,17 @@ fn link_thread(
         return Err(StoreError::new(
             StoreErrorCode::Conflict,
             "Thread Project does not match the owning Session",
+            false,
+        ));
+    }
+    if authority
+        .thread_id
+        .as_deref()
+        .is_some_and(|existing_thread_id| existing_thread_id != thread_id)
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "Project Session is already linked to another Codex Thread",
             false,
         ));
     }
@@ -463,7 +476,8 @@ fn link_thread(
         |row| row.get::<_, i64>(0),
     )?;
     connection.execute(
-        "UPDATE project_sessions SET unread = ?1, updated_at = ?2 WHERE id = ?3",
+        "UPDATE project_sessions SET unread = ?1, is_default_draft = 0, \
+           updated_at = ?2 WHERE id = ?3",
         params![unread, now, session_id],
     )?;
     let mut thread_ids = authority.thread_id.iter().cloned().collect::<BTreeSet<_>>();
@@ -604,7 +618,8 @@ pub(super) fn require_session(
 ) -> Result<SessionAuthority, StoreError> {
     connection
         .query_row(
-            "SELECT session.project_id, session.pinned, session.pinned_order, link.thread_id \
+            "SELECT session.project_id, session.pinned, session.pinned_order, link.thread_id, \
+               session.is_default_draft \
              FROM project_sessions session \
              LEFT JOIN project_session_threads link ON link.session_id = session.id \
              WHERE session.id = ?1 AND (session.project_id IS NULL OR EXISTS(\
@@ -619,6 +634,7 @@ pub(super) fn require_session(
                     pinned: row.get::<_, i64>(1)? == 1,
                     pinned_order: row.get(2)?,
                     thread_id: row.get(3)?,
+                    is_default_draft: row.get::<_, i64>(4)? == 1,
                 })
             },
         )

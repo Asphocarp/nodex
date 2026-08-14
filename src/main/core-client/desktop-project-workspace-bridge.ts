@@ -63,6 +63,8 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).updateProjectSession(sessionId, sessionInput),
     renameProjectSession: async (sessionId, sessionInput) =>
       await (await resolve()).renameProjectSession(sessionId, sessionInput),
+    ensureDefaultDraftProjectSession: async (projectId) =>
+      await (await resolve()).ensureDefaultDraftProjectSession(projectId),
     createProjectSession: async (sessionInput) =>
       await (await resolve()).createProjectSession(sessionInput),
     deleteProjectSession: async (sessionId) =>
