@@ -1620,17 +1620,6 @@ export const MixedRightTabs: Story = {
   },
 };
 
-export const ProjectSceneDatabase: Story = {
-  render: () => <ProjectSceneStory boundTask={false} />,
-  parameters: {
-    docs: {
-      description: {
-        story: "A zero-chat Project Scene whose non-closable Database root tab is presented as the Project marker and Project Home beside the shared trailing add-tab menu. Agent composition lives only in the footer Dock. Its single context rail starts with New chat, omits the fixed Project, and continues with mutable run-target and branch controls without creating a Session. The sidebar settles directly to No chats inside.",
-      },
-    },
-  },
-};
-
 export const ProjectSceneWithSecondaryDatabase: Story = {
   render: () => (
     <ProjectSceneStory boundTask={false} secondaryDatabase />

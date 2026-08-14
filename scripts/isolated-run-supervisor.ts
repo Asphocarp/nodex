@@ -4,27 +4,26 @@ import {
   type SpawnOptions,
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { lstatSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import type { components } from "@nodex/core-protocol";
-import { CoreClient } from "../src/main/core-client/core-client";
 import {
   ISOLATED_RUN_ID_ENV,
   acquireIsolatedRunLease,
-  readIsolatedRunClaim,
-  type IsolatedRunClaim,
-  type IsolatedRunLease,
 } from "../src/main/core-client/isolated-run-ownership";
-import { readCoreRuntimeConnection } from "../src/main/core-client/runtime-descriptor";
-import type { CoreRuntimeDescriptor } from "../src/main/core-client/types";
+import {
+  cleanupIsolatedCore,
+  type IsolatedCoreCleanupDependencies,
+  type IsolatedCoreCleanupStatus,
+} from "./isolated-core-cleanup";
+export {
+  cleanupIsolatedCore,
+  type IsolatedCoreCleanupDependencies,
+  type IsolatedCoreCleanupResult,
+  type IsolatedCoreCleanupStatus,
+} from "./isolated-core-cleanup";
 
-const CORE_BUILD_ID = "nodex-isolated-run-supervisor";
 const DEFAULT_CORE_IDLE_TIMEOUT_MS = "30000";
-const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
-const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15_000;
-const DEFAULT_POLL_INTERVAL_MS = 25;
 const FOREGROUND_INTERRUPT_GRACE_MS = 1_500;
 const FOREGROUND_TERMINATE_GRACE_MS = 1_500;
 const FOREGROUND_KILL_GRACE_MS = 1_000;
@@ -35,50 +34,10 @@ export type IsolatedRunScript =
   | "dev"
   | "build:run"
   | "build:run:prepared";
-export type IsolatedCoreCleanupStatus =
-  | "not_started"
-  | "stopped"
-  | "not_owner"
-  | "generation_changed"
-  | "failed";
-
-export interface IsolatedCoreCleanupResult {
-  readonly status: IsolatedCoreCleanupStatus;
-  readonly safeToDeleteRunRoot: boolean;
-  readonly reason?: string;
-}
-
 export interface SupervisedRunResult {
   readonly childExitCode: number;
   readonly cleanupStatus: IsolatedCoreCleanupStatus;
   readonly safeToDeleteRunRoot: boolean;
-}
-
-type RuntimeGeneration = components["schemas"]["RuntimeGenerationIdentity"];
-type ShutdownResponse = components["schemas"]["ShutdownResponse"];
-
-interface CoreShutdownClient {
-  readonly handshake: {
-    readonly generation: RuntimeGeneration;
-  };
-  shutdown(): Promise<ShutdownResponse>;
-}
-
-export interface IsolatedCoreCleanupDependencies {
-  readonly connectCore: (input: {
-    readonly nodexHome: string;
-    readonly clientKind: "native_cli";
-    readonly buildId: string;
-    readonly requestTimeoutMs: number;
-  }) => Promise<CoreShutdownClient>;
-  readonly delay: (durationMs: number) => Promise<void>;
-  readonly inspectRuntimeEvidence: (
-    nodexHome: string,
-  ) => CoreRuntimeEvidence;
-  readonly isPidAlive: (pid: number) => boolean;
-  readonly now: () => number;
-  readonly readClaim: (nodexHome: string) => IsolatedRunClaim | null;
-  readonly readRuntimeGeneration: (nodexHome: string) => RuntimeGeneration;
 }
 
 export interface SupervisorSignalSource {
@@ -119,7 +78,6 @@ export interface SuperviseIsolatedRunInput {
   readonly dependencies?: Partial<IsolatedRunSupervisorDependencies>;
 }
 
-type CoreRuntimeEvidence = "none" | "partial" | "complete";
 type SupervisorSignal = "SIGINT" | "SIGTERM";
 
 interface ChildOutcome {
@@ -143,211 +101,6 @@ const boundedReason = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   return message.replaceAll(/\s+/gu, " ").slice(0, MAX_DIAGNOSTIC_CHARS);
 };
-
-const runtimeEntryPaths = (nodexHome: string) => {
-  const runtimeDirectory = path.join(nodexHome, "run/core");
-  return {
-    runtimeDirectory,
-    descriptor: path.join(runtimeDirectory, "core.json"),
-    auth: path.join(runtimeDirectory, "core.auth"),
-    socket: path.join(runtimeDirectory, "core.sock"),
-  };
-};
-
-const defaultInspectRuntimeEvidence = (
-  nodexHome: string,
-): CoreRuntimeEvidence => {
-  const paths = runtimeEntryPaths(nodexHome);
-  try {
-    const runtimeStats = lstatSync(paths.runtimeDirectory);
-    if (runtimeStats.isSymbolicLink()) {
-      throw new Error("Core runtime directory must not be a symlink");
-    }
-    if (!runtimeStats.isDirectory()) {
-      throw new Error("Core runtime path must be a directory");
-    }
-  } catch (error) {
-    if (isFileSystemError(error, "ENOENT")) return "none";
-    throw error;
-  }
-
-  let present = 0;
-  for (const entryPath of [paths.descriptor, paths.auth, paths.socket]) {
-    try {
-      lstatSync(entryPath);
-      present += 1;
-    } catch (error) {
-      if (!isFileSystemError(error, "ENOENT")) throw error;
-    }
-  }
-  if (present === 0) return "none";
-  if (present === 3) return "complete";
-  return "partial";
-};
-
-const defaultIsPidAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (isFileSystemError(error, "ESRCH")) return false;
-    if (isFileSystemError(error, "EPERM")) return true;
-    throw error;
-  }
-};
-
-const runtimeGenerationFromDescriptor = (
-  descriptor: CoreRuntimeDescriptor,
-): RuntimeGeneration => ({
-  artifact_sha256: descriptor.artifact.sha256,
-  manifest_digest: descriptor.manifest_digest,
-  pid: descriptor.pid,
-  profile_id: descriptor.profile_id,
-  readiness_generation: descriptor.readiness_generation,
-  start_nonce: descriptor.start_nonce,
-  store_epoch: descriptor.store_epoch,
-});
-
-const sameGeneration = (
-  left: RuntimeGeneration,
-  right: RuntimeGeneration,
-): boolean =>
-  left.artifact_sha256 === right.artifact_sha256 &&
-  left.manifest_digest === right.manifest_digest &&
-  left.pid === right.pid &&
-  left.profile_id === right.profile_id &&
-  left.readiness_generation === right.readiness_generation &&
-  left.start_nonce === right.start_nonce &&
-  left.store_epoch === right.store_epoch;
-
-const defaultCleanupDependencies: IsolatedCoreCleanupDependencies = {
-  connectCore: (input) => CoreClient.connect(input),
-  delay: (durationMs) =>
-    new Promise((resolve) => setTimeout(resolve, durationMs)),
-  inspectRuntimeEvidence: defaultInspectRuntimeEvidence,
-  isPidAlive: defaultIsPidAlive,
-  now: Date.now,
-  readClaim: readIsolatedRunClaim,
-  readRuntimeGeneration: (nodexHome) =>
-    runtimeGenerationFromDescriptor(
-      readCoreRuntimeConnection(nodexHome).descriptor,
-    ),
-};
-
-const resolveCleanupDependencies = (
-  overrides: Partial<IsolatedCoreCleanupDependencies> | undefined,
-): IsolatedCoreCleanupDependencies => ({
-  ...defaultCleanupDependencies,
-  ...overrides,
-});
-
-const cleanupFailure = (
-  status: Exclude<
-    IsolatedCoreCleanupStatus,
-    "not_started" | "stopped"
-  >,
-  reason: string,
-): IsolatedCoreCleanupResult => ({
-  status,
-  safeToDeleteRunRoot: false,
-  reason,
-});
-
-export async function cleanupIsolatedCore(input: {
-  readonly lease: IsolatedRunLease;
-  readonly nodexHome: string;
-  readonly releaseLeaseOnSuccess?: boolean;
-  readonly runId: string;
-  readonly dependencies?: Partial<IsolatedCoreCleanupDependencies>;
-  readonly pollIntervalMs?: number;
-  readonly requestTimeoutMs?: number;
-  readonly shutdownTimeoutMs?: number;
-}): Promise<IsolatedCoreCleanupResult> {
-  const dependencies = resolveCleanupDependencies(input.dependencies);
-  const nodexHome = requireAbsolutePath(input.nodexHome, "Nodex home");
-
-  try {
-    const evidence = dependencies.inspectRuntimeEvidence(nodexHome);
-    const claim = dependencies.readClaim(nodexHome);
-    if (evidence === "none") {
-      if (claim && claim.runId !== input.runId) {
-        return cleanupFailure(
-          "not_owner",
-          "The isolated run claim belongs to another run",
-        );
-      }
-      if (claim?.phase === "starting") {
-        return cleanupFailure(
-          "failed",
-          "Primary Electron startup did not reach confirmed Core readiness",
-        );
-      }
-      if (input.releaseLeaseOnSuccess !== false) input.lease.release();
-      return { status: "not_started", safeToDeleteRunRoot: true };
-    }
-    if (!claim || claim.runId !== input.runId) {
-      return cleanupFailure(
-        "not_owner",
-        "This isolated run never became the primary Electron host",
-      );
-    }
-
-    const client = await dependencies.connectCore({
-      nodexHome,
-      clientKind: "native_cli",
-      buildId: CORE_BUILD_ID,
-      requestTimeoutMs:
-        input.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-    });
-    const generation = client.handshake.generation;
-    const shutdown = await client.shutdown();
-    if (shutdown.status !== "draining") {
-      return cleanupFailure(
-        "failed",
-        `Core rejected isolated shutdown with status ${shutdown.status}`,
-      );
-    }
-
-    const shutdownTimeoutMs =
-      input.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
-    const deadline = dependencies.now() + shutdownTimeoutMs;
-    while (true) {
-      const currentEvidence =
-        dependencies.inspectRuntimeEvidence(nodexHome);
-      const pidAlive = dependencies.isPidAlive(generation.pid);
-      if (currentEvidence === "none" && !pidAlive) {
-        if (input.releaseLeaseOnSuccess !== false) input.lease.release();
-        return { status: "stopped", safeToDeleteRunRoot: true };
-      }
-      if (currentEvidence === "complete") {
-        try {
-          const currentGeneration =
-            dependencies.readRuntimeGeneration(nodexHome);
-          if (!sameGeneration(currentGeneration, generation)) {
-            return cleanupFailure(
-              "generation_changed",
-              "Core runtime generation changed during isolated shutdown",
-            );
-          }
-        } catch (error) {
-          if (!isFileSystemError(error, "ENOENT")) throw error;
-          // Graceful drain removes the fixed runtime entries one at a time.
-        }
-      }
-      if (dependencies.now() >= deadline) {
-        return cleanupFailure(
-          "failed",
-          "Timed out waiting for isolated Core to exit",
-        );
-      }
-      await dependencies.delay(
-        input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
-      );
-    }
-  } catch (error) {
-    return cleanupFailure("failed", boundedReason(error));
-  }
-}
 
 export function parseIsolatedRunSupervisorArguments(
   args: readonly string[],
