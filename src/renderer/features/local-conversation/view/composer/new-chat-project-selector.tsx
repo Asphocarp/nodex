@@ -1,4 +1,4 @@
-import { FolderPlusIcon } from "@/components/shared/icons";
+import { CloseIcon, PlusIcon } from "@/components/shared/icons";
 import { useMemo, useState } from "react";
 
 import { ProjectMarker } from "@/components/workbench/project-marker";
@@ -6,7 +6,6 @@ import {
   filterNewChatProjectSelectorOptions,
   resolveSelectedNewChatProjectSelectorOption,
 } from "@/lib/new-chat-project-selector";
-import { cn } from "@/lib/utils";
 import type { NewChatProjectSelectorModel, ThreadStageActions } from "../../thread-stage-types";
 import {
   NodexDropdownButtonTrigger,
@@ -28,6 +27,8 @@ interface NewChatProjectSelectorProps {
   variant?: "footer" | "heading";
 }
 
+const PROJECT_SELECTOR_MENU_CLASS_NAME = "w-[332px] max-w-[calc(100vw-1rem)]";
+
 export function NewChatProjectSelector({
   model,
   actions,
@@ -35,6 +36,7 @@ export function NewChatProjectSelector({
   variant = "footer",
 }: NewChatProjectSelectorProps) {
   const [search, setSearch] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const selectedOption = resolveSelectedNewChatProjectSelectorOption(model.projects, model.selectedProjectId);
   const filteredOptions = useMemo(
     () => filterNewChatProjectSelectorOptions(model.projects, search),
@@ -42,6 +44,11 @@ export function NewChatProjectSelector({
   );
   const selectorDisabled = disabled || model.disabled || !actions.onNewThreadProjectChange;
   const triggerLabel = selectedOption?.label ?? "Work in a project";
+  const headingTriggerLabel = `${triggerLabel}?`;
+  const handleMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open) setSearch("");
+  };
   const menuContent = (
     <ProjectSelectorMenuContent
       model={model}
@@ -56,20 +63,22 @@ export function NewChatProjectSelector({
     return (
       <NodexDropdownMenu
         disabled={selectorDisabled}
-        side="bottom"
+        open={menuOpen}
+        onOpenChange={handleMenuOpenChange}
+        side="top"
         align="center"
         contentWidth="workspace"
         contentMaxHeight="tall"
-        contentClassName="w-96 max-w-[calc(100vw-2rem)]"
+        contentClassName={PROJECT_SELECTOR_MENU_CLASS_NAME}
         triggerButton={(
           <button
             type="button"
             aria-label="Select project"
             data-new-chat-project-selector-trigger="true"
-            className="outline-hidden cursor-interaction relative z-0 inline-block whitespace-pre after:absolute after:-inset-x-1.5 after:-inset-y-0 after:-z-10 after:rounded-xl after:content-[''] group-hover/title:after:bg-token-foreground/5 hover:after:bg-token-foreground/10 data-[state=open]:after:bg-token-foreground/5 data-[state=open]:hover:after:bg-token-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
+            className="outline-hidden cursor-interaction inline-block max-w-full break-words whitespace-normal underline decoration-token-text-tertiary decoration-dotted decoration-[1px] underline-offset-4 hover:text-token-text-secondary focus-visible:text-token-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
             disabled={selectorDisabled}
           >
-            {triggerLabel}
+            {headingTriggerLabel}
           </button>
         )}
       >
@@ -83,11 +92,13 @@ export function NewChatProjectSelector({
       <div className="inline-flex w-fit max-w-full">
         <NodexDropdownMenu
           disabled={selectorDisabled}
+          open={menuOpen}
+          onOpenChange={handleMenuOpenChange}
           side="bottom"
           align="start"
           contentWidth="workspace"
           contentMaxHeight="tall"
-          contentClassName="w-96 max-w-[calc(100vw-2rem)]"
+          contentClassName={PROJECT_SELECTOR_MENU_CLASS_NAME}
           triggerButton={(
             <NodexDropdownButtonTrigger
               size="sm"
@@ -129,10 +140,16 @@ function ProjectSelectorMenuContent({
   setSearch: (value: string) => void;
   filteredOptions: ReturnType<typeof filterNewChatProjectSelectorOptions>;
 }) {
+  const showFooter = Boolean(
+    (model.canAddProject && actions.onRequestNewChatProjectCreate)
+      || (model.selectedProjectId && actions.onNewThreadProjectChange),
+  );
+
   return (
     <>
       <NodexDropdownSection className="flex min-w-0 flex-col overflow-hidden">
         <NodexDropdownSearchInput
+          className="mb-1"
           value={search}
           placeholder="Search projects"
           onChange={(event) => setSearch(event.currentTarget.value)}
@@ -140,7 +157,7 @@ function ProjectSelectorMenuContent({
         />
         <NodexDropdownScrollList className="vertical-scroll-fade-mask max-h-[calc((1lh+var(--padding-row-y)*2)*5)]">
           {filteredOptions.length === 0 ? (
-            <NodexDropdownMessage compact>No folders found</NodexDropdownMessage>
+            <NodexDropdownMessage compact>No projects found</NodexDropdownMessage>
           ) : (
             filteredOptions.map((option) => {
               const selected = option.id === model.selectedProjectId;
@@ -154,14 +171,12 @@ function ProjectSelectorMenuContent({
                     />
                   )}
                   rightSlot={selected ? <NodexDropdownSelectedIcon /> : null}
-                  subText={option.description}
                   tooltipText={option.primaryWorkspaceRoot ?? undefined}
                   onSelect={() => {
                     actions.onNewThreadProjectChange?.(option.id);
                   }}
                   data-new-chat-project-option={option.id}
                   data-selected={selected ? "true" : undefined}
-                  className={cn(selected && "text-token-foreground")}
                 >
                   {option.label}
                 </NodexDropdownItem>
@@ -171,18 +186,33 @@ function ProjectSelectorMenuContent({
         </NodexDropdownScrollList>
       </NodexDropdownSection>
 
-      {model.canAddProject && actions.onRequestNewChatProjectCreate ? (
+      {showFooter ? (
         <>
           <NodexDropdownSeparator />
-          <NodexDropdownItem
-            leftSlot={<FolderPlusIcon className="icon-xs text-token-description-foreground" />}
-            onSelect={() => {
-              actions.onRequestNewChatProjectCreate?.();
-            }}
-            data-new-chat-project-add="true"
-          >
-            Add new project
-          </NodexDropdownItem>
+          <NodexDropdownSection className="flex flex-col">
+            {model.canAddProject && actions.onRequestNewChatProjectCreate ? (
+              <NodexDropdownItem
+                leftSlot={<PlusIcon className="icon-xs text-token-description-foreground" />}
+                onSelect={() => {
+                  actions.onRequestNewChatProjectCreate?.();
+                }}
+                data-new-chat-project-add="true"
+              >
+                New project
+              </NodexDropdownItem>
+            ) : null}
+            {model.selectedProjectId && actions.onNewThreadProjectChange ? (
+              <NodexDropdownItem
+                leftSlot={<CloseIcon className="icon-xs text-token-description-foreground" />}
+                onSelect={() => {
+                  actions.onNewThreadProjectChange?.(null);
+                }}
+                data-new-chat-project-clear="true"
+              >
+                Don&apos;t work in a project
+              </NodexDropdownItem>
+            ) : null}
+          </NodexDropdownSection>
         </>
       ) : null}
     </>
