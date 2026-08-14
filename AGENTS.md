@@ -148,7 +148,7 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Renderer React tests must be act-clean. Treat any `act(...)` warning as a failing test: fix the test before handoff instead of ignoring console output.
 - For renderer interactions that can schedule React updates, prefer Testing Library async patterns (`findBy*`, `waitFor`, awaited helpers) and make assertions only after the UI has settled.
 - When a renderer test uses low-level `fireEvent`, window/document events, timers, resize/drag gestures, or imperative callbacks instead of a higher-level awaited helper, wrap the interaction in `await act(async () => { ...; await Promise.resolve(); })`, then wait for the observable DOM/API outcome. Use `try/finally` to release drag/resize gestures so failed assertions do not leak body styles or global listeners into later tests.
-- For any new or changed user-visible UI, update or add Storybook coverage in the same change.
+- Add or update Storybook coverage when a UI surface has reusable visual states that can be meaningfully exercised in isolation. Do not create stories for thin wrappers or behavior that only makes sense in the integrated app.
 - Choose final checks from the actual risk and changed runtime rather than from a fixed command list:
   - Run the relevant targeted tests for every behavior change.
   - For TypeScript source or contract changes, normally run `pnpm run typecheck` once the edit set is stable.
