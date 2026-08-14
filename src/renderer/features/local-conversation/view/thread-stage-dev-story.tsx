@@ -323,7 +323,7 @@ function NewThreadHomeStoryHero({
 
   return (
     <div className="heading-xl flex max-w-full min-w-0 items-end justify-center text-center font-normal whitespace-pre-wrap text-token-foreground select-none">
-      <span className="group/title inline-block max-w-full">
+      <span className="inline-block max-w-full">
         {"What should we build in "}
         {model.newThreadProjectSelector ? (
           <NewChatProjectSelector
@@ -332,9 +332,8 @@ function NewThreadHomeStoryHero({
             variant="heading"
           />
         ) : (
-          projectName
+          <>{projectName}?</>
         )}
-        ?
       </span>
     </div>
   );

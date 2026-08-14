@@ -32,24 +32,24 @@ export function LocalConversationNewThreadHomeScreen({
         >
           <div className="@container/left-panel relative flex h-full flex-col">
             <div
-              className="[container-type:size] relative flex min-h-0 w-full flex-1 flex-col overflow-y-auto [container-name:home-main-content]"
+              className="[container-type:size] relative min-h-[43.75rem] w-full flex-1 overflow-y-auto [container-name:home-main-content]"
               role="main"
               data-new-thread-home-main="true"
             >
               <div
-                className="mx-auto flex h-[39%] w-[min(100%,var(--thread-content-max-width))] min-w-0 shrink-0 flex-col justify-end px-panel pb-6"
+                className="absolute top-[calc(50%-8rem)] left-1/2 flex w-[min(calc(100%-2.5rem),48rem)] min-w-0 -translate-x-1/2 flex-col items-center"
                 data-new-thread-home-hero="true"
               >
                 {hero}
               </div>
               <div
-                className="sticky top-0 z-10 mx-auto flex w-[min(100%,var(--thread-content-max-width))] min-w-0 flex-col gap-2 px-panel pt-5 electron:bg-token-main-surface-primary"
+                className="absolute bottom-4 left-1/2 z-10 flex w-[min(calc(100%-2.5rem),46rem)] min-w-0 -translate-x-1/2 flex-col gap-2 electron:bg-token-main-surface-primary"
                 data-new-thread-home-composer="true"
               >
                 {footer}
               </div>
               {body ? (
-                <div className="mx-auto w-[min(100%,var(--thread-content-max-width))] min-w-0 px-panel pt-2 pb-6">
+                <div className="absolute right-0 bottom-40 left-0 mx-auto max-h-[36%] w-[min(calc(100%-2.5rem),46rem)] min-w-0 overflow-y-auto pt-2">
                   {body}
                 </div>
               ) : null}
