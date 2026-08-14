@@ -150,6 +150,13 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - For renderer interactions that can schedule React updates, prefer Testing Library async patterns (`findBy*`, `waitFor`, awaited helpers) and make assertions only after the UI has settled.
 - When a renderer test uses low-level `fireEvent`, window/document events, timers, resize/drag gestures, or imperative callbacks instead of a higher-level awaited helper, wrap the interaction in `await act(async () => { ...; await Promise.resolve(); })`, then wait for the observable DOM/API outcome. Use `try/finally` to release drag/resize gestures so failed assertions do not leak body styles or global listeners into later tests.
 - Add or update Storybook coverage when a UI surface has reusable visual states that can be meaningfully exercised in isolation. Do not create stories for thin wrappers or behavior that only makes sense in the integrated app.
+- Choose the isolated-scenario consumer by the boundary under test:
+  - Use `withCoreScenario` for current-schema Project/Page/Database correctness that does not need Electron.
+  - Use `withElectronScenario` or `ElectronScenarioHarness` for production Electron/preload/Main/Core workflows, window lifecycle, restart, and native gestures.
+  - Use `pnpm ui:lab -- --seed <scenario-id> --dev` to create a retained integrated UI session with HMR, then resume the mutable Profile with `pnpm ui:lab -- --resume <session-id> --dev`. Use `pnpm ui:verify -- <scenario-id>` for the deterministic focused built-app gate.
+  - Use Storybook for reusable primitives and transient or intentionally synthetic component states, not as the primary proof of integrated product scenes.
+  - Keep historical/corrupt storage and pressure fixtures visibly separate from authoritative public-operation scenarios. Direct SQL is allowed only when storage shape or scale is the explicit subject, and pressure evidence must retain a smaller authoritative path test.
+- Every scenario-backed correctness test gets a fresh writable Profile. A generated current-schema snapshot may be copied as an immutable source only after measured seed cost justifies it; never share a live writable Store across tests.
 - Choose final checks from the actual risk and changed runtime rather than from a fixed command list:
   - Run the relevant targeted tests for every behavior change.
   - For TypeScript source or contract changes, normally run `pnpm run typecheck` once the edit set is stable.
