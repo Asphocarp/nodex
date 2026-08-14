@@ -251,7 +251,6 @@ describe("SidebarProjectsSection", () => {
           marker: { kind: "icon", icon: "folder" },
         },
         name: "",
-        pageKeyPrefix: "NX",
         sources: [],
       }]);
       expect(queryByRole("heading", { name: "Create project" })).toBe(null);
@@ -284,7 +283,6 @@ describe("SidebarProjectsSection", () => {
             marker: { kind: "icon", icon: "folder" },
           },
           name: "",
-          pageKeyPrefix: "NX",
           sources: [],
         },
         {
@@ -293,7 +291,6 @@ describe("SidebarProjectsSection", () => {
             marker: { kind: "icon", icon: "folder" },
           },
           name: "",
-          pageKeyPrefix: "NX",
           sources: ["/repo/new-project"],
         },
       ]);

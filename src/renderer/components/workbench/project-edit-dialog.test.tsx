@@ -3,6 +3,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import type { Project } from "../../lib/types";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render } from "../../test/dom";
 import {
@@ -361,13 +362,12 @@ describe("ProjectEditDialog", () => {
     });
   });
 
-  test("submits the Core-confirmed create prefix shown in the collapsed summary", async () => {
+  test("creates a Project without exposing or submitting Page-key settings", async () => {
     const submitted: ProjectDialogSubmitInput[] = [];
     const view = render(withQueryClient(
       <NodexTooltipProvider>
         <ProjectCreateDialog
           onClose={() => undefined}
-          pageKeyAuthority={defaultPageKeyAuthority()}
           onCreate={async (input) => {
             submitted.push(input);
           }}
@@ -382,71 +382,20 @@ describe("ProjectEditDialog", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => {
-      expect(view.getByText("Page keys · LAB-1, LAB-2, …")).toBeTruthy();
-      expect(view.getByRole("button", { name: "Create project" }).hasAttribute("disabled"))
-        .toBe(false);
-    });
+    expect(view.queryByRole("textbox", { name: "Page key prefix" })).toBe(null);
+    expect(view.queryByText("Page key settings")).toBe(null);
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Create project" }));
       await Promise.resolve();
     });
 
     await waitFor(() => {
-      expect(submitted[0]?.name).toBe("Lab");
-      expect(submitted[0]?.pageKeyPrefix).toBe("LAB");
+      expect(submitted).toEqual([{
+        appearance: DEFAULT_PROJECT_APPEARANCE,
+        name: "Lab",
+        sources: [],
+      }]);
     });
-  });
-
-  test("offers the authority alternative for a reserved manual prefix", async () => {
-    const submitted: ProjectDialogSubmitInput[] = [];
-    const view = render(withQueryClient(
-      <NodexTooltipProvider>
-        <ProjectCreateDialog
-          onClose={() => undefined}
-          onCreate={async (input) => {
-            submitted.push(input);
-          }}
-          pageKeyAuthority={{
-            previewPrefix: async (input) => input.requestedPrefix === "LAB"
-              ? {
-                  prefix: "LAB",
-                  availability: "reserved",
-                  alternativePrefix: "LAB2",
-                  nextNumber: 1,
-                  exampleKeys: ["LAB-1", "LAB-2"],
-                }
-              : {
-                  prefix: input.requestedPrefix ?? "LAB2",
-                  availability: "available",
-                  alternativePrefix: null,
-                  nextNumber: 1,
-                  exampleKeys: [
-                    `${input.requestedPrefix ?? "LAB2"}-1`,
-                    `${input.requestedPrefix ?? "LAB2"}-2`,
-                  ],
-                },
-            readNamespace,
-            renamePrefix: async () => undefined,
-          }}
-        />
-      </NodexTooltipProvider>,
-    ));
-
-    fireEvent.click(view.getByRole("button", { name: "Change" }));
-    fireEvent.change(view.getByRole("textbox", { name: "Page key prefix" }), {
-      target: { value: "LAB" },
-    });
-    await waitFor(() => {
-      expect(view.getByText("Already used in this Library")).toBeTruthy();
-      expect(view.getByRole("button", { name: "Use LAB2" })).toBeTruthy();
-    });
-    fireEvent.click(view.getByRole("button", { name: "Use LAB2" }));
-    await waitFor(() => {
-      expect(view.getByText("LAB2-1 is available")).toBeTruthy();
-    });
-    fireEvent.click(view.getByRole("button", { name: "Create project" }));
-    await waitFor(() => expect(submitted[0]?.pageKeyPrefix).toBe("LAB2"));
   });
 
   test("resets project-scoped confirmation state when retargeted", async () => {
