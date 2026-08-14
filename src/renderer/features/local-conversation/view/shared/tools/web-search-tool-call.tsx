@@ -60,6 +60,7 @@ export function WebSearchToolCall({ item }: WebSearchToolCallProps) {
     <ThreadActivityShell
       header={(
         <ThreadRichActivityHeader
+          status={completed ? "completed" : "running"}
           icon={<ToolActivityIcon descriptor={semanticToolIcon("web-search")} />}
           summary={summary}
           testId="web-search-tool-call"

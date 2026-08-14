@@ -379,7 +379,7 @@ export function ManagedWorktreesSettingControl({
       </NodexSettingsSection>
 
       {loading && settings === null ? (
-        <div className="text-sm text-token-text-secondary" role="status">
+        <div className="semantic-text-secondary text-sm" role="status">
           Fetching worktree details…
         </div>
       ) : loadError ? (
@@ -393,7 +393,7 @@ export function ManagedWorktreesSettingControl({
               />
             )}
           />
-          <div className="p-3 text-sm text-token-text-secondary">{loadError}</div>
+          <div className="p-3 text-sm text-danger">{loadError}</div>
         </NodexSettingsSection>
       ) : groupedRecords.length === 0 ? (
         <NodexSettingsSection>
@@ -406,7 +406,7 @@ export function ManagedWorktreesSettingControl({
               />
             )}
           />
-          <div className="p-3 text-sm text-token-text-secondary">
+          <div className="semantic-text-secondary p-3 text-sm">
             Worktrees created by Nodex will appear here
           </div>
         </NodexSettingsSection>

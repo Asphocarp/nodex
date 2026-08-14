@@ -18,6 +18,7 @@ export function CompletedRequestActivitySurface({
     <ThreadActivityShell
       header={(
         <ThreadRichActivityHeader
+          status="completed"
           icon={(
             <ToolActivityIcon
               descriptor={semanticToolIcon("connector")}

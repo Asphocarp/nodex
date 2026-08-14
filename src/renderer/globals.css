@@ -3,13 +3,13 @@
 @import "@xterm/xterm/css/xterm.css";
 @import "tw-animate-css";
 @import "./styles/theme-source.css";
-@import "./styles/theme-codex-foundation.generated.css";
+@import "./styles/theme-extracted-foundation.generated.css";
+@import "./styles/theme-semantic-contract.generated.css";
 @import "./styles/theme-token-bridge.css";
-@import "./styles/theme-codex-utilities.generated.css";
+@import "./styles/theme-semantic-utilities.generated.css";
 @import "./styles/theme-utilities.css";
-@import "./styles/theme-codex-surface.generated.css";
+@import "./styles/theme-extracted-surfaces.generated.css";
 @import "./styles/theme-surface.css";
-@import "./styles/theme-codex-contract.generated.css";
 @source "../../packages/storybook/.storybook";
 @source "../../node_modules/streamdown/dist/index.js";
 @source "../../node_modules/@streamdown/code/dist/*.js";

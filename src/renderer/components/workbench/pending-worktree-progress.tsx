@@ -9,6 +9,7 @@ import {
 import { CodexShimmerText } from "@/features/local-conversation/view/shared/codex-shimmer-text";
 import { ThreadCommandShellBlock } from "@/features/local-conversation/view/shared/tools/thread-command-shell-block";
 import { cn } from "@/lib/utils";
+import { semanticActivityTextClassName } from "@/lib/semantic-activity-status";
 import type {
   CodexPendingWorktreeEntry,
   CodexPendingWorktreeThreadResolution,
@@ -51,11 +52,7 @@ function ProgressStep({ step }: { step: PendingWorktreeProgressStep }) {
       <div
         className={cn(
           "flex min-w-0 items-center gap-2 text-size-chat",
-          step.status === "failed"
-            ? "text-danger"
-            : step.status === "pending"
-              ? "text-token-text-tertiary"
-              : "text-[var(--color-text-accent)]",
+          semanticActivityTextClassName(step.status),
         )}
       >
         <span className="flex h-4 w-4 shrink-0 items-center justify-center">
@@ -66,13 +63,13 @@ function ProgressStep({ step }: { step: PendingWorktreeProgressStep }) {
       </div>
       {step.progressPercentage !== null ? (
         <div className="flex shrink-0 items-center gap-3">
-          <div className="h-2 w-28 overflow-hidden rounded-full bg-token-foreground/10 rtl:rotate-180">
+          <div className="h-2 w-28 overflow-hidden rounded-full bg-text/10 rtl:rotate-180">
             <div
-              className="h-full w-full rounded-full bg-[var(--color-text-accent)]"
+              className="h-full w-full rounded-full bg-text-info"
               style={{ transform: `translateX(${step.progressPercentage - 100}%)` }}
             />
           </div>
-          <span className="w-12 pe-2 text-end text-size-chat text-token-text-secondary tabular-nums">
+          <span className="semantic-text-secondary w-12 pe-2 text-end text-size-chat tabular-nums">
             {step.progressPercentage}%
           </span>
         </div>
@@ -106,12 +103,12 @@ export function PendingWorktreeProgress({
 
   return (
     <div className="flex w-full max-w-3xl flex-col gap-2" data-testid="pending-worktree-progress">
-      <div className="flex items-center gap-2 text-size-chat text-token-text-tertiary select-none">
+      <div className="flex items-center gap-2 text-size-chat text-tertiary select-none">
         <WorktreeStatusIcon className="icon-xs shrink-0" />
         <CodexShimmerText active={model.titleIsRunning}>{model.title}</CodexShimmerText>
       </div>
       {model.cardVisible ? (
-        <div className="flex flex-col gap-3 rounded-xl border border-token-border-default p-3">
+        <div className="flex flex-col gap-3 rounded-xl border-[0.5px] border-default p-3">
           <div className="flex flex-col gap-2 select-none">
             {model.steps.map((step) => (
               <ProgressStep key={step.kind} step={step} />
@@ -123,7 +120,7 @@ export function PendingWorktreeProgress({
                 <button
                   type="button"
                   aria-controls={detailsId}
-                  className="flex cursor-interaction items-center gap-2 text-size-chat text-token-text-tertiary select-none focus-visible:ring-2 focus-visible:ring-token-focus focus-visible:outline-none"
+                  className="flex cursor-interaction items-center gap-2 text-size-chat text-tertiary select-none focus-visible:ring-2 focus-visible:ring-token-focus focus-visible:outline-none"
                   aria-expanded={detailsExpanded}
                   onClick={() => setDetailsExpanded((current) => !current)}
                 >
@@ -153,14 +150,14 @@ export function PendingWorktreeProgress({
             </div>
           ) : null}
           {actionError ? (
-            <div role="alert" className="text-size-chat text-token-error-foreground">
+            <div role="alert" className="text-size-chat text-danger">
               {actionError}
             </div>
           ) : null}
         </div>
       ) : null}
       {model.startingTask ? (
-        <div className="mt-2 text-size-chat text-token-text-tertiary select-none">
+        <div className="mt-2 text-size-chat text-tertiary select-none">
           <CodexShimmerText>Starting a task</CodexShimmerText>
         </div>
       ) : null}

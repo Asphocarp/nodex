@@ -43,6 +43,28 @@ color: #999;
 - `text-token-description-foreground` — tertiary/metadata text
 - `opacity-75` resting → `opacity-100` on hover/active — for sidebar nav items
 
+For shared agent-task, conversation-activity, and progress surfaces, prefer the
+semantic task family instead of mixing legacy aliases:
+
+- `text-info` — running or successfully completed step
+- `text-danger` — failed step or actionable error
+- `text-tertiary` — pending step and low-emphasis metadata
+- `semantic-text-secondary` — completed summary or secondary measurement
+- `border-default` — shared activity/output hairline
+- `bg-text/10` and `bg-text-info` — progress track and value
+
+Apply one role to the label and its icon; SVGs use `currentColor`. Do not read
+host/editor variables directly from component code. Product-native Database,
+Board, Canvas, and editor roles may continue using their established token
+families when task semantics do not fit.
+
+When a shared activity primitive accepts lifecycle state, make that state
+explicit at every call site; do not default an unknown activity to completed.
+For generated or bridged theme values, a custom property is usable only when
+its complete `var(...)` chain resolves in the consumer's window and color
+scheme. Keep geometry foundations (including radius scale) product-owned and
+cover them with computed-style browser tests.
+
 ### Text hierarchy
 
 Use **three levels maximum** in any single view:

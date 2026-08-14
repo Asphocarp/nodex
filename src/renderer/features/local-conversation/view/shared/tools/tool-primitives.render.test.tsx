@@ -97,6 +97,7 @@ describe("ThreadActivityDisclosure", () => {
   test("uses a rich overlay button labelled by its summary while preserving nested controls", () => {
     const { container } = render(
       <ThreadActivityDisclosure
+        status="completed"
         headerTestId="activity-header"
         icon={<span aria-hidden="true">icon</span>}
         summary={<a href="/file.ts" data-agent-activity-file-link>Edited file.ts</a>}
@@ -117,6 +118,7 @@ describe("ThreadActivityDisclosure", () => {
   test("prefers an explicit accessible label for a rich overlay button", () => {
     const { container } = render(
       <ThreadActivityDisclosure
+        status="completed"
         accessibleLabel="Toggle activity details"
         headerTestId="activity-header"
         icon={<span aria-hidden="true">icon</span>}
@@ -135,6 +137,7 @@ describe("ThreadActivityDisclosure", () => {
     let expandCount = 0;
     const { container } = render(
       <ThreadActivityDisclosure
+        status="completed"
         bodyTestId="activity-body"
         headerTestId="activity-header"
         onExpand={() => {
@@ -186,6 +189,7 @@ describe("ThreadActivityDisclosure", () => {
   test("opens running activities by default and preserves a manual collapse", async () => {
     const view = render(
       <ThreadActivityDisclosure
+        autoExpandWhileRunning
         bodyTestId="activity-body"
         headerTestId="activity-header"
         status="running"
@@ -205,6 +209,7 @@ describe("ThreadActivityDisclosure", () => {
 
     view.rerender(
       <ThreadActivityDisclosure
+        autoExpandWhileRunning
         bodyTestId="activity-body"
         headerTestId="activity-header"
         status="running"
@@ -219,6 +224,7 @@ describe("ThreadActivityDisclosure", () => {
   test("preserves an expanded body node across streaming summary updates", async () => {
     const view = render(
       <ThreadActivityDisclosure
+        status="running"
         defaultExpanded
         headerTestId="activity-header"
         summary="Running command"
@@ -233,6 +239,7 @@ describe("ThreadActivityDisclosure", () => {
     await act(async () => {
       view.rerender(
         <ThreadActivityDisclosure
+          status="completed"
           defaultExpanded
           headerTestId="activity-header"
           summary="Ran command"
@@ -254,6 +261,7 @@ describe("ThreadActivityDisclosure", () => {
   test("renders static headers and no body when expansion is disabled", () => {
     const { container } = render(
       <ThreadActivityDisclosure
+        status="completed"
         bodyTestId="activity-body"
         canExpand={false}
         headerTestId="activity-header"
