@@ -240,7 +240,7 @@ export const PageOnly: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Page-only add-tab picker groups the current project's Pages before Pages from other projects.",
+        story: "Page-only add-tab picker leads with Page status, gives the title the primary lane, and shows Project names only for results outside the Current project section.",
       },
     },
   },

@@ -30,6 +30,7 @@ import { getGitWorkerClient, invoke } from "@/lib/api";
 import {
   createCommandKeymapState,
   formatCommandShortcutLabel,
+  resolveCommandShortcutPresentation,
   type CommandKeymapState,
 } from "../../../shared/command-keybindings";
 import { buildNewChatProjectSelectorOptions } from "@/lib/new-chat-project-selector";
@@ -308,36 +309,47 @@ function ConnectedSessionThread({
     () => buildNewChatProjectSelectorOptions(projects),
     [projects],
   );
+  const resolvedCommandKeymapState = useMemo(
+    () => commandKeymapState
+      ?? createCommandKeymapState({}, isMac ? "macOS" : "windows"),
+    [commandKeymapState, isMac],
+  );
   const threadActionShortcuts = useMemo(() => {
-    const state = commandKeymapState
-      ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
     return {
       togglePin: formatCommandShortcutLabel(
-        state,
+        resolvedCommandKeymapState,
         "toggleThreadPin",
         "CmdOrCtrl+Alt+P",
       ),
       rename: formatCommandShortcutLabel(
-        state,
+        resolvedCommandKeymapState,
         "renameThread",
         "CmdOrCtrl+Alt+R",
       ),
       archive: formatCommandShortcutLabel(
-        state,
+        resolvedCommandKeymapState,
         "archiveThread",
         "CmdOrCtrl+Shift+A",
       ),
       openSideTask: formatCommandShortcutLabel(
-        state,
+        resolvedCommandKeymapState,
         "openSideChat",
         "CmdOrCtrl+Alt+S",
       ),
       copyConversationMarkdown: formatCommandShortcutLabel(
-        state,
+        resolvedCommandKeymapState,
         "copyConversationMarkdown",
       ),
     };
-  }, [commandKeymapState, isMac]);
+  }, [resolvedCommandKeymapState]);
+  const modelPickerShortcut = useMemo(
+    () => resolveCommandShortcutPresentation(
+      resolvedCommandKeymapState,
+      "openModelPicker",
+      "Ctrl+Shift+M",
+    ),
+    [resolvedCommandKeymapState],
+  );
 
   useEffect(() => {
     if (summary) return;
@@ -648,6 +660,7 @@ function ConnectedSessionThread({
     sessionId: session.id,
     threadPinned: session.pinned ?? false,
     threadActionShortcuts,
+    modelPickerShortcut,
     projectWorkspacePath: summary
       ? projectWorkspaceRootOrNull(project)
       : projectWorkspaceRootOrNull(selectedNewThreadProject),

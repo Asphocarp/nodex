@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CommandPaletteThread } from "@/lib/command-palette";
@@ -42,10 +42,16 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
+function makeCard(
+  id: string,
+  title: string,
+  status: DatabasePageSummary["status"],
+  order: number,
+  pageKey: string | null = null,
+): DatabasePageSummary {
   return {
     id,
-    pageKey: null,
+    pageKey,
     status,
     archived: false,
     title,
@@ -75,7 +81,7 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
           name: "Triage",
           cards: [
             makeCard("source-card", "Source card", "triage", 0),
-            makeCard("target-card", "Target card", "triage", 1),
+            makeCard("target-card", "Target card", "triage", 1, "LAB-13"),
           ],
         },
       ],
@@ -700,7 +706,7 @@ describe("nfm text action menu surface", () => {
         <NfmMoveToMenuSurface
           {...props}
           projects={MOVE_TO_PROJECTS}
-          boardMap={MOVE_TO_BOARD_MAP}
+          pageBoardMap={MOVE_TO_BOARD_MAP}
           loading={false}
           loadError={null}
         />
@@ -725,24 +731,35 @@ describe("nfm text action menu surface", () => {
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("option", { name: /Plan\s*Renderer parity/ }));
+      const planRow = view
+        .getAllByRole("option", { name: "Plan" })
+        .find((row) => row.getAttribute("data-nfm-move-to-project-id") === "renderer");
+      if (!planRow) throw new Error("Renderer Plan row not found.");
+      expect(planRow.textContent).toBe("Plan");
+      fireEvent.click(planRow);
       await settleAsyncRender();
     });
 
     await waitFor(() => {
       expect(actions.moveDestinations.length).toBe(1);
     });
-    expect(actions.moveDestinations[0]?.kind).toBe("db-column");
-    expect(actions.moveDestinations[0]?.projectId).toBe("renderer");
-    expect(actions.moveDestinations[0]?.columnId).toBe("plan");
+    expect(actions.moveDestinations[0]).toEqual({
+      kind: "db-column",
+      projectId: "renderer",
+      columnId: "plan",
+    });
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Move to" }));
       await settleAsyncRender();
     });
 
+    const targetPageRow = view.getByRole("option", { name: /Target card\s*Default/ });
+    expect(targetPageRow.textContent).toBe("Target cardDefault");
+    expect(within(targetPageRow).getByTitle("Triage")).not.toBeNull();
+
     await act(async () => {
-      fireEvent.click(view.getByRole("option", { name: /Target card\s*Default \/ Triage/ }));
+      fireEvent.click(targetPageRow);
       await settleAsyncRender();
     });
 
@@ -755,7 +772,6 @@ describe("nfm text action menu surface", () => {
       throw new Error("expected card destination");
     }
     expect(cardDestination.projectId).toBe("default");
-    expect(cardDestination.columnId).toBe("triage");
     expect(cardDestination.pageId).toBe("target-card");
   });
 
@@ -809,7 +825,7 @@ describe("nfm text action menu surface", () => {
         <NfmMoveToMenuSurface
           {...props}
           projects={MOVE_TO_PROJECTS}
-          boardMap={MOVE_TO_BOARD_MAP}
+          pageBoardMap={MOVE_TO_BOARD_MAP}
           loading={false}
           loadError={null}
         />
@@ -904,7 +920,7 @@ describe("nfm text action menu surface", () => {
         <NfmMoveToMenuSurface
           {...props}
           projects={MOVE_TO_PROJECTS}
-          boardMap={MOVE_TO_BOARD_MAP}
+          pageBoardMap={MOVE_TO_BOARD_MAP}
           loading={false}
           loadError={null}
         />

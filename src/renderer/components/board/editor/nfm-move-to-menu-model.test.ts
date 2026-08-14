@@ -6,6 +6,7 @@ import {
   flattenNfmMoveToRows,
   getDefaultNfmMoveToExpandedProjectIds,
   getInitialNfmMoveToFocusedRowId,
+  getNfmMoveToExecutableProjects,
   moveNfmMoveToFocusedRowId,
   resolveNfmMoveToFocusedRowId,
 } from "./nfm-move-to-menu-model";
@@ -112,10 +113,13 @@ const BOARD_MAP = new Map<string, BoardSummary>([
   ],
 ]);
 
-function buildSections(query = "", expandedProjectIds = new Set(["alpha"])) {
+function buildSections(
+  query = "",
+  expandedProjectIds: ReadonlySet<string> = new Set(["alpha"]),
+) {
   return buildNfmMoveToSections({
     projects: PROJECTS,
-    boardMap: BOARD_MAP,
+    pageBoardMap: BOARD_MAP,
     sourceProjectId: "alpha",
     sourcePageId: "source-page",
     expandedProjectIds,
@@ -124,13 +128,20 @@ function buildSections(query = "", expandedProjectIds = new Set(["alpha"])) {
 }
 
 describe("nfm move-to menu model", () => {
+  test("exposes only destinations inside the source Project authority", () => {
+    expect(getNfmMoveToExecutableProjects(PROJECTS, "alpha").map(
+      (project) => project.id,
+    )).toEqual(["alpha"]);
+    expect(getNfmMoveToExecutableProjects(PROJECTS, null)).toEqual([]);
+  });
+
   test("keeps DB before Page and expands the source project by default", () => {
     const sections = buildSections();
     const rows = flattenNfmMoveToRows(sections);
 
     expect(sections.map((section) => section.label).join(",")).toBe("DB,Page");
     expect(rows.map((row) => row.id).join(",")).toBe(
-      "db:alpha,db-column:alpha:triage,db-column:alpha:ship,db:beta,page:alpha:draft-spec,page:alpha:command-palette,page:alpha:ship-plan,page:beta:runtime",
+      "db:alpha,db-column:alpha:triage,db-column:alpha:plan,db-column:alpha:build,db-column:alpha:review,db-column:alpha:ship,db:beta,page:alpha:draft-spec,page:alpha:command-palette,page:alpha:ship-plan",
     );
     expect(rows[0]?.kind).toBe("db");
     const firstRow = rows[0];
@@ -145,6 +156,43 @@ describe("nfm move-to menu model", () => {
     expect(expanded.has("alpha")).toBe(false);
   });
 
+  test("keeps Page results independent from DB disclosure state", () => {
+    const pageRowIds = (expandedProjectIds: ReadonlySet<string>) =>
+      buildSections("", expandedProjectIds)
+        .find((section) => section.key === "page")
+        ?.rows.map((row) => row.id);
+
+    const expectedPageRowIds = [
+      "page:alpha:draft-spec",
+      "page:alpha:command-palette",
+      "page:alpha:ship-plan",
+    ];
+    expect(pageRowIds(new Set())).toEqual(expectedPageRowIds);
+    expect(pageRowIds(new Set(["alpha"]))).toEqual(expectedPageRowIds);
+    expect(pageRowIds(new Set(["beta"]))).toEqual(expectedPageRowIds);
+  });
+
+  test("builds DB status destinations without loading Project boards", () => {
+    const rows = flattenNfmMoveToRows(buildNfmMoveToSections({
+      projects: PROJECTS,
+      pageBoardMap: new Map(),
+      sourceProjectId: "alpha",
+      sourcePageId: "source-page",
+      expandedProjectIds: new Set(["beta"]),
+      query: "",
+    }));
+
+    expect(rows.map((row) => row.id)).toEqual([
+      "db:alpha",
+      "db:beta",
+      "db-column:beta:triage",
+      "db-column:beta:plan",
+      "db-column:beta:build",
+      "db-column:beta:review",
+      "db-column:beta:ship",
+    ]);
+  });
+
   test("filters DB, column, and page rows while excluding the source page", () => {
     const pageRows = flattenNfmMoveToRows(buildSections("runtime"));
     const columnRows = flattenNfmMoveToRows(buildSections("ship"));
@@ -152,15 +200,19 @@ describe("nfm move-to menu model", () => {
     const sourceRows = flattenNfmMoveToRows(buildSections("source"));
 
     expect(pageRows.map((row) => row.id).join(",")).toBe("page:beta:runtime");
-    expect(columnRows.map((row) => row.id).join(",")).toBe("db:alpha,db-column:alpha:ship,page:alpha:ship-plan");
-    expect(projectRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:plan,page:beta:runtime");
+    expect(columnRows.map((row) => row.id).join(",")).toBe(
+      "db:alpha,db-column:alpha:ship,db:beta,db-column:beta:ship,page:alpha:ship-plan",
+    );
+    expect(projectRows.map((row) => row.id).join(",")).toBe(
+      "db:beta,db-column:beta:triage,db-column:beta:plan,db-column:beta:build,db-column:beta:review,db-column:beta:ship,page:beta:runtime",
+    );
     expect(sourceRows.map((row) => row.id).join(",")).toBe("");
   });
 
   test("can restrict results to DB destinations for Page in", () => {
     const pageTitleSections = buildNfmMoveToSections({
       projects: PROJECTS,
-      boardMap: BOARD_MAP,
+      pageBoardMap: BOARD_MAP,
       sourceProjectId: "alpha",
       sourcePageId: "source-page",
       expandedProjectIds: new Set(["alpha"]),
@@ -169,7 +221,7 @@ describe("nfm move-to menu model", () => {
     });
     const dbSections = buildNfmMoveToSections({
       projects: PROJECTS,
-      boardMap: BOARD_MAP,
+      pageBoardMap: BOARD_MAP,
       sourceProjectId: "alpha",
       sourcePageId: "source-page",
       expandedProjectIds: new Set(["alpha"]),
@@ -181,7 +233,9 @@ describe("nfm move-to menu model", () => {
 
     expect(pageTitleSections.map((section) => section.label).join(",")).toBe("DB");
     expect(pageTitleRows.map((row) => row.id).join(",")).toBe("");
-    expect(dbRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:plan");
+    expect(dbRows.map((row) => row.id).join(",")).toBe(
+      "db:beta,db-column:beta:triage,db-column:beta:plan,db-column:beta:build,db-column:beta:review,db-column:beta:ship",
+    );
   });
 
   test("uses command-palette-style fuzzy and prefix page search without description-only fields", () => {

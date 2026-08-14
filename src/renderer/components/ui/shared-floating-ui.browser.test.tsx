@@ -6,6 +6,7 @@ import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "@/components/board/editor/nfm-bl
 import { Circle } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownButtonTrigger,
+  NodexDropdownMenu,
   NodexOptionPicker,
 } from "./dropdown";
 import { NodexHoverCard, NodexHoverCardProvider } from "./hover-card";
@@ -163,6 +164,38 @@ describe("shared floating UI in Chromium", () => {
     if (!tooltip) throw new Error("Expected a tooltip content surface.");
     const tooltipZIndex = Number(getComputedStyle(tooltip).zIndex);
     expect(tooltipZIndex).toBeGreaterThan(NFM_EDITOR_FLOATING_UI_Z_INDEX);
+  });
+
+  test("keeps dropdown trigger tooltips padded around compact shortcut chips", async () => {
+    const view = render(
+      <NodexTooltipProvider delayDuration={0}>
+        <NodexDropdownMenu
+          triggerButton={<button type="button">Model</button>}
+          triggerTooltipContent="Select model"
+          triggerTooltipShortcutLabel="Ctrl+Shift+M"
+        >
+          <div>Model option</div>
+        </NodexDropdownMenu>
+      </NodexTooltipProvider>,
+    );
+    const trigger = view.getByRole("button", { name: "Model" });
+
+    await act(async () => {
+      fireEvent.focus(trigger);
+      await settleFloatingSurface();
+    });
+
+    const tooltip = view.getByRole("tooltip").parentElement;
+    if (!tooltip) throw new Error("Expected a visual tooltip surface.");
+    const shortcut = tooltip.querySelector("kbd");
+    if (!shortcut) throw new Error("Expected a tooltip shortcut chip.");
+    const style = getComputedStyle(tooltip);
+    expect(style.paddingLeft).toBe("8px");
+    expect(style.paddingRight).toBe("8px");
+    expect(style.paddingTop).toBe("4px");
+    expect(style.paddingBottom).toBe("4px");
+    expect(shortcut.tagName).toBe("KBD");
+    expect(shortcut.getBoundingClientRect().height).toBe(18);
   });
 
   test("increments the layer for recursively portalled floating surfaces", async () => {

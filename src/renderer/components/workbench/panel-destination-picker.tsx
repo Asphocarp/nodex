@@ -9,7 +9,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { ActivitySpinnerIcon, PageIcon, SearchIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, SearchIcon } from "@/components/shared/icons";
+import { NodexDestinationPickerPageRowContent } from "@/components/ui/destination-picker";
 import { createNfmMoveToSearchIndex } from "@/components/board/editor/nfm-move-to-menu-search";
 import {
   resolveQueryFreshAccept,
@@ -88,20 +89,19 @@ function PanelDestinationProjectIcon({
   return <ProjectMarker appearance={projectAppearance} className={className} />;
 }
 
-function PanelDestinationRowIcon({ row }: { row: PanelDestinationRow }) {
-  if (row.kind === "page") return <PageIcon />;
+type PanelDestinationDbRow = Extract<PanelDestinationRow, { kind: "db" }>;
+
+function PanelDestinationRowIcon({ row }: { row: PanelDestinationDbRow }) {
   return (
     <PanelDestinationProjectIcon projectAppearance={row.projectAppearance} />
   );
 }
 
-function getPanelDestinationRowLabel(row: PanelDestinationRow) {
-  if (row.kind === "page") return row.pageTitle;
+function getPanelDestinationRowLabel(row: PanelDestinationDbRow) {
   return row.viewName;
 }
 
-function getPanelDestinationRowMeta(row: PanelDestinationRow) {
-  if (row.kind === "page") return `${row.projectName} / ${row.columnName}`;
+function getPanelDestinationRowMeta(row: PanelDestinationDbRow) {
   return `${row.projectName} / ${row.databaseName}`;
 }
 
@@ -169,6 +169,7 @@ function PanelDestinationResultRow({
   focused,
   disabled,
   accepting,
+  showPageProjectName,
   onAccept,
   onFocusRowChange,
 }: {
@@ -178,11 +179,10 @@ function PanelDestinationResultRow({
   focused: boolean;
   disabled: boolean;
   accepting: boolean;
+  showPageProjectName: boolean;
   onAccept: (row: PanelDestinationRow) => void;
   onFocusRowChange: (rowId: string) => void;
 }) {
-  const metadata = getPanelDestinationRowMeta(row);
-
   return (
     <button
       id={getPanelDestinationRowDomId(listboxId, index)}
@@ -205,32 +205,30 @@ function PanelDestinationResultRow({
         onAccept(row);
       }}
     >
-      <span className="flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground">
-        <PanelDestinationRowIcon row={row} />
-      </span>
-      <span className="flex min-w-0 flex-1 items-baseline gap-2">
-        {row.kind === "page" && row.pageKey ? (
-          <span className="shrink-0 text-[12px] font-medium tabular-nums text-token-description-foreground">
-            {row.pageKey}
+      {row.kind === "page" ? (
+        <NodexDestinationPickerPageRowContent
+          title={row.pageTitle}
+          statusId={row.columnId}
+          statusLabel={row.columnName}
+          projectName={showPageProjectName ? row.projectName : undefined}
+          accepting={accepting}
+        />
+      ) : (
+        <>
+          <span className="flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground">
+            <PanelDestinationRowIcon row={row} />
           </span>
-        ) : null}
-        <span className="min-w-0 truncate">{getPanelDestinationRowLabel(row)}</span>
-      </span>
-      {row.kind === "page"
-        && row.matchedPageKey
-        && row.matchedPageKeyIsCurrent === false ? (
-          <span className="ml-1 max-w-[128px] shrink truncate text-[11px] tabular-nums text-token-description-foreground">
-            Matched {row.matchedPageKey}
+          <span className="min-w-0 flex-1 truncate">
+            {getPanelDestinationRowLabel(row)}
           </span>
-        ) : null}
-      {metadata ? (
-        <span className="ml-1 max-w-[128px] shrink truncate text-[12px] leading-4 text-token-description-foreground">
-          {metadata}
-        </span>
-      ) : null}
-      {accepting ? (
-        <ActivitySpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
-      ) : null}
+          <span className="ml-1 max-w-[128px] shrink truncate text-[12px] leading-4 text-token-description-foreground">
+            {getPanelDestinationRowMeta(row)}
+          </span>
+          {accepting ? (
+            <ActivitySpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
+          ) : null}
+        </>
+      )}
     </button>
   );
 }
@@ -273,6 +271,7 @@ function PanelDestinationSectionView({
               focused={focusedIndex === index}
               disabled={disabled}
               accepting={acceptingRowId === row.id}
+              showPageProjectName={section.key !== "current-page"}
               onAccept={onAccept}
               onFocusRowChange={onFocusRowChange}
             />

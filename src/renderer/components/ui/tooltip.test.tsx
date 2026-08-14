@@ -52,6 +52,23 @@ describe("codex tooltip", () => {
     expect(tooltipIsMounted()).toBe(false);
   });
 
+  test("renders shortcut labels as keyboard input", async () => {
+    const view = render(
+      <NodexTooltipProvider>
+        <NodexTooltip
+          tooltipContent="Click to dictate or hold"
+          shortcutLabel="Ctrl+M"
+          defaultOpen
+        >
+          <button type="button">Dictate</button>
+        </NodexTooltip>
+      </NodexTooltipProvider>,
+    );
+
+    expect(view.getAllByText("Ctrl+M").every((element) => element.tagName === "KBD"))
+      .toBe(true);
+  });
+
   test("dismisses an open uncontrolled tooltip through the shared dismiss event", async () => {
     await renderOpenTooltip();
 

@@ -49,6 +49,11 @@ export interface CommandKeymapState {
   hasCustomBindings: boolean;
 }
 
+export interface CommandShortcutPresentation {
+  label: string;
+  ariaKeyShortcuts?: string;
+}
+
 export type CommandKeybindingOverrides = Record<string, string[]>;
 
 interface ParsedChord {
@@ -524,6 +529,29 @@ export function formatCommandShortcutLabel(
   return formatAcceleratorLabel(accelerator ?? fallback ?? "", platform);
 }
 
+export function resolveCommandShortcutPresentation(
+  state: CommandKeymapState | null | undefined,
+  commandId: string,
+  fallback?: string,
+): CommandShortcutPresentation | null {
+  const accelerator = getPrimaryCommandAccelerator(state, commandId);
+  if (!accelerator && getCommandEntry(state, commandId)) return null;
+
+  const resolvedAccelerator = accelerator ?? fallback;
+  if (!resolvedAccelerator) return null;
+
+  const platform = state?.platform ?? resolveRuntimePlatform();
+  const ariaKeyShortcuts = formatAcceleratorAriaKeyShortcut(
+    resolvedAccelerator,
+    platform,
+  );
+
+  return {
+    label: formatAcceleratorLabel(resolvedAccelerator, platform),
+    ...(ariaKeyShortcuts ? { ariaKeyShortcuts } : {}),
+  };
+}
+
 export function normalizeAccelerator(accelerator: string | null | undefined): string {
   if (!accelerator) return "";
   return accelerator
@@ -557,6 +585,30 @@ export function formatAcceleratorLabel(accelerator: string, platform: RuntimePla
     .split(/\s+/)
     .map((chord) => formatChordLabel(chord, platform))
     .join(" ");
+}
+
+export function formatAcceleratorAriaKeyShortcut(
+  accelerator: string,
+  platform: RuntimePlatform = resolveRuntimePlatform(),
+): string | null {
+  const normalized = normalizeAccelerator(accelerator);
+  if (!normalized || normalized.includes(" ") || normalized.startsWith("Mouse")) {
+    return null;
+  }
+
+  const parsed = parseChord(normalized);
+  if (!parsed?.key || parsed.key.startsWith("Mouse")) return null;
+
+  const modifiers = parsed.modifiers.map((modifier) => {
+    if (modifier === "CmdOrCtrl") {
+      return platform === "macOS" ? "Meta" : "Control";
+    }
+    if (modifier === "Command") return "Meta";
+    if (modifier === "Ctrl") return "Control";
+    return modifier;
+  });
+
+  return [...modifiers, formatAriaKeyName(parsed.key)].join("+");
 }
 
 export function commandAcceleratorsInclude(
@@ -852,6 +904,14 @@ function formatKeyLabel(key: string): string {
   if (key === "Down") return "↓";
   if (key === "Left") return "←";
   if (key === "Right") return "→";
+  return key;
+}
+
+function formatAriaKeyName(key: string): string {
+  if (key === "Up") return "ArrowUp";
+  if (key === "Down") return "ArrowDown";
+  if (key === "Left") return "ArrowLeft";
+  if (key === "Right") return "ArrowRight";
   return key;
 }
 

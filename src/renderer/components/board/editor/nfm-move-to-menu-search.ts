@@ -9,6 +9,7 @@ import {
 } from "@/lib/page-key";
 import type { BoardSummary, Project } from "@/lib/types";
 import type { ProjectAppearance } from "../../../../shared/project-appearance";
+import { WORKFLOW_STATUS_COLUMNS } from "../../../../shared/workflow-status";
 
 interface NfmMoveToSearchDocument {
   id: string;
@@ -154,8 +155,7 @@ export function createNfmMoveToSearchIndex({
       boardOrder: projectIndex * 1_000_000,
     });
 
-    const board = boardMap.get(project.id);
-    board?.columns.forEach((column, columnIndex) => {
+    WORKFLOW_STATUS_COLUMNS.forEach((column, columnIndex) => {
       const columnOrder = projectIndex * 1_000_000 + columnIndex * 10_000;
       documents.push({
         id: `db-column:${project.id}:${column.id}`,
@@ -170,7 +170,11 @@ export function createNfmMoveToSearchIndex({
         pageTitle: "",
         boardOrder: columnOrder,
       });
+    });
 
+    const board = boardMap.get(project.id);
+    board?.columns.forEach((column, columnIndex) => {
+      const columnOrder = projectIndex * 1_000_000 + columnIndex * 10_000;
       column.cards.forEach((page, pageIndex) => {
         if (project.id === sourceProjectId && page.id === sourcePageId) return;
 

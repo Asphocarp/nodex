@@ -103,6 +103,10 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     collaborationModes: [],
     selectedCollaborationMode: "default",
     selectedModel: "gpt-5.3-codex",
+    modelPickerShortcut: {
+      label: "Ctrl+Shift+M",
+      ariaKeyShortcuts: "Control+Shift+M",
+    },
     selectedReasoningEffort: "high",
     reasoningEffortOptions: [],
     permissionMode: "auto",

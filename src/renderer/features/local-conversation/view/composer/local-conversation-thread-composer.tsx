@@ -1207,20 +1207,11 @@ function LegacyModelSelectorDropdown({
           modelLabel={modelLabel}
           reasoningLabel={reasoningLabel}
           showFastIndicator={selection.serviceTier === "fast"}
-          aria-keyshortcuts="Control+Shift+M"
+          aria-keyshortcuts={model.modelPickerShortcut?.ariaKeyShortcuts}
         />
       )}
       triggerTooltipContent="Select model"
-      triggerTooltipShortcut={(
-        <ShortcutKeycaps
-          keys={[
-            typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC")
-              ? "⌃⇧M"
-              : "Ctrl+Shift+M",
-          ]}
-          density="compact"
-        />
-      )}
+      triggerTooltipShortcutLabel={model.modelPickerShortcut?.label}
       side="top"
       align="end"
       alignOffset={triggerGeometry.alignOffset}
@@ -1674,20 +1665,11 @@ function AgentModelSelectorDropdown({
           modelLabel={modelLabel}
           reasoningLabel={reasoningLabel}
           showFastIndicator={showFastIndicator}
-          aria-keyshortcuts="Control+Shift+M"
+          aria-keyshortcuts={model.modelPickerShortcut?.ariaKeyShortcuts}
         />
       )}
       triggerTooltipContent="Select model"
-      triggerTooltipShortcut={(
-        <ShortcutKeycaps
-          keys={[
-            typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC")
-              ? "⌃⇧M"
-              : "Ctrl+Shift+M",
-          ]}
-          density="compact"
-        />
-      )}
+      triggerTooltipShortcutLabel={model.modelPickerShortcut?.label}
       side="top"
       align="end"
       alignOffset={triggerGeometry.alignOffset}
@@ -3777,7 +3759,7 @@ function HydratedThreadComposer({
   const dictationControl = isDictationSupported ? (
     <NodexTooltip
       tooltipContent={<span className="text-token-foreground">Click to dictate or hold</span>}
-      shortcut={model.dictation.shortcutLabel}
+      shortcutLabel={model.dictation.shortcutLabel}
       side="top"
       sideOffset={4}
     >
