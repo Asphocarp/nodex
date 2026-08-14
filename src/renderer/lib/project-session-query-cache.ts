@@ -8,6 +8,56 @@ import type {
 import { projectSessionDetailQueryOptions } from "./query-options";
 import { queryKeys } from "./query-keys";
 
+export { preferNewestProjectSessionSummaryWindow } from "./project-session-summary-window";
+
+export type ProjectSessionSummaryWindowReader = (
+  after: string | null,
+  first: number,
+) => Promise<ProjectSessionSummaryWindow>;
+
+export async function readProjectSessionSummaryWindowThrough({
+  previousItemCount,
+  projectionRevision,
+  read,
+}: {
+  previousItemCount: number;
+  projectionRevision: number;
+  read: ProjectSessionSummaryWindowReader;
+}): Promise<ProjectSessionSummaryWindow> {
+  const requestedItemCount = Math.max(50, previousItemCount);
+  let first = await read(null, 50);
+  if (first.projectionRevision < projectionRevision) {
+    first = await read(null, 50);
+  }
+  if (first.projectionRevision < projectionRevision) {
+    throw new Error("Canonical chat order has not reached the committed revision");
+  }
+
+  const items = [...first.items];
+  const knownIds = new Set(items.map((item) => item.id));
+  let cursor = first.nextCursor;
+  let latest = first;
+  while (items.length < requestedItemCount && cursor !== null) {
+    const next = await read(
+      cursor,
+      Math.min(50, requestedItemCount - items.length),
+    );
+    for (const item of next.items) {
+      if (knownIds.has(item.id)) continue;
+      knownIds.add(item.id);
+      items.push(item);
+    }
+    cursor = next.nextCursor;
+    latest = next;
+  }
+  return {
+    items,
+    nextCursor: cursor,
+    hasMore: cursor !== null || latest.hasMore,
+    projectionRevision: latest.projectionRevision,
+  };
+}
+
 export function sortProjectSessionSummariesForSidebar(
   summaries: readonly ProjectSessionSummary[],
 ): ProjectSessionSummary[] {
@@ -52,7 +102,7 @@ export function setProjectSessionSummaries(
   queryClient: QueryClient,
   projectId: string | null,
   summaries: readonly ProjectSessionSummary[],
-): void {
+): ProjectSessionSummaryWindow {
   for (const summary of summaries) {
     queryClient.setQueryData<ProjectSession | null | undefined>(
       queryKeys.projectSessions.detail(summary.id),
@@ -68,24 +118,33 @@ export function setProjectSessionSummaries(
         : current,
     );
   }
-  queryClient.setQueryData<ProjectSessionSummaryWindow>(
+  const installed = queryClient.setQueryData<ProjectSessionSummaryWindow>(
     queryKeys.projectSessions.summaries(projectId),
-    {
-      items: sortProjectSessionSummariesForSidebar([...summaries]),
-      nextCursor: null,
-      hasMore: false,
-      projectionRevision: 0,
-    },
+    (current) => ({
+      items: [...summaries],
+      nextCursor: current?.nextCursor ?? null,
+      hasMore: current?.hasMore ?? false,
+      projectionRevision: current?.projectionRevision ?? 0,
+    }),
   );
+  return installed ?? {
+    items: [...summaries],
+    nextCursor: null,
+    hasMore: false,
+    projectionRevision: 0,
+  };
 }
 
 export function seedProjectSessionDetail(
   queryClient: QueryClient,
   session: ProjectSession | null | undefined,
-): void {
-  if (!session) return;
+): ProjectSession | null | undefined {
+  if (!session) return session;
 
-  queryClient.setQueryData(queryKeys.projectSessions.detail(session.id), session);
+  const installed = queryClient.setQueryData<ProjectSession | null | undefined>(
+    queryKeys.projectSessions.detail(session.id),
+    session,
+  );
   const summary = projectSessionToSummary(session);
   queryClient.setQueryData<ProjectSessionSummaryWindow | undefined>(
     queryKeys.projectSessions.summaries(session.projectId),
@@ -96,10 +155,11 @@ export function seedProjectSessionDetail(
         : [...current.items, summary];
       return {
         ...current,
-        items: sortProjectSessionSummariesForSidebar(next),
+        items: next,
       };
     },
   );
+  return installed;
 }
 
 export function seedProjectSessionDetails(

@@ -686,8 +686,6 @@ describe("workbench session shell / sidebar-projects", () => {
         pinnedThreadIds: [],
         projectAssignments: {},
         projectlessThreadIds: [],
-        projectThreadOrders: {},
-        projectlessThreadOrder: null,
         generatedAt: 2,
       },
       source: "app-server",
@@ -889,7 +887,7 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Projectless"]') !== null).toBe(true);
   });
 
-  test("projects the global manual order onto Chats while leaving newly discovered rows in canonical slots", async () => {
+  test("renders Chats in canonical TaskWindow order", async () => {
     const chatA = makeAttachedSession({
       id: "session:chat:a",
       projectId: null,
@@ -917,11 +915,10 @@ describe("workbench session shell / sidebar-projects", () => {
     chatA.thread.updatedAt = 300;
     chatNew.thread.updatedAt = 200;
     chatB.thread.updatedAt = 100;
-    const projectlessSessions = [chatA, chatNew, chatB];
+    const projectlessSessions = [chatB, chatNew, chatA];
     const screen = renderWorkbench({
       projectlessSessions,
       sidebarSnapshotItems: projectlessSessions.map(makeSidebarSnapshotItemForSession),
-      projectlessThreadOrder: ["thread-chat-b", "thread-chat-a"],
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -934,7 +931,7 @@ describe("workbench session shell / sidebar-projects", () => {
     ]));
   });
 
-  test("keeps project manual slots stable across session selection while recency places new rows", async () => {
+  test("keeps canonical project TaskWindow order stable across session selection", async () => {
     const pinned = makeAttachedSession({
       id: "session:alpha:pinned",
       threadId: "thread-alpha-pinned",
@@ -967,13 +964,10 @@ describe("workbench session shell / sidebar-projects", () => {
     chatA.thread.updatedAt = 300;
     chatNew.thread.updatedAt = 200;
     chatB.thread.updatedAt = 100;
-    const sessions = [pinned, chatA, chatNew, chatB];
+    const sessions = [pinned, chatB, chatNew, chatA];
     const screen = renderWorkbench({
       sessionsByProject: { alpha: sessions },
       sidebarSnapshotItems: sessions.map(makeSidebarSnapshotItemForSession),
-      projectThreadOrders: {
-        alpha: ["thread-alpha-b", "thread-alpha-a"],
-      },
     });
     await settleAsyncRender();
     await settleAsyncRender();

@@ -41,6 +41,7 @@ import type {
   CoreClientPort,
   ProjectWorkspaceReadSnapshot,
 } from "./types";
+import { applyResultCursor } from "./types";
 
 type CoreProject = Extract<
   ProjectWorkspaceReadSnapshot["value"],
@@ -131,6 +132,7 @@ export interface DesktopProjectWorkspaceThreadMoveInput {
   readonly sourceProjectId: string | null;
   readonly targetProjectId: string | null;
   readonly beforeThreadId?: string | null;
+  readonly afterThreadId?: string | null;
   readonly insertAtEnd?: boolean;
   readonly useDefaultOrder?: boolean;
   readonly runtimeWorkspaceRoots?: readonly string[];
@@ -159,8 +161,6 @@ export interface DesktopProjectWorkspaceExecutionLocation {
 
 export interface DesktopProjectWorkspaceSidebar {
   readonly threads: readonly DesktopProjectWorkspaceThread[];
-  readonly projectThreadOrders: Readonly<Record<string, readonly string[]>>;
-  readonly projectlessThreadOrder: readonly string[] | null;
 }
 
 export interface DesktopProjectWorkspaceExecutionContext {
@@ -339,7 +339,8 @@ export interface DesktopProjectWorkspacePort {
   ): Promise<DesktopProjectWorkspaceThread | null>;
   moveThread(input: DesktopProjectWorkspaceThreadMoveInput): Promise<{
     readonly thread: DesktopProjectWorkspaceThread;
-    readonly sidebar: DesktopProjectWorkspaceSidebar;
+    readonly operationId: string;
+    readonly projectionRevision: number;
   }>;
   setThreadUnread(
     threadId: string,
@@ -391,15 +392,6 @@ export interface DesktopProjectWorkspacePort {
     input: CodexBackgroundProcessRecord,
     options?: { readonly preserveStartedAt?: boolean },
   ): Promise<CodexBackgroundProcessRecord>;
-  setProjectThreadOrder(
-    projectId: string,
-    orderedThreadIds: readonly string[] | null,
-  ): Promise<DesktopProjectWorkspaceSidebar>;
-  setProjectlessThreadOrder(input: {
-    readonly threadIdsInDisplayOrder: readonly string[];
-    readonly visibleThreadIds: readonly string[];
-    readonly nextVisibleThreadIds: readonly string[];
-  }): Promise<DesktopProjectWorkspaceSidebar>;
   setThreadPinned(
     threadId: string,
     pinned: boolean,
@@ -659,20 +651,31 @@ const toCoreThreadLane = (projectId: string | null) =>
 const toCoreThreadMovePlacement = (
   input: DesktopProjectWorkspaceThreadMoveInput,
 ) => {
+  const movedThreadId = input.threadId.trim();
   const beforeThreadId = input.beforeThreadId?.trim() || null;
+  const afterThreadId = input.afterThreadId?.trim() || null;
   const insertAtEnd = input.insertAtEnd === true;
   const useDefaultOrder = input.useDefaultOrder === true;
-  if (useDefaultOrder && (beforeThreadId !== null || insertAtEnd)) {
+  const explicitPlacements = [
+    beforeThreadId !== null,
+    afterThreadId !== null,
+    insertAtEnd,
+    useDefaultOrder,
+  ].filter(Boolean).length;
+  if (explicitPlacements > 1) {
     throw new Error(
-      "useDefaultOrder cannot be combined with beforeThreadId or insertAtEnd",
+      "Thread placement accepts only one of beforeThreadId, afterThreadId, insertAtEnd, or useDefaultOrder",
     );
   }
-  if (beforeThreadId !== null && insertAtEnd) {
-    throw new Error("beforeThreadId cannot be combined with insertAtEnd");
+  if (beforeThreadId === movedThreadId || afterThreadId === movedThreadId) {
+    throw new Error("Thread placement anchor must reference another Thread");
   }
   if (useDefaultOrder) return { kind: "default" as const };
   if (beforeThreadId !== null) {
     return { kind: "before" as const, thread_id: beforeThreadId };
+  }
+  if (afterThreadId !== null) {
+    return { kind: "after" as const, thread_id: afterThreadId };
   }
   if (insertAtEnd) return { kind: "end" as const };
   return { kind: "start" as const };
@@ -1095,8 +1098,6 @@ export function createCoreProjectWorkspaceAdapter(
     threads: readonly DesktopProjectWorkspaceThread[] = [],
   ): DesktopProjectWorkspaceSidebar => ({
     threads,
-    projectThreadOrders: {},
-    projectlessThreadOrder: null,
   });
 
   const apply = async (
@@ -1562,7 +1563,8 @@ export function createCoreProjectWorkspaceAdapter(
       return await getThread(threadId);
     },
     moveThread: async (input) => {
-      await apply({
+      const operationId = randomUUID();
+      const applied = await client.workspaceApply({ operationId, intent: {
         kind: "move_thread",
         thread_id: input.threadId,
         source: toCoreThreadLane(input.sourceProjectId),
@@ -1581,12 +1583,16 @@ export function createCoreProjectWorkspaceAdapter(
                 missing_source_roots: [...input.projectAccessGrant.missingProjectSources],
               },
             }),
-      });
+      } });
       const thread = await getThread(input.threadId);
       if (!thread) {
         throw new Error(`Unable to read moved Codex Thread '${input.threadId}'`);
       }
-      return { thread, sidebar: mutationSidebarReceipt([thread]) };
+      return {
+        thread,
+        operationId,
+        projectionRevision: applyResultCursor(applied),
+      };
     },
     setThreadUnread: async (threadId, unread) => {
       try {
@@ -1708,28 +1714,6 @@ export function createCoreProjectWorkspaceAdapter(
         throw new Error(`Updated Core background process not found: ${input.id}`);
       }
       return persisted;
-    },
-    setProjectThreadOrder: async (projectId, orderedThreadIds) => {
-      await apply(orderedThreadIds === null
-        ? {
-            kind: "clear_project_thread_order",
-            project_id: projectId,
-          }
-        : {
-            kind: "set_project_thread_order",
-            project_id: projectId,
-            ordered_thread_ids: [...orderedThreadIds],
-          });
-      return mutationSidebarReceipt();
-    },
-    setProjectlessThreadOrder: async (input) => {
-      await apply({
-        kind: "set_projectless_thread_order",
-        thread_ids_in_display_order: [...input.threadIdsInDisplayOrder],
-        visible_thread_ids: [...input.visibleThreadIds],
-        next_visible_thread_ids: [...input.nextVisibleThreadIds],
-      });
-      return mutationSidebarReceipt();
     },
     setThreadPinned: async (threadId, pinned, beforeThreadId) => {
       try {

@@ -2028,8 +2028,6 @@ export function renderWorkbench({
   sessionsByProject = { alpha: [makeSession()] },
   projectlessSessions = [],
   sidebarSnapshotItems = [],
-  projectThreadOrders = {},
-  projectlessThreadOrder = null,
   sidebarSyncChangedProjectIds = [],
   sidebarSyncProjectlessChanged = false,
   searchByProject = {},
@@ -2052,8 +2050,6 @@ export function renderWorkbench({
   sessionsByProject?: Record<string, ProjectSession[]>;
   projectlessSessions?: ProjectSession[];
   sidebarSnapshotItems?: CodexSidebarThreadItem[];
-  projectThreadOrders?: Record<string, string[]>;
-  projectlessThreadOrder?: string[] | null;
   sidebarSyncChangedProjectIds?: string[];
   sidebarSyncProjectlessChanged?: boolean;
   searchByProject?: Record<string, string>;
@@ -2183,8 +2179,6 @@ export function renderWorkbench({
         .map((item) => [item.threadId, item.projectId]),
     ),
     projectlessThreadIds: sidebarItemState.filter((item) => item.projectless).map((item) => item.threadId),
-    projectThreadOrders,
-    projectlessThreadOrder,
     generatedAt: 1,
   });
   mockInvokeImpl = async (channel, ...args) => {
@@ -2545,8 +2539,6 @@ export function renderWorkbench({
           .map((session) => session.thread?.threadId),
         projectAssignments: {},
         projectlessThreadIds: [],
-        projectThreadOrders: {},
-        projectlessThreadOrder: null,
         generatedAt: 1,
       };
     }

@@ -644,7 +644,7 @@ function CodexSortableProjectSections({
           ref={pinnedDroppable.setNodeRef}
           className="absolute inset-x-0 top-0 px-row-x"
         >
-          <SidebarDropIndicator compensateLayout={false} />
+          <SidebarDropIndicator />
           <div className="h-4" />
         </div>
       ) : null}
@@ -1164,7 +1164,7 @@ function CodexCrossProjectThreadDropHarness() {
   ), [getThreadId, threadKeysByContainer]);
   const handleThreadDrop = useCallback(async (drop: SidebarThreadDropRequest) => {
     const threadKey = threadKeyById.get(drop.threadId);
-    if (!threadKey) return;
+    if (!threadKey) return null;
     setThreadKeysByContainer((current) => {
       const next = Object.fromEntries(
         Object.entries(current).map(([containerId, threadKeys]) => [
@@ -1189,6 +1189,7 @@ function CodexCrossProjectThreadDropHarness() {
       ];
       return next;
     });
+    return { operationId: `story:${drop.threadId}`, projectionRevision: 1 };
   }, [threadKeyById]);
   const renderRows = (containerId: string) => {
     const threadKeys = threadKeysByContainer[containerId] ?? [];

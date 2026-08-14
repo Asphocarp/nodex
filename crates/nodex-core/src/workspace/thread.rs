@@ -1109,9 +1109,18 @@ fn place_pinned_thread(
                 .position(|candidate| candidate == before_thread_id)
                 .unwrap_or(ordered.len())
         }
+        ProjectWorkspaceThreadPlacement::After {
+            thread_id: after_thread_id,
+        } => {
+            validate_id("after_thread_id", after_thread_id)?;
+            ordered
+                .iter()
+                .position(|candidate| candidate == after_thread_id)
+                .map_or(ordered.len(), |index| index + 1)
+        }
         ProjectWorkspaceThreadPlacement::Default => {
             return Err(invalid(
-                "Pinned Codex Thread placement must be start, end, or before",
+                "Pinned Codex Thread placement must be start, end, before, or after",
             ));
         }
     };

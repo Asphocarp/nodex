@@ -12,6 +12,7 @@ import {
   SortableContext,
   useSortable,
   verticalListSortingStrategy,
+  type AnimateLayoutChanges,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -19,12 +20,14 @@ import {
   createContext,
   useCallback,
   useContext,
+  useLayoutEffect,
   useMemo,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import { replaceVisibleCodexSidebarThreadKeyOrder } from "@/lib/codex-sidebar-thread-sync";
+import { useCanonicalOrderHandoff } from "@/lib/use-canonical-order-handoff";
 import { cn } from "@/lib/utils";
 import {
   codexSidebarProjectThreadContainerId,
@@ -50,11 +53,16 @@ export type SidebarThreadProjectDropZone =
 
 export type SidebarThreadKind = "local" | "remote";
 
+// The pointer already previews the final boundary. Replaying the source rect
+// after release makes a committed drop look like a second, automatic move.
+const disableSidebarThreadLayoutAnimation: AnimateLayoutChanges = () => false;
+
 export interface SidebarThreadDndThread {
   containerId: string;
   dragOverlay: ReactNode;
   getNextThreadId?: () => string | null;
   getNextThreadKey?: () => string | null;
+  getPreviousThreadId?: () => string | null;
   nextThreadKey?: string | null;
   sourceProjectKind?: SidebarThreadProjectKind;
   targetProjectKind?: SidebarThreadProjectKind;
@@ -82,6 +90,7 @@ export interface SidebarThreadContainerDndPayload {
 export interface SidebarThreadDropRequest {
   beforeItemId?: string | null;
   beforeThreadId: string | null;
+  afterThreadId?: string;
   insertAtEnd?: true;
   itemId?: string;
   sourceContainerId: string;
@@ -91,15 +100,36 @@ export interface SidebarThreadDropRequest {
   useDefaultOrder?: true;
 }
 
+export interface SidebarThreadDropCommit {
+  operationId: string;
+  projectionRevision: number;
+}
+
 export interface PendingSidebarThreadDrop {
   beforeThreadId: string | null;
+  afterThreadId?: string;
+  commitOperationId?: string;
   homeContainerId: string | null;
   insertAtEnd?: true;
+  operationId: string;
+  phase: "submitting" | "acknowledged";
+  projectionRevision?: number;
   sourceContainerId: string;
   targetContainerId: string;
   threadId: string;
   threadKey: string;
+  useDefaultOrder?: true;
 }
+
+export interface SidebarThreadCanonicalLane {
+  projectionRevision: number | null;
+  threadIds: readonly string[];
+}
+
+export type SidebarThreadCanonicalLanes = ReadonlyMap<
+  string,
+  SidebarThreadCanonicalLane
+>;
 
 export type SidebarThreadDropPolicy =
   | { status: "allowed" }
@@ -146,6 +176,7 @@ interface SidebarThreadReorderContextValue {
   dragActive: boolean;
   homeContainerIdByThreadId: ReadonlyMap<string, string>;
   pendingThreadDrops: PendingSidebarThreadDrop[];
+  reportCanonicalLanes: (lanes: SidebarThreadCanonicalLanes) => void;
   reportError: (error: unknown) => void;
 }
 
@@ -157,6 +188,7 @@ export interface PendingVisibleThreadOrder {
 const DEFAULT_REPORT_ERROR = (error: unknown): void => {
   console.error("Sidebar task reorder failed", error);
 };
+const DEFAULT_REPORT_CANONICAL_LANES = (): void => undefined;
 
 const SidebarThreadReorderContext = createContext<SidebarThreadReorderContextValue>({
   activeThread: null,
@@ -164,8 +196,16 @@ const SidebarThreadReorderContext = createContext<SidebarThreadReorderContextVal
   dragActive: false,
   homeContainerIdByThreadId: new Map(),
   pendingThreadDrops: [],
+  reportCanonicalLanes: DEFAULT_REPORT_CANONICAL_LANES,
   reportError: DEFAULT_REPORT_ERROR,
 });
+
+let nextSidebarThreadDropOperationId = 0;
+
+function createSidebarThreadDropOperationId(): string {
+  nextSidebarThreadDropOperationId += 1;
+  return `sidebar-thread-drop:${nextSidebarThreadDropOperationId}`;
+}
 
 export function readSidebarThreadDndPayload(value: unknown): SidebarThreadDndPayload | null {
   if (!value || typeof value !== "object") return null;
@@ -358,6 +398,7 @@ export function resolveSidebarThreadDropIndicatorIndex(
 export interface SidebarThreadResolvedExternalDropTarget {
   beforeItemId?: string | null;
   beforeThreadId: string | null;
+  afterThreadId?: string;
   insertAtEnd?: true;
   targetContainerId: string;
   targetItemIds?: string[];
@@ -378,18 +419,18 @@ export function resolveSidebarThreadExternalDropTarget(
   pointerY: number | null,
   getThreadIdByThreadKey: (threadKey: string) => string | null,
 ): SidebarThreadResolvedExternalDropTarget | null {
+  const activePayload = readSidebarThreadDndPayload(event.active.data.current);
+  if (activePayload?.kind !== "sidebar-item") return null;
+
   const overPayload = readSidebarThreadDndPayload(event.over?.data.current);
   if (!overPayload) return null;
 
   if (overPayload.kind === "sidebar-thread-container") {
-    const activePayload = readSidebarThreadDndPayload(event.active.data.current);
     const targetContainerId = resolveSidebarThreadContainerTargetId(
       overPayload,
-      activePayload?.kind === "sidebar-item"
-        ? activePayload.thread.containerId
-        : null,
+      activePayload.thread.containerId,
     );
-    return {
+    const target: SidebarThreadResolvedExternalDropTarget = {
       beforeThreadId: null,
       targetContainerId,
       targetProjectKind: overPayload.targetProjectKind,
@@ -397,6 +438,7 @@ export function resolveSidebarThreadExternalDropTarget(
         ? { useDefaultOrder: true as const }
         : {}),
     };
+    return isUnchangedSidebarThreadDrop(activePayload.thread, target) ? null : target;
   }
 
   const activeRect = event.active.rect.current.translated;
@@ -426,16 +468,46 @@ export function resolveSidebarThreadExternalDropTarget(
   const reachesEnd = beforeThreadId === null && nextThreadKey === null;
   const reachesItemEnd = beforeItemId === null && overPayload.nextItemId === null;
 
-  return {
+  const target: SidebarThreadResolvedExternalDropTarget = {
     beforeThreadId,
+    ...(reachesEnd && targetThread.threadId !== null
+      ? { afterThreadId: targetThread.threadId }
+      : {}),
     targetContainerId: targetThread.containerId,
     targetProjectKind: targetThread.targetProjectKind,
     ...(beforeItemId === undefined ? {} : { beforeItemId }),
     ...(overPayload.itemIds === undefined
       ? {}
       : { targetItemIds: overPayload.itemIds }),
-    ...(reachesEnd || reachesItemEnd ? { insertAtEnd: true as const } : {}),
+    ...(reachesItemEnd && !reachesEnd ? { insertAtEnd: true as const } : {}),
   };
+  return isUnchangedSidebarThreadDrop(activePayload.thread, target) ? null : target;
+}
+
+function isUnchangedSidebarThreadDrop(
+  activeThread: SidebarThreadDndThread,
+  target: SidebarThreadResolvedExternalDropTarget,
+): boolean {
+  if (activeThread.threadId === null) return false;
+  if (activeThread.containerId !== target.targetContainerId) return false;
+  if (target.useDefaultOrder) return true;
+
+  const activeThreadId = activeThread.threadId;
+  if (
+    target.beforeThreadId === activeThreadId
+    || target.afterThreadId === activeThreadId
+  ) {
+    return true;
+  }
+
+  const nextThreadId = activeThread.getNextThreadId?.();
+  if (target.beforeThreadId !== null) {
+    return nextThreadId !== undefined && target.beforeThreadId === nextThreadId;
+  }
+  if (target.insertAtEnd) return nextThreadId === null;
+  if (target.afterThreadId !== undefined) return false;
+
+  return activeThread.getPreviousThreadId?.() === null;
 }
 
 export function resolveSidebarThreadKeysWithPendingDrops({
@@ -469,8 +541,15 @@ export function resolveSidebarThreadKeysWithPendingDrops({
       continue;
     }
 
+    const afterAnchorIndex = pendingDrop.afterThreadId === undefined
+      ? -1
+      : remainingThreadKeys.findIndex((threadKey) => (
+          getThreadId(threadKey) === pendingDrop.afterThreadId
+        ));
     const rawInsertionIndex = pendingDrop.insertAtEnd
       ? remainingThreadKeys.length
+      : afterAnchorIndex >= 0
+        ? afterAnchorIndex + 1
       : pendingDrop.beforeThreadId === null
         ? 0
         : remainingThreadKeys.findIndex((threadKey) => (
@@ -486,6 +565,70 @@ export function resolveSidebarThreadKeysWithPendingDrops({
     ];
   }
   return nextThreadKeys;
+}
+
+function canonicalLaneContainsDropPlacement(
+  pendingDrop: PendingSidebarThreadDrop,
+  targetThreadIds: readonly string[],
+): boolean {
+  const movedIndex = targetThreadIds.indexOf(pendingDrop.threadId);
+  if (movedIndex < 0) return false;
+  if (pendingDrop.useDefaultOrder) return true;
+
+  if (pendingDrop.afterThreadId !== undefined) {
+    const anchorIndex = targetThreadIds.indexOf(pendingDrop.afterThreadId);
+    return anchorIndex >= 0 && movedIndex === anchorIndex + 1;
+  }
+  if (pendingDrop.insertAtEnd) return movedIndex === targetThreadIds.length - 1;
+  if (pendingDrop.beforeThreadId === null) return movedIndex === 0;
+
+  const anchorIndex = targetThreadIds.indexOf(pendingDrop.beforeThreadId);
+  return anchorIndex >= 0 && movedIndex + 1 === anchorIndex;
+}
+
+function canonicalLanesContainCommittedDrop(
+  pendingDrop: PendingSidebarThreadDrop,
+  lanes: SidebarThreadCanonicalLanes,
+): boolean {
+  const targetLane = lanes.get(pendingDrop.targetContainerId);
+  if (!targetLane) return false;
+  if (!canonicalLaneContainsDropPlacement(pendingDrop, targetLane.threadIds)) return false;
+  if (pendingDrop.sourceContainerId === pendingDrop.targetContainerId) return true;
+
+  const sourceLane = lanes.get(pendingDrop.sourceContainerId);
+  return sourceLane === undefined || !sourceLane.threadIds.includes(pendingDrop.threadId);
+}
+
+function laterCanonicalLaneSupersedesDrop(
+  pendingDrop: PendingSidebarThreadDrop,
+  lanes: SidebarThreadCanonicalLanes,
+): boolean {
+  if (pendingDrop.projectionRevision === undefined) return false;
+  for (const [containerId, lane] of lanes) {
+    if (lane.projectionRevision === null) continue;
+    if (lane.projectionRevision <= pendingDrop.projectionRevision) continue;
+    if (!lane.threadIds.includes(pendingDrop.threadId)) continue;
+    if (containerId !== pendingDrop.targetContainerId) return true;
+    return !canonicalLaneContainsDropPlacement(pendingDrop, lane.threadIds);
+  }
+  return false;
+}
+
+/**
+ * Removes acknowledged overlays only after the canonical lanes rendered by
+ * React contain the committed placement, or a later projection explicitly
+ * supersedes it. Cache installation alone is not a render acknowledgement.
+ */
+export function reconcilePendingSidebarThreadDrops(
+  pendingDrops: PendingSidebarThreadDrop[],
+  lanes: SidebarThreadCanonicalLanes,
+): PendingSidebarThreadDrop[] {
+  const next = pendingDrops.filter((pendingDrop) => {
+    if (pendingDrop.phase !== "acknowledged") return true;
+    if (canonicalLanesContainCommittedDrop(pendingDrop, lanes)) return false;
+    return !laterCanonicalLaneSupersedesDrop(pendingDrop, lanes);
+  });
+  return next.length === pendingDrops.length ? pendingDrops : next;
 }
 
 export function getSidebarThreadContainerEdgeInsetY(
@@ -707,7 +850,6 @@ export type SidebarThreadDragEndDisposition =
   | "reordered";
 
 export function dispatchSidebarThreadDragEnd({
-  cachedDropTarget,
   destinationController,
   event,
   getThreadIdByThreadKey,
@@ -717,13 +859,14 @@ export function dispatchSidebarThreadDragEnd({
   pointerY,
   updatePendingThreadDrops,
 }: {
-  cachedDropTarget: SidebarThreadResolvedExternalDropTarget | null;
   destinationController: SidebarThreadReorderController | null;
   event: DragEndEvent;
   getThreadIdByThreadKey: (threadKey: string) => string | null;
   homeContainerIdByThreadId: ReadonlyMap<string, string>;
   onError: (error: unknown) => void;
-  onThreadDrop: (drop: SidebarThreadDropRequest) => Promise<void> | void;
+  onThreadDrop: (
+    drop: SidebarThreadDropRequest,
+  ) => Promise<SidebarThreadDropCommit | null> | SidebarThreadDropCommit | null;
   pointerY: number | null;
   updatePendingThreadDrops: (
     update: (current: PendingSidebarThreadDrop[]) => PendingSidebarThreadDrop[],
@@ -738,9 +881,11 @@ export function dispatchSidebarThreadDragEnd({
     activePayload.controller.handleDragCancel?.(event);
     return "cancelled";
   }
+  const sameController = overPayload.kind === "sidebar-item"
+    && overPayload.controller === activePayload.controller;
   if (
-    overPayload.kind === "sidebar-item"
-    && overPayload.controller === activePayload.controller
+    sameController
+    && isCodexSidebarPinnedThreadContainerId(activePayload.thread.containerId)
   ) {
     activePayload.controller.handleDragEnd(event, pointerY);
     return "reordered";
@@ -763,26 +908,25 @@ export function dispatchSidebarThreadDragEnd({
     activePayload.controller.handleDragCancel?.(event);
     return "cancelled";
   }
-  const dropTarget = cachedDropTarget?.targetContainerId === resolvedDropTarget.targetContainerId
-    ? cachedDropTarget
-    : resolvedDropTarget;
+  const dropTarget = resolvedDropTarget;
   const activeThread = activePayload.thread;
-  if (activeThread.containerId === dropTarget.targetContainerId) {
-    activePayload.controller.handleDragCancel?.(event);
-    return "cancelled";
-  }
-
   activePayload.controller.handleDragCancel?.(event);
   if (activeThread.threadId === null) return "cancelled";
 
   const optimisticDrop: PendingSidebarThreadDrop = {
     beforeThreadId: dropTarget.beforeThreadId,
+    ...(dropTarget.afterThreadId === undefined
+      ? {}
+      : { afterThreadId: dropTarget.afterThreadId }),
     homeContainerId: homeContainerIdByThreadId.get(activeThread.threadId) ?? null,
+    operationId: createSidebarThreadDropOperationId(),
+    phase: "submitting",
     sourceContainerId: activeThread.containerId,
     targetContainerId: dropTarget.targetContainerId,
     threadId: activeThread.threadId,
     threadKey: activeThread.threadKey,
     ...(dropTarget.insertAtEnd ? { insertAtEnd: true } : {}),
+    ...(dropTarget.useDefaultOrder ? { useDefaultOrder: true } : {}),
   };
   updatePendingThreadDrops((current) => [
     ...current.filter((pendingDrop) => pendingDrop.threadId !== activeThread.threadId),
@@ -792,6 +936,9 @@ export function dispatchSidebarThreadDragEnd({
   void Promise.resolve()
     .then(() => onThreadDrop({
       beforeThreadId: dropTarget.beforeThreadId,
+      ...(dropTarget.afterThreadId === undefined
+        ? {}
+        : { afterThreadId: dropTarget.afterThreadId }),
       sourceContainerId: activeThread.containerId,
       targetContainerId: dropTarget.targetContainerId,
       threadId: activeThread.threadId as string,
@@ -805,11 +952,29 @@ export function dispatchSidebarThreadDragEnd({
         ? {}
         : { targetItemIds: dropTarget.targetItemIds }),
     }))
-    .catch(onError)
-    .finally(() => {
+    .then((commit) => {
       updatePendingThreadDrops((current) => (
-        current.filter((pendingDrop) => pendingDrop !== optimisticDrop)
+        commit === null
+          ? current.filter((pendingDrop) => (
+              pendingDrop.operationId !== optimisticDrop.operationId
+            ))
+          : current.map((pendingDrop) => (
+              pendingDrop.operationId === optimisticDrop.operationId
+                ? {
+                    ...pendingDrop,
+                    commitOperationId: commit.operationId,
+                    phase: "acknowledged",
+                    projectionRevision: commit.projectionRevision,
+                  }
+                : pendingDrop
+            ))
       ));
+    })
+    .catch((error: unknown) => {
+      updatePendingThreadDrops((current) => current.filter((pendingDrop) => (
+        pendingDrop.operationId !== optimisticDrop.operationId
+      )));
+      onError(error);
     });
   return "moved";
 }
@@ -824,12 +989,14 @@ export function SidebarThreadDndStateProvider({
   homeContainerIdByThreadId = EMPTY_HOME_CONTAINER_IDS,
   onError = DEFAULT_REPORT_ERROR,
   pendingThreadDrops = EMPTY_PENDING_THREAD_DROPS,
+  reportCanonicalLanes = DEFAULT_REPORT_CANONICAL_LANES,
 }: {
   activeThread: SidebarThreadDndThread | null;
   children: ReactNode;
   homeContainerIdByThreadId?: ReadonlyMap<string, string>;
   onError?: (error: unknown) => void;
   pendingThreadDrops?: PendingSidebarThreadDrop[];
+  reportCanonicalLanes?: (lanes: SidebarThreadCanonicalLanes) => void;
 }) {
   const contextValue = useMemo<SidebarThreadReorderContextValue>(() => ({
     activeThread,
@@ -837,8 +1004,15 @@ export function SidebarThreadDndStateProvider({
     dragActive: activeThread !== null,
     homeContainerIdByThreadId,
     pendingThreadDrops,
+    reportCanonicalLanes,
     reportError: onError,
-  }), [activeThread, homeContainerIdByThreadId, onError, pendingThreadDrops]);
+  }), [
+    activeThread,
+    homeContainerIdByThreadId,
+    onError,
+    pendingThreadDrops,
+    reportCanonicalLanes,
+  ]);
 
   return (
     <SidebarThreadReorderContext.Provider value={contextValue}>
@@ -849,6 +1023,15 @@ export function SidebarThreadDndStateProvider({
 
 export function usePendingSidebarThreadDrops(): readonly PendingSidebarThreadDrop[] {
   return useContext(SidebarThreadReorderContext).pendingThreadDrops;
+}
+
+export function useReportSidebarThreadCanonicalLanes(
+  lanes: SidebarThreadCanonicalLanes,
+): void {
+  const { reportCanonicalLanes } = useContext(SidebarThreadReorderContext);
+  useLayoutEffect(() => {
+    reportCanonicalLanes(lanes);
+  }, [lanes, reportCanonicalLanes]);
 }
 
 export function resolveSidebarThreadProjectDropContainerId(
@@ -1058,7 +1241,7 @@ export function useSidebarThreadReorderController({
   onVisibleThreadOrderChange,
 }: {
   visibleThreadKeys: string[];
-  onVisibleThreadOrderChange: (change: {
+  onVisibleThreadOrderChange?: (change: {
     visibleThreadKeys: string[];
     nextVisibleThreadKeys: string[];
   }) => Promise<void>;
@@ -1071,12 +1254,13 @@ export function useSidebarThreadReorderController({
   const [dropIndicatorTarget, setDropIndicatorTarget] = useState<SidebarThreadDropTarget | null>(
     null,
   );
-  const [pendingVisibleThreadOrder, setPendingVisibleThreadOrder] = useState<
-    PendingVisibleThreadOrder | null
-  >(null);
-  const displayedVisibleThreadKeys = resolveDisplayedVisibleThreadKeys(
-    visibleThreadKeys,
-    pendingVisibleThreadOrder,
+  const orderHandoff = useCanonicalOrderHandoff({
+    canonicalIds: visibleThreadKeys,
+    reportError,
+  });
+  const displayedVisibleThreadKeys = useMemo(
+    () => [...orderHandoff.displayedIds],
+    [orderHandoff.displayedIds],
   );
 
   const resolveDropTarget = useCallback((
@@ -1102,47 +1286,23 @@ export function useSidebarThreadReorderController({
       const activeThreadKey = String(event.active.id);
       const target = resolveDropTarget(event, pointerY);
       setDropIndicatorTarget(null);
-      if (!target) return;
+      if (!target || !onVisibleThreadOrderChange) return;
 
       const nextVisibleThreadKeys = moveSidebarThreadBefore(
         displayedVisibleThreadKeys,
         activeThreadKey,
         target.beforeThreadKey,
       );
-      const pendingOrder = {
-        previousVisibleThreadKeys: displayedVisibleThreadKeys,
+      orderHandoff.submit(nextVisibleThreadKeys, () => onVisibleThreadOrderChange({
+        visibleThreadKeys: displayedVisibleThreadKeys,
         nextVisibleThreadKeys,
-      };
-      setPendingVisibleThreadOrder(pendingOrder);
-
-      let request: Promise<void>;
-      try {
-        request = onVisibleThreadOrderChange({
-          visibleThreadKeys,
-          nextVisibleThreadKeys,
-        });
-      } catch (error) {
-        setPendingVisibleThreadOrder((current) => (
-          current === pendingOrder ? null : current
-        ));
-        reportError(error);
-        return;
-      }
-
-      void request
-        .catch(reportError)
-        .finally(() => {
-          setPendingVisibleThreadOrder((current) => (
-            current === pendingOrder ? null : current
-          ));
-        });
+      }));
     },
   }), [
     displayedVisibleThreadKeys,
     onVisibleThreadOrderChange,
-    reportError,
+    orderHandoff,
     resolveDropTarget,
-    visibleThreadKeys,
   ]);
 
   return {
@@ -1189,6 +1349,7 @@ export function SidebarThreadSortableItem({
   disabled = false,
   getNextThreadId,
   getNextThreadKey,
+  getPreviousThreadId,
   itemId,
   itemIds,
   nextItemId,
@@ -1206,6 +1367,7 @@ export function SidebarThreadSortableItem({
   disabled?: boolean;
   getNextThreadId?: () => string | null;
   getNextThreadKey?: () => string | null;
+  getPreviousThreadId?: () => string | null;
   itemId?: string;
   itemIds?: string[];
   nextItemId?: string | null;
@@ -1239,6 +1401,7 @@ export function SidebarThreadSortableItem({
       dragOverlay: dragOverlay ?? children,
       getNextThreadId,
       getNextThreadKey,
+      getPreviousThreadId,
       nextThreadKey,
       sourceProjectKind,
       targetProjectKind,
@@ -1251,6 +1414,7 @@ export function SidebarThreadSortableItem({
     dragOverlay,
     getNextThreadId,
     getNextThreadKey,
+    getPreviousThreadId,
     itemId,
     itemIds,
     nextItemId,
@@ -1266,9 +1430,9 @@ export function SidebarThreadSortableItem({
     listeners,
     setNodeRef,
     transform,
-    transition,
     isDragging,
   } = useSortable({
+    animateLayoutChanges: disableSidebarThreadLayoutAnimation,
     id: threadKey,
     disabled: sortableDisabled,
     data: payload,
@@ -1276,7 +1440,6 @@ export function SidebarThreadSortableItem({
   const activeDrag = isDragging || activeThreadKey === threadKey;
   const style: CSSProperties = {
     transform: CSS.Translate.toString(dragActive ? null : transform),
-    transition: dragActive ? undefined : transition,
   };
 
   return (
@@ -1307,12 +1470,8 @@ export function SidebarThreadSortableItem({
   );
 }
 
-export function SidebarThreadDropIndicator({
-  compensateLayout = true,
-}: {
-  compensateLayout?: boolean;
-}) {
-  return <SidebarDropIndicator compensateLayout={compensateLayout} />;
+export function SidebarThreadDropIndicator() {
+  return <SidebarDropIndicator />;
 }
 
 export function SidebarThreadReorderRows({
@@ -1424,6 +1583,10 @@ export function SidebarThreadSortableRows({
           .slice(sortableIndex + 1)
           .find((candidateThreadKey) => getThreadId(candidateThreadKey) !== null)
           ?? null;
+        const previousRealThreadKey = sortableThreadKeysInDisplayOrder
+          .slice(0, sortableIndex)
+          .findLast((candidateThreadKey) => getThreadId(candidateThreadKey) !== null)
+          ?? null;
         const itemId = getItemId?.(threadKey);
         const itemIndex = itemId === undefined ? -1 : (itemIds?.indexOf(itemId) ?? -1);
         const nextItemId = itemIndex < 0 ? undefined : (itemIds?.[itemIndex + 1] ?? null);
@@ -1441,6 +1604,9 @@ export function SidebarThreadSortableRows({
               dragOverlay={renderDragOverlay?.(threadKey)}
               getNextThreadId={() => resolveTargetThreadId(nextRealThreadKey, getThreadId)}
               getNextThreadKey={() => nextRealThreadKey}
+              getPreviousThreadId={() => (
+                resolveTargetThreadId(previousRealThreadKey, getThreadId)
+              )}
               itemId={itemId}
               itemIds={itemIds}
               nextItemId={nextItemId}

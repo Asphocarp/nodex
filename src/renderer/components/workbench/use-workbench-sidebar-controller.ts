@@ -1,5 +1,4 @@
 import {
-  startTransition,
   useCallback,
   useEffect,
   type MouseEvent as ReactMouseEvent,
@@ -84,9 +83,9 @@ import type {
 } from "@/lib/types";
 import {
   isCodexSidebarThreadContainerId,
-  type CodexSidebarChatsThreadOrderInput,
   type CodexSidebarThreadMoveInput,
   type CodexSidebarThreadMovePlacement,
+  type CodexSidebarThreadMoveSuccess,
 } from "../../../shared/codex-sidebar-thread-move";
 import {
   RenameChatDialog,
@@ -95,6 +94,7 @@ import {
   SidebarThreadMoveConfirmationDialog,
 } from "./sidebar-thread-move-confirmation-dialog";
 import type {
+  SidebarThreadDropCommit,
   SidebarThreadDropRequest,
 } from "./sidebar-thread-reorder";
 
@@ -218,7 +218,6 @@ export function useWorkbenchSidebarController({
     finishContextMenu,
   } = sidebarState;
   const {
-    applySnapshot: applySidebarThreadSnapshot,
     refresh: refreshSidebarThreadSnapshot,
     setPinned: setSidebarThreadPinned,
   } = sidebarSync;
@@ -231,38 +230,12 @@ export function useWorkbenchSidebarController({
     [catalog],
   );
 
-  const reorderProjectThreadsForSidebar = useCallback(async (
-    projectId: string,
-    orderedThreadIds: string[],
-  ) => {
-    const result = await invoke(
-      "codex:sidebar:project-thread-order:set",
-      {
-        projectId,
-        orderedThreadIds,
-      },
-    );
-    startTransition(() => {
-      applySidebarThreadSnapshot(result.snapshot);
-    });
-  }, [applySidebarThreadSnapshot]);
-
-  const reorderChatsThreadsForSidebar = useCallback(async (
-    input: CodexSidebarChatsThreadOrderInput,
-  ) => {
-    const result = await invoke(
-      "codex:sidebar:chats-thread-order:set",
-      input,
-    );
-    startTransition(() => {
-      applySidebarThreadSnapshot(result.snapshot);
-    });
-  }, [applySidebarThreadSnapshot]);
-
   const moveSidebarThreadInputForSidebar = useCallback(async (
     initialInput: CodexSidebarThreadMoveInput,
   ) => {
-    const submitMove = async (moveInput: CodexSidebarThreadMoveInput): Promise<void> => {
+    const submitMove = async (
+      moveInput: CodexSidebarThreadMoveInput,
+    ): Promise<CodexSidebarThreadMoveSuccess | null> => {
       try {
         const result = await invoke("codex:sidebar:thread:move", moveInput);
         if (result.status === "confirmation-required") {
@@ -279,7 +252,7 @@ export function useWorkbenchSidebarController({
               });
             },
           });
-          return;
+          return null;
         }
 
         const scopeIds = new Set([
@@ -287,30 +260,26 @@ export function useWorkbenchSidebarController({
           result.destination.projectId,
         ]);
         await Promise.all([...scopeIds].map(async (projectId) => {
-          await queryClient.invalidateQueries({
-            queryKey: queryKeys.projectSessions.summaries(projectId),
-            exact: true,
-          });
+          await catalog.refreshThrough(projectId, result.projectionRevision);
         }));
         if (moveInput.projectAccessGrant) {
           await queryClient.invalidateQueries({
             queryKey: queryKeys.projects.all(),
           });
         }
-        startTransition(() => {
-          applySidebarThreadSnapshot(result.snapshot);
-        });
+        return result;
       } catch {
         toast.danger("Couldn’t move chat");
+        return null;
       }
     };
 
-    await submitMove(initialInput);
-  }, [appHandle, applySidebarThreadSnapshot, queryClient]);
+    return await submitMove(initialInput);
+  }, [appHandle, catalog, queryClient]);
 
   const moveSidebarThreadForSidebar = useCallback(async (
     drop: SidebarThreadDropRequest,
-  ) => {
+  ): Promise<SidebarThreadDropCommit | null> => {
     if (
       !isCodexSidebarThreadContainerId(drop.sourceContainerId)
       || !isCodexSidebarThreadContainerId(drop.targetContainerId)
@@ -320,18 +289,26 @@ export function useWorkbenchSidebarController({
 
     const placement: CodexSidebarThreadMovePlacement = drop.useDefaultOrder
       ? { beforeThreadId: null, useDefaultOrder: true }
-      : drop.insertAtEnd
-        ? { beforeThreadId: null, insertAtEnd: true }
-        : drop.beforeThreadId === null
-          ? { beforeThreadId: null }
-          : { beforeThreadId: drop.beforeThreadId };
-    await moveSidebarThreadInputForSidebar({
+      : drop.afterThreadId !== undefined
+        ? { beforeThreadId: null, afterThreadId: drop.afterThreadId }
+        : drop.insertAtEnd
+          ? { beforeThreadId: null, insertAtEnd: true }
+          : drop.beforeThreadId === null
+            ? { beforeThreadId: null }
+            : { beforeThreadId: drop.beforeThreadId };
+    const result = await moveSidebarThreadInputForSidebar({
       hostId: "local",
       threadId: drop.threadId,
       sourceContainerId: drop.sourceContainerId,
       targetContainerId: drop.targetContainerId,
       ...placement,
     });
+    return result === null
+      ? null
+      : {
+          operationId: result.operationId,
+          projectionRevision: result.projectionRevision,
+        };
   }, [moveSidebarThreadInputForSidebar]);
 
   const mergeSessionInState = useCallback((
@@ -1139,8 +1116,6 @@ export function useWorkbenchSidebarController({
     openSessionContextMenu,
     prefetchSidebarSession,
     refreshProjectSessions,
-    reorderChatsThreadsForSidebar,
-    reorderProjectThreadsForSidebar,
     resolveForkLocalEnvironmentConfigPath,
     selectProject,
     selectSession,

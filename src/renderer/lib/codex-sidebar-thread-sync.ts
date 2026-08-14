@@ -391,53 +391,6 @@ export function sortSidebarThreadKeysForDisplay(input: {
     .map((entry) => entry.key);
 }
 
-/** Exact `ge`: reorder only known manual-thread slots and keep every untracked row fixed. */
-export function orderCodexSidebarThreadKeysByManualThreadIds(input: {
-  threadKeys: readonly string[];
-  orderedThreadIds: readonly string[];
-  getThreadId: (threadKey: string) => string | null;
-}): string[] {
-  const threadKeysById = new Map<string, string[]>();
-  for (const threadKey of input.threadKeys) {
-    const threadId = input.getThreadId(threadKey);
-    if (threadId === null) continue;
-    const groupedKeys = threadKeysById.get(threadId);
-    if (groupedKeys) {
-      groupedKeys.push(threadKey);
-    } else {
-      threadKeysById.set(threadId, [threadKey]);
-    }
-  }
-
-  const orderedKnownThreadIds: string[] = [];
-  const seenThreadIds = new Set<string>();
-  for (const threadId of input.orderedThreadIds) {
-    if (seenThreadIds.has(threadId) || !threadKeysById.has(threadId)) continue;
-    seenThreadIds.add(threadId);
-    orderedKnownThreadIds.push(threadId);
-  }
-  if (orderedKnownThreadIds.length === 0) return [...input.threadKeys];
-
-  const orderedKnownThreadIdSet = new Set(orderedKnownThreadIds);
-  const emittedThreadIds = new Set<string>();
-  const nextThreadKeys: string[] = [];
-  let orderedThreadIndex = 0;
-  for (const threadKey of input.threadKeys) {
-    const threadId = input.getThreadId(threadKey);
-    if (threadId === null || !orderedKnownThreadIdSet.has(threadId)) {
-      nextThreadKeys.push(threadKey);
-      continue;
-    }
-    if (emittedThreadIds.has(threadId)) continue;
-    emittedThreadIds.add(threadId);
-    const nextThreadId = orderedKnownThreadIds[orderedThreadIndex];
-    orderedThreadIndex += 1;
-    if (!nextThreadId) continue;
-    nextThreadKeys.push(...(threadKeysById.get(nextThreadId) ?? []));
-  }
-  return nextThreadKeys;
-}
-
 export function buildSidebarThreadSyncModel(input: {
   snapshot: CodexSidebarSnapshot;
   projects: readonly Project[];

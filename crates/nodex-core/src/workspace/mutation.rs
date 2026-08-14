@@ -556,46 +556,6 @@ pub(super) fn apply(
                         thread_ids,
                     )
                 }
-                ProjectWorkspaceIntent::SetProjectThreadOrder {
-                    project_id,
-                    ordered_thread_ids,
-                } => sidebar::set_project_thread_order(
-                    transaction,
-                    &library_id,
-                    &context,
-                    &store_epoch,
-                    &request.operation_id,
-                    &request_hash,
-                    project_id,
-                    Some(ordered_thread_ids),
-                ),
-                ProjectWorkspaceIntent::ClearProjectThreadOrder { project_id } => {
-                    sidebar::set_project_thread_order(
-                        transaction,
-                        &library_id,
-                        &context,
-                        &store_epoch,
-                        &request.operation_id,
-                        &request_hash,
-                        project_id,
-                        None,
-                    )
-                }
-                ProjectWorkspaceIntent::SetProjectlessThreadOrder {
-                    thread_ids_in_display_order,
-                    visible_thread_ids,
-                    next_visible_thread_ids,
-                } => sidebar::set_projectless_thread_order(
-                    transaction,
-                    &library_id,
-                    &context,
-                    &store_epoch,
-                    &request.operation_id,
-                    &request_hash,
-                    thread_ids_in_display_order,
-                    visible_thread_ids,
-                    next_visible_thread_ids,
-                ),
                 ProjectWorkspaceIntent::MoveThread {
                     thread_id,
                     source,
