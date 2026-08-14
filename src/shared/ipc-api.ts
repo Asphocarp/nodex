@@ -117,10 +117,6 @@ import type {
 import type {
   CodexSidebarThreadMoveInput,
   CodexSidebarThreadMoveResult,
-  CodexSidebarChatsThreadOrderInput,
-  CodexSidebarChatsThreadOrderResult,
-  CodexSidebarProjectThreadOrderInput,
-  CodexSidebarProjectThreadOrderResult,
 } from "./codex-sidebar-thread-move";
 import type {
   CodexHooksChangedEvent,
@@ -1486,14 +1482,6 @@ export interface IpcApi {
   "codex:sidebar:thread:move": {
     args: [input: CodexSidebarThreadMoveInput];
     result: CodexSidebarThreadMoveResult;
-  };
-  "codex:sidebar:project-thread-order:set": {
-    args: [input: CodexSidebarProjectThreadOrderInput];
-    result: CodexSidebarProjectThreadOrderResult;
-  };
-  "codex:sidebar:chats-thread-order:set": {
-    args: [input: CodexSidebarChatsThreadOrderInput];
-    result: CodexSidebarChatsThreadOrderResult;
   };
   "codex:threads:pinned:list": {
     args: [];

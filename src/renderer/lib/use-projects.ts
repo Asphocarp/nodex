@@ -232,6 +232,7 @@ export function useProjects() {
         await reorderProjectsRequest(input);
       } catch (err) {
         setActionError(getErrorMessage(err));
+        throw err;
       }
     },
     [reorderProjectsRequest],
@@ -255,6 +256,7 @@ export function useProjects() {
         await setPinnedProjectOrderRequest(input);
       } catch (err) {
         setActionError(getErrorMessage(err));
+        throw err;
       }
     },
     [setPinnedProjectOrderRequest],

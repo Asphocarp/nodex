@@ -17,6 +17,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useCanonicalOrderHandoff } from "@/lib/use-canonical-order-handoff";
 
 export const SIDEBAR_GROUP_DND_PREFIX = "sidebar-group:";
 export const PINNED_PROJECT_CONTAINER_ID = "pinned";
@@ -185,13 +186,14 @@ export function useSidebarGroupReorderController({
 } {
   const { reportError } = useContext(SidebarProjectDndContext);
   const [dropTarget, setDropTarget] = useState<SidebarGroupDropTarget | null>(null);
-  const [pendingGroupOrder, setPendingGroupOrder] = useState<{
-    nextGroupIds: string[];
-  } | null>(null);
-  const displayedGroupIds = pendingGroupOrder !== null
-    && sameStringSet(pendingGroupOrder.nextGroupIds, groupIds)
-    ? pendingGroupOrder.nextGroupIds
-    : groupIds;
+  const orderHandoff = useCanonicalOrderHandoff({
+    canonicalIds: groupIds,
+    reportError,
+  });
+  const displayedGroupIds = useMemo(
+    () => [...orderHandoff.displayedIds],
+    [orderHandoff.displayedIds],
+  );
 
   const resolveDropTarget = useCallback((
     event: DragOverEvent | DragEndEvent,
@@ -225,26 +227,9 @@ export function useSidebarGroupReorderController({
         activeId,
         target.beforeGroupId,
       );
-      const pendingOrder = {
-        nextGroupIds,
-      };
-      setPendingGroupOrder(pendingOrder);
-
-      let request: void | Promise<void>;
-      try {
-        request = reorderGroups(nextGroupIds);
-      } catch (error) {
-        setPendingGroupOrder((current) => current === pendingOrder ? null : current);
-        reportError(error);
-        return;
-      }
-      void Promise.resolve(request)
-        .catch(reportError)
-        .finally(() => {
-          setPendingGroupOrder((current) => current === pendingOrder ? null : current);
-        });
+      orderHandoff.submit(nextGroupIds, () => reorderGroups(nextGroupIds));
     },
-  }), [displayedGroupIds, reorderGroups, reportError, resolveDropTarget]);
+  }), [displayedGroupIds, orderHandoff, reorderGroups, resolveDropTarget]);
 
   const dropIndicatorIndex = dropTarget === null
     ? null

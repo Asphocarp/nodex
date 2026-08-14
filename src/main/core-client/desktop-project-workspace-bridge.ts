@@ -128,13 +128,6 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).readManagedWorktreeLifecycleSnapshot(),
     upsertBackgroundProcess: async (processInput, options) =>
       await (await resolve()).upsertBackgroundProcess(processInput, options),
-    setProjectThreadOrder: async (projectId, orderedThreadIds) =>
-      await (await resolve()).setProjectThreadOrder(
-        projectId,
-        orderedThreadIds,
-      ),
-    setProjectlessThreadOrder: async (orderInput) =>
-      await (await resolve()).setProjectlessThreadOrder(orderInput),
     setThreadPinned: async (threadId, pinned, beforeThreadId) =>
       await (await resolve()).setThreadPinned(
         threadId,

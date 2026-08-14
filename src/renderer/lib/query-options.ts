@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { invoke, readDatabaseViewWindow } from "./api";
 import { queryKeys } from "./query-keys";
+import { preferNewestProjectSessionSummaryWindow } from "./project-session-summary-window";
 import type {
   CodexAutomationRunsInboxResponse,
   CodexComposerChatGptConversationListResult,
@@ -103,12 +104,18 @@ export function boardByProjectQueryOptions(projectId: string) {
 }
 
 export function projectSessionSummariesQueryOptions(projectId: string | null) {
+  const queryKey = queryKeys.projectSessions.summaries(projectId);
   return queryOptions({
-    queryKey: queryKeys.projectSessions.summaries(projectId),
-    queryFn: async (): Promise<ProjectSessionSummaryWindow> =>
-      await invoke("workspace:tasks:list", projectId, {
+    queryKey,
+    queryFn: async ({ client, queryKey: activeQueryKey }): Promise<ProjectSessionSummaryWindow> => {
+      const incoming = await invoke("workspace:tasks:list", projectId, {
         first: 50,
-      }) as ProjectSessionSummaryWindow,
+      }) as ProjectSessionSummaryWindow;
+      return preferNewestProjectSessionSummaryWindow(
+        client.getQueryData<ProjectSessionSummaryWindow>(activeQueryKey),
+        incoming,
+      );
+    },
     staleTime: 30_000,
   });
 }

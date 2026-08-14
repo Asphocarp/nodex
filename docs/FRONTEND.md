@@ -129,7 +129,10 @@ action and product semantics.
 - An acknowledged optimistic transform may remain composed over canonical base
   until the affected projection actually materializes it. Promise fulfillment
   or an unrelated cursor floor alone is not proof that a bounded view contains
-  the result.
+  the result. Installing canonical data in an external-store cache is also not
+  a render acknowledgement: keep the overlay until the subscribed React owner
+  has committed props that contain the result, and fence settlement by operation
+  identity so an older completion cannot clear newer intent.
 - Update a narrow Query cache when a mutation returns its complete next value;
   otherwise invalidate the exact affected projection. Preserve unaffected
   sibling/detail caches and let each projection owner decide canonical repair.

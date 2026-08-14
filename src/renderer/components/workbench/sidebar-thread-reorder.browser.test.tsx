@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -12,8 +12,14 @@ import {
 } from "./codex-sidebar";
 import {
   SidebarThreadReorderRows,
+  SidebarThreadSortableRows,
   SidebarThreadSortableContext,
   SidebarThreadSortableItem,
+  resolveSidebarThreadKeysWithPendingDrops,
+  usePendingSidebarThreadDrops,
+  useReportSidebarThreadCanonicalLanes,
+  useSidebarThreadReorderController,
+  type SidebarThreadDropRequest,
   type SidebarThreadReorderController,
 } from "./sidebar-thread-reorder";
 import { SidebarReorderDndProvider } from "./sidebar-reorder-dnd";
@@ -74,7 +80,7 @@ function ThreadReorderHarness({
         style={{ display: "flex", flexDirection: "column", width: 240 }}
       >
         <SidebarThreadReorderRows
-          containerId="project:alpha"
+          containerId="project-pinned:alpha"
           visibleThreadKeys={threadKeys}
           sortableThreadKeys={threadKeys}
           onVisibleThreadOrderChange={async ({ nextVisibleThreadKeys }) => {
@@ -91,6 +97,79 @@ function ThreadReorderHarness({
             </div>
           )}
         />
+      </div>
+    </SidebarReorderDndProvider>
+  );
+}
+
+function SemanticThreadRows({
+  threadKeys,
+}: {
+  threadKeys: string[];
+}) {
+  const pendingDrops = usePendingSidebarThreadDrops();
+  const canonicalLanes = useMemo(() => new Map([["project:alpha", {
+    projectionRevision: 2,
+    threadIds: threadKeys.map((threadKey) => `thread-${threadKey}`),
+  }]]), [threadKeys]);
+  useReportSidebarThreadCanonicalLanes(canonicalLanes);
+  const optimisticThreadKeys = resolveSidebarThreadKeysWithPendingDrops({
+    containerId: "project:alpha",
+    pendingThreadDrops: pendingDrops,
+    threadKeys,
+    getThreadId: (threadKey) => `thread-${threadKey}`,
+  });
+  const reorder = useSidebarThreadReorderController({
+    visibleThreadKeys: threadKeys,
+  });
+  return (
+    <SidebarThreadSortableRows
+      containerId="project:alpha"
+      getThreadId={(threadKey) => `thread-${threadKey}`}
+      visibleThreadKeys={optimisticThreadKeys}
+      sortableThreadKeysInDisplayOrder={threadKeys}
+      controller={reorder.controller}
+      dropIndicatorTarget={reorder.dropIndicatorTarget}
+      renderThread={(threadKey) => (
+        <div
+          data-thread-key={threadKey}
+          data-testid={`canonical-thread-${threadKey}`}
+          style={{ alignItems: "center", display: "flex", height: 40 }}
+        >
+          {threadKey}
+        </div>
+      )}
+    />
+  );
+}
+
+function SemanticThreadReorderHarness({
+  beforeCanonicalCommit,
+  onDrop,
+}: {
+  beforeCanonicalCommit?: Promise<void>;
+  onDrop: (drop: SidebarThreadDropRequest) => Promise<void>;
+}) {
+  const [threadKeys, setThreadKeys] = useState(["alpha", "beta"]);
+  return (
+    <SidebarReorderDndProvider
+      getThreadIdByThreadKey={(threadKey) => `thread-${threadKey}`}
+      onThreadDrop={async (drop) => {
+        await onDrop(drop);
+        if (beforeCanonicalCommit) {
+          void beforeCanonicalCommit.then(() => setThreadKeys(["beta", "alpha"]));
+          return { operationId: "move:alpha", projectionRevision: 2 };
+        }
+        setThreadKeys(["beta", "alpha"]);
+        return { operationId: "move:alpha", projectionRevision: 2 };
+      }}
+    >
+      <div
+        aria-label="Canonical Project chats"
+        role="list"
+        style={{ display: "flex", flexDirection: "column", width: 240 }}
+      >
+        <SemanticThreadRows threadKeys={threadKeys} />
       </div>
     </SidebarReorderDndProvider>
   );
@@ -181,7 +260,7 @@ describe("sidebar thread reorder in Chromium", () => {
     }
   });
 
-  test("commits and renders a changed order after pointer release", async () => {
+  test("commits the changed order without replaying a source-to-target transition", async () => {
     const committedOrders: string[][] = [];
     const errors: ErrorEvent[] = [];
     const consoleErrors: unknown[][] = [];
@@ -202,6 +281,16 @@ describe("sidebar thread reorder in Chromium", () => {
     const pointerId = 8;
     const pointerX = alphaRect.left + alphaRect.width / 2;
     const dropY = alphaRect.top + 4;
+    const sourceSortableRow = beta.closest<HTMLElement>("[role='listitem']");
+    const postDropStyleMutations: string[] = [];
+    const styleObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        postDropStyleMutations.push(record.oldValue ?? "");
+        postDropStyleMutations.push(
+          (record.target as HTMLElement).getAttribute("style") ?? "",
+        );
+      }
+    });
 
     try {
       await act(async () => {
@@ -235,6 +324,12 @@ describe("sidebar thread reorder in Chromium", () => {
       await waitFor(() => {
         expect(list.children).toHaveLength(3);
       });
+      expect(sourceSortableRow).not.toBeNull();
+      styleObserver.observe(sourceSortableRow!, {
+        attributeFilter: ["style"],
+        attributeOldValue: true,
+        attributes: true,
+      });
 
       await act(async () => {
         fireEvent.pointerUp(document, {
@@ -252,10 +347,239 @@ describe("sidebar thread reorder in Chromium", () => {
         expect(committedOrders).toEqual([["beta", "alpha"]]);
         expect(readRenderedThreadKeys(list)).toEqual(["beta", "alpha"]);
       });
+      const movedRow = view.getByTestId("thread-beta")
+        .closest<HTMLElement>("[role='listitem']");
+      expect(movedRow).not.toBeNull();
+      expect(movedRow).toBe(sourceSortableRow);
+      expect(postDropStyleMutations).toEqual([]);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(movedRow?.getAnimations()).toHaveLength(0);
+      expect(getComputedStyle(movedRow!).transform).toBe("none");
       expect(errors).toHaveLength(0);
       expect(consoleErrors).toHaveLength(0);
     } finally {
+      styleObserver.disconnect();
       window.removeEventListener("error", handleError);
+      consoleError.mockRestore();
+      view.unmount();
+    }
+  });
+
+  test("keeps a regular same-lane drop optimistic until canonical settlement without shifting geometry", async () => {
+    let resolveCommit!: () => void;
+    const commit = new Promise<void>((resolve) => {
+      resolveCommit = resolve;
+    });
+    let resolveCanonicalCommit!: () => void;
+    const canonicalCommit = new Promise<void>((resolve) => {
+      resolveCanonicalCommit = resolve;
+    });
+    const drops: SidebarThreadDropRequest[] = [];
+    const view = render(
+      <SemanticThreadReorderHarness beforeCanonicalCommit={canonicalCommit} onDrop={async (drop) => {
+        drops.push(drop);
+        await commit;
+      }} />,
+    );
+    const list = view.getByRole("list", { name: "Canonical Project chats" });
+    const beta = view.getByTestId("canonical-thread-beta");
+    const alpha = view.getByTestId("canonical-thread-alpha");
+    const betaRect = beta.getBoundingClientRect();
+    const alphaRect = alpha.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    const pointerId = 9;
+    const pointerX = alphaRect.left + alphaRect.width / 2;
+    const dropY = alphaRect.top + 4;
+    let pointerReleased = false;
+
+    try {
+      await act(async () => {
+        fireEvent.pointerDown(beta, {
+          button: 0,
+          clientX: betaRect.left + betaRect.width / 2,
+          clientY: betaRect.top + betaRect.height / 2,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: betaRect.top + betaRect.height / 2 - 8,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: dropY,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(list.querySelector("[role='presentation']")).not.toBeNull();
+      });
+      expect(list.getBoundingClientRect().height).toBe(listRect.height);
+      expect(alpha.getBoundingClientRect().top).toBe(alphaRect.top);
+
+      await act(async () => {
+        fireEvent.pointerUp(document, {
+          button: 0,
+          clientX: pointerX,
+          clientY: dropY,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        pointerReleased = true;
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(drops).toEqual([{
+          beforeThreadId: "thread-alpha",
+          sourceContainerId: "project:alpha",
+          targetContainerId: "project:alpha",
+          threadId: "thread-beta",
+        }]);
+        expect(readRenderedThreadKeys(list)).toEqual(["beta", "alpha"]);
+      });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(readRenderedThreadKeys(list)).toEqual(["beta", "alpha"]);
+
+      await act(async () => {
+        resolveCommit();
+        await commit;
+        await Promise.resolve();
+      });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(readRenderedThreadKeys(list)).toEqual(["beta", "alpha"]);
+
+      await act(async () => {
+        resolveCanonicalCommit();
+        await canonicalCommit;
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(readRenderedThreadKeys(list)).toEqual(["beta", "alpha"]);
+      });
+    } finally {
+      if (!pointerReleased) {
+        fireEvent.pointerUp(document, {
+          button: 0,
+          clientX: pointerX,
+          clientY: dropY,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+      }
+      resolveCommit();
+      resolveCanonicalCommit();
+      view.unmount();
+    }
+  });
+
+  test("returns a regular chat to its original slot without submitting a move", async () => {
+    const drops: SidebarThreadDropRequest[] = [];
+    const consoleErrors: unknown[][] = [];
+    const consoleError = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      consoleErrors.push(args);
+    });
+    const view = render(
+      <SemanticThreadReorderHarness onDrop={async (drop) => {
+        drops.push(drop);
+      }} />,
+    );
+    const list = view.getByRole("list", { name: "Canonical Project chats" });
+    const beta = view.getByTestId("canonical-thread-beta");
+    const alpha = view.getByTestId("canonical-thread-alpha");
+    const betaRect = beta.getBoundingClientRect();
+    const alphaRect = alpha.getBoundingClientRect();
+    const pointerId = 10;
+    const pointerX = alphaRect.left + alphaRect.width / 2;
+    let pointerReleased = false;
+
+    try {
+      await act(async () => {
+        fireEvent.pointerDown(beta, {
+          button: 0,
+          clientX: pointerX,
+          clientY: betaRect.top + betaRect.height / 2,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: betaRect.top + betaRect.height / 2 - 8,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: alphaRect.top + 4,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(list.querySelector("[role='presentation']")).not.toBeNull();
+      });
+
+      await act(async () => {
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: betaRect.top + 4,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(list.querySelector("[role='presentation']")).toBeNull();
+      });
+
+      await act(async () => {
+        fireEvent.pointerUp(document, {
+          button: 0,
+          clientX: pointerX,
+          clientY: betaRect.top + 4,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        pointerReleased = true;
+        await Promise.resolve();
+      });
+
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(drops).toEqual([]);
+      expect(readRenderedThreadKeys(list)).toEqual(["alpha", "beta"]);
+      expect(consoleErrors).toEqual([]);
+    } finally {
+      if (!pointerReleased) {
+        fireEvent.pointerUp(document, {
+          button: 0,
+          clientX: pointerX,
+          clientY: betaRect.top + 4,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+      }
       consoleError.mockRestore();
       view.unmount();
     }

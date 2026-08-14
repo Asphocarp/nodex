@@ -5087,21 +5087,6 @@ export interface components {
                 readonly thread_ids: readonly string[];
             } | {
                 /** @enum {string} */
-                readonly kind: "set_project_thread_order";
-                readonly ordered_thread_ids: readonly string[];
-                readonly project_id: string;
-            } | {
-                /** @enum {string} */
-                readonly kind: "clear_project_thread_order";
-                readonly project_id: string;
-            } | {
-                /** @enum {string} */
-                readonly kind: "set_projectless_thread_order";
-                readonly next_visible_thread_ids: readonly string[];
-                readonly thread_ids_in_display_order: readonly string[];
-                readonly visible_thread_ids: readonly string[];
-            } | {
-                /** @enum {string} */
                 readonly kind: "move_thread";
                 readonly metadata: components["schemas"]["ProjectWorkspaceThreadMoveMetadataPatch"];
                 readonly placement: components["schemas"]["ProjectWorkspaceThreadPlacement"];
@@ -6451,6 +6436,10 @@ export interface components {
         } | {
             /** @enum {string} */
             readonly kind: "before";
+            readonly thread_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "after";
             readonly thread_id: string;
         };
         readonly ProjectWorkspaceThreadStatus: {

@@ -137,6 +137,7 @@ pub enum ProjectWorkspaceThreadPlacement {
     End,
     Default,
     Before { thread_id: String },
+    After { thread_id: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -795,18 +796,6 @@ pub enum ProjectWorkspaceIntent {
     ReorderPinnedThreads {
         thread_ids: Vec<String>,
     },
-    SetProjectThreadOrder {
-        project_id: String,
-        ordered_thread_ids: Vec<String>,
-    },
-    ClearProjectThreadOrder {
-        project_id: String,
-    },
-    SetProjectlessThreadOrder {
-        thread_ids_in_display_order: Vec<String>,
-        visible_thread_ids: Vec<String>,
-        next_visible_thread_ids: Vec<String>,
-    },
     MoveThread {
         thread_id: String,
         source: ProjectWorkspaceThreadLane,
@@ -1086,18 +1075,10 @@ mod tests {
         assert_eq!(runtime_workspace_roots, None);
         assert_eq!(project_access_grant, None);
 
-        let set_empty = serde_json::to_value(ProjectWorkspaceIntent::SetProjectThreadOrder {
-            project_id: "project-1".to_owned(),
-            ordered_thread_ids: Vec::new(),
+        let after = serde_json::to_value(ProjectWorkspaceThreadPlacement::After {
+            thread_id: "thread-2".to_owned(),
         })
-        .expect("empty custom order");
-        let clear = serde_json::to_value(ProjectWorkspaceIntent::ClearProjectThreadOrder {
-            project_id: "project-1".to_owned(),
-        })
-        .expect("clear custom order");
-        assert_eq!(set_empty["kind"], "set_project_thread_order");
-        assert_eq!(set_empty["ordered_thread_ids"], json!([]));
-        assert_eq!(clear["kind"], "clear_project_thread_order");
-        assert!(clear.get("ordered_thread_ids").is_none());
+        .expect("after placement");
+        assert_eq!(after, json!({ "kind": "after", "thread_id": "thread-2" }));
     }
 }

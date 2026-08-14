@@ -26,8 +26,6 @@ const emptySnapshot: CodexSidebarSnapshot = {
   pinnedThreadIds: [],
   projectAssignments: {},
   projectlessThreadIds: [],
-  projectThreadOrders: {},
-  projectlessThreadOrder: null,
   generatedAt: 1,
 };
 

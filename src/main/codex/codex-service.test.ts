@@ -184,12 +184,6 @@ interface TestableCodexService {
   moveSidebarThread: (
     input: import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveInput,
   ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveResult>;
-  setSidebarProjectThreadOrder: (
-    input: import("../../shared/codex-sidebar-thread-move").CodexSidebarProjectThreadOrderInput,
-  ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarProjectThreadOrderResult>;
-  setSidebarChatsThreadOrder: (
-    input: import("../../shared/codex-sidebar-thread-move").CodexSidebarChatsThreadOrderInput,
-  ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarChatsThreadOrderResult>;
   listCommandPaletteThreads: (
     input: { scope: "sidebar" },
   ) => Promise<CommandPaletteThreadSummary[]>;
@@ -1079,8 +1073,6 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
   const backgroundProcesses = new Map<string, CodexBackgroundProcessRecord>();
   const readSidebar = (): DesktopProjectWorkspaceSidebar => ({
     threads: [...threads.values()],
-    projectThreadOrders: {},
-    projectlessThreadOrder: null,
   });
   const updateThread = (
     threadId: string,
@@ -1220,7 +1212,11 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         ...input.metadata,
       });
       threads.set(input.threadId, thread);
-      return { thread, sidebar: readSidebar() };
+      return {
+        thread,
+        operationId: `test-move:${input.threadId}`,
+        projectionRevision: 1,
+      };
     },
     setThreadUnread: async (threadId: string, unread: boolean) => {
       const current = threads.get(threadId);
@@ -1340,8 +1336,6 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
       };
     },
     readSidebar: async () => readSidebar(),
-    setProjectThreadOrder: async () => readSidebar(),
-    setProjectlessThreadOrder: async () => readSidebar(),
     setThreadPinned: async (threadId: string, pinned: boolean) => {
       const current = threads.get(threadId);
       if (current) {
@@ -1895,6 +1889,10 @@ describe("codex-service sidebar Thread Project moves", () => {
         },
       });
       expect(moved.status).toBe("moved");
+      if (moved.status === "moved") {
+        expect(moved.operationId).toBe("test-move:thread:move");
+        expect(moved.projectionRevision).toBe(1);
+      }
       expect(moveInputs[0]).toMatchObject({
         sourceProjectId: sourceProject.id,
         targetProjectId: targetProject.id,
@@ -1909,6 +1907,22 @@ describe("codex-service sidebar Thread Project moves", () => {
         },
       });
 
+      const reordered = await service.moveSidebarThread({
+        hostId: "local",
+        threadId: "thread:move",
+        sourceContainerId: "project:project:target",
+        targetContainerId: "project:project:target",
+        beforeThreadId: null,
+        afterThreadId: "thread:anchor",
+      });
+      expect(reordered.status).toBe("moved");
+      expect(moveInputs[1]).toMatchObject({
+        sourceProjectId: targetProject.id,
+        targetProjectId: targetProject.id,
+        beforeThreadId: null,
+        afterThreadId: "thread:anchor",
+      });
+
       const removed = await service.moveSidebarThread({
         hostId: "local",
         threadId: "thread:move",
@@ -1920,7 +1934,7 @@ describe("codex-service sidebar Thread Project moves", () => {
       if (removed.status === "moved") {
         expect(removed.destination.projectId).toBeNull();
       }
-      expect(moveInputs[1]).toMatchObject({
+      expect(moveInputs[2]).toMatchObject({
         sourceProjectId: targetProject.id,
         targetProjectId: null,
       });

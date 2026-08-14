@@ -371,6 +371,72 @@ describe("useWorkbenchSessionCatalog", () => {
       .toBe("session:alpha");
   });
 
+  test("does not let an older in-flight TaskWindow refetch overwrite a committed refresh", async () => {
+    let alphaReads = 0;
+    let resolveOlderRefetch!: (window: ProjectSessionSummaryWindow) => void;
+    invokeMock.mockImplementation((
+      channel: string,
+      projectId: string | null,
+    ) => {
+      expect(channel).toBe("workspace:tasks:list");
+      if (projectId === null) return Promise.resolve(makeWindow([]));
+      alphaReads += 1;
+      if (alphaReads === 1) {
+        return Promise.resolve(makeWindow([
+          makeSummary("session:alpha", "alpha"),
+        ], { projectionRevision: 1 }));
+      }
+      if (alphaReads === 2) {
+        return new Promise<ProjectSessionSummaryWindow>((resolve) => {
+          resolveOlderRefetch = resolve;
+        });
+      }
+      return Promise.resolve(makeWindow([
+        makeSummary("session:beta", "alpha"),
+        makeSummary("session:alpha", "alpha"),
+      ], { projectionRevision: 2 }));
+    });
+    const { client, hook } = createHarness(makeWindowPort());
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.projectionRevision)
+        .toBe(1);
+    });
+
+    let olderRefetch!: Promise<void>;
+    act(() => {
+      olderRefetch = client.invalidateQueries({
+        queryKey: queryKeys.projectSessions.summaries("alpha"),
+        exact: true,
+      });
+    });
+    await waitFor(() => {
+      expect(alphaReads).toBe(2);
+    });
+    await act(async () => {
+      await hook.result.current.refreshThrough("alpha", 2);
+    });
+    await act(async () => {
+      resolveOlderRefetch(makeWindow([
+        makeSummary("session:alpha", "alpha"),
+      ], { projectionRevision: 1 }));
+      await olderRefetch;
+    });
+
+    expect(
+      client.getQueryData<ProjectSessionSummaryWindow>(
+        queryKeys.projectSessions.summaries("alpha"),
+      ),
+    ).toEqual(makeWindow([
+      makeSummary("session:beta", "alpha"),
+      makeSummary("session:alpha", "alpha"),
+    ], { projectionRevision: 2 }));
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.projections.map(
+        (projection) => projection.id,
+      )).toEqual(["session:beta", "session:alpha"]);
+    });
+  });
+
   test("hydrates selected detail while preserving an explicit window view", async () => {
     const persistedView = materializeInitialWorkbenchSessionView({
       id: "session:alpha",
@@ -612,6 +678,63 @@ describe("useWorkbenchSessionCatalog", () => {
     ).toEqual(["session:alpha", "session:beta"]);
   });
 
+  test("ignores a continuation from an older projection after the first page advances", async () => {
+    let resolveContinuation!: (window: ProjectSessionSummaryWindow) => void;
+    invokeMock.mockImplementation((
+      channel: string,
+      projectId: string | null,
+      input?: { after?: string },
+    ) => {
+      if (channel !== "workspace:tasks:list") {
+        throw new Error(`Unexpected channel: ${channel}`);
+      }
+      if (projectId === null) return Promise.resolve(makeWindow([]));
+      if (input?.after === "cursor:one") {
+        return new Promise<ProjectSessionSummaryWindow>((resolve) => {
+          resolveContinuation = resolve;
+        });
+      }
+      return Promise.resolve(makeWindow(
+        [makeSummary("session:alpha", "alpha")],
+        { hasMore: true, nextCursor: "cursor:one", projectionRevision: 1 },
+      ));
+    });
+    const { client, hook } = createHarness(makeWindowPort());
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.hasMore).toBe(true);
+    });
+
+    let loadMore!: Promise<void>;
+    act(() => {
+      loadMore = hook.result.current.loadMore("alpha");
+    });
+    client.setQueryData<ProjectSessionSummaryWindow>(
+      queryKeys.projectSessions.summaries("alpha"),
+      makeWindow(
+        [makeSummary("session:beta", "alpha")],
+        { hasMore: true, nextCursor: "cursor:one", projectionRevision: 2 },
+      ),
+    );
+    await act(async () => {
+      resolveContinuation(makeWindow(
+        [makeSummary("session:stale", "alpha")],
+        { projectionRevision: 1 },
+      ));
+      await loadMore;
+    });
+
+    expect(
+      client.getQueryData<ProjectSessionSummaryWindow>(
+        queryKeys.projectSessions.summaries("alpha"),
+      )?.items.map((item) => item.id),
+    ).toEqual(["session:beta"]);
+    expect(
+      client.getQueryData<ProjectSessionSummaryWindow>(
+        queryKeys.projectSessions.summaries("alpha"),
+      )?.projectionRevision,
+    ).toBe(2);
+  });
+
   test("seeds mutation responses in the Query detail cache", async () => {
     const current = makeSummary(
       "session:alpha",
@@ -649,6 +772,76 @@ describe("useWorkbenchSessionCatalog", () => {
         queryKeys.projectSessions.detail(current.id),
       )?.unread,
     ).toBe(true);
+  });
+
+  test("does not let a failed pin operation roll a newer cache update back", async () => {
+    const current = makeSummary(
+      "session:alpha",
+      "alpha",
+    ) as ProjectSession;
+    let rejectPin!: (error: Error) => void;
+    invokeMock.mockImplementation((
+      channel: string,
+      value: string | null,
+    ) => {
+      if (channel === "workspace:tasks:list") {
+        return Promise.resolve(makeWindow(value === "alpha" ? [current] : []));
+      }
+      if (channel === "project-sessions:get") return Promise.resolve(current);
+      if (channel === "project-sessions:set-pinned") {
+        return new Promise<ProjectSession>((_resolve, reject) => {
+          rejectPin = reject;
+        });
+      }
+      throw new Error(`Unexpected channel: ${channel}`);
+    });
+    const { client, hook } = createHarness(makeWindowPort());
+    await waitFor(() => {
+      expect(hook.result.current.selectedDetailReady).toBe(true);
+    });
+
+    let pinRequest!: Promise<ProjectSession | null>;
+    act(() => {
+      pinRequest = hook.result.current.setPinned(current, true);
+    });
+    await waitFor(() => {
+      expect(client.getQueryData<ProjectSession>(
+        queryKeys.projectSessions.detail(current.id),
+      )?.pinned).toBe(true);
+    });
+
+    const newer = {
+      ...current,
+      displayTitle: "Newer title",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    };
+    const newerWindow = makeWindow(
+      [newer],
+      { projectionRevision: 2 },
+    );
+    act(() => {
+      client.setQueryData(
+        queryKeys.projectSessions.detail(current.id),
+        newer,
+      );
+      client.setQueryData(
+        queryKeys.projectSessions.summaries("alpha"),
+        newerWindow,
+      );
+    });
+
+    const failure = new Error("pin failed");
+    await act(async () => {
+      rejectPin(failure);
+      await expect(pinRequest).rejects.toBe(failure);
+    });
+
+    expect(client.getQueryData<ProjectSession>(
+      queryKeys.projectSessions.detail(current.id),
+    )).toEqual(newer);
+    expect(client.getQueryData<ProjectSessionSummaryWindow>(
+      queryKeys.projectSessions.summaries("alpha"),
+    )).toEqual(newerWindow);
   });
 
   test("selects projectless sessions through the WindowState command port", async () => {

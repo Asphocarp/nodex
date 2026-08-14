@@ -7,7 +7,6 @@ import {
   listRealThreadIdsForSidebarKeys,
   mergeVisibleCodexPinnedThreadOrder,
   mergePendingWorktreesIntoSidebarSnapshot,
-  orderCodexSidebarThreadKeysByManualThreadIds,
   orderCodexSidebarPinnedThreadKeys,
   resolveCodexSidebarThreadHomeContainerId,
   sortSidebarThreadKeysForDisplay,
@@ -72,8 +71,6 @@ function makeSnapshot(items: CodexSidebarThreadItem[]): CodexSidebarSnapshot {
         .map((item) => [item.threadId, item.projectId]),
     ),
     projectlessThreadIds: items.filter((item) => item.projectless).map((item) => item.threadId),
-    projectThreadOrders: {},
-    projectlessThreadOrder: null,
     generatedAt: 1,
   };
 }
@@ -529,73 +526,6 @@ describe("sortSidebarThreadKeysForDisplay", () => {
     });
 
     expect(JSON.stringify(sorted)).toBe(JSON.stringify([databaseView.key, pinnedSnapshotThread.key]));
-  });
-});
-
-describe("manual thread order projection", () => {
-  test("reorders only stored real-thread slots and preserves pending, new, and stale identities", () => {
-    const threadIdByKey = new Map([
-      ["thread:a", "A"],
-      ["thread:new", "NEW"],
-      ["thread:b", "B"],
-      ["thread:b:duplicate-view", "B"],
-    ]);
-
-    const ordered = orderCodexSidebarThreadKeysByManualThreadIds({
-      threadKeys: [
-        "thread:a",
-        "pending:fixed",
-        "thread:new",
-        "thread:b",
-        "thread:b:duplicate-view",
-        "database:fixed",
-      ],
-      orderedThreadIds: ["STALE", "B", "A", "B"],
-      getThreadId: (threadKey) => threadIdByKey.get(threadKey) ?? null,
-    });
-
-    expect(JSON.stringify(ordered)).toBe(JSON.stringify([
-      "thread:b",
-      "thread:b:duplicate-view",
-      "pending:fixed",
-      "thread:new",
-      "thread:a",
-      "database:fixed",
-    ]));
-  });
-
-  test("projects one durable order onto any scoped base list without moving untracked slots", () => {
-    const threadIdByKey = new Map([
-      ["project:one", "P1"],
-      ["chat:a", "A"],
-      ["project:two", "P2"],
-      ["chat:new", "NEW"],
-      ["chat:b", "B"],
-    ]);
-    const getThreadId = (threadKey: string) => threadIdByKey.get(threadKey) ?? null;
-    const orderedThreadIds = ["B", "P1", "A", "P2"];
-
-    expect(JSON.stringify(orderCodexSidebarThreadKeysByManualThreadIds({
-      threadKeys: ["project:one", "chat:a", "project:two", "chat:new", "chat:b"],
-      orderedThreadIds,
-      getThreadId,
-    }))).toBe(JSON.stringify([
-      "chat:b",
-      "project:one",
-      "chat:a",
-      "chat:new",
-      "project:two",
-    ]));
-    expect(JSON.stringify(orderCodexSidebarThreadKeysByManualThreadIds({
-      threadKeys: ["chat:a", "chat:new", "chat:b"],
-      orderedThreadIds,
-      getThreadId,
-    }))).toBe(JSON.stringify(["chat:b", "chat:new", "chat:a"]));
-    expect(JSON.stringify(orderCodexSidebarThreadKeysByManualThreadIds({
-      threadKeys: ["chat:b", "chat:a", "chat:new"],
-      orderedThreadIds,
-      getThreadId,
-    }))).toBe(JSON.stringify(["chat:b", "chat:a", "chat:new"]));
   });
 });
 

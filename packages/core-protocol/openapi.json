@@ -20304,84 +20304,6 @@
               {
                 "type": "object",
                 "required": [
-                  "project_id",
-                  "ordered_thread_ids",
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "set_project_thread_order"
-                    ]
-                  },
-                  "ordered_thread_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "project_id": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "project_id",
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "clear_project_thread_order"
-                    ]
-                  },
-                  "project_id": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "thread_ids_in_display_order",
-                  "visible_thread_ids",
-                  "next_visible_thread_ids",
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "set_projectless_thread_order"
-                    ]
-                  },
-                  "next_visible_thread_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "thread_ids_in_display_order": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "visible_thread_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
                   "thread_id",
                   "source",
                   "target",
@@ -25856,6 +25778,24 @@
                 "type": "string",
                 "enum": [
                   "before"
+                ]
+              },
+              "thread_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "thread_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "after"
                 ]
               },
               "thread_id": {
