@@ -125,6 +125,7 @@ export function AutomaticApprovalReviewSurface({ item }: { item: CodexConversati
   return (
     <ThreadActivityDisclosure
       icon={<AutomaticApprovalReviewShield />}
+      status={isInProgress ? "running" : "completed"}
       summary={(
         <CodexShimmerText
           active={isInProgress}

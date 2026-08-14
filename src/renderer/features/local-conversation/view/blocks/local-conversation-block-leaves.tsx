@@ -54,6 +54,7 @@ import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-
 import { UserAttachmentStrip } from "../shared/user-message-attachments";
 import { useWorkedForLabelText } from "../shared/use-worked-for-label";
 import type { CodexWorktreeInitActivity } from "../../../../lib/codex-worktree-init-activity";
+import { semanticActivityStatusFromLifecycle } from "../../../../lib/semantic-activity-status";
 import type { CodexConversationChildMembership, CodexConversationItem } from "../../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
@@ -440,6 +441,10 @@ export function ThreadAgentActivityGroupBlock({
       bodyTestId="agent-activity-group-body"
       canExpand={block.canExpand}
       indentContent={false}
+      status={semanticActivityStatusFromLifecycle(
+        block.status,
+        block.header.kind === "summary" ? "completed" : "running",
+      )}
       summary={summary}
       summaryKey={block.header.key}
       summaryTransition={summaryTransition}

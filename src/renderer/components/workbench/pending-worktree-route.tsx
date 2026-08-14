@@ -303,7 +303,7 @@ function PendingWorktreeRouteStatusSurface({
       className="flex h-full min-h-0 items-center justify-center bg-token-main-surface-primary px-6"
     >
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        {loading ? <ActivitySpinnerIcon className="icon-sm text-token-description-foreground" /> : null}
+        {loading ? <ActivitySpinnerIcon className="icon-sm text-tertiary" /> : null}
         <div className="text-sm font-medium text-token-foreground">
           {loading
             ? "Loading worktree setup…"
@@ -312,7 +312,7 @@ function PendingWorktreeRouteStatusSurface({
               : "Worktree setup could not be loaded"}
         </div>
         {error ? (
-          <div role="alert" className="text-sm text-token-description-foreground">
+          <div role="alert" className="text-sm text-danger">
             {error}
           </div>
         ) : null}

@@ -1,0 +1,78 @@
+/*
+ * Generated semantic theme contract (refVersion 26.810.41047).
+ * Do not edit by hand. Run:
+ *   pnpm run semantic-theme:sync -- --source /temporary/reference.css --ref-version 26.810.41047
+ */
+
+@theme static {
+  --cursor-interaction: pointer;
+  --diffs-font-size: var(--vscode-editor-font-size, 12px);
+  --font-mono: var(--vscode-editor-font-family, var(--font-mono-default));
+  --font-sans: var(--vscode-font-family, var(--font-sans-default));
+  --h-token-button-composer-gap: var(--spacing-token-button-composer-gap);
+  --height-toolbar: 46px;
+  --height-toolbar-sm: 36px;
+  --inset-toolbar: var(--height-toolbar);
+  --inset-toolbar-sm: var(--height-toolbar-sm);
+  --markdown-wide-block-max-width: 64rem;
+  --padding-panel: var(--padding-panel-base);
+  --padding-row-x: calc(var(--spacing) * 2);
+  --padding-row-y: calc(var(--spacing) * 1);
+  --padding-toolbar: calc(var(--spacing) * 4);
+  --radius-2xl: calc(var(--radius-2xl-base) * var(--corner-radius-scale));
+  --radius-2xs: calc(var(--radius-2xs-base) * var(--corner-radius-scale));
+  --radius-3xl: calc(var(--radius-3xl-base) * var(--corner-radius-scale));
+  --radius-4xl: calc(var(--radius-4xl-base) * var(--corner-radius-scale));
+  --radius-lg: calc(var(--radius-lg-base) * var(--corner-radius-scale));
+  --radius-md: calc(var(--radius-md-base) * var(--corner-radius-scale));
+  --radius-sm: calc(var(--radius-sm-base) * var(--corner-radius-scale));
+  --radius-xl: calc(var(--radius-xl-base) * var(--corner-radius-scale));
+  --radius-xs: calc(var(--radius-xs-base) * var(--corner-radius-scale));
+  --spacing-token-button-composer: calc(var(--spacing) * 7);
+  --spacing-token-button-composer-gap: var(--spacing);
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 5);
+  --spacing-token-safe-header-left: 0px;
+  --spacing-token-safe-header-right: 0px;
+  --spacing-token-sidebar: clamp(240px, 300px, min(520px, calc(100vw - 320px)));
+  --text-heading-md: 20px;
+  --thread-content-max-width: none;
+}
+
+:root {
+  --inset-toolbar: var(--height-toolbar);
+  --padding-panel: var(--padding-panel-base);
+  --padding-panel-base: calc(var(--spacing) * 3);
+  --padding-row-y: calc(var(--spacing) * 1);
+  --padding-toolbar: calc(var(--spacing) * 4);
+  --safe-area-left: 0px;
+  --safe-area-right: 0px;
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 5);
+  --text-heading-md: 20px;
+}
+
+[data-codex-window-type="electron"] body {
+  --color-token-bg-fog: var(--color-background-elevated-secondary);
+  --cursor-interaction: default;
+  --markdown-wide-block-max-width: 80rem;
+  --padding-panel: var(--padding-panel-base);
+  --padding-panel-base: calc(var(--spacing) * 5);
+  --padding-row-y: calc(var(--spacing) * 1.25);
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
+  --text-heading-md: 18px;
+  --thread-composer-max-width: calc(var(--thread-content-max-width) + 1rem);
+  --thread-content-max-width: 48rem;
+  --vscode-chat-editor-font-size: var(--vscode-editor-font-size);
+  --vscode-chat-font-size: var(--vscode-font-size);
+  --vscode-editor-font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --vscode-editor-font-size: var(--text-sm);
+  --vscode-font-size: var(--text-base);
+}
+
+[data-codex-window-type="browser"] {
+  --height-toolbar: 56px;
+}
+
+:root[data-codex-window-type="extension"] {
+  --diffs-font-size: calc(var(--codex-chat-code-font-size) - 1px);
+  --text-heading-md: 16px;
+}

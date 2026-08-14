@@ -10,6 +10,7 @@ import {
 import { reviewDiffPreferencesAtom } from "@/features/review/model/review-view-state";
 import { useScopedAtomValue } from "@/lib/maitai";
 import type { CodexVisualizationActivity } from "../../../../../../shared/types";
+import { semanticActivityStatusFromLifecycle } from "../../../../../lib/semantic-activity-status";
 import {
   buildCodexFileChangePatchRows,
   canParseCodexFileChangeInline,
@@ -582,6 +583,7 @@ function FileChangeRow({
       className="text-token-conversation-body"
       disclosure={disclosure}
       icon={summaryIcon}
+      status={semanticActivityStatusFromLifecycle(row.state, "completed")}
       summary={summary}
       testId="file-change-row-header"
     />

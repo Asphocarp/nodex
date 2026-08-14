@@ -7,6 +7,10 @@ import {
 import type { CodexWorktreeInitActivity } from "@/lib/codex-worktree-init-activity";
 import { codexWorktreeInitActivityLabel } from "@/lib/codex-worktree-init-activity";
 import { cn } from "@/lib/utils";
+import {
+  semanticActivitySummaryClassName,
+  semanticActivityTextClassName,
+} from "@/lib/semantic-activity-status";
 import { CodexShimmerText } from "../codex-shimmer-text";
 import { ThreadCommandShellBlock } from "./thread-command-shell-block";
 import { ThreadActivityDisclosure } from "./tool-primitives";
@@ -20,9 +24,7 @@ function WorktreeInitActivityIcon({
 }) {
   const className = cn(
     "icon-xs shrink-0",
-    activity.status === "failed"
-      ? "text-token-editor-error-foreground"
-      : "text-token-conversation-body",
+    semanticActivityTextClassName(activity.status),
   );
 
   if (activity.kind === "worktree") {
@@ -89,6 +91,7 @@ export function WorktreeInitActivityList({
 
         return (
           <ThreadActivityDisclosure
+            autoExpandWhileRunning
             key={`${activity.id}:${isActionTarget}`}
             canExpand={body !== null}
             defaultExpanded={isActionTarget}
@@ -102,7 +105,10 @@ export function WorktreeInitActivityList({
             summary={(
               <CodexShimmerText
                 active={activity.status === "running"}
-                className="min-w-0 truncate text-size-chat text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground"
+                className={cn(
+                  "min-w-0 truncate text-size-chat group-hover/activity-header:text-token-foreground",
+                  semanticActivitySummaryClassName(activity.status),
+                )}
               >
                 {codexWorktreeInitActivityLabel(activity)}
               </CodexShimmerText>

@@ -321,10 +321,10 @@ export function ThreadCommandShellBlock({
     return (
       <div
         className={cn(
-          "group flex flex-col overflow-hidden rounded-lg border",
+          "group flex flex-col overflow-hidden rounded-lg",
           isPlainEmbedded
-            ? "border-token-border-heavy bg-token-main-surface-primary"
-            : "border-token-input-background bg-token-text-code-block-background",
+            ? "border-[0.5px] border-default bg-token-main-surface-primary"
+            : "border border-token-input-background bg-token-text-code-block-background",
         )}
       >
         {isPlainEmbedded ? null : (

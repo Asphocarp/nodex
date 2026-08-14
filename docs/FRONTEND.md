@@ -262,6 +262,48 @@ work follows [Card Stage rich-editor performance](card-stage-rich-editor-perform
   or state rules in helpers with boundary tests, and preserve visual contracts
   with focused stories instead of long class-string assertions.
 
+### Theme token ownership
+
+Renderer color and motion vocabulary has three layers. Choose the highest layer
+that accurately describes the UI role:
+
+1. Semantic roles are the component-facing contract for shared task and
+   conversation UI. Use `text-info`, `text-danger`, `text-tertiary`,
+   `semantic-text-secondary`, `border-default`, `bg-text/10`, and
+   `bg-text-info` to express lifecycle status and hierarchy. Icons inherit the
+   same role through `currentColor`.
+2. Product compatibility aliases (`--color-token-*` and their Tailwind
+   utilities) support established or feature-native surfaces. They are an
+   adapter during surface-level migration, not the default vocabulary for new
+   agent-task UI.
+3. Host/editor variables (`--vscode-*`) are theme inputs. Components must not
+   consume them directly; generated contracts and product adapters translate
+   them into stable roles.
+
+Do not mix layers to express one role inside a component—for example, a failure
+row must not combine a semantic error utility, a host variable, and a legacy
+token for its icon and label. Migrate by coherent surface, validate light/dark
+and lifecycle states in Storybook or browser tests, and leave feature-native
+Database, Board, Canvas, and editor semantics alone unless the roles are truly
+shared.
+
+The build-time owner is `scripts/semantic-theme/`. Generated artifacts are
+committed, deterministic inputs to the renderer build; ordinary builds do not
+need the temporary extraction source. `pnpm run semantic-theme:verify` checks
+artifact provenance, per-window/per-scheme transitive dependency closure,
+cycles, collision ownership, required utilities, and migration ratchets. A
+conditional declaration is not a global fallback, and a host variable is not a
+provider outside the targets where the host actually supplies it. Product
+foundation values such as radius scale remain product-owned. Never hand-edit a
+generated theme artifact.
+
+Shared activity primitives require an explicit semantic lifecycle status. The
+primitive owns the status color for its icon and summary; feature call sites
+translate their protocol/view state into `pending`, `running`, `completed`,
+`skipped`, or `failed` instead of relying on a default. Validate foundation and
+surface contracts with computed-style browser tests: source presence alone
+cannot prove that a `var(...)` chain resolves after Tailwind and cascade.
+
 For new or substantially redesigned surfaces, also follow the
 [general design guidelines](../.agents/skills/general-design-guidelines/SKILL.md).
 

@@ -93,7 +93,7 @@ export function ProviderCredentialDialog({
           <NodexDialogBody className="gap-1.5">
             <label
               htmlFor="agent-provider-api-key"
-              className="text-sm text-token-text-secondary"
+              className="semantic-text-secondary text-sm"
             >
               API key
             </label>
@@ -108,11 +108,11 @@ export function ProviderCredentialDialog({
               disabled={pendingAction !== null}
               onChange={(event) => setApiKey(event.target.value)}
             />
-            <span className="text-xs text-token-description-foreground">
+            <span className="text-tertiary text-xs">
               Saved in your operating system keychain.
             </span>
             {errorMessage ? (
-              <span role="alert" className="text-xs text-token-error-foreground">
+              <span role="alert" className="text-danger text-xs">
                 {errorMessage}
               </span>
             ) : null}

@@ -1273,9 +1273,12 @@ function CodexSidebarThreadRunLocationGlyph({
 }) {
   const location = item.runLocation;
   const pending = isCodexSidebarWorktreeLocation(location) && location.phase === "pending";
-  const iconClassName = cn(
-    "icon-2xs text-token-description-foreground no-drag shrink-0",
-    pending && "animate-pulse motion-reduce:animate-none",
+  const remoteIconClassName = "icon-2xs text-tertiary no-drag shrink-0";
+  const worktreeIconClassName = cn(
+    "icon-2xs no-drag shrink-0",
+    pending
+      ? "text-info animate-pulse motion-reduce:animate-none"
+      : "semantic-text-secondary",
   );
   const wrapperClassName = cn(
     "ml-2 inline-flex shrink-0 items-center gap-1.5",
@@ -1292,7 +1295,7 @@ function CodexSidebarThreadRunLocationGlyph({
       >
         <NodexTooltip tooltipContent={location.hostDisplayName?.trim() || location.hostId}>
           <span className="inline-flex shrink-0">
-            <RemoteStatusIcon className={iconClassName} />
+            <RemoteStatusIcon className={remoteIconClassName} />
           </span>
         </NodexTooltip>
       </span>
@@ -1306,7 +1309,7 @@ function CodexSidebarThreadRunLocationGlyph({
         data-app-action-sidebar-thread-worktree-icon=""
         data-phase={location.phase}
       >
-        <WorktreeStatusIcon className={iconClassName} />
+        <WorktreeStatusIcon className={worktreeIconClassName} />
       </span>
     </NodexTooltip>
   );
@@ -1328,7 +1331,7 @@ function CodexSidebarThreadRunLocationGlyph({
     >
       <NodexTooltip tooltipContent={location.hostDisplayName?.trim() || location.hostId}>
         <span className="inline-flex shrink-0">
-          <RemoteStatusIcon className={iconClassName} />
+          <RemoteStatusIcon className={remoteIconClassName} />
         </span>
       </NodexTooltip>
       {worktreeIcon}
