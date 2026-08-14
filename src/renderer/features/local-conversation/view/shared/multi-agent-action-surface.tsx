@@ -489,6 +489,7 @@ export function MultiAgentActionSurface({
       body={body}
       header={(
         <ThreadRichActivityHeader
+          status={resolvedStatus === "inProgress" ? "running" : resolvedStatus}
           disclosure={{
             expanded,
             onToggle: () => setExpanded((current) => !current),

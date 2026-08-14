@@ -26,6 +26,7 @@ import {
   semanticToolIcon,
   type ToolActivityIconDescriptor,
 } from "./tool-call-icons";
+import { semanticActivityStatusFromLifecycle } from "../../../../../lib/semantic-activity-status";
 import {
   ThreadActivityDisclosure,
   ThreadActivityShell,
@@ -484,6 +485,7 @@ function SingleExplorationActionRow({
   return (
     <ThreadActivityDisclosure
       canExpand={automaticApprovalReviews.length > 0}
+      status={semanticActivityStatusFromLifecycle(effectiveStatus, "completed")}
       icon={summaryIcon}
       summary={(
         <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground [&_*]:text-token-foreground/30 group-hover/activity-header:[&_*]:text-token-foreground">
@@ -612,6 +614,7 @@ export function CommandToolCall({
 
   const header = (
     <ThreadRichActivityHeader
+      status={semanticActivityStatusFromLifecycle(effectiveStatus, "completed")}
       accessory={hasApprovalReviews ? <AutomaticApprovalReviewShield /> : null}
       disclosure={{ expanded: isExpanded, onToggle: handleToggle }}
       icon={<ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} />}

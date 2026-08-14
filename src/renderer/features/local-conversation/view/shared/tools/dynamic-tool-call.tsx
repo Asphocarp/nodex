@@ -354,6 +354,7 @@ function CodexAppHandoffToolCall({
       bodyClassName="pt-1 pl-5"
       canExpand={canExpand}
       defaultExpanded={state.activityStatus === "running" && canExpand}
+      status={state.activityStatus}
       summary={summary}
     >
       <div className="flex flex-col gap-1">

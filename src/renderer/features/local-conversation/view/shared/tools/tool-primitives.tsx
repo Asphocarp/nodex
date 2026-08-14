@@ -4,6 +4,8 @@ import { ChevronRightIcon } from "@/components/shared/icons";
 import { readResizeObserverBorderBoxSize } from "@/lib/resize-observer-size";
 import { motion } from "motion/react";
 import { cn } from "../../../../../lib/utils";
+import { semanticActivitySummaryClassName } from "../../../../../lib/semantic-activity-status";
+import type { SemanticActivityStatus } from "../../../../../lib/semantic-activity-status";
 import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
 import { ToolCallCodePanel } from "./tool-call-inspection";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
@@ -227,6 +229,7 @@ export function ThreadActivitySummaryText({
 
 export interface ThreadActivityDisclosureProps {
   accessibleLabel?: string;
+  autoExpandWhileRunning?: boolean;
   bodyClassName?: string;
   bodyTestId?: string;
   canExpand?: boolean;
@@ -239,7 +242,7 @@ export interface ThreadActivityDisclosureProps {
   icon?: ReactNode;
   onExpand?: () => void;
   shouldAnimateInitialCollapse?: boolean;
-  status?: "running" | "completed" | "failed";
+  status: SemanticActivityStatus;
   summary: ReactNode;
   summaryClassName?: string;
   summaryKey?: string | null;
@@ -288,6 +291,7 @@ export function ThreadRichActivityHeader({
   icon,
   summary,
   summaryClassName,
+  status,
   testId,
 }: {
   accessibleLabel?: string;
@@ -297,16 +301,18 @@ export function ThreadRichActivityHeader({
   icon: ReactNode;
   summary: ReactNode;
   summaryClassName?: string;
+  status: SemanticActivityStatus;
   testId?: string;
 }) {
   const summaryId = useId();
   const content = (
     <>
-      <span className="contents text-token-conversation-body">{icon}</span>
+      <span className={cn("contents", semanticActivitySummaryClassName(status))}>{icon}</span>
       <span
         id={disclosure ? summaryId : undefined}
         className={cn(
-          "min-w-0 flex-1 truncate text-token-conversation-body [&_[data-codex-shimmer]]:align-top [&_*:not(button)]:!text-token-conversation-body",
+          "min-w-0 flex-1 truncate [&_[data-codex-shimmer]]:align-top",
+          semanticActivitySummaryClassName(status),
           disclosure
             && "[@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:!text-token-foreground [@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:[&_*:not(button)]:!text-token-foreground",
           summaryClassName,
@@ -354,6 +360,7 @@ export function ThreadRichActivityHeader({
 
 export function ThreadActivityDisclosure({
   accessibleLabel,
+  autoExpandWhileRunning = false,
   bodyClassName,
   bodyTestId,
   canExpand = true,
@@ -365,7 +372,7 @@ export function ThreadActivityDisclosure({
   headerTestId,
   icon,
   onExpand,
-  status = "completed",
+  status,
   summary,
   summaryClassName,
   summaryKey,
@@ -377,11 +384,12 @@ export function ThreadActivityDisclosure({
   const [normallyExpanded, setNormallyExpanded] = useState(defaultExpanded);
   const { elementHeightPx, elementRef } = useMeasuredThreadActivityBodyHeight();
   const isRunning = status === "running";
-  const expanded = hasBody && (isRunning ? !manuallyCollapsed : normallyExpanded);
+  const shouldUseRunningExpansion = autoExpandWhileRunning && isRunning;
+  const expanded = hasBody && (shouldUseRunningExpansion ? !manuallyCollapsed : normallyExpanded);
 
   const handleToggle = () => {
     if (!expanded) onExpand?.();
-    if (isRunning) {
+    if (shouldUseRunningExpansion) {
       setManuallyCollapsed((current) => !current);
       return;
     }
@@ -403,6 +411,7 @@ export function ThreadActivityDisclosure({
       icon={icon}
       summary={summary}
       summaryClassName={summaryClassName}
+      status={status}
       testId={headerTestId}
     />
   );

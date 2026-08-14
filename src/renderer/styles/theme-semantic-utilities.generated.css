@@ -1,0 +1,373 @@
+/*
+ * Generated semantic theme contract (refVersion 26.810.41047).
+ * Do not edit by hand. Run:
+ *   pnpm run semantic-theme:sync -- --source /temporary/reference.css --ref-version 26.810.41047
+ */
+
+@layer components {
+  @supports (animation-timeline: --scroll-fade) {
+    .horizontal-scroll-fade-mask {
+      -webkit-mask: linear-gradient(to right in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--left-fade) calc(100% - var(--right-fade)), oklch(60% 0 0 / 0));
+      -webkit-mask: linear-gradient(to right in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--left-fade) calc(100% - var(--right-fade)), oklch(60% 0 0 / 0));
+      -webkit-mask: linear-gradient(to right in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--left-fade) calc(100% - var(--right-fade)), oklch(60% 0 0 / 0));
+      mask: linear-gradient(to right in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--left-fade) calc(100% - var(--right-fade)), oklch(60% 0 0 / 0));
+      animation-name: edge-fade-horizontal;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(self x);
+    }
+
+    .vertical-scroll-fade-mask {
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      mask: linear-gradient(to bottom in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      animation-name: edge-fade;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(self y);
+    }
+
+    .vertical-scroll-fade-mask-top {
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      mask: linear-gradient(to bottom in oklch, oklch(60% 0 0 / 0), oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      animation-name: edge-fade-top;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(self y);
+    }
+
+    .vertical-scroll-fade-mask-bottom {
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(85% 0 0), oklch(85% 0 0) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(85% 0 0), oklch(85% 0 0) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      -webkit-mask: linear-gradient(to bottom in oklch, oklch(85% 0 0), oklch(85% 0 0) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      mask: linear-gradient(to bottom in oklch, oklch(85% 0 0), oklch(85% 0 0) calc(100% - var(--bottom-fade)), oklch(60% 0 0 / 0));
+      animation-name: edge-fade-bottom;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(self y);
+    }
+  }
+
+  .icon-3xs {
+    width: 10px;
+    height: 10px;
+  }
+
+  .icon-xxs {
+    width: 12px;
+    height: 12px;
+  }
+
+  .icon-2xs {
+    width: 14px;
+    height: 14px;
+  }
+
+  .icon-xs {
+    width: 16px;
+    height: 16px;
+  }
+
+  .icon-sm {
+    width: 18px;
+    height: 18px;
+  }
+
+  .icon-base {
+    width: 20px;
+    height: 20px;
+  }
+
+  .icon-md {
+    width: 24px;
+    height: 24px;
+  }
+
+  .icon-lg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .heading-4xl {
+    font-size: var(--text-4xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1;
+  }
+
+  .heading-3xl {
+    font-size: var(--text-3xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1;
+  }
+
+  .heading-2xl {
+    font-size: var(--text-2xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1;
+  }
+
+  .heading-xl {
+    font-size: var(--text-xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.2;
+  }
+
+  .heading-lg {
+    font-size: var(--text-heading-lg);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.2;
+  }
+
+  .heading-base {
+    font-size: var(--text-heading-md);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.33;
+  }
+
+  .heading-dialog {
+    font-size: var(--text-heading-md);
+    font-weight: var(--font-weight-medium);
+    letter-spacing: -.36px;
+    line-height: 28px;
+  }
+
+  .heading-sm {
+    font-size: var(--text-sm);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.4;
+  }
+
+  .heading-xs {
+    font-size: var(--text-xs);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.4;
+  }
+}
+
+@layer utilities {
+  .\@container\/diff-header {
+    container: diff-header / inline-size;
+  }
+
+  .\@container\/left-panel {
+    container: left-panel / inline-size;
+  }
+
+  .h-token-button-composer {
+    height: var(--spacing-token-button-composer);
+  }
+
+  .h-token-button-composer-sm {
+    height: var(--spacing-token-button-composer-sm);
+  }
+
+  .cursor-interaction {
+    cursor: var(--cursor-interaction);
+  }
+
+  .scrollbar-stable {
+    scrollbar-gutter: stable;
+  }
+
+  .border-default {
+    border-color: var(--color-border);
+  }
+
+  .bg-text-info, .bg-text-info\/10 {
+    background-color: var(--color-text-info);
+  }
+
+  .bg-text\/10 {
+    background-color: var(--color-text);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .bg-text\/10 {
+      background-color: color-mix(in oklab, var(--color-text) 10%, transparent);
+    }
+  }
+
+  .px-toolbar {
+    padding-inline: var(--padding-toolbar);
+  }
+
+  .font-vscode-editor {
+    font-family: var(--vscode-editor-font-family, var(--font-mono-default));
+  }
+
+  .disambiguated-digits {
+    font-feature-settings: "cv01" on, "cv02" on;
+  }
+
+  .text-size-chat {
+    font-size: var(--codex-chat-font-size);
+  }
+
+  .text-size-chat-sm {
+    font-size: calc(var(--codex-chat-font-size) - 1px);
+  }
+
+  .text-size-code {
+    font-size: var(--codex-chat-code-font-size);
+  }
+
+  .text-size-code-sm {
+    font-size: calc(var(--codex-chat-code-font-size) - 1px);
+  }
+
+  .text-danger {
+    color: var(--color-text-danger);
+  }
+
+  .text-info {
+    color: var(--color-text-info);
+  }
+
+  .semantic-text-secondary {
+    color: var(--color-text-secondary);
+  }
+
+  .text-tertiary {
+    color: var(--color-text-tertiary);
+  }
+
+  .duration-relaxed {
+    --tw-duration: var(--transition-duration-relaxed);
+    transition-duration: var(--transition-duration-relaxed);
+  }
+
+  .ease-basic {
+    --tw-ease: var(--transition-ease-basic);
+    transition-timing-function: var(--transition-ease-basic);
+  }
+
+  .contain-inline-size {
+    --tw-contain-size: inline-size;
+    contain: var(--tw-contain-size, ) var(--tw-contain-layout, ) var(--tw-contain-paint, ) var(--tw-contain-style, );
+  }
+
+  .draggable {
+    -webkit-app-region: drag;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .draggable button, .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  .\[\&_\.contain-inline-size\]\:\[contain\:initial\] .contain-inline-size {
+    contain: initial;
+  }
+
+  .\[\&\>\*\+\*\]\:mt-0 > * + *, .\[\&\>\*\:first-child\]\:mt-0 > :first-child {
+    margin-top: 0;
+  }
+
+  .\[\&\>\*\:last-child\]\:mb-0 > :last-child {
+    margin-bottom: 0;
+  }
+
+  .\[\&\>ol\:first-child\]\:mt-0 > ol:first-child, .\[\&\>ul\:first-child\]\:mt-0 > ul:first-child {
+    margin-top: 0;
+  }
+
+  .scroll-contain {
+    overscroll-behavior: contain;
+    overflow: auto;
+  }
+
+  .disambig-digits.slashed-zero {
+    font-feature-settings: "ss06" on;
+  }
+
+  .h-token-button-composer, .h-token-button-composer-sm {
+    gap: var(--h-token-button-composer-gap);
+  }
+}
+
+@property --top-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --bottom-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --edge-fade-distance {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 1rem;
+}
+
+@property --left-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --right-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@keyframes edge-fade {
+  0%, 1% {
+    --top-fade: 0;
+    --bottom-fade: var(--edge-fade-distance, 1rem);
+  }
+
+  99%, to {
+    --top-fade: var(--edge-fade-distance, 1rem);
+    --bottom-fade: 0;
+  }
+}
+
+@keyframes edge-fade-top {
+  0%, 1% {
+    --top-fade: var(--edge-fade-distance, 1rem);
+    --bottom-fade: var(--edge-fade-distance, 1rem);
+  }
+
+  99%, to {
+    --top-fade: var(--edge-fade-distance, 1rem);
+    --bottom-fade: 0;
+  }
+}
+
+@keyframes edge-fade-bottom {
+  0%, 1% {
+    --top-fade: 0;
+    --bottom-fade: var(--edge-fade-distance, 1rem);
+  }
+
+  99%, to {
+    --top-fade: 0;
+    --bottom-fade: 0;
+  }
+}
+
+@keyframes edge-fade-horizontal {
+  0% {
+    --left-fade: 0;
+    --right-fade: var(--edge-fade-distance, 1rem);
+  }
+
+  .1%, 99.9% {
+    --left-fade: var(--edge-fade-distance, 1rem);
+    --right-fade: var(--edge-fade-distance, 1rem);
+  }
+
+  to {
+    --left-fade: var(--edge-fade-distance, 1rem);
+    --right-fade: 0;
+  }
+}

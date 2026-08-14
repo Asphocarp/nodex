@@ -63,6 +63,7 @@ export function ImageViewSurface({ imagePaths }: { imagePaths: readonly string[]
         className="overflow-clip"
         header={(
           <ThreadRichActivityHeader
+            status="completed"
             icon={<ImageIcon aria-hidden="true" className="icon-xs shrink-0 text-token-conversation-body" />}
             summary={<span className="block truncate text-token-conversation-summary-trailing">{summary}</span>}
             disclosure={canExpand ? {
