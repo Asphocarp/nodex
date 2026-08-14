@@ -4,6 +4,7 @@ import {
   CODEX_COMMAND_REGISTRY,
   createCommandKeymapState,
   findCommandKeybindingConflict,
+  formatAcceleratorAriaKeyShortcut,
   formatAcceleratorLabel,
   formatCommandShortcutLabel,
   getPrimaryCommandAccelerator,
@@ -15,6 +16,7 @@ import {
   NEXT_PANEL_TAB_COMMAND_ID,
   PREVIOUS_PANEL_TAB_COMMAND_ID,
   resolveRuntimePlatform,
+  resolveCommandShortcutPresentation,
   toElectronAccelerator,
   type KeyboardShortcutEventLike,
 } from "./command-keybindings";
@@ -35,6 +37,25 @@ describe("command keybindings", () => {
     expect(normalizeAccelerator("CommandOrControl+Alt+r")).toBe("CmdOrCtrl+Alt+R");
     expect(formatAcceleratorLabel("CmdOrCtrl+Alt+R", "macOS")).toBe("⌘⌥R");
     expect(formatAcceleratorLabel("CmdOrCtrl+Alt+R", "windows")).toBe("Ctrl+Alt+R");
+    expect(formatAcceleratorAriaKeyShortcut("CmdOrCtrl+Alt+R", "macOS")).toBe("Meta+Alt+R");
+    expect(formatAcceleratorAriaKeyShortcut("Ctrl+Shift+M", "macOS")).toBe("Control+Shift+M");
+  });
+
+  test("projects command shortcuts for visible and assistive labels", () => {
+    const defaultState = createCommandKeymapState({}, "macOS");
+    const customState = createCommandKeymapState({
+      openModelPicker: ["CmdOrCtrl+Alt+M"],
+    }, "macOS");
+    const unassignedState = createCommandKeymapState({
+      openModelPicker: [],
+    }, "macOS");
+
+    expect(resolveCommandShortcutPresentation(defaultState, "openModelPicker"))
+      .toEqual({ label: "⌃⇧M", ariaKeyShortcuts: "Control+Shift+M" });
+    expect(resolveCommandShortcutPresentation(customState, "openModelPicker"))
+      .toEqual({ label: "⌘⌥M", ariaKeyShortcuts: "Meta+Alt+M" });
+    expect(resolveCommandShortcutPresentation(unassignedState, "openModelPicker"))
+      .toBeNull();
   });
 
   test("matches CmdOrCtrl keyboard events by platform", () => {

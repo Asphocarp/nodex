@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed the NFM `Move to` picker so Page and Database-status destinations commit real atomic Block moves, stay inside the source Project's write authority, and show specific retryable errors instead of a generic failure.
 - Fixed sustained Page editing causing repeated Board/List projection reads and excessive renderer CPU and memory growth; editing updates, recovery deltas, and canonical repairs now converge through bounded single-flight work.
 - Fixed native NFM indent, outdent, reorder, and local undo being rejected after durable synchronization; collaborative Block placement now follows the canonical Document tree without weakening cross-Document move safety.
 - Fixed moving chats between Projects so missing folder access can be granted from an explicit confirmation, the grant and move commit together, and Project chats can be moved back to Chats without losing their workspace context.

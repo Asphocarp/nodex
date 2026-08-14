@@ -216,7 +216,7 @@ function resolveDropdownMaxHeightClass(maxHeight?: NodexDropdownContentMaxHeight
 export interface NodexDropdownMenuProps {
   triggerButton: ReactElement;
   triggerTooltipContent?: ReactNode;
-  triggerTooltipShortcut?: ReactNode;
+  triggerTooltipShortcutLabel?: string;
   children: ReactNode;
   disabled?: boolean;
   open?: boolean;
@@ -240,7 +240,7 @@ export interface NodexDropdownMenuProps {
 export function NodexDropdownMenu({
   triggerButton,
   triggerTooltipContent,
-  triggerTooltipShortcut,
+  triggerTooltipShortcutLabel,
   children,
   disabled = false,
   open,
@@ -275,10 +275,9 @@ export function NodexDropdownMenu({
       {triggerTooltipContent == null ? trigger : (
         <NodexTooltip
           tooltipContent={triggerTooltipContent}
-          shortcut={triggerTooltipShortcut}
+          shortcutLabel={triggerTooltipShortcutLabel}
           side="top"
           sideOffset={4}
-          surface="rich"
         >
           {trigger}
         </NodexTooltip>

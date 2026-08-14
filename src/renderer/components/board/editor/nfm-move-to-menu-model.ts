@@ -1,5 +1,7 @@
 import type { BoardSummary, Project } from "@/lib/types";
+import type { NfmBlockMoveDestination } from "@/lib/nfm-block-move-runtime";
 import type { ProjectAppearance } from "../../../../shared/project-appearance";
+import { WORKFLOW_STATUS_COLUMNS } from "../../../../shared/workflow-status";
 import { normalizeSearchText } from "@/lib/search-text";
 import {
   createNfmMoveToSearchIndex,
@@ -7,18 +9,7 @@ import {
   type NfmMoveToSearchResult,
 } from "./nfm-move-to-menu-search";
 
-export type NfmMoveToDestination =
-  | {
-      kind: "db-column";
-      projectId: string;
-      columnId: string;
-    }
-  | {
-      kind: "page";
-      projectId: string;
-      columnId: string;
-      pageId: string;
-    };
+export type NfmMoveToDestination = NfmBlockMoveDestination;
 
 export type NfmMoveToResultScope = "all" | "db-only";
 
@@ -35,11 +26,8 @@ export interface NfmMoveToDbColumnRow {
   kind: "db-column";
   id: string;
   projectId: string;
-  projectName: string;
-  projectAppearance: ProjectAppearance;
   columnId: string;
   columnName: string;
-  depth: 1;
   destination: NfmMoveToDestination;
 }
 
@@ -48,15 +36,10 @@ export interface NfmMoveToPageRow {
   id: string;
   projectId: string;
   projectName: string;
-  projectAppearance: ProjectAppearance;
   columnId: string;
   columnName: string;
   pageId: string;
-  pageKey: string | null;
-  matchedPageKey: string | null;
-  matchedPageKeyIsCurrent: boolean | null;
   pageTitle: string;
-  depth: 0;
   destination: NfmMoveToDestination;
 }
 
@@ -70,7 +53,7 @@ export interface NfmMoveToSection {
 
 export interface NfmMoveToSectionsInput {
   projects: readonly Project[];
-  boardMap: ReadonlyMap<string, BoardSummary>;
+  pageBoardMap: ReadonlyMap<string, BoardSummary>;
   sourceProjectId: string | null;
   sourcePageId: string | null;
   expandedProjectIds: ReadonlySet<string>;
@@ -99,19 +82,13 @@ function createPageRowFromSearchHit(hit: NfmMoveToPageSearchHit): NfmMoveToPageR
     id: hit.id,
     projectId: hit.projectId,
     projectName: hit.projectName,
-    projectAppearance: hit.projectAppearance,
     columnId: hit.columnId,
     columnName: hit.columnName,
     pageId: hit.pageId,
-    pageKey: hit.pageKey,
-    matchedPageKey: hit.matchedPageKey,
-    matchedPageKeyIsCurrent: hit.matchedPageKeyIsCurrent,
     pageTitle: hit.pageTitle,
-    depth: 0,
     destination: {
       kind: "page",
       projectId: hit.projectId,
-      columnId: hit.columnId,
       pageId: hit.pageId,
     },
   };
@@ -119,40 +96,57 @@ function createPageRowFromSearchHit(hit: NfmMoveToPageSearchHit): NfmMoveToPageR
 
 function resolveSearchResult({
   projects,
-  boardMap,
+  pageBoardMap,
   sourceProjectId,
   sourcePageId,
   query,
   searchResult,
 }: Pick<
   NfmMoveToSectionsInput,
-  "projects" | "boardMap" | "sourceProjectId" | "sourcePageId" | "query" | "searchResult"
+  "projects" | "pageBoardMap" | "sourceProjectId" | "sourcePageId" | "query" | "searchResult"
 >): NfmMoveToSearchResult | null {
   const normalizedQuery = normalizeSearchText(query);
   if (!normalizedQuery) return null;
   if (searchResult?.normalizedQuery === normalizedQuery) return searchResult;
   return createNfmMoveToSearchIndex({
     projects,
-    boardMap,
+    boardMap: pageBoardMap,
     sourceProjectId,
     sourcePageId,
   }).search(query);
+}
+
+export function getDefaultNfmMoveToProjectId(
+  projects: readonly Project[],
+  sourceProjectId: string | null,
+) {
+  if (sourceProjectId && projects.some((project) => project.id === sourceProjectId)) {
+    return sourceProjectId;
+  }
+  return projects[0]?.id ?? null;
+}
+
+/** Move commands are bound to the source Project's write authority. */
+export function getNfmMoveToExecutableProjects(
+  projects: readonly Project[],
+  sourceProjectId: string | null,
+): readonly Project[] {
+  if (!sourceProjectId) return [];
+  return projects.filter((project) => project.id === sourceProjectId);
 }
 
 export function getDefaultNfmMoveToExpandedProjectIds(
   projects: readonly Project[],
   sourceProjectId: string | null,
 ) {
-  const defaultExpandedProjectId = sourceProjectId && projects.some((project) => project.id === sourceProjectId)
-    ? sourceProjectId
-    : projects[0]?.id;
+  const defaultExpandedProjectId = getDefaultNfmMoveToProjectId(projects, sourceProjectId);
 
   return new Set(defaultExpandedProjectId ? [defaultExpandedProjectId] : []);
 }
 
 export function buildNfmMoveToSections({
   projects,
-  boardMap,
+  pageBoardMap,
   sourceProjectId,
   sourcePageId,
   expandedProjectIds,
@@ -164,7 +158,7 @@ export function buildNfmMoveToSections({
   const normalizedQuery = normalizeSearchText(query);
   const resolvedSearchResult = resolveSearchResult({
     projects,
-    boardMap,
+    pageBoardMap,
     sourceProjectId,
     sourcePageId,
     query,
@@ -174,14 +168,12 @@ export function buildNfmMoveToSections({
   const pageRows: NfmMoveToRow[] = [];
 
   for (const project of projects) {
-    const board = boardMap.get(project.id);
-    const projectName = project.name || "Untitled";
     const projectMatchesQuery = resolvedSearchResult?.matchedProjectIds.has(project.id) ?? false;
     const matchedColumnIds = resolvedSearchResult?.matchedColumnIdsByProjectId.get(project.id);
     const visibleColumnRows: NfmMoveToDbColumnRow[] = [];
     const queryForcesExpanded = Boolean(normalizedQuery);
 
-    for (const column of board?.columns ?? []) {
+    for (const column of WORKFLOW_STATUS_COLUMNS) {
       const columnMatchesQuery = matchedColumnIds?.has(column.id) ?? false;
       const shouldShowColumn = !normalizedQuery || projectMatchesQuery || columnMatchesQuery;
       if (shouldShowColumn) {
@@ -189,45 +181,12 @@ export function buildNfmMoveToSections({
           kind: "db-column",
           id: `db-column:${project.id}:${column.id}`,
           projectId: project.id,
-          projectName,
-          projectAppearance: project.appearance,
           columnId: column.id,
           columnName: column.name,
-          depth: 1,
           destination: {
             kind: "db-column",
             projectId: project.id,
             columnId: column.id,
-          },
-        });
-      }
-
-      if (normalizedQuery || resultScope === "db-only") continue;
-
-      for (const page of column.cards) {
-        if (project.id === sourceProjectId && page.id === sourcePageId) continue;
-        if (pageRows.length >= pageLimit) continue;
-
-        const pageTitle = page.title || "Untitled";
-        pageRows.push({
-          kind: "page",
-          id: `page:${project.id}:${page.id}`,
-          projectId: project.id,
-          projectName,
-          projectAppearance: project.appearance,
-          columnId: column.id,
-          columnName: column.name,
-          pageId: page.id,
-          pageKey: page.pageKey ?? null,
-          matchedPageKey: null,
-          matchedPageKeyIsCurrent: null,
-          pageTitle,
-          depth: 0,
-          destination: {
-            kind: "page",
-            projectId: project.id,
-            columnId: column.id,
-            pageId: page.id,
           },
         });
       }
@@ -239,6 +198,37 @@ export function buildNfmMoveToSections({
     const expanded = queryForcesExpanded || expandedProjectIds.has(project.id);
     dbRows.push(createDbRow(project, expanded));
     if (expanded) dbRows.push(...visibleColumnRows);
+  }
+
+  const defaultPageProjectId = getDefaultNfmMoveToProjectId(projects, sourceProjectId);
+  const defaultPageProject = projects.find((project) => project.id === defaultPageProjectId);
+  const defaultPageBoard = defaultPageProjectId
+    ? pageBoardMap.get(defaultPageProjectId)
+    : undefined;
+  if (resultScope === "all" && !normalizedQuery && defaultPageProject && defaultPageBoard) {
+    for (const column of defaultPageBoard.columns) {
+      for (const page of column.cards) {
+        if (defaultPageProject.id === sourceProjectId && page.id === sourcePageId) continue;
+        if (pageRows.length >= pageLimit) break;
+
+        pageRows.push({
+          kind: "page",
+          id: `page:${defaultPageProject.id}:${page.id}`,
+          projectId: defaultPageProject.id,
+          projectName: defaultPageProject.name || "Untitled",
+          columnId: column.id,
+          columnName: column.name,
+          pageId: page.id,
+          pageTitle: page.title || "Untitled",
+          destination: {
+            kind: "page",
+            projectId: defaultPageProject.id,
+            pageId: page.id,
+          },
+        });
+      }
+      if (pageRows.length >= pageLimit) break;
+    }
   }
 
   if (resultScope === "all" && normalizedQuery && resolvedSearchResult) {

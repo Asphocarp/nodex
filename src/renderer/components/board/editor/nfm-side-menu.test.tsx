@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { useMemo, useState, type ReactNode } from "react";
 import { render } from "@/test/dom";
@@ -291,7 +291,7 @@ function StatefulSideMenuSurface({
         <NfmMoveToMenuSurface
           {...props}
           projects={MOVE_TO_PROJECTS}
-          boardMap={MOVE_TO_BOARD_MAP}
+          pageBoardMap={MOVE_TO_BOARD_MAP}
           loading={moveToLoading}
           loadError={moveToError}
         />
@@ -557,16 +557,18 @@ describe("nfm side menu surface", () => {
       expect(calls.destinations.length).toBe(0);
 
       const backlogColumnRow = view
-        .getAllByRole("option", { name: /Plan/ })
-        .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db-column");
+        .getAllByRole("option", { name: "Plan" })
+        .find((row) => row.getAttribute("data-nfm-move-to-project-id") === "renderer");
       if (!backlogColumnRow) throw new Error("Plan column row not found.");
 
       fireEvent.click(backlogColumnRow);
 
       await waitFor(() => {
-        expect(calls.destinations[0]?.kind).toBe("db-column");
-        expect(calls.destinations[0]?.projectId).toBe("renderer");
-        expect(calls.destinations[0]?.columnId).toBe("plan");
+        expect(calls.destinations[0]).toEqual({
+          kind: "db-column",
+          projectId: "renderer",
+          columnId: "plan",
+        });
       });
       expect(consoleErrors.length).toBe(0);
     } finally {
@@ -603,20 +605,33 @@ describe("nfm side menu surface", () => {
       .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db");
     if (!rendererDbRow) throw new Error("Renderer DB row not found.");
 
+    const pageRowLabelsBeforeToggle = view
+      .getAllByRole("option")
+      .filter((row) => row.getAttribute("data-nfm-move-to-row-kind") === "page")
+      .map((row) => row.textContent);
+
     fireEvent.click(rendererDbRow);
     expect(calls.destinations.length).toBe(0);
+    expect(
+      view
+        .getAllByRole("option")
+        .filter((row) => row.getAttribute("data-nfm-move-to-row-kind") === "page")
+        .map((row) => row.textContent),
+    ).toEqual(pageRowLabelsBeforeToggle);
 
     const backlogColumnRow = view
-      .getAllByRole("option", { name: /Plan/ })
-      .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db-column");
+      .getAllByRole("option", { name: "Plan" })
+      .find((row) => row.getAttribute("data-nfm-move-to-project-id") === "renderer");
     if (!backlogColumnRow) throw new Error("Plan column row not found.");
 
     fireEvent.click(backlogColumnRow);
 
     await waitFor(() => {
-      expect(calls.destinations[0]?.kind).toBe("db-column");
-      expect(calls.destinations[0]?.projectId).toBe("renderer");
-      expect(calls.destinations[0]?.columnId).toBe("plan");
+      expect(calls.destinations[0]).toEqual({
+        kind: "db-column",
+        projectId: "renderer",
+        columnId: "plan",
+      });
     });
   });
 
@@ -647,7 +662,6 @@ describe("nfm side menu surface", () => {
         throw new Error("Card destination was not accepted.");
       }
       expect(destination.projectId).toBe("default");
-      expect(destination.columnId).toBe("triage");
       expect(destination.pageId).toBe("target-card");
     });
   });
@@ -656,7 +670,7 @@ describe("nfm side menu surface", () => {
     const loadingView = renderWithQuery(
       <NfmMoveToMenuSurface
         projects={MOVE_TO_PROJECTS}
-        boardMap={MOVE_TO_BOARD_MAP}
+        pageBoardMap={MOVE_TO_BOARD_MAP}
         sourceProjectId="default"
         sourcePageId="source-card"
         loading={true}
@@ -674,7 +688,7 @@ describe("nfm side menu surface", () => {
     const emptyView = renderWithQuery(
       <NfmMoveToMenuSurface
         projects={MOVE_TO_PROJECTS}
-        boardMap={MOVE_TO_BOARD_MAP}
+        pageBoardMap={MOVE_TO_BOARD_MAP}
         sourceProjectId="default"
         sourcePageId="source-card"
         loading={false}
@@ -691,7 +705,7 @@ describe("nfm side menu surface", () => {
     const errorView = renderWithQuery(
       <NfmMoveToMenuSurface
         projects={MOVE_TO_PROJECTS}
-        boardMap={MOVE_TO_BOARD_MAP}
+        pageBoardMap={MOVE_TO_BOARD_MAP}
         sourceProjectId="default"
         sourcePageId="source-card"
         loading={false}
@@ -701,5 +715,42 @@ describe("nfm side menu surface", () => {
       />,
     );
     expect(errorView.getByText("Something went wrong")).not.toBeNull();
+  });
+
+  test("shows the exact async move failure and exposes it as an alert", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const view = renderWithQuery(
+        <NfmMoveToMenuSurface
+          projects={MOVE_TO_PROJECTS}
+          pageBoardMap={MOVE_TO_BOARD_MAP}
+          sourceProjectId="default"
+          sourcePageId="source-card"
+          loading={false}
+          loadError={null}
+          onAccept={async () => {
+            throw new Error("The destination Page changed. Try again.");
+          }}
+          onClose={() => undefined}
+        />,
+      );
+
+      fireEvent.click(view.getByRole("option", { name: /Target card/ }));
+
+      await waitFor(() => {
+        expect(view.getByRole("alert").textContent).toBe(
+          "The destination Page changed. Try again.",
+        );
+      });
+      expect(log).toHaveBeenCalledWith(
+        "[nfm-move-to:accept]",
+        expect.objectContaining({
+          destination: expect.objectContaining({ kind: "page" }),
+          error: expect.any(Error),
+        }),
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 });

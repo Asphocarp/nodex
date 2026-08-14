@@ -8,7 +8,6 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { useId, useMemo, useRef, type ChangeEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { ActivitySpinnerIcon, CheckmarkIcon, ChevronDownIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
-import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import {
   NodexDropdownContent,
   NodexDropdownItem,
@@ -121,7 +120,7 @@ function ToolbarButton({
   return (
     <NodexTooltip
       tooltipContent={mainTooltip}
-      shortcut={secondaryTooltip ? <ShortcutKeycaps keys={[secondaryTooltip]} /> : undefined}
+      shortcutLabel={secondaryTooltip}
       side="top"
       sideOffset={6}
       delayDuration={0}

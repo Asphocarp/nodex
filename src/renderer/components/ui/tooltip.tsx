@@ -22,6 +22,7 @@ import {
   NodexFloatingSurfaceBody,
   useNodexFloatingSurfaceGlobalDismissal,
 } from "./floating-surface";
+import { ShortcutKeycaps } from "./shortcut-keycaps";
 
 export function dismissNodexTooltips() {
   dismissNodexFloatingSurfaces();
@@ -51,7 +52,7 @@ export interface NodexTooltipProps
   > {
   children: ReactNode;
   tooltipContent: ReactNode;
-  shortcut?: ReactNode;
+  shortcutLabel?: string;
   disabled?: boolean;
   triggerAsChild?: boolean;
   triggerRef?: RefObject<HTMLElement | null>;
@@ -65,7 +66,7 @@ export interface NodexTooltipProps
 export function NodexTooltip({
   children,
   tooltipContent,
-  shortcut,
+  shortcutLabel,
   disabled = false,
   triggerAsChild = true,
   triggerRef,
@@ -117,6 +118,9 @@ export function NodexTooltip({
   const resolvedOpen = isControlled ? open : uncontrolledOpen;
   const resolvedDelay = delayOpen ? 250 : delayDuration;
   const richSurface = surface === "rich";
+  const shortcut = shortcutLabel
+    ? <ShortcutKeycaps keys={[shortcutLabel]} density="compact" />
+    : null;
 
   return (
     <RadixTooltip.Root

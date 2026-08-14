@@ -89,7 +89,7 @@ function ShortcutKeycapsDemo() {
         <NodexTooltip
           defaultOpen
           tooltipContent="Create Page"
-          shortcut={<ShortcutKeycaps keys={["C"]} density="compact" />}
+          shortcutLabel="C"
         >
           <NodexButton size="xs">Tooltip keycap</NodexButton>
         </NodexTooltip>

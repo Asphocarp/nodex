@@ -3278,6 +3278,10 @@ export function buildThreadStageStorySurfaceModels(
     collaborationModes: DEFAULT_COLLABORATION_MODES,
     selectedCollaborationMode: "default",
     selectedModel,
+    modelPickerShortcut: {
+      label: "Ctrl+Shift+M",
+      ariaKeyShortcuts: "Control+Shift+M",
+    },
     availableModels,
     selectedReasoningEffort,
     reasoningEffortOptions: DEFAULT_REASONING_OPTIONS,

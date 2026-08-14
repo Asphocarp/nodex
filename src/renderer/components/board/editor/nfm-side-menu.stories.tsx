@@ -222,7 +222,7 @@ function SideMenuStorySurface({
             <NfmMoveToMenuSurface
               {...props}
               projects={MOVE_TO_PROJECTS}
-              boardMap={MOVE_TO_BOARD_MAP}
+              pageBoardMap={MOVE_TO_BOARD_MAP}
               loading={moveToLoading}
               loadError={moveToError}
               initialQuery={moveToInitialQuery}

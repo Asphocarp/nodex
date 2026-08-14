@@ -343,7 +343,7 @@ function TextActionMoreHandoffStorySurface() {
               <NfmMoveToMenuSurface
                 {...props}
                 projects={STORY_MOVE_TO_PROJECTS}
-                boardMap={STORY_MOVE_TO_BOARD_MAP}
+                pageBoardMap={STORY_MOVE_TO_BOARD_MAP}
                 loading={false}
                 loadError={null}
               />
@@ -524,7 +524,7 @@ export const WithNodexActions: Story = {
       <NfmMoveToMenuSurface
         {...props}
         projects={STORY_MOVE_TO_PROJECTS}
-        boardMap={STORY_MOVE_TO_BOARD_MAP}
+        pageBoardMap={STORY_MOVE_TO_BOARD_MAP}
         loading={false}
         loadError={null}
       />

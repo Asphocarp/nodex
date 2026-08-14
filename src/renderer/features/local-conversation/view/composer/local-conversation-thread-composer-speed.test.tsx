@@ -351,6 +351,10 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
       },
     ],
     selectedModel: "gpt-5.3-codex",
+    modelPickerShortcut: {
+      label: "Ctrl+Shift+M",
+      ariaKeyShortcuts: "Control+Shift+M",
+    },
     selectedReasoningEffort: "high",
     reasoningEffortOptions: [
       { reasoningEffort: "high", description: "Spend more time reasoning before answering." },
@@ -1084,6 +1088,23 @@ describe("ThreadComposer speed menu", () => {
     expect(readComposerText(view)).toBe("keep prompt Beta ");
     expect(view.container.textContent?.includes("Alpha") ?? false).toBe(false);
     expect(view.container.textContent?.includes("Beta") ?? false).toBe(true);
+  });
+
+  test("projects model picker shortcut metadata and respects unassignment", async () => {
+    const customizedView = await renderComposer({
+      modelPickerShortcut: {
+        label: "⌘⌥M",
+        ariaKeyShortcuts: "Meta+Alt+M",
+      },
+    });
+    expect(customizedView.getByLabelText("Select model").getAttribute("aria-keyshortcuts"))
+      .toBe("Meta+Alt+M");
+
+    customizedView.unmount();
+
+    const unassignedView = await renderComposer({ modelPickerShortcut: null });
+    expect(unassignedView.getByLabelText("Select model").hasAttribute("aria-keyshortcuts"))
+      .toBe(false);
   });
 
   test("shows the Codex-style fast indicator before the model label only when Fast is active", async () => {

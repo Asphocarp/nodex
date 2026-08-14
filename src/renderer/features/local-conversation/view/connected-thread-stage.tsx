@@ -729,6 +729,12 @@ export function ConnectedThreadStageFooter({
       collaborationModes: input.collaborationModes,
       selectedCollaborationMode,
       selectedModel,
+      modelPickerShortcut: input.modelPickerShortcut === undefined
+        ? {
+            label: "Ctrl+Shift+M",
+            ariaKeyShortcuts: "Control+Shift+M",
+          }
+        : input.modelPickerShortcut,
       availableModels: input.availableModels,
       agentProviderCatalog: input.agentProviderCatalog ?? null,
       agentProviderCatalogLoading: input.agentProviderCatalogLoading ?? false,
@@ -796,6 +802,7 @@ export function ConnectedThreadStageFooter({
       executionProfile,
       input.isNewThreadTab,
       input.isQueueingEnabled,
+      input.modelPickerShortcut,
       input.newThreadProjectSelector,
       input.newThreadStartBlockedReason,
       input.newThreadStartInSelector,
