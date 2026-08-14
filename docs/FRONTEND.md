@@ -351,9 +351,16 @@ evidence at the seam that owns the behavior:
 - User-visible UI changes update or add focused Storybook coverage. Stories use
   production projectors and components with injected runtime boundaries rather
   than parallel fake view models or live Electron fallbacks.
+- Prefer an authoritative isolated scenario when the behavior depends on an integrated Project, Database projection, Page lifecycle, document authority, preload/Main transport, or Window Session.
+  The same domain recipe should serve Core integration and Electron/UI consumers through runtime-specific adapters; keep DOM navigation and observation in the optional UI projection.
+- Use `pnpm ui:lab -- --seed <scenario-id> --dev` to create a retained, mutable real-app session and resume it by the printed identity with `pnpm ui:lab -- --resume <session-id> --dev`.
+  The scenario catalog initializes the session but does not constrain later manual edits; use `pnpm ui:verify -- <scenario-id>` when deterministic facts are the contract.
+  Scenario manifests map stable logical keys to canonical IDs, so UI tests must not find authority by title when an identity is available.
 - Keep stories canvas-first. Use variants, args, and focused harnesses; render
   menu-driven states open by default and split unrelated feature families into
   separate stories.
+- Keep Storybook for reusable primitives, transient states, focused behavioral contracts, and pressure fixtures that do not require the full product runtime.
+  Remove an integrated story only after a real scenario or behavior test provides equivalent observable evidence; delete orphaned fake state in the same change.
 - Assert visible structure, accessibility, and behavior. Raw class checks,
   serialized markup, test IDs, and source inspection are fallback tools only
   when those representations are the real contract.

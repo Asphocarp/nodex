@@ -119,6 +119,41 @@ the lifecycle supervisor. electron-vite continues to own its renderer dev
 server and Electron child, so CSS HMR and React Fast Refresh remain active
 until the app or launching terminal exits.
 
+### Isolated scenarios and UI Lab
+
+Authoritative scenarios create current-schema product data through public Nodex operations and can be shared by Core integration tests, Electron E2E, and UI Lab.
+The first scenario is `board/dense`: a Project with five workflow columns, ten Pages, and one Page with structured NFM content.
+
+Use UI Lab for integrated Board/Page development against a retained, disposable Profile:
+
+```bash
+pnpm ui:lab -- --seed board/dense --dev
+```
+
+UI Lab creates a short owned Profile under the system temporary directory, starts the ordinary development app through `scripts/run.sh`, seeds only after the renderer is ready, and opens the scenario's canonical Page.
+`--dev` keeps Vite HMR active.
+Interrupting the command stops the owned process group and Core generation but retains the Profile.
+The ready output prints an independent session ID; after creation the Profile is a mutable playground, and the scenario ID remains provenance rather than ongoing validity.
+Resume that exact session without replaying seed operations or checking the current data against the original recipe:
+
+```bash
+pnpm ui:lab -- --resume <session-id> --dev
+```
+
+Resume validates the repository, session/Profile ownership manifest, and lease state, but it deliberately does not require the seed recipe to remain registered or the current data to match its initial facts.
+A missing root, invalid ownership manifest, mismatched session record, or live conflicting lease fails closed.
+The session store under `.cache/scenarios/` contains only non-secret discovery metadata; the scenario catalog is consulted only while creating a seeded session and while running deterministic verification.
+Profile auth, capabilities, databases, and logs stay inside the retained temporary root.
+
+Run the focused built-app verification with:
+
+```bash
+pnpm ui:verify -- board/dense
+```
+
+The Playwright result retains failure trace, screenshots, normalized scenario facts, and bounded runtime diagnostics in its ordinary test artifact directory.
+Do not treat the retained Profile as durable user data; remove it only after the runner has reported safe Core shutdown and its ownership manifest still matches.
+
 Build the app:
 
 ```bash
@@ -180,6 +215,20 @@ The test commands follow production boundaries:
   `NODEX_ALLOW_SUBSCRIPTION_E2E=1` and selecting the tag explicitly. These
   cases copy `auth.json` plus the portable Codex config into a disposable
   profile; never point them at the user's live Nodex workspace.
+
+Seeded fixtures have four distinct evidence classes:
+
+- An authoritative scenario recipe uses public Core operations and proves the normal create, mutate, and read path.
+  Use it for UI Lab, product-path Electron E2E, and Core integration correctness.
+- A materialized current-schema snapshot, when profiling justifies one, is an immutable cache generated from an authoritative recipe and copied into a fresh writable Profile per test.
+  It proves read/startup behavior, not creation.
+- A historical or corrupt storage fixture deliberately represents an old or invalid Store for migration, repair, rollback, or corruption tests.
+  Direct storage construction is valid only because that storage shape is under test.
+- A pressure fixture may use controlled synthetic materialization for scale or convergence evidence.
+  Pair it with a small authoritative operation-path test and do not register it as an ordinary UI scenario.
+
+Never share a writable seeded Store between tests.
+Add a snapshot cache only after measurement shows live authoritative materialization is a meaningful bottleneck; `board/dense` remains live-seeded in the initial implementation.
 
 ```bash
 NODEX_ALLOW_SUBSCRIPTION_E2E=1 pnpm run test:e2e:subscription

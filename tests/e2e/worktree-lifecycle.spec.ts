@@ -1,12 +1,19 @@
 import { expect, test } from "@playwright/test";
-import { _electron as electron, type ElectronApplication, type Page } from "playwright";
+import type { Page } from "playwright";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  ElectronScenarioHarness,
+} from "../../scripts/scenarios/harness/electron-e2e-harness";
 
 const repositoryRoot = process.cwd();
 const subscriptionE2eAuthorized = process.env.NODEX_ALLOW_SUBSCRIPTION_E2E === "1";
+const worktreeElectronEnvironment = {
+  NODEX_CORE_IDLE_TIMEOUT_MS: "250",
+  NODEX_LOG_CONSOLE: "0",
+} as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -102,127 +109,6 @@ function resolveCodexAuthPath(): string | null {
   const sourceHome = configuredHome ? path.resolve(configuredHome) : path.join(os.homedir(), ".codex");
   const authPath = path.join(sourceHome, "auth.json");
   return fs.existsSync(authPath) ? authPath : null;
-}
-
-function createIsolatedCodexHome(root: string, authPath: string): string {
-  const codexHome = path.join(root, "agent");
-  fs.mkdirSync(codexHome, { recursive: true });
-  const isolatedAuthPath = path.join(codexHome, "auth.json");
-  // Match the user's `scripts/run.sh -c ... -a` path: authentication and
-  // portable model defaults cross into the otherwise disposable profile.
-  fs.copyFileSync(authPath, isolatedAuthPath);
-  fs.chmodSync(isolatedAuthPath, 0o600);
-  const configPath = path.join(path.dirname(authPath), "config.toml");
-  if (fs.existsSync(configPath)) {
-    execFileSync(process.execPath, [
-      "--import",
-      "tsx",
-      path.join(repositoryRoot, "scripts", "copy-isolated-codex-config.ts"),
-      configPath,
-      path.join(codexHome, "config.toml"),
-    ]);
-  }
-  return codexHome;
-}
-
-async function launchApplication(input: {
-  codexHome: string;
-  initialProjectsDirectory: string;
-  nodexHome: string;
-}): Promise<ElectronApplication> {
-  const application = await electron.launch({
-    args: [repositoryRoot],
-    cwd: repositoryRoot,
-    env: {
-      ...process.env,
-      CODEX_HOME: input.codexHome,
-      NODEX_HOME: input.nodexHome,
-      NODEX_INITIAL_PROJECTS_DIR: input.initialProjectsDirectory,
-      NODEX_LIBRARY_WORKSPACE_ENABLED: "1",
-      NODEX_CORE_IDLE_TIMEOUT_MS: "250",
-      NODEX_LOG_CONSOLE: "0",
-    },
-  });
-  return application;
-}
-
-function forceStopApplicationProcess(
-  child: ReturnType<ElectronApplication["process"]>,
-): void {
-  if (child.pid === undefined) return;
-  try {
-    if (process.platform === "win32") {
-      child.kill("SIGKILL");
-      return;
-    }
-    process.kill(-child.pid, "SIGKILL");
-  } catch {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // The process may have exited concurrently.
-    }
-  }
-}
-
-async function waitForApplicationProcessExit(
-  child: ReturnType<ElectronApplication["process"]>,
-  timeoutMs: number,
-): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      child.off("exit", onExit);
-      reject(new Error("Electron process exit exceeded its teardown deadline"));
-    }, timeoutMs);
-    const onExit = () => {
-      clearTimeout(timeout);
-      resolve();
-    };
-    child.once("exit", onExit);
-  });
-}
-
-async function stopApplication(application: ElectronApplication): Promise<void> {
-  const child = application.process();
-  let closeTimer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await application.evaluate(({ app }) => {
-      setTimeout(() => app.quit(), 0);
-      return true;
-    });
-    await waitForApplicationProcessExit(child, 20_000);
-    return;
-  } catch {
-    // Fall through to Playwright's process-level close when the Main transport
-    // was already unavailable. The graceful path above is what exercises the
-    // application's detached Core and worker shutdown coordinators.
-  }
-  try {
-    await Promise.race([
-      application.close().catch(() => undefined),
-      new Promise<never>((_, reject) => {
-        closeTimer = setTimeout(
-          () => reject(new Error("Electron close exceeded its teardown deadline")),
-          15_000,
-        );
-      }),
-    ]);
-    await waitForApplicationProcessExit(child, 10_000);
-  } catch {
-    forceStopApplicationProcess(child);
-    await waitForApplicationProcessExit(child, 5_000).catch(() => undefined);
-  } finally {
-    clearTimeout(closeTimer);
-  }
-}
-
-async function waitForDetachedCoreShutdown(nodexHome: string): Promise<void> {
-  const descriptorPath = path.join(nodexHome, "run", "core", "core.json");
-  await expect.poll(
-    () => fs.existsSync(descriptorPath),
-    { timeout: 5_000 },
-  ).toBe(false);
 }
 
 async function createProject(
@@ -357,20 +243,21 @@ test("keeps a pre-checkout failure in the creation state and renders exact recov
     test.skip(true, "A Codex auth.json is required for a real Composer E2E");
     return;
   }
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ndx-wt-fail-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const initialProjectsDirectory = path.join(fixtureRoot, "initial projects");
-  const managedRoot = path.join(fixtureRoot, "managed worktrees");
-  const codexHome = createIsolatedCodexHome(fixtureRoot, authPath);
-  const fixture = createRepository(fixtureRoot);
-  fs.mkdirSync(initialProjectsDirectory, { recursive: true });
-  fs.mkdirSync(managedRoot, { recursive: true });
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({
+    label: "worktree-failure",
+    codex: "copy-auth-and-config",
+    sourceCodexHome: path.dirname(authPath),
+    cwd: repositoryRoot,
+    environment: worktreeElectronEnvironment,
+    prepareAgentRuntime: false,
+  });
+  let fixtureRoot: string | undefined;
   try {
-    application = await launchApplication({ codexHome, initialProjectsDirectory, nodexHome });
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ndx-wt-fail-"));
+    const managedRoot = path.join(fixtureRoot, "managed worktrees");
+    const fixture = createRepository(fixtureRoot);
+    fs.mkdirSync(managedRoot, { recursive: true });
+    const page = await harness.launch();
     await createProject(page, [fixture.sourceRoot]);
     await invokeIpc(page, "worktrees:settings:update", {
       worktreeRoot: managedRoot,
@@ -453,14 +340,15 @@ test("keeps a pre-checkout failure in the creation state and renders exact recov
     await expect(page.getByRole("button", { name: "Continue anyway" })).toHaveCount(0);
     expect(rendererErrors).toEqual([]);
   } finally {
-    if (application) await stopApplication(application);
-    await waitForDetachedCoreShutdown(nodexHome);
-    const resolvedFixtureRoot = path.resolve(fixtureRoot);
-    const expectedPrefix = `${path.resolve(os.tmpdir())}${path.sep}ndx-wt-fail-`;
-    if (!resolvedFixtureRoot.startsWith(expectedPrefix)) {
-      throw new Error(`Refusing to clean unexpected failed-worktree E2E root: ${resolvedFixtureRoot}`);
+    await harness.close();
+    if (fixtureRoot) {
+      const resolvedFixtureRoot = path.resolve(fixtureRoot);
+      const expectedPrefix = `${path.resolve(os.tmpdir())}${path.sep}ndx-wt-fail-`;
+      if (!resolvedFixtureRoot.startsWith(expectedPrefix)) {
+        throw new Error(`Refusing to clean unexpected failed-worktree E2E root: ${resolvedFixtureRoot}`);
+      }
+      fs.rmSync(resolvedFixtureRoot, { recursive: true, force: true });
     }
-    fs.rmSync(resolvedFixtureRoot, { recursive: true, force: true });
   }
 });
 
@@ -477,20 +365,21 @@ test("creates a new-worktree Task through the real Composer without changing ren
   }
   // Core uses a Unix-domain socket under this root; keep the prefix short enough
   // to leave room for the generated profile/run/core endpoint on macOS.
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ndx-wt-ui-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const initialProjectsDirectory = path.join(fixtureRoot, "initial projects");
-  const managedRoot = path.join(fixtureRoot, "managed worktrees");
-  const codexHome = createIsolatedCodexHome(fixtureRoot, authPath);
-  const fixture = createRepository(fixtureRoot);
-  fs.mkdirSync(initialProjectsDirectory, { recursive: true });
-  fs.mkdirSync(managedRoot, { recursive: true });
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({
+    label: "worktree-composer",
+    codex: "copy-auth-and-config",
+    sourceCodexHome: path.dirname(authPath),
+    cwd: repositoryRoot,
+    environment: worktreeElectronEnvironment,
+    prepareAgentRuntime: false,
+  });
+  let fixtureRoot: string | undefined;
   try {
-    application = await launchApplication({ codexHome, initialProjectsDirectory, nodexHome });
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ndx-wt-ui-"));
+    const managedRoot = path.join(fixtureRoot, "managed worktrees");
+    const fixture = createRepository(fixtureRoot);
+    fs.mkdirSync(managedRoot, { recursive: true });
+    const page = await harness.launch();
     await createProject(page, [fixture.sourceRoot]);
     await invokeIpc(page, "worktrees:settings:update", {
       worktreeRoot: managedRoot,
@@ -561,14 +450,15 @@ test("creates a new-worktree Task through the real Composer without changing ren
       message.includes("IdentityPromotionConflict")
     )).toEqual([]);
   } finally {
-    if (application) await stopApplication(application);
-    await waitForDetachedCoreShutdown(nodexHome);
-    const resolvedFixtureRoot = path.resolve(fixtureRoot);
-    const expectedPrefix = `${path.resolve(os.tmpdir())}${path.sep}ndx-wt-ui-`;
-    if (!resolvedFixtureRoot.startsWith(expectedPrefix)) {
-      throw new Error(`Refusing to clean unexpected Composer E2E root: ${resolvedFixtureRoot}`);
+    await harness.close();
+    if (fixtureRoot) {
+      const resolvedFixtureRoot = path.resolve(fixtureRoot);
+      const expectedPrefix = `${path.resolve(os.tmpdir())}${path.sep}ndx-wt-ui-`;
+      if (!resolvedFixtureRoot.startsWith(expectedPrefix)) {
+        throw new Error(`Refusing to clean unexpected Composer E2E root: ${resolvedFixtureRoot}`);
+      }
+      fs.rmSync(resolvedFixtureRoot, { recursive: true, force: true });
     }
-    fs.rmSync(resolvedFixtureRoot, { recursive: true, force: true });
   }
 });
 
@@ -583,21 +473,22 @@ test("keeps a managed Task recoverable across renderer and full app restarts @su
     test.skip(true, "A Codex auth.json is required for a real new-thread E2E");
     return;
   }
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-worktree-e2e-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const initialProjectsDirectory = path.join(fixtureRoot, "initial projects");
-  const managedRoot = path.join(fixtureRoot, "managed worktrees");
-  const codexHome = createIsolatedCodexHome(fixtureRoot, authPath);
-  const fixture = createRepository(fixtureRoot);
-  fs.mkdirSync(initialProjectsDirectory, { recursive: true });
-  fs.mkdirSync(managedRoot, { recursive: true });
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({
+    label: "worktree-restart",
+    codex: "copy-auth-and-config",
+    sourceCodexHome: path.dirname(authPath),
+    cwd: repositoryRoot,
+    environment: worktreeElectronEnvironment,
+    prepareAgentRuntime: false,
+  });
+  let fixtureRoot: string | undefined;
   let managedPath = "";
   try {
-    application = await launchApplication({ codexHome, initialProjectsDirectory, nodexHome });
-    let page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-worktree-e2e-"));
+    const managedRoot = path.join(fixtureRoot, "managed worktrees");
+    const fixture = createRepository(fixtureRoot);
+    fs.mkdirSync(managedRoot, { recursive: true });
+    let page = await harness.launch();
     const projectId = await createProject(page, [fixture.sourceRoot, fixture.additionalRoot]);
     const projectSessionId = await createProjectSession(page, projectId);
     await invokeIpc(page, "worktrees:settings:update", {
@@ -682,11 +573,7 @@ test("keeps a managed Task recoverable across renderer and full app restarts @su
     );
     expect(worktreeInitCount(rendererReloadSnapshot)).toBe(1);
 
-    await stopApplication(application);
-    application = undefined;
-    application = await launchApplication({ codexHome, initialProjectsDirectory, nodexHome });
-    page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    page = await harness.restart();
     const resumed = await invokeIpc(page, "codex:thread:resume:request", threadId);
     expect(isRecord(resumed) && isRecord(resumed.conversation)).toBe(true);
     const coldSnapshot = await invokeIpc(page, "codex:thread:snapshot:request", threadId);
@@ -746,13 +633,14 @@ test("keeps a managed Task recoverable across renderer and full app restarts @su
     );
     expect(restoredAvailability).toMatchObject({ state: "available" });
   } finally {
-    if (application) await stopApplication(application);
-    await waitForDetachedCoreShutdown(nodexHome);
-    const resolvedFixtureRoot = path.resolve(fixtureRoot);
-    const expectedPrefix = `${path.resolve(os.tmpdir())}${path.sep}nodex-worktree-e2e-`;
-    if (!resolvedFixtureRoot.startsWith(expectedPrefix)) {
-      throw new Error(`Refusing to clean unexpected Worktree E2E root: ${resolvedFixtureRoot}`);
+    await harness.close();
+    if (fixtureRoot) {
+      const resolvedFixtureRoot = path.resolve(fixtureRoot);
+      const expectedPrefix = `${path.resolve(os.tmpdir())}${path.sep}nodex-worktree-e2e-`;
+      if (!resolvedFixtureRoot.startsWith(expectedPrefix)) {
+        throw new Error(`Refusing to clean unexpected Worktree E2E root: ${resolvedFixtureRoot}`);
+      }
+      fs.rmSync(resolvedFixtureRoot, { recursive: true, force: true });
     }
-    fs.rmSync(resolvedFixtureRoot, { recursive: true, force: true });
   }
 });

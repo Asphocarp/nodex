@@ -20,10 +20,6 @@ import {
 } from "../../config/renderer-vite-shared";
 import { CoreClient } from "../../src/main/core-client/core-client";
 import { LARGE_CONTENT_FIXTURE_SIZES } from "../../src/main/performance/large-content-fixtures";
-import {
-  AGENT_RUNTIME_LAYOUT_VERSION,
-  parseBundledAgentRuntimeMetadata,
-} from "../../src/shared/codex-runtime-metadata";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../src/shared/database-module-v2";
 import {
   compilePageLifecycleRequestV2,
@@ -31,6 +27,10 @@ import {
 } from "../../src/shared/page-lifecycle-v2-runtime";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../src/shared/library-module";
 import { createUuidV7 } from "../../src/shared/uuid-v7";
+import {
+  ElectronScenarioHarness,
+  stopNodexElectronApplication as stopApplication,
+} from "../../scripts/scenarios/harness/electron-e2e-harness";
 
 const repositoryRoot = process.cwd();
 const largeContentFixtureRoot = path.join(repositoryRoot, "tests/e2e/large-content-fixture");
@@ -1018,170 +1018,8 @@ async function readConvergenceBoardTotal(
   return snapshot.totalRows;
 }
 
-function writeExecutable(filePath: string, source: string): void {
-  fs.writeFileSync(filePath, source, { mode: 0o755 });
-}
-
-function prepareRuntimeFixture(root: string): void {
-  const runtimeRoot = path.join(root, ".generated", "codex-runtime", "agent-runtime");
-  fs.mkdirSync(path.join(runtimeRoot, "bin"), { recursive: true });
-  fs.mkdirSync(path.join(runtimeRoot, "codex-path"), { recursive: true });
-  fs.mkdirSync(path.join(runtimeRoot, "codex-resources"), { recursive: true });
-  const artifactBodies = new Map([
-    ["bin/interpreter", "#!/bin/sh\nexit 0\n"],
-    ["codex-package.json", JSON.stringify({
-      entrypoint: "bin/interpreter",
-      layoutVersion: 1,
-      pathDir: "codex-path",
-      resourcesDir: "codex-resources",
-      target: `${process.arch}-${process.platform}`,
-      variant: "open-interpreter",
-      version: "0.0.0-e2e",
-    })],
-  ]);
-  const artifacts = [...artifactBodies].map(([artifactName, body]) => {
-    const artifactPath = path.join(runtimeRoot, artifactName);
-    if (artifactName === "bin/interpreter") {
-      writeExecutable(artifactPath, body);
-    } else {
-      fs.writeFileSync(artifactPath, body);
-    }
-    return {
-      executable: artifactName === "bin/interpreter",
-      path: artifactName,
-      sha256: createHash("sha256").update(body).digest("hex"),
-      size: Buffer.byteLength(body),
-    };
-  });
-  const runtimeMetadata = {
-    artifactRelease: {
-      archiveSha256: "0".repeat(64),
-      assetName: "nodex-e2e-fixture.tar.gz",
-      repository: "junyudev/nodex",
-      tag: "agent-runtime-v0.0.0-e2e",
-    },
-    artifacts,
-    codexCompatibilityVersion: "0.0.0-e2e",
-    entrypoint: "bin/interpreter",
-    layoutVersion: AGENT_RUNTIME_LAYOUT_VERSION,
-    packageManifest: {
-      entrypoint: "bin/interpreter",
-      layoutVersion: 1,
-      pathDir: "codex-path",
-      resourcesDir: "codex-resources",
-      target: `${process.arch}-${process.platform}`,
-      variant: "open-interpreter",
-      version: "0.0.0-e2e",
-    },
-    runtimeFamily: "open-interpreter",
-    runtimeVersion: "0.0.0-e2e",
-    searchPaths: ["codex-path"],
-    sourceRevision: {
-      commit: "0".repeat(40),
-      patches: [],
-      repository: "openinterpreter/openinterpreter",
-    },
-    targetArch: process.arch,
-    targetPlatform: process.platform,
-    targetTriple: `${process.arch}-${process.platform}`,
-  };
-  if (!parseBundledAgentRuntimeMetadata(runtimeMetadata)) {
-    throw new Error("Electron E2E Agent runtime fixture is invalid");
-  }
-  fs.writeFileSync(
-    path.join(runtimeRoot, "agent-runtime.json"),
-    JSON.stringify(runtimeMetadata),
-  );
-}
-
-async function launchApplication(cwd: string, nodexHome: string): Promise<ElectronApplication> {
-  return electron.launch({
-    args: [repositoryRoot],
-    cwd,
-    env: {
-      ...process.env,
-      NODEX_HOME: nodexHome,
-      NODEX_INITIAL_PROJECTS_DIR: path.join(cwd, "workspace"),
-      NODE_ENV: "test",
-      NODEX_LIBRARY_WORKSPACE_ENABLED: "1",
-    },
-  });
-}
-
 async function launchLargeContentFixtureApplication(): Promise<ElectronApplication> {
   return electron.launch({ args: [largeContentElectronMain] });
-}
-
-function forceStopApplicationProcess(
-  child: ReturnType<ElectronApplication["process"]>,
-): void {
-  if (child.pid === undefined) return;
-
-  try {
-    if (process.platform === "win32") {
-      child.kill("SIGKILL");
-      return;
-    }
-    process.kill(-child.pid, "SIGKILL");
-  } catch {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // The application may have completed its exit concurrently.
-    }
-  }
-}
-
-async function stopApplication(application: ElectronApplication): Promise<void> {
-  const child = application.process();
-  let closeTimer: ReturnType<typeof setTimeout> | undefined;
-  const close = application.close().catch(() => undefined);
-
-  try {
-    await Promise.race([
-      close,
-      new Promise<never>((_, reject) => {
-        closeTimer = setTimeout(
-          () => reject(new Error("Electron close exceeded its teardown deadline")),
-          15_000,
-        );
-      }),
-    ]);
-  } catch {
-    forceStopApplicationProcess(child);
-  } finally {
-    clearTimeout(closeTimer);
-  }
-}
-
-async function waitForPathRemoval(filePath: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!fs.existsSync(filePath)) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for ${filePath} to be removed`);
-}
-
-async function shutdownTemporaryCore(nodexHome: string): Promise<void> {
-  const socketPath = path.join(nodexHome, "run/core/core.sock");
-  if (!fs.existsSync(socketPath)) return;
-
-  try {
-    const client = await CoreClient.connect({
-      nodexHome,
-      clientKind: "test",
-      buildId: "electron-e2e-teardown",
-      requestTimeoutMs: 5_000,
-    });
-    await client.shutdown();
-  } catch (error) {
-    await waitForPathRemoval(socketPath, 5_000).catch(() => undefined);
-    if (!fs.existsSync(socketPath)) return;
-    throw error;
-  }
-
-  await waitForPathRemoval(socketPath, 15_000);
 }
 
 async function buildLargeContentFixture(outDir: string): Promise<string> {
@@ -1386,17 +1224,12 @@ async function sampleLargeContentScenario(input: {
 
 test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-electron-e2e-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const projectsDirectory = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(projectsDirectory, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({
+    label: "initial-project-restart",
+  });
+  const { initialProjectsDirectory: projectsDirectory, nodexHome } = harness.profile;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const firstWindow = await application.firstWindow();
-    await firstWindow.evaluate(() => window.api?.awaitInitialization?.());
+    const firstWindow = await harness.launch();
 
     await expect.poll(async () => {
       return await firstWindow.evaluate(async () => {
@@ -1519,11 +1352,7 @@ test("provisions and persists the initial source-backed Project across a full El
       ".nodex-initial-project-v2.json",
     ))).toBe(false);
 
-    await stopApplication(application);
-    application = undefined;
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const restartedWindow = await application.firstWindow();
-    await restartedWindow.evaluate(() => window.api?.awaitInitialization?.());
+    const restartedWindow = await harness.restart();
 
     const persisted = await restartedWindow.evaluate(async () => {
       const projects = await window.api?.invoke("projects:list");
@@ -1549,25 +1378,15 @@ test("provisions and persists the initial source-backed Project across a full El
       name: "Select a project",
     })).toHaveCount(0);
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("New Chat reuses its default draft and opens a pre-thread Terminal", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-new-chat-e2e-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const projectsDirectory = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(projectsDirectory, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "new-chat" });
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
     await expect.poll(async () => {
       const projects = await invokeIpc(page, "projects:list") as {
         items?: unknown[];
@@ -1619,25 +1438,16 @@ test("New Chat reuses its default draft and opens a pre-thread Terminal", async 
       await page.locator(".xterm-rows").last().textContent()
     ) ?? "").toContain(project.primaryWorkspaceRoot);
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("creates and draws in an inline Canvas without taking over the Page", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-canvas-e2e-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "canvas" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
     await page.evaluate(
       async ({ name, source }) =>
         window.api?.invoke("projects:create", { name, sources: [source] }),
@@ -1784,25 +1594,16 @@ test("creates and draws in an inline Canvas without taking over the Page", async
       initialHead,
     );
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("converges a Move to operation in the live standalone Pages projection", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-move-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "move-convergence" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
 
     const project = await createConvergenceProject(
       page,
@@ -1867,25 +1668,16 @@ test("converges a Move to operation in the live standalone Pages projection", as
       source.pageId,
     ]);
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("creates one stable Board Page and edits its grouping Property @create-modal-smoke @property-menu-smoke", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-create-modal-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "create-modal" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
 
     const project = await createConvergenceProject(
       page,
@@ -2091,25 +1883,16 @@ test("creates one stable Board Page and edits its grouping Property @create-moda
       return null;
     }, { timeout: 15_000 }).toEqual({ priority: "p1-high", tagCount: 1 });
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("converges a Block transfer into the live Board Page projection", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-board-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "board-convergence" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
 
     const project = await createConvergenceProject(
       page,
@@ -2196,25 +1979,16 @@ test("converges a Block transfer into the live Board Page projection", async () 
     await expect(card).toBeVisible({ timeout: 5_000 });
     await expect(card).toContainText("Dragged source");
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("keeps the Page editor mounted while its Document commits", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-page-edit-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "page-edit" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
     const project = await createConvergenceProject(
       page,
       "Page edit stability",
@@ -2342,25 +2116,16 @@ test("keeps the Page editor mounted while its Document commits", async () => {
     });
     await expect(editor).toBeVisible();
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("moves selected Blocks to a DB status through the picker @move-picker-smoke", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-move-picker-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "move-picker" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
 
     const project = await createConvergenceProject(
       page,
@@ -2439,9 +2204,7 @@ test("moves selected Blocks to a DB status through the picker @move-picker-smoke
       hasText: "Something went wrong",
     })).toHaveCount(0);
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
@@ -2450,17 +2213,10 @@ test("moves selected Blocks to a DB status through the picker @move-picker-smoke
 // not the handle-to-dragover pipeline exercised here.
 test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-dnd-smoke-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "native-dnd" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
 
     const project = await createConvergenceProject(
       page,
@@ -2595,25 +2351,16 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     await expect(page.locator('[data-slot="toast-item"] [role="alert"]'))
       .toHaveCount(0);
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("opens and pointer-reorders a nested List subtree without changing its internal parent @list-dnd-smoke", async () => {
   test.setTimeout(120_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-list-dnd-smoke-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "list-dnd" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
 
     const project = await createConvergenceProject(
       page,
@@ -2794,25 +2541,17 @@ test("opens and pointer-reorders a nested List subtree without changing its inte
     await expect(page.locator('[data-slot="toast-item"] [role="alert"]'))
       .toHaveCount(0);
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async ({}, testInfo) => {
   test.setTimeout(360_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-pr-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "page-ready-pressure" });
+  const nodexHome = harness.profile.nodexHome;
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const setupPage = await application.firstWindow();
-    await setupPage.evaluate(() => window.api?.awaitInitialization?.());
+    const setupPage = await harness.launch();
     const project = await createConvergenceProject(
       setupPage,
       "Large history Page ready",
@@ -2832,9 +2571,7 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async
       });
     }
 
-    await stopApplication(application);
-    application = undefined;
-    await shutdownTemporaryCore(nodexHome);
+    await harness.stopCoreForOfflineFixture();
     const history = seedSyntheticLocalCommitHistory(
       nodexHome,
       PAGE_READY_HISTORY_COMMITS,
@@ -2844,9 +2581,8 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async
       storeVersion: 110,
     });
 
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
+    const application = harness.application;
     await page.evaluate(() => {
       const target = globalThis as typeof globalThis & {
         __nodexPageReadyLongTasks?: number[];
@@ -3110,25 +2846,17 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async
       pageReadyMaxMs: pageReadySummary.max,
     })}`);
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("converges a high-pressure Page promotion across tab groups and WebContents", async ({}, testInfo) => {
   test.setTimeout(180_000);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-cross-tab-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const harness = await ElectronScenarioHarness.create({ label: "cross-tab" });
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
+    const application = harness.application;
 
     const project = await createConvergenceProject(
       page,
@@ -3601,25 +3329,23 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     });
     console.info(`[cross-tab-transfer-performance] ${JSON.stringify(metrics)}`);
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    await harness.close();
   }
 });
 
 test("measures high-pressure nested Block transfer into a populated Board", async ({}, testInfo) => {
   test.setTimeout(HIGH_PRESSURE_TEST_TIMEOUT_MS);
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-board-stress-"));
-  const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
-  prepareRuntimeFixture(fixtureRoot);
-
-  let application: ElectronApplication | undefined;
+  const keepFixture = process.env.NODEX_KEEP_BOARD_TRANSFER_FIXTURE === "1";
+  const harness = await ElectronScenarioHarness.create({
+    label: "board-stress",
+    retention: keepFixture ? "keep" : "dispose",
+  });
+  const fixtureRoot = harness.profile.runRoot;
+  const nodexHome = harness.profile.nodexHome;
+  const workspace = harness.profile.initialProjectsDirectory;
   try {
-    application = await launchApplication(fixtureRoot, nodexHome);
-    const page = await application.firstWindow();
-    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const page = await harness.launch();
+    const application = harness.application;
 
     const project = await createConvergenceProject(
       page,
@@ -4004,12 +3730,9 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       expect(metrics.coreStages.packetPublication.p95Ms).toBeLessThan(5);
     }
   } finally {
-    if (application) await stopApplication(application);
-    await shutdownTemporaryCore(nodexHome);
-    if (process.env.NODEX_KEEP_BOARD_TRANSFER_FIXTURE === "1") {
+    await harness.close();
+    if (keepFixture) {
       console.info(`[board-transfer-fixture] ${fixtureRoot}`);
-    } else {
-      fs.rmSync(fixtureRoot, { recursive: true, force: true });
     }
   }
 });
