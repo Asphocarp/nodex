@@ -1577,6 +1577,62 @@ describe("Core Project Workspace adapter", () => {
     ]);
   });
 
+  test("returns the Core-selected default-draft winner by exact Session identity", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:default-winner"],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:ensure-default-draft",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:default-winner"],
+      },
+      event_sequence: 6,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      contract_version: 15,
+      commit_head: 6,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "session",
+        session: sessionSummary({
+          id: "session:default-winner",
+          thread_id: null,
+          display_title: "New chat",
+          no_thread_fallback_title: "New chat",
+        }),
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(
+      adapter.ensureDefaultDraftProjectSession("project:one"),
+    ).resolves.toMatchObject({
+      id: "session:default-winner",
+      projectId: "project:one",
+      noThreadFallbackTitle: "New chat",
+      thread: null,
+    });
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "ensure_default_draft_session",
+        session_id: expect.any(String),
+        project_id: "project:one",
+        title: "New chat",
+      },
+    }]);
+    expect(client.workspaceReads).toEqual([{
+      kind: "session",
+      session_id: "session:default-winner",
+    }]);
+  });
+
   test("updates fallback title in one Session aggregate", async () => {
     const client = new FakeCoreClient();
     const enqueueSession = (

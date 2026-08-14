@@ -1482,6 +1482,76 @@ test("provisions and persists the initial source-backed Project across a full El
   }
 });
 
+test("New Chat reuses its default draft and opens a pre-thread Terminal", async () => {
+  test.setTimeout(120_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-new-chat-e2e-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const projectsDirectory = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(projectsDirectory, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+    await expect.poll(async () => {
+      const projects = await invokeIpc(page, "projects:list") as {
+        items?: unknown[];
+      } | undefined;
+      return projects?.items?.length ?? 0;
+    }).toBe(1);
+    const projects = await invokeIpc(page, "projects:list") as {
+      items: Array<{
+        id: string;
+        primaryWorkspaceRoot: string | null;
+      }>;
+    };
+    const project = projects.items[0];
+    if (!project?.primaryWorkspaceRoot) {
+      throw new Error("Initial Project workspace is unavailable");
+    }
+
+    const newChat = page.getByRole("button", { name: "New chat" }).first();
+    await newChat.click();
+    const readSessions = async () => (await invokeIpc(
+      page,
+      "workspace:tasks:list",
+      project.id,
+      { first: 50 },
+    ) as {
+      items: Array<{ id: string; thread: unknown | null }>;
+    }).items;
+    await expect.poll(async () => (await readSessions()).length).toBe(1);
+    const firstSessionId = (await readSessions())[0]?.id;
+    expect(firstSessionId).toBeTruthy();
+
+    const prompt = page.locator(
+      '[contenteditable="true"][aria-label="Do anything"]',
+    );
+    await prompt.fill("Keep this prepared prompt");
+    await newChat.click();
+    await expect(prompt).toHaveText("Keep this prepared prompt");
+    const repeatedSessions = await readSessions();
+    expect(repeatedSessions).toHaveLength(1);
+    expect(repeatedSessions[0]?.id).toBe(firstSessionId);
+    expect(repeatedSessions[0]?.thread).toBeNull();
+
+    await page.getByRole("button", { name: "Toggle bottom panel" }).click();
+    const terminalInput = page.getByRole("textbox", { name: "Terminal input" });
+    await expect(terminalInput).toBeVisible();
+    await terminalInput.pressSequentially("pwd");
+    await terminalInput.press("Enter");
+    await expect.poll(async () => (
+      await page.locator(".xterm-rows").last().textContent()
+    ) ?? "").toContain(project.primaryWorkspaceRoot);
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("creates and draws in an inline Canvas without taking over the Page", async () => {
   test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-canvas-e2e-"));

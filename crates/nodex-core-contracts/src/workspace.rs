@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 14;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 15;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -741,6 +741,11 @@ pub enum ProjectWorkspaceIntent {
         pinned: bool,
     },
     CreateSession {
+        session_id: String,
+        project_id: Option<String>,
+        title: String,
+    },
+    EnsureDefaultDraftSession {
         session_id: String,
         project_id: Option<String>,
         title: String,

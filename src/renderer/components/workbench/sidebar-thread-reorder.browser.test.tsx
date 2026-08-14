@@ -102,6 +102,60 @@ function ThreadReorderHarness({
   );
 }
 
+function SessionReorderHarness({
+  onCommit,
+}: {
+  onCommit: (orderedSessionIds: string[]) => void;
+}) {
+  const [threadKeys, setThreadKeys] = useState(["chat", "draft"]);
+  const sessionIdByThreadKey = new Map([
+    ["chat", "session-chat"],
+    ["draft", "session-draft"],
+  ]);
+  const reorder = useSidebarThreadReorderController({
+    visibleThreadKeys: threadKeys,
+    onVisibleThreadOrderChange: async ({ nextVisibleThreadKeys }) => {
+      onCommit(nextVisibleThreadKeys.flatMap((threadKey) => {
+        const sessionId = sessionIdByThreadKey.get(threadKey);
+        return sessionId ? [sessionId] : [];
+      }));
+      setThreadKeys(nextVisibleThreadKeys);
+    },
+  });
+  return (
+    <SidebarReorderDndProvider getThreadIdByThreadKey={() => null}>
+      <div
+        aria-label="Session-first Project chats"
+        role="list"
+        style={{ display: "flex", flexDirection: "column", width: 240 }}
+      >
+        <SidebarThreadSortableRows
+          containerId="project:alpha"
+          getItemId={(threadKey) => sessionIdByThreadKey.get(threadKey)}
+          getThreadId={() => null}
+          itemIds={threadKeys.flatMap((threadKey) => {
+            const sessionId = sessionIdByThreadKey.get(threadKey);
+            return sessionId ? [sessionId] : [];
+          })}
+          visibleThreadKeys={threadKeys}
+          sortableThreadKeysInDisplayOrder={reorder.displayedVisibleThreadKeys}
+          controller={reorder.controller}
+          dropIndicatorTarget={reorder.dropIndicatorTarget}
+          renderThread={(threadKey) => (
+            <div
+              data-thread-key={threadKey}
+              data-testid={`session-${threadKey}`}
+              style={{ alignItems: "center", display: "flex", height: 40 }}
+            >
+              {threadKey}
+            </div>
+          )}
+        />
+      </div>
+    </SidebarReorderDndProvider>
+  );
+}
+
 function SemanticThreadRows({
   threadKeys,
 }: {
@@ -182,6 +236,70 @@ function readRenderedThreadKeys(list: HTMLElement): string[] {
 }
 
 describe("sidebar thread reorder in Chromium", () => {
+  test("reorders a persisted pre-thread New Chat by Session identity", async () => {
+    const committedSessionOrders: string[][] = [];
+    const view = render(
+      <SessionReorderHarness
+        onCommit={(orderedSessionIds) => committedSessionOrders.push(orderedSessionIds)}
+      />,
+    );
+    const list = view.getByRole("list", { name: "Session-first Project chats" });
+    const draft = view.getByTestId("session-draft");
+    const chat = view.getByTestId("session-chat");
+    const draftRect = draft.getBoundingClientRect();
+    const chatRect = chat.getBoundingClientRect();
+    const pointerId = 6;
+    const pointerX = chatRect.left + chatRect.width / 2;
+
+    try {
+      await act(async () => {
+        fireEvent.pointerDown(draft, {
+          button: 0,
+          clientX: draftRect.left + draftRect.width / 2,
+          clientY: draftRect.top + draftRect.height / 2,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: draftRect.top - 8,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: chatRect.top + 4,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        await Promise.resolve();
+      });
+      await act(async () => {
+        fireEvent.pointerUp(document, {
+          button: 0,
+          clientX: pointerX,
+          clientY: chatRect.top + 4,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(committedSessionOrders).toEqual([["session-draft", "session-chat"]]);
+        expect(readRenderedThreadKeys(list)).toEqual(["draft", "chat"]);
+      });
+    } finally {
+      view.unmount();
+    }
+  });
+
   test("keeps the visible insertion intent current while moving across one row midpoint", async () => {
     const committedOrders: string[][] = [];
     const view = render(

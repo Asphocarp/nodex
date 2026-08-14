@@ -147,7 +147,7 @@ export function PageStageSessionTab({
   onLeavePage,
   onClose,
   onOpenTerminal,
-  onEnsureBlankSessionForProject,
+  onEnsureDefaultDraftSessionForProject,
   onRefreshSessions,
   onOpenPageTab,
   onOpenCanvasStage,
@@ -170,7 +170,7 @@ export function PageStageSessionTab({
   onLeavePage: (snapshot: PageStageSessionSnapshot) => void;
   onClose: () => void;
   onOpenTerminal: () => Promise<void>;
-  onEnsureBlankSessionForProject: (
+  onEnsureDefaultDraftSessionForProject: (
     projectId: string,
     options?: { select?: boolean },
   ) => Promise<WorkbenchSessionRenderProjection>;
@@ -254,7 +254,7 @@ export function PageStageSessionTab({
     threadName?: string;
   }) => {
     const targetSessionId = input.targetSessionId?.trim()
-      || (await onEnsureBlankSessionForProject(
+      || (await onEnsureDefaultDraftSessionForProject(
         input.projectId,
         { select: false },
       )).id;
@@ -279,7 +279,7 @@ export function PageStageSessionTab({
     };
   }, [
     codexControl,
-    onEnsureBlankSessionForProject,
+    onEnsureDefaultDraftSessionForProject,
     onRefreshSessions,
   ]);
 

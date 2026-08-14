@@ -78,7 +78,7 @@ fn read_task_window_in_scope(
     }
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&(
-        "workspace_task_window_v3",
+        "workspace_task_window_v4",
         project_id,
         pinned_only,
         include_archived,
@@ -149,9 +149,17 @@ fn read_task_window_in_scope(
              CASE WHEN session.pinned = 1 THEN 0 ELSE 1 END AS pin_bucket, \
              CASE WHEN session.pinned = 1 \
                THEN COALESCE(session.pinned_order, 9223372036854775807) \
+               WHEN lane.order_mode = 'manual' AND NOT EXISTS (\
+                 SELECT 1 FROM workspace_sidebar_positions lane_position \
+                 WHERE lane_position.scope_key = lane.scope_key\
+               ) THEN session.\"order\" \
                WHEN lane.order_mode = 'manual' \
                  THEN COALESCE(position.rank_key, -COALESCE(thread.updated_at, session.\"order\")) \
-               ELSE -COALESCE(thread.updated_at, session.\"order\") END AS lane_order \
+               ELSE -COALESCE(\
+                 thread.updated_at, \
+                 CAST(unixepoch(session.updated_at, 'subsec') * 1000 AS INTEGER), \
+                 session.\"order\"\
+               ) END AS lane_order \
            FROM project_sessions session \
            LEFT JOIN project_session_threads link ON link.session_id = session.id \
            LEFT JOIN codex_threads thread ON thread.thread_id = link.thread_id \
@@ -332,8 +340,9 @@ mod tests {
         CollectionWindowRequest, MAX_COLLECTION_WINDOW_JSON_BYTES,
     };
     use nodex_core_contracts::workspace::{
-        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
-        ProjectWorkspaceThreadLane, ProjectWorkspaceThreadMoveMetadataPatch,
+        ProjectSessionIntent, ProjectWorkspaceIntent, ProjectWorkspaceRead,
+        ProjectWorkspaceReadValue, ProjectWorkspaceThreadLane,
+        ProjectWorkspaceThreadMoveMetadataPatch, ProjectWorkspaceThreadPatch,
         ProjectWorkspaceThreadPlacement,
     };
 
@@ -362,6 +371,183 @@ mod tests {
             panic!("task window read");
         };
         tasks
+    }
+
+    #[test]
+    fn manual_session_order_includes_the_default_draft_and_survives_first_thread_link() {
+        let workspace = seeded_workspace();
+        create_session_thread(
+            &workspace.module,
+            "manual-a",
+            "session:a",
+            "thread:a",
+            Some("project:default"),
+            300,
+        );
+        create_session_thread(
+            &workspace.module,
+            "manual-b",
+            "session:b",
+            "thread:b",
+            Some("project:default"),
+            200,
+        );
+        apply(
+            &workspace.module,
+            "ensure-manual-default-draft",
+            ProjectWorkspaceIntent::EnsureDefaultDraftSession {
+                session_id: "session:draft".to_owned(),
+                project_id: Some("project:default".to_owned()),
+                title: "New chat".to_owned(),
+            },
+        );
+        apply(
+            &workspace.module,
+            "reorder-with-manual-default-draft",
+            ProjectWorkspaceIntent::ReorderSessions {
+                project_id: Some("project:default".to_owned()),
+                session_ids: vec![
+                    "session:b".to_owned(),
+                    "session:draft".to_owned(),
+                    "session:a".to_owned(),
+                ],
+            },
+        );
+
+        let reordered = task_window(&workspace, Some("project:default"), None, 10);
+        assert_eq!(
+            reordered
+                .items
+                .iter()
+                .map(|task| task.session.id.as_str())
+                .collect::<Vec<_>>(),
+            ["session:b", "session:draft", "session:a"],
+        );
+
+        apply(
+            &workspace.module,
+            "materialize-default-draft-thread",
+            ProjectWorkspaceIntent::UpsertThread {
+                thread_id: "thread:draft".to_owned(),
+                patch: Box::new(ProjectWorkspaceThreadPatch {
+                    project_id: Some(Some("project:default".to_owned())),
+                    thread_name: Some(Some("New chat".to_owned())),
+                    thread_preview: Some("first prompt".to_owned()),
+                    model_provider: Some("openai".to_owned()),
+                    created_at: Some(400),
+                    updated_at: Some(400),
+                    ..ProjectWorkspaceThreadPatch::default()
+                }),
+            },
+        );
+        apply(
+            &workspace.module,
+            "link-default-draft-thread",
+            ProjectWorkspaceIntent::MutateSession {
+                session_id: "session:draft".to_owned(),
+                intent: ProjectSessionIntent::LinkThread {
+                    thread_id: "thread:draft".to_owned(),
+                    expected_project_id: Some("project:default".to_owned()),
+                    thread_patch: None,
+                    execution_location: None,
+                },
+            },
+        );
+
+        let linked = task_window(&workspace, Some("project:default"), None, 10);
+        assert_eq!(
+            linked
+                .items
+                .iter()
+                .map(|task| task.session.id.as_str())
+                .collect::<Vec<_>>(),
+            ["session:b", "session:draft", "session:a"],
+        );
+    }
+
+    #[test]
+    fn moving_a_chat_into_a_session_ordered_lane_preserves_the_default_draft_position() {
+        let workspace = seeded_workspace();
+        create_project(
+            &workspace.module,
+            "create-session-order-source",
+            "project:source",
+        );
+        create_session_thread(
+            &workspace.module,
+            "session-order-a",
+            "session:a",
+            "thread:a",
+            Some("project:default"),
+            300,
+        );
+        create_session_thread(
+            &workspace.module,
+            "session-order-b",
+            "session:b",
+            "thread:b",
+            Some("project:default"),
+            200,
+        );
+        apply(
+            &workspace.module,
+            "ensure-session-order-draft",
+            ProjectWorkspaceIntent::EnsureDefaultDraftSession {
+                session_id: "session:draft".to_owned(),
+                project_id: Some("project:default".to_owned()),
+                title: "New chat".to_owned(),
+            },
+        );
+        apply(
+            &workspace.module,
+            "reorder-target-session-lane",
+            ProjectWorkspaceIntent::ReorderSessions {
+                project_id: Some("project:default".to_owned()),
+                session_ids: vec![
+                    "session:b".to_owned(),
+                    "session:draft".to_owned(),
+                    "session:a".to_owned(),
+                ],
+            },
+        );
+        create_session_thread(
+            &workspace.module,
+            "session-order-moved",
+            "session:moved",
+            "thread:moved",
+            Some("project:source"),
+            400,
+        );
+
+        apply(
+            &workspace.module,
+            "move-chat-into-session-lane",
+            ProjectWorkspaceIntent::MoveThread {
+                thread_id: "thread:moved".to_owned(),
+                source: ProjectWorkspaceThreadLane::Project {
+                    project_id: "project:source".to_owned(),
+                },
+                target: ProjectWorkspaceThreadLane::Project {
+                    project_id: "project:default".to_owned(),
+                },
+                placement: ProjectWorkspaceThreadPlacement::After {
+                    thread_id: "thread:b".to_owned(),
+                },
+                metadata: ProjectWorkspaceThreadMoveMetadataPatch::default(),
+                runtime_workspace_roots: None,
+                project_access_grant: None,
+            },
+        );
+
+        let target = task_window(&workspace, Some("project:default"), None, 10);
+        assert_eq!(
+            target
+                .items
+                .iter()
+                .map(|task| task.session.id.as_str())
+                .collect::<Vec<_>>(),
+            ["session:b", "session:moved", "session:draft", "session:a"],
+        );
     }
 
     #[test]

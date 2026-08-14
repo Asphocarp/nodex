@@ -1611,7 +1611,11 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(getLastTerminalPanelProps().cwd).toBe("/Users/asc/repo/nodex");
+    expect(getLastTerminalPanelProps()).toMatchObject({
+      cwd: "/Users/asc/repo/nodex",
+      conversationId: "thread-alpha",
+      projectSessionId: "session:alpha:terminal-thread",
+    });
   });
 
   test("terminal tab default cwd falls back to the owning project workspace path", async () => {
@@ -1636,7 +1640,11 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(getLastTerminalPanelProps().cwd).toBe("/Users/asc/repo/project-workspace");
+    expect(getLastTerminalPanelProps()).toMatchObject({
+      cwd: "/Users/asc/repo/project-workspace",
+      conversationId: null,
+      projectSessionId: "session:alpha:terminal-project",
+    });
   });
 
   test("terminal tab does not fall back to the process cwd without a conversation workspace", async () => {

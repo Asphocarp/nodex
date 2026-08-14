@@ -248,12 +248,12 @@ export function replaceVisibleCodexSidebarThreadKeyOrder(input: {
   });
 }
 
-export function listReorderableCodexSidebarProjectThreadKeys(input: {
+export function listReorderableCodexSidebarChatKeys(input: {
   visibleThreadKeys: readonly string[];
-  getThreadId: (threadKey: string) => string | null;
+  getSessionId: (threadKey: string) => string | null;
 }): string[] {
   return input.visibleThreadKeys.filter((threadKey) => (
-    input.getThreadId(threadKey) !== null
+    input.getSessionId(threadKey) !== null
   ));
 }
 

@@ -298,10 +298,13 @@ export interface DesktopProjectWorkspacePort {
     sessionId: string,
     input: ProjectSessionRenameInput,
   ): Promise<ProjectSession | null>;
+  ensureDefaultDraftProjectSession(
+    projectId: string | null,
+  ): Promise<ProjectSession>;
   createProjectSession(input: ProjectSessionCreateInput): Promise<ProjectSession>;
   deleteProjectSession(sessionId: string): Promise<boolean>;
   reorderProjectSessions(
-    projectId: string,
+    projectId: string | null,
     orderedSessionIds: string[],
   ): Promise<void>;
   setProjectSessionPinned(
@@ -1281,6 +1284,25 @@ export function createCoreProjectWorkspaceAdapter(
         intent: { kind: "rename", title: parsed.title },
       });
       return await readSession(sessionId);
+    },
+    ensureDefaultDraftProjectSession: async (projectId) => {
+      const applied = await apply({
+        kind: "ensure_default_draft_session",
+        session_id: randomUUID(),
+        project_id: projectId,
+        title: "New chat",
+      });
+      const [sessionId, ...unexpectedSessionIds] = applied.outcome.affected_session_ids;
+      if (!sessionId || unexpectedSessionIds.length > 0) {
+        throw new Error(
+          "Core default-draft ensure did not return exactly one Project Session",
+        );
+      }
+      const session = await readSession(sessionId);
+      if (!session) {
+        throw new Error(`Ensured Project Session not found: ${sessionId}`);
+      }
+      return session;
     },
     createProjectSession: async (input) => {
       const sessionId = randomUUID();

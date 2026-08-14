@@ -235,12 +235,12 @@ export function useWorkbenchSessionCommands({
   const pageOpenInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
   const pageSendInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
 
-  const ensureBlankSessionForProject = useCallback(async (
+  const ensureDefaultDraftSessionForProject = useCallback(async (
     projectId: string | null,
     options?: { select?: boolean },
   ) => {
     const shouldSelect = options?.select !== false;
-    const presentation = await sessionCatalog.ensureBlank(projectId);
+    const presentation = await sessionCatalog.ensureDefaultDraft(projectId);
     const projected = presentWorkbenchSession(
       presentation,
     );
@@ -263,7 +263,11 @@ export function useWorkbenchSessionCommands({
 
     const operation = (async () => {
       try {
-        const presentation = await sessionCatalog.createBlank(input.projectId);
+        const fallbackTitle = input.titleSnapshot?.trim() || "New chat";
+        const presentation = await sessionCatalog.createOrdinarySession(
+          input.projectId,
+          fallbackTitle,
+        );
         const result = await sceneNavigator.presentPanelSurface({
           owner: { kind: "session", sessionId: presentation.domain.id },
           request: {
@@ -349,7 +353,7 @@ export function useWorkbenchSessionCommands({
         );
       } else {
         const targetSessionId = input.target.sessionId?.trim()
-          || (await sessionCatalog.ensureBlank(input.projectId)).domain.id;
+          || (await sessionCatalog.ensureDefaultDraft(input.projectId)).domain.id;
         const result = await workbenchCodexControl.startThreadForSession({
           projectId: input.projectId,
           sessionId: targetSessionId,
@@ -379,7 +383,7 @@ export function useWorkbenchSessionCommands({
   }, [refreshProjectSessions, sessionCatalog, workbenchCodexControl]);
 
   const startNewChatInProject = useCallback(async (projectId: string | null) => {
-    const session = await ensureBlankSessionForProject(projectId);
+    const session = await ensureDefaultDraftSessionForProject(projectId);
     panelControllerRef.current.durable.patchPanel(
       session,
       "right",
@@ -390,13 +394,13 @@ export function useWorkbenchSessionCommands({
         },
       },
     );
-  }, [ensureBlankSessionForProject]);
+  }, [ensureDefaultDraftSessionForProject]);
 
   const prefillNewChat = useCallback(async (input: {
     projectId: string | null;
     prompt: string;
   }) => {
-    const session = await ensureBlankSessionForProject(input.projectId);
+    const session = await ensureDefaultDraftSessionForProject(input.projectId);
     setSettingsPath(null);
     setAutomationsPath(null);
     setNewThreadComposerIntentsBySessionId((current) => ({
@@ -408,7 +412,7 @@ export function useWorkbenchSessionCommands({
     }));
     return session;
   }, [
-    ensureBlankSessionForProject,
+    ensureDefaultDraftSessionForProject,
     setAutomationsPath,
     setNewThreadComposerIntentsBySessionId,
     setSettingsPath,
@@ -453,7 +457,7 @@ export function useWorkbenchSessionCommands({
       throw new Error("No project is available for scheduled task personalization.");
     }
 
-    const session = await ensureBlankSessionForProject(targetProject.id);
+    const session = await ensureDefaultDraftSessionForProject(targetProject.id);
     setSettingsPath(null);
     setAutomationsPath(null);
     const result = await workbenchCodexControl.startThreadForSession({
@@ -470,7 +474,7 @@ export function useWorkbenchSessionCommands({
     await refreshProjectSessions(targetProject.id);
     selectSession(session);
     await workbenchCodexControl.requestThreadStreamSnapshot(detail.threadId).catch(() => null);
-  }, [activeProject, activeProjectId, ensureBlankSessionForProject, projects, refreshProjectSessions, selectSession, setAutomationsPath, setSettingsPath, workbenchCodexControl]);
+  }, [activeProject, activeProjectId, ensureDefaultDraftSessionForProject, projects, refreshProjectSessions, selectSession, setAutomationsPath, setSettingsPath, workbenchCodexControl]);
 
   const openSidebarCommandPalette = useCallback(() => {
     setCommandPaletteOpenRequest((current) => ({
@@ -981,7 +985,7 @@ export function useWorkbenchSessionCommands({
   }, [projectlessSessions, resolveForkLocalEnvironmentConfigPath, sessionCatalog, sessionsByProject, setPendingWorktreeClientThreadId, windowSessionId]);
 
   return {
-    ensureBlankSessionForProject,
+    ensureDefaultDraftSessionForProject,
     openPageInNewChat,
     sendPageToChat,
     startNewChatInProject,

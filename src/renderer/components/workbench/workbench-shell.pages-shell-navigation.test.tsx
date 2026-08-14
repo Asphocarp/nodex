@@ -49,6 +49,67 @@ describe("workbench session shell / pages-shell-navigation", () => {
     expect(screen.container.querySelector('[data-app-shell-tab-preview="true"]') !== null).toBe(true);
   });
 
+  test("opens a Page in an ordinary Chat without claiming the default-draft slot", async () => {
+    const screen = renderWorkbench({ sessionsByProject: { alpha: [] } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    setInvokeCalls([]);
+    const dbViewSessionProps = (globalThis as {
+      __lastDbViewSessionTabProps?: Record<string, unknown>;
+    }).__lastDbViewSessionTabProps;
+    const openPageInNewChat = dbViewSessionProps?.onOpenPageInNewChat as ((input: {
+      projectId: string;
+      pageId: string;
+      titleSnapshot?: string;
+    }) => Promise<void> | void) | undefined;
+    expect(typeof openPageInNewChat).toBe("function");
+    await act(async () => {
+      await openPageInNewChat?.({
+        projectId: "alpha",
+        pageId: "card-1",
+        titleSnapshot: "Card One",
+      });
+    });
+    await waitFor(() => {
+      expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(true);
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(invokeCalls.find((call) => call[0] === "project-sessions:create")?.[1]).toEqual({
+      projectId: "alpha",
+      noThreadFallbackTitle: "Card One",
+    });
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:ensure-default-draft"
+    ))).toBe(false);
+    const ordinaryTarget = (globalThis as {
+      __lastConnectedThreadStageProps?: {
+        newThreadTarget?: { sessionId?: string };
+      };
+    }).__lastConnectedThreadStageProps?.newThreadTarget;
+    expect(ordinaryTarget?.sessionId).toBe("session:alpha:created");
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Start new chat in Alpha"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:ensure-default-draft"
+      && call[1] === "alpha"
+    ))).toBe(true);
+    const defaultDraftTarget = (globalThis as {
+      __lastConnectedThreadStageProps?: {
+        newThreadTarget?: { sessionId?: string };
+      };
+    }).__lastConnectedThreadStageProps?.newThreadTarget;
+    expect(defaultDraftTarget?.sessionId).toBe("session:alpha:created:2");
+    expect(defaultDraftTarget?.sessionId).not.toBe(ordinaryTarget?.sessionId);
+  });
+
   test("panel tab menu creates tabs after opening a collapsed right panel", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },

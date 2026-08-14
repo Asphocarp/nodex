@@ -1,16 +1,7 @@
 import type { ProjectSession } from "../../shared/types";
 
 export interface ProjectAgentDockMaterializationPort {
-  readonly createBlank: (projectId: string) => Promise<ProjectSession>;
-  readonly promoteDraftIdentity: (input: {
-    readonly draftId: string;
-    readonly sessionId: string;
-  }) => void;
-  readonly commitMaterializedSession: (input: {
-    readonly projectId: string;
-    readonly draftId: string;
-    readonly sessionId: string;
-  }) => void;
+  readonly ensureDefaultDraft: (projectId: string) => Promise<ProjectSession>;
 }
 
 export interface ProjectAgentDockMaterializer {
@@ -28,9 +19,9 @@ function draftKey(projectId: string, draftId: string): string {
 }
 
 /**
- * Owns the one-way Project draft -> Session transition for one Window Session.
- * Successful results remain memoized because a Scene draft id is never reused;
- * this also makes repeated submit events unable to create a second Session.
+ * Coalesces one Window-local Project draft onto the Core-owned default Session.
+ * The caller commits the Scene binding only after Thread start succeeds, so a
+ * failed start keeps the original draft scope and its composer state retryable.
  */
 export function createProjectAgentDockMaterializer(): ProjectAgentDockMaterializer {
   const materializations = new Map<string, Promise<ProjectSession>>();
@@ -41,20 +32,11 @@ export function createProjectAgentDockMaterializer(): ProjectAgentDockMaterializ
       const current = materializations.get(key);
       if (current) return current;
 
-      const materialization = port.createBlank(input.projectId)
+      const materialization = port.ensureDefaultDraft(input.projectId)
         .then((session) => {
           if (session.projectId !== input.projectId) {
-            throw new Error("Created chat does not belong to the Project Agent Dock");
+            throw new Error("Default draft does not belong to the Project Agent Dock");
           }
-          port.promoteDraftIdentity({
-            draftId: input.draftId,
-            sessionId: session.id,
-          });
-          port.commitMaterializedSession({
-            projectId: input.projectId,
-            draftId: input.draftId,
-            sessionId: session.id,
-          });
           return session;
         })
         .catch((error: unknown) => {

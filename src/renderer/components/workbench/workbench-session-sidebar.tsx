@@ -90,7 +90,7 @@ import {
 import {
   buildCodexSidebarPinnedReorderMutation,
   isCodexSidebarRootThread,
-  listReorderableCodexSidebarProjectThreadKeys,
+  listReorderableCodexSidebarChatKeys,
   replaceVisibleCodexSidebarThreadKeyOrder,
   resolveCodexSidebarThreadHomeContainerId,
   sortSidebarThreadKeysForDisplay,
@@ -316,6 +316,7 @@ function SidebarPinnedThreadRowsContent({
 function SidebarThreadContainerRowsContent({
   containerId,
   threadKeys,
+  getSessionId,
   getThreadId,
   itemsByKey,
   expanded,
@@ -326,10 +327,12 @@ function SidebarThreadContainerRowsContent({
   hasMoreAtSource,
   onLoadMore,
   onRetry,
+  onVisibleSessionOrderChange,
   renderThread,
 }: {
   containerId: "chats";
   threadKeys: string[];
+  getSessionId: (threadKey: string) => string | null;
   getThreadId: (threadKey: string) => string | null;
   itemsByKey: ReadonlyMap<string, CodexSidebarThreadItem>;
   expanded: boolean;
@@ -340,6 +343,7 @@ function SidebarThreadContainerRowsContent({
   hasMoreAtSource: boolean;
   onLoadMore: () => void | Promise<void>;
   onRetry: () => void | Promise<void>;
+  onVisibleSessionOrderChange: (orderedSessionIds: string[]) => Promise<void>;
   renderThread: (threadKey: string) => ReactNode;
 }) {
   const pendingThreadDrops = usePendingSidebarThreadDrops();
@@ -351,10 +355,16 @@ function SidebarThreadContainerRowsContent({
     getThreadId,
   });
   const sortableThreadKeys = optimisticThreadKeys.filter((threadKey) => (
-    getThreadId(threadKey) !== null && !suppressedKeys.has(threadKey)
+    getSessionId(threadKey) !== null && !suppressedKeys.has(threadKey)
   ));
   const reorder = useSidebarThreadReorderController({
     visibleThreadKeys: sortableThreadKeys,
+    onVisibleThreadOrderChange: async ({ nextVisibleThreadKeys }) => {
+      await onVisibleSessionOrderChange(nextVisibleThreadKeys.flatMap((threadKey) => {
+        const sessionId = getSessionId(threadKey);
+        return sessionId === null ? [] : [sessionId];
+      }));
+    },
   });
   const displayedThreadKeys = replaceVisibleCodexSidebarThreadKeyOrder({
     threadKeysInDisplayOrder: optimisticThreadKeys,
@@ -381,7 +391,12 @@ function SidebarThreadContainerRowsContent({
               {pagination.visibleItems.length > 0 ? (
                 <SidebarThreadSortableRows
                   containerId={containerId}
+                  getItemId={(threadKey) => getSessionId(threadKey) ?? undefined}
                   getThreadId={getThreadId}
+                  itemIds={reorder.displayedVisibleThreadKeys.flatMap((threadKey) => {
+                    const sessionId = getSessionId(threadKey);
+                    return sessionId === null ? [] : [sessionId];
+                  })}
                   visibleThreadKeys={pagination.visibleItems}
                   sortableThreadKeysInDisplayOrder={reorder.displayedVisibleThreadKeys}
                   controller={reorder.controller}
@@ -436,6 +451,8 @@ function SidebarProjectThreadRowsContent({
   onRetry,
   onExpandedChange,
   onPinnedThreadOrderChange,
+  onRegularSessionOrderChange,
+  getSessionId,
   getThreadId,
   itemsByKey,
   renderThread,
@@ -456,6 +473,8 @@ function SidebarProjectThreadRowsContent({
     visibleThreadKeys: string[];
     nextVisibleThreadKeys: string[];
   }) => Promise<void>;
+  onRegularSessionOrderChange: (orderedSessionIds: string[]) => Promise<void>;
+  getSessionId: (threadKey: string) => string | null;
   getThreadId: (threadKey: string) => string | null;
   itemsByKey: ReadonlyMap<string, CodexSidebarThreadItem>;
   renderThread: (threadKey: string) => ReactNode;
@@ -488,18 +507,24 @@ function SidebarProjectThreadRowsContent({
   const optimisticSortablePinnedThreadKeys = useMemo(() => optimisticPinnedThreadKeys.filter(
     (threadKey) => sortablePinnedThreadKeySet.has(threadKey) && !suppressedKeys.has(threadKey),
   ), [optimisticPinnedThreadKeys, sortablePinnedThreadKeySet, suppressedKeys]);
-  const sortableRegularThreadKeys = useMemo(() => listReorderableCodexSidebarProjectThreadKeys({
+  const sortableRegularThreadKeys = useMemo(() => listReorderableCodexSidebarChatKeys({
     visibleThreadKeys: optimisticRegularThreadKeys.filter(
       (threadKey) => !suppressedKeys.has(threadKey),
     ),
-    getThreadId,
-  }), [getThreadId, optimisticRegularThreadKeys, suppressedKeys]);
+    getSessionId,
+  }), [getSessionId, optimisticRegularThreadKeys, suppressedKeys]);
   const pinnedReorder = useSidebarThreadReorderController({
     visibleThreadKeys: optimisticSortablePinnedThreadKeys,
     onVisibleThreadOrderChange: onPinnedThreadOrderChange,
   });
   const regularReorder = useSidebarThreadReorderController({
     visibleThreadKeys: sortableRegularThreadKeys,
+    onVisibleThreadOrderChange: async ({ nextVisibleThreadKeys }) => {
+      await onRegularSessionOrderChange(nextVisibleThreadKeys.flatMap((threadKey) => {
+        const sessionId = getSessionId(threadKey);
+        return sessionId === null ? [] : [sessionId];
+      }));
+    },
   });
   const displayedPinnedThreadKeys = useMemo(() => replaceVisibleCodexSidebarThreadKeyOrder({
     threadKeysInDisplayOrder: optimisticPinnedThreadKeys,
@@ -583,7 +608,12 @@ function SidebarProjectThreadRowsContent({
             >
               <SidebarThreadSortableRows
                 containerId={regularContainerId}
+                getItemId={(threadKey) => getSessionId(threadKey) ?? undefined}
                 getThreadId={getThreadId}
+                itemIds={regularReorder.displayedVisibleThreadKeys.flatMap((threadKey) => {
+                  const sessionId = getSessionId(threadKey);
+                  return sessionId === null ? [] : [sessionId];
+                })}
                 visibleThreadKeys={visibleRegularThreadKeys}
                 sortableThreadKeysInDisplayOrder={regularReorder.displayedVisibleThreadKeys}
                 controller={regularReorder.controller}
@@ -662,6 +692,7 @@ function SidebarThreadOrganizerSections({
   onReorderProjects,
   onSetProjectPinned,
   onSetPinnedProjectOrder,
+  onReorderSessions,
   onReorderPinnedThreads,
   sidebarArchivePendingKeys,
   onOpenResourceTarget,
@@ -719,6 +750,10 @@ function SidebarThreadOrganizerSections({
   onReorderProjects: (input: ProjectOrderInput) => Promise<void>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<void>;
+  onReorderSessions: (
+    projectId: string | null,
+    orderedSessionIds: readonly string[],
+  ) => Promise<void>;
   onReorderPinnedThreads: (orderedThreadIds: readonly string[]) => Promise<unknown>;
   sidebarArchivePendingKeys: ReadonlySet<string>;
   onOpenResourceTarget: (target: LibraryResourceTarget) => void;
@@ -850,6 +885,20 @@ function SidebarThreadOrganizerSections({
       : sessionsByThreadId.get(item.threadId);
     return session?.thread?.threadId ?? null;
   }, [model.threadItemsByKey, sessionsById, sessionsByThreadId, sidebarThreadItemsByKey]);
+  const getSidebarSessionId = useCallback((threadKey: string) => {
+    const item = sidebarThreadItemsByKey.get(threadKey);
+    if (!item || item.pendingWorktreeId) return null;
+    if (item.sessionId) return item.sessionId;
+    return sessionsByThreadId.get(item.threadId)?.id ?? null;
+  }, [sessionsByThreadId, sidebarThreadItemsByKey]);
+  const sidebarThreadKeyBySessionId = useMemo(() => {
+    const entries: Array<readonly [string, string]> = [];
+    for (const [threadKey, item] of sidebarThreadItemsByKey) {
+      const sessionId = item.sessionId ?? sessionsByThreadId.get(item.threadId)?.id;
+      if (sessionId) entries.push([sessionId, threadKey]);
+    }
+    return new Map(entries);
+  }, [sessionsByThreadId, sidebarThreadItemsByKey]);
   const allPinnedThreadKeys = useMemo(() => {
     const fallbackPinnedThreadKeys = sortSidebarThreadKeysForDisplay({
       threadKeys: fallbackThreadItems
@@ -927,9 +976,12 @@ function SidebarThreadOrganizerSections({
     const pinnedThreadKeys = allPinnedThreadKeys.filter((threadKey) => (
       projectPinnedThreadKeySet.has(threadKey)
     ));
-    const canonicalThreadKeys = fallbackThreadItems
-      .filter((item) => item.projectId === group.project.id && !item.pinned)
-      .map((item) => item.key);
+    const canonicalThreadKeys = (sessionsByProject[group.project.id] ?? [])
+      .filter((session) => !session.pinned)
+      .flatMap((session) => {
+        const threadKey = sidebarThreadKeyBySessionId.get(session.id);
+        return threadKey ? [threadKey] : [];
+      });
     const canonicalThreadKeySet = new Set(canonicalThreadKeys);
     const threadKeys = [
       ...canonicalThreadKeys,
@@ -944,6 +996,8 @@ function SidebarThreadOrganizerSections({
     allPinnedThreadKeys,
     fallbackThreadItems,
     model.projectGroups,
+    sessionsByProject,
+    sidebarThreadKeyBySessionId,
   ]);
   const stableWorktreeWorkspaceRootOptions = useMemo(
     () => projectGroups.flatMap(({ project }) =>
@@ -1057,9 +1111,12 @@ function SidebarThreadOrganizerSections({
   );
   const hasVisiblePinnedSectionItems = hasVisiblePinnedStandaloneThreads || pinnedProjectGroups.length > 0;
   const projectlessThreadKeys = useMemo(() => {
-    const canonicalThreadKeys = fallbackThreadItems
-      .filter((item) => item.projectless && !item.pinned)
-      .map((item) => item.key);
+    const canonicalThreadKeys = projectlessSessions
+      .filter((session) => !session.pinned)
+      .flatMap((session) => {
+        const threadKey = sidebarThreadKeyBySessionId.get(session.id);
+        return threadKey ? [threadKey] : [];
+      });
     const canonicalThreadKeySet = new Set(canonicalThreadKeys);
     return [
       ...canonicalThreadKeys,
@@ -1072,8 +1129,9 @@ function SidebarThreadOrganizerSections({
         .map((item) => item.key),
     ];
   }, [
-    fallbackThreadItems,
     model.snapshot.items,
+    projectlessSessions,
+    sidebarThreadKeyBySessionId,
   ]);
   const canonicalThreadLanes = useMemo<SidebarThreadCanonicalLanes>(() => {
     const threadIdsForKeys = (threadKeys: readonly string[]) => threadKeys.flatMap(
@@ -1348,6 +1406,9 @@ function SidebarThreadOrganizerSections({
                     onLoadMore={() => onLoadMoreTaskWindow(project.id)}
                     onRetry={() => onRetryTaskWindow(project.id)}
                     onPinnedThreadOrderChange={reorderVisiblePinnedThreads}
+                    onRegularSessionOrderChange={(orderedSessionIds) =>
+                      onReorderSessions(project.id, orderedSessionIds)}
+                    getSessionId={getSidebarSessionId}
                     getThreadId={getSidebarRealThreadId}
                     itemsByKey={sidebarThreadItemsByKey}
                     renderThread={(threadKey) => renderThreadRow(threadKey, {
@@ -1493,6 +1554,7 @@ function SidebarThreadOrganizerSections({
         <SidebarThreadContainerRowsContent
           containerId="chats"
           threadKeys={projectlessThreadKeys}
+          getSessionId={getSidebarSessionId}
           getThreadId={getSidebarRealThreadId}
           itemsByKey={sidebarThreadItemsByKey}
           expanded={projectlessThreadListExpanded}
@@ -1503,6 +1565,8 @@ function SidebarThreadOrganizerSections({
           hasMoreAtSource={projectlessSessionCollection.hasMore}
           onLoadMore={() => onLoadMoreTaskWindow(null)}
           onRetry={() => onRetryTaskWindow(null)}
+          onVisibleSessionOrderChange={(orderedSessionIds) =>
+            onReorderSessions(null, orderedSessionIds)}
           renderThread={renderThreadRow}
         />
       </CodexSidebarSection>
@@ -1581,6 +1645,10 @@ export interface ProjectSessionSidebarProps {
   onReorderProjects: (input: ProjectOrderInput) => Promise<void>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<void>;
+  onReorderSessions: (
+    projectId: string | null,
+    orderedSessionIds: readonly string[],
+  ) => Promise<void>;
   onMoveSidebarThread: (
     drop: SidebarThreadDropRequest,
   ) => Promise<SidebarThreadDropCommit | null>;
@@ -1661,6 +1729,7 @@ export function ProjectSessionSidebar({
   onReorderProjects,
   onSetProjectPinned,
   onSetPinnedProjectOrder,
+  onReorderSessions,
   onMoveSidebarThread,
   onReorderPinnedThreads,
   onOpenSettings,
@@ -2007,6 +2076,7 @@ export function ProjectSessionSidebar({
                   onReorderProjects={onReorderProjects}
                   onSetProjectPinned={onSetProjectPinned}
                   onSetPinnedProjectOrder={onSetPinnedProjectOrder}
+                  onReorderSessions={onReorderSessions}
                   onReorderPinnedThreads={onReorderPinnedThreads}
                   sidebarArchivePendingKeys={sidebarArchivePendingKeys}
                   onOpenResourceTarget={onOpenResourceTarget}

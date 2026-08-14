@@ -14,20 +14,18 @@ function makeSession(id = "session-1"): ProjectSession {
 }
 
 function makePort(
-  createBlank: ProjectAgentDockMaterializationPort["createBlank"],
+  ensureDefaultDraft: ProjectAgentDockMaterializationPort["ensureDefaultDraft"],
 ) {
   return {
-    createBlank,
-    promoteDraftIdentity: vi.fn(),
-    commitMaterializedSession: vi.fn(),
+    ensureDefaultDraft,
   } satisfies ProjectAgentDockMaterializationPort;
 }
 
 describe("Project Agent Dock materializer", () => {
-  test("coalesces repeated draft materialization and commits one Session", async () => {
+  test("coalesces repeated draft materialization onto one default Session", async () => {
     const materializer = createProjectAgentDockMaterializer();
-    const createBlank = vi.fn(async () => makeSession());
-    const port = makePort(createBlank);
+    const ensureDefaultDraft = vi.fn(async () => makeSession());
+    const port = makePort(ensureDefaultDraft);
     const input = { projectId: "project-1", draftId: "draft-1" } as const;
 
     const [first, second] = await Promise.all([
@@ -37,9 +35,7 @@ describe("Project Agent Dock materializer", () => {
 
     expect(first.id).toBe("session-1");
     expect(second).toBe(first);
-    expect(createBlank).toHaveBeenCalledTimes(1);
-    expect(port.promoteDraftIdentity).toHaveBeenCalledOnce();
-    expect(port.commitMaterializedSession).toHaveBeenCalledOnce();
+    expect(ensureDefaultDraft).toHaveBeenCalledTimes(1);
   });
 
   test("leaves identity and binding untouched when Session creation fails", async () => {
@@ -52,8 +48,6 @@ describe("Project Agent Dock materializer", () => {
       projectId: "project-1",
       draftId: "draft-1",
     }, port)).rejects.toThrow("create failed");
-    expect(port.promoteDraftIdentity).not.toHaveBeenCalled();
-    expect(port.commitMaterializedSession).not.toHaveBeenCalled();
   });
 
   test("rejects a Session created outside the target Project", async () => {
@@ -67,7 +61,5 @@ describe("Project Agent Dock materializer", () => {
       projectId: "project-1",
       draftId: "draft-1",
     }, port)).rejects.toThrow("does not belong");
-    expect(port.promoteDraftIdentity).not.toHaveBeenCalled();
-    expect(port.commitMaterializedSession).not.toHaveBeenCalled();
   });
 });

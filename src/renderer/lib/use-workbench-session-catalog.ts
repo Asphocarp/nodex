@@ -148,6 +148,10 @@ export interface WorkbenchSessionCatalog {
   readonly loadMore: (projectId: string | null) => Promise<void>;
   readonly seed: (session: ProjectSession | null | undefined) => void;
   readonly prefetch: (sessionId: string) => Promise<ProjectSession | null>;
+  readonly reorder: (
+    projectId: string | null,
+    orderedSessionIds: readonly string[],
+  ) => Promise<void>;
   readonly markUnread: (
     session: ProjectSession,
     unread: boolean,
@@ -166,11 +170,12 @@ export interface WorkbenchSessionCatalog {
   readonly ensureThreadSession: (
     threadId: string,
   ) => Promise<ProjectSession | null>;
-  readonly ensureBlank: (
+  readonly ensureDefaultDraft: (
     projectId: string | null,
   ) => Promise<WorkbenchSessionPresentation>;
-  readonly createBlank: (
+  readonly createOrdinarySession: (
     projectId: string | null,
+    noThreadFallbackTitle?: string,
   ) => Promise<WorkbenchSessionPresentation>;
   readonly fork: (
     session: ProjectSession,
@@ -576,57 +581,27 @@ export function useWorkbenchSessionCatalog({
     await refresh(ensured.projectId);
     return ensured;
   }, [queryClient, refresh]);
-  const ensureBlank = useCallback(async (
+  const ensureDefaultDraft = useCallback(async (
     projectId: string | null,
   ): Promise<WorkbenchSessionPresentation> => {
-    const cachedWindow =
-      queryClient.getQueryData<ProjectSessionSummaryWindow>(
-        queryKeys.projectSessions.summaries(projectId),
-      );
-    const scopedPresentations = cachedWindow
-      ? projectId === null
-        ? projectlessCollection.presentations
-        : collectionsByProject[projectId]?.presentations ?? []
-      : await refresh(projectId);
-
-    for (const candidate of scopedPresentations) {
-      if (candidate.domain.thread) continue;
-      const detail =
-        getCachedProjectSessionDetail(queryClient, candidate.domain.id)
-        ?? await prefetchProjectSessionDetail(
-          queryClient,
-          candidate.domain.id,
-        );
-      if (!detail || detail.thread) continue;
-      return {
-        domain: detail,
-      scene: resolveScene(detail),
-      };
-    }
-
-    const domain = await invoke("project-sessions:create", {
+    const domain = await invoke(
+      "project-sessions:ensure-default-draft",
       projectId,
-      noThreadFallbackTitle: "New thread",
-    }) as ProjectSession;
+    ) as ProjectSession;
     seedProjectSessionDetail(queryClient, domain);
     await refresh(projectId);
     return {
       domain,
       scene: resolveScene(domain),
     };
-  }, [
-    collectionsByProject,
-    projectlessCollection.presentations,
-    queryClient,
-    refresh,
-    resolveScene,
-  ]);
-  const createBlank = useCallback(async (
+  }, [queryClient, refresh, resolveScene]);
+  const createOrdinarySession = useCallback(async (
     projectId: string | null,
+    noThreadFallbackTitle = "New chat",
   ): Promise<WorkbenchSessionPresentation> => {
     const domain = await invoke("project-sessions:create", {
       projectId,
-      noThreadFallbackTitle: "New thread",
+      noThreadFallbackTitle,
     }) as ProjectSession;
     seedProjectSessionDetail(queryClient, domain);
     await refresh(projectId);
@@ -673,6 +648,17 @@ export function useWorkbenchSessionCatalog({
       known.find((candidate) => candidate.domain.id === sessionId) ?? null,
     [known],
   );
+  const reorder = useCallback(async (
+    projectId: string | null,
+    orderedSessionIds: readonly string[],
+  ): Promise<void> => {
+    await invoke(
+      "project-sessions:reorder",
+      projectId,
+      [...orderedSessionIds],
+    );
+    await refresh(projectId);
+  }, [refresh]);
   const findByThreadId = useCallback(
     (threadId: string) =>
       known.find(
@@ -730,13 +716,14 @@ export function useWorkbenchSessionCatalog({
     loadMore,
     seed,
     prefetch,
+    reorder,
     markUnread,
     setPinned,
     rename,
     archive,
     ensureThreadSession,
-    ensureBlank,
-    createBlank,
+    ensureDefaultDraft,
+    createOrdinarySession,
     fork,
   };
 }

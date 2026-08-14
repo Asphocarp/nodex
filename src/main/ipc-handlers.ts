@@ -2260,6 +2260,10 @@ export function registerIpcHandlers(
     await projectWorkspace.createProjectSession(input)
   );
 
+  registerHandle("project-sessions:ensure-default-draft", async (_, projectId) =>
+    await projectWorkspace.ensureDefaultDraftProjectSession(projectId)
+  );
+
   registerHandle("project-sessions:update", async (_, sessionId: string, input) => {
     return await projectWorkspace.updateProjectSession(
       sessionId,
@@ -2286,7 +2290,7 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-sessions:reorder",
-    async (_, projectId: string, orderedSessionIds: string[]) =>
+    async (_, projectId: string | null, orderedSessionIds: string[]) =>
       await projectWorkspace.reorderProjectSessions(
         projectId,
         orderedSessionIds,

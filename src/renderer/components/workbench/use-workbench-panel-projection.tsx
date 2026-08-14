@@ -128,7 +128,7 @@ type SessionCommands = Pick<
   ReturnType<typeof useWorkbenchSessionCommands>,
   | "activateReviewTab"
   | "createManualTab"
-  | "ensureBlankSessionForProject"
+  | "ensureDefaultDraftSessionForProject"
   | "openPageInNewChat"
   | "openAttachedThreadSession"
   | "openAttachedThreadSessionById"
@@ -338,7 +338,7 @@ export function useWorkbenchPanelProjection({
   const {
     activateReviewTab,
     createManualTab,
-    ensureBlankSessionForProject,
+    ensureDefaultDraftSessionForProject,
     openPageInNewChat,
     openAttachedThreadSession,
     openAttachedThreadSessionById,
@@ -811,7 +811,7 @@ export function useWorkbenchPanelProjection({
               onOpenPageInNewChat={openPageInNewChat}
               onSendPageToChat={sendPageToChat}
               onOpenFileTab={openWorkspaceFileTab}
-              onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+              onEnsureDefaultDraftSessionForProject={ensureDefaultDraftSessionForProject}
               onRefreshSessions={onRefreshSessions}
               onCloseTab={closeTab}
               onUpdateTab={onUpdateSessionViewTab}
@@ -895,7 +895,7 @@ export function useWorkbenchPanelProjection({
     composerEnterBehavior,
     createBrowserTabToRight,
     createManualTab,
-    ensureBlankSessionForProject,
+    ensureDefaultDraftSessionForProject,
     onOpenAutomations,
     onOpenHooksSettings,
     onOpenLocalEnvironmentsSettings,

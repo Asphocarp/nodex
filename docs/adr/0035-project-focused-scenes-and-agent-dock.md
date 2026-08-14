@@ -4,6 +4,10 @@
 
 Accepted
 
+ADR 0044 supersedes this ADR only for Session materialization: the Agent Dock
+still owns a lazy Window-local presentation draft, but first send ensures the
+Core-owned default-draft Session instead of unconditionally creating a Session.
+
 ## Context
 
 ADR 0034 separated durable Project and Session domain state from
@@ -73,12 +77,11 @@ removes its layout reserve and presented-view claim but does not stop the turn
 or release Main-owned runtimes.
 
 `New chat` is lazy. Opening a Project or selecting the target creates no Core
-Session. The first send creates one Project Session, promotes the Scene-local
-draft identity to that Session, persists the binding, and then starts the real
-Codex Thread without navigating away. Creation is coalesced per draft. If Core
-creation fails, the unbound draft remains; if Thread start fails after Session
-creation, the Dock remains bound to that blank Session so retry does not create
-a duplicate.
+Session. The first send atomically ensures the Project's default-draft Session
+and then starts the real Codex Thread without navigating away. Materialization
+is coalesced per draft. If ensure or Thread start fails, the unbound draft and
+its composer state remain retryable; another submit converges on the same Core
+Session. The Scene binding changes only after Thread start succeeds.
 
 A `newWorktree` start remains bound to that exact blank Session. The Dock
 derives setup progress from the existing Main-synchronized pending-worktree

@@ -862,6 +862,10 @@ export interface IpcApi {
     args: [input: ProjectSessionCreateInput];
     result: ProjectSession;
   };
+  "project-sessions:ensure-default-draft": {
+    args: [projectId: string | null];
+    result: ProjectSession;
+  };
   "project-sessions:update": {
     args: [sessionId: string, input: ProjectSessionUpdateInput];
     result: ProjectSession | null;
@@ -872,7 +876,7 @@ export interface IpcApi {
   };
   "project-sessions:delete": { args: [sessionId: string]; result: boolean };
   "project-sessions:reorder": {
-    args: [projectId: string, orderedSessionIds: string[]];
+    args: [projectId: string | null, orderedSessionIds: string[]];
     result: void;
   };
   "project-sessions:set-pinned": {
