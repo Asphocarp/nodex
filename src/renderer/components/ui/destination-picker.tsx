@@ -1,6 +1,7 @@
 import type { KeyboardEvent, ReactNode } from "react";
 
-import { SearchIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, SearchIcon } from "@/components/shared/icons";
+import { StatusIcon } from "@/lib/status-presentation";
 import { cn } from "@/lib/utils";
 
 interface NodexDestinationPickerProps {
@@ -100,13 +101,52 @@ export function NodexDestinationPickerSection({
   );
 }
 
-export function NodexDestinationPickerStatus({
-  children,
+export function NodexDestinationPickerPageRowContent({
+  title,
+  statusId,
+  statusLabel,
+  projectName,
+  accepting = false,
 }: {
-  readonly children: ReactNode;
+  readonly title: string;
+  readonly statusId: string;
+  readonly statusLabel: string;
+  readonly projectName?: string;
+  readonly accepting?: boolean;
 }) {
   return (
-    <div className="flex h-9 items-center px-3 text-[13px] leading-5 text-token-description-foreground">
+    <>
+      <span
+        className="flex h-[18px] w-[22px] shrink-0 items-center justify-center"
+        title={statusLabel}
+      >
+        <StatusIcon statusId={statusId} label={statusLabel} className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1 truncate">{title}</span>
+      {projectName ? (
+        <span className="ml-1 max-w-[112px] shrink truncate text-[12px] leading-4 text-token-description-foreground">
+          {projectName}
+        </span>
+      ) : null}
+      {accepting ? (
+        <ActivitySpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
+      ) : null}
+    </>
+  );
+}
+
+export function NodexDestinationPickerStatus({
+  children,
+  role,
+}: {
+  readonly children: ReactNode;
+  readonly role?: "alert" | "status";
+}) {
+  return (
+    <div
+      role={role}
+      className="flex min-h-9 items-center px-3 py-2 text-[13px] leading-5 text-token-description-foreground"
+    >
       {children}
     </div>
   );

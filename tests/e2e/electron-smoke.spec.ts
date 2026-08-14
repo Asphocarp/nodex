@@ -95,11 +95,13 @@ async function createConvergenceProject(
   name: string,
   workspace: string,
 ): Promise<ConvergenceProject> {
-  const project = await invokeIpc(page, "projects:create", {
-    name,
-    sources: [workspace],
-  });
-  if (!isRecord(project)) throw new Error("Project creation returned no Project");
+  const project = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(page, "projects:create", {
+      name,
+      sources: [workspace],
+    }),
+    "Project creation",
+  );
   const projectId = requireString(project.id, "Project id");
   const defaultDatabaseViewId = requireString(
     project.defaultDatabaseViewId,
@@ -2074,6 +2076,103 @@ test("keeps the Page editor mounted while its Document commits", async () => {
       titleRemovals: 0,
     });
     await expect(editor).toBeVisible();
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("moves selected Blocks to a DB status through the picker @move-picker-smoke", async () => {
+  test.setTimeout(120_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-move-picker-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+
+    const project = await createConvergenceProject(
+      page,
+      "Move picker smoke",
+      workspace,
+    );
+    const source = await createConvergenceBoardPage(
+      page,
+      project,
+      "Picker source Page",
+      "Page containing the picker move fixture",
+    );
+    await seedConvergenceDocument(
+      page,
+      project,
+      source,
+      [
+        "Before picker sibling",
+        "Picker promoted title",
+        "After picker sibling",
+      ].join("\n"),
+    );
+
+    await page.getByRole("button", {
+      name: "Open Move picker smoke",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    const triageColumn = page.locator(
+      '[data-board-column-root][data-board-column-id="triage"]',
+    );
+    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+    await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(1);
+
+    await triageColumn
+      .locator(`[data-board-uuid-v7="${source.pageId}"]`)
+      .locator('[data-card-context-menu-trigger="true"]')
+      .evaluate((element) => (element as HTMLElement).click());
+    await page.getByRole("tab", { name: "Picker source Page" }).waitFor();
+
+    const sourcePanel = page.getByRole("tabpanel", {
+      name: /Picker source Page$/,
+    });
+    const sourceSurface = sourcePanel.locator(
+      '.nfm-editor .ProseMirror[contenteditable="true"]',
+    );
+    const sourceBlock = sourceSurface.locator(".bn-block[data-id]").filter({
+      hasText: "Picker promoted title",
+    }).first();
+    await expect(sourceBlock).toBeVisible({ timeout: 15_000 });
+    await sourceBlock.click();
+    await page.keyboard.press("Meta+/");
+
+    await page.getByRole("dialog", { name: "Block actions" }).waitFor();
+    await page.getByRole("option", { name: /^Move to/ }).click();
+    await page.getByRole("combobox", { name: "Move blocks to" }).waitFor();
+    await page.locator(
+      `[data-nfm-move-to-row-kind="db-column"]`
+        + `[data-nfm-move-to-project-id="${project.projectId}"]`,
+    ).filter({ hasText: "Triage" }).click();
+
+    await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(2, {
+      timeout: 15_000,
+    });
+    await expect(triageColumn.locator("[data-board-uuid-v7]").filter({
+      hasText: "Picker promoted title",
+    })).toHaveCount(1);
+    await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
+    await expect(sourceSurface.locator(".bn-block[data-id]").filter({
+      hasText: "Before picker sibling",
+    })).toHaveCount(1);
+    await expect(sourceSurface.locator(".bn-block[data-id]").filter({
+      hasText: "After picker sibling",
+    })).toHaveCount(1);
+    await expect(page.getByRole("alert").filter({
+      hasText: "Something went wrong",
+    })).toHaveCount(0);
   } finally {
     if (application) await stopApplication(application);
     await shutdownTemporaryCore(nodexHome);

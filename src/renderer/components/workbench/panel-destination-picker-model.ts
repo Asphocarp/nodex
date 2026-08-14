@@ -40,13 +40,9 @@ export interface PanelDestinationPageRow {
   id: string;
   projectId: string;
   projectName: string;
-  projectAppearance: ProjectAppearance;
   columnId: string;
   columnName: string;
   pageId: string;
-  pageKey: string | null;
-  matchedPageKey: string | null;
-  matchedPageKeyIsCurrent: boolean | null;
   pageTitle: string;
   destination: PanelDestination;
 }
@@ -99,13 +95,9 @@ function createPageRowFromSearchHit(hit: NfmMoveToPageSearchHit): PanelDestinati
     id: `panel-page:${hit.projectId}:${hit.pageId}`,
     projectId: hit.projectId,
     projectName: hit.projectName,
-    projectAppearance: hit.projectAppearance,
     columnId: hit.columnId,
     columnName: hit.columnName,
     pageId: hit.pageId,
-    pageKey: hit.pageKey,
-    matchedPageKey: hit.matchedPageKey,
-    matchedPageKeyIsCurrent: hit.matchedPageKeyIsCurrent,
     pageTitle: hit.pageTitle,
     destination: {
       kind: "page",
@@ -128,13 +120,9 @@ function createPageRowFromSummary(
     id: `panel-page:${project.id}:${page.id}`,
     projectId: project.id,
     projectName: project.name || "Untitled",
-    projectAppearance: project.appearance,
     columnId: column.id,
     columnName: column.name,
     pageId: page.id,
-    pageKey: page.pageKey ?? null,
-    matchedPageKey: null,
-    matchedPageKeyIsCurrent: null,
     pageTitle,
     destination: {
       kind: "page",

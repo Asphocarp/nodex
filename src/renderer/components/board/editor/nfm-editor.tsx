@@ -210,6 +210,7 @@ import {
   prepareNfmEditorForMutation,
   type NfmEditorMutationRuntime,
 } from "./nfm-editor-relocation";
+import { moveNfmBlocks } from "@/lib/nfm-block-move-runtime";
 import { commitPageLifecycleIntent } from "@/lib/page-lifecycle-runtime";
 import {
   hasNestedTypedOwnerBlock,
@@ -1755,35 +1756,16 @@ function NfmEditorInstance({
     [editor, sourcePageContext],
   );
 
-  const appendSendBlockSelectionToCard = useCallback(
+  const commitBlockSelectionMove = useCallback(
     async (
       selection: SendBlocksSelection,
-      {
-        projectId: targetProjectId,
-        pageId: targetPageId,
-      }: {
-        projectId: string;
-        columnId: string;
-        pageId: string;
-      },
+      destination: NfmMoveToDestination,
     ) => {
       if (!sourcePageContext) {
         throw new Error("No blocks selected.");
       }
       if (executionProjectId === null) {
-        throw new Error("Moving Blocks between Pages requires a Project.");
-      }
-      if (
-        targetProjectId === executionProjectId &&
-        targetPageId === sourcePageContext.pageId
-      ) {
-        throw new Error("Choose a different destination card.");
-      }
-
-      if (targetProjectId !== executionProjectId) {
-        throw new Error(
-          "Moving Blocks between Pages in different Projects is not available yet.",
-        );
+        throw new Error("Moving Blocks requires a Project.");
       }
       if (!surfaceMutationBarrier) {
         throw new Error(
@@ -1800,44 +1782,16 @@ function NfmEditorInstance({
       );
       const sourceHead = await surfaceMutationBarrier.flushAndFence();
 
-      const preparedTarget = await prepareOwnedBlockDocument(
-        targetProjectId,
-        targetPageId,
-      );
-      if (!preparedTarget.ok) {
-        throw new Error(preparedTarget.error.message);
-      }
-      if (preparedTarget.value.documentId === source.documentId) {
-        throw new Error("Choose a different destination Page.");
-      }
-      if (preparedTarget.value.storeEpoch !== sourceHead.storeEpoch) {
-        throw new Error("The source and target Pages belong to different store epochs.");
-      }
-      const result = await transferBlocks(executionProjectId, {
-        version: 2,
-        operationId: crypto.randomUUID(),
+      await moveNfmBlocks({
         projectId: executionProjectId,
         storeEpoch: source.storeEpoch,
-        mode: "move",
+        sourcePageId: sourcePageContext.pageId,
+        sourceDocumentId: source.documentId,
+        sourceDocumentGeneration: source.generation,
         rootBlockIds: selection.blockIds,
-        causalDependencies: [
-          sourceHead,
-          {
-            documentId: preparedTarget.value.documentId,
-            generation: preparedTarget.value.generation,
-            expectedHeadSeq: preparedTarget.value.headSeq,
-          },
-        ],
-        source: {
-          kind: "page",
-          pageId: sourcePageContext.pageId,
-        },
-        target: {
-          kind: "page",
-          pageId: targetPageId,
-        },
+        sourceHead,
+        destination,
       });
-      if (!result.ok) throw new Error(result.error.message);
     },
     [
       editor,
@@ -1847,12 +1801,6 @@ function NfmEditorInstance({
       surfaceMutationBarrier,
     ],
   );
-
-  const sendBlockSelectionToProject = useCallback(async () => {
-    throw new Error(
-      "Creating Pages from selected Blocks needs an explicit Block command and is not available from this menu yet.",
-    );
-  }, []);
 
   const moveBlocksToDestination = useCallback(
     async (destination: NfmMoveToDestination, fallbackBlockId: string) => {
@@ -1928,20 +1876,15 @@ function NfmEditorInstance({
         return;
       }
 
-      if (destination.kind === "page") {
-        await appendSendBlockSelectionToCard(selection, destination);
-      } else {
-        await sendBlockSelectionToProject();
-      }
+      await commitBlockSelectionMove(selection, destination);
 
       restoreEditorFocus();
     },
     [
-      appendSendBlockSelectionToCard,
+      commitBlockSelectionMove,
       contentAccessContext,
       resolveSendBlocksSelection,
       restoreEditorFocus,
-      sendBlockSelectionToProject,
       executionProjectId,
       sourcePageContext,
       surfaceMutationBarrier,

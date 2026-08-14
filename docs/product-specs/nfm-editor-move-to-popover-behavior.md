@@ -1,15 +1,15 @@
 # NFM Editor Move-To Popover Behavior
 
 Status: Active  
-Last Updated: 2026-06-19
+Last Updated: 2026-08-14
 
 ## Contract
 
-The NFM side-menu `Move to` action opens a destination popover instead of a two-row submenu. The popover searches across DB destinations and card destinations in one surface while preserving move semantics for the selected NFM blocks.
+The NFM side-menu `Move to` action opens a destination popover instead of a two-row submenu. The popover searches DB destinations and Page destinations inside the source Project's write authority while preserving move semantics for the selected NFM blocks.
 
 The expanded text-selection menu uses the same `Move to` destination popover in its Actions area. It replaces the older separate `Move to card` and `Turn into cards` text-selection actions with one destination picker.
 
-The `Card in` row inside the side-menu `Turn into` submenu uses the same popover interaction model, but it is scoped to DB destinations only. Its row label and page-in icon stay unchanged.
+The `Page in` row inside the side-menu `Turn into` submenu uses the same popover interaction model, but it is scoped to DB destinations only. Its row label and page-in icon stay unchanged.
 
 ## UI
 
@@ -18,33 +18,37 @@ The `Card in` row inside the side-menu `Turn into` submenu uses the same popover
 - The search input is labeled `Move blocks to` and uses placeholder `Move blocks to…`.
 - Results render in this fixed order:
   - `DB`
-  - `Card`
+  - `Page`
 - `DB` rows represent projects and are disclosure rows only. Clicking a DB row expands or collapses its column/status children.
 - DB rows use the sidebar project folder icon when a project has no custom emoji icon.
 - DB column/status child rows are the selectable DB destinations.
 - DB column/status rows use the same status icons as board columns.
-- DB column/status icons are indented to the right of their parent DB icon so the tree preserves a clear visual parent-child relationship.
-- `Card` rows are selectable card destinations and show the owning DB and column as secondary metadata.
-- The source card is excluded from card results.
-- Loading shows only after a short delay. Empty results show `No results`. Loading or submit failures show `Something went wrong`.
-- `Card in` opens a nested DB-only picker from the `Turn into` submenu. It shows the `DB` section, expands DB rows to column/status destinations, and does not render the `Card` section or card-title results.
+- DB column/status rows do not repeat their parent Project name. Their status icons align with the parent Project label to express one shallow tree level.
+- Expanding or collapsing a DB Project changes only that Project's status children; it never changes the `Page` section.
+- `Page` rows are selectable Page destinations.
+- The source Page is excluded from Page results.
+- Loading shows only after a short delay. Empty results show `No results`. Load and submit failures retain their specific message in an inline alert; an unknown thrown value falls back to `Couldn’t move these blocks.`.
+- `Page in` opens a nested DB-only picker from the `Turn into` submenu. It shows the `DB` section, expands DB rows to column/status destinations, and does not render the `Page` section or Page-title results.
 
 ## Behavior
 
 - Opening the popover resets its query and expands the current source DB when available.
-- Typing filters by DB name, column name, and card title.
+- With an empty query, the `Page` section shows the bounded first window from the current source Project. Without a source Project, no destination is executable.
+- Typing filters the current Project by DB name, status name, and Page title. Search visibility is not treated as write authority for another Project.
 - Search uses the shared command-palette text normalization, all-term matching, prefix matching for terms of at least two characters, and the same fuzzy threshold policy.
-- The popover intentionally does not search card descriptions, tags, or assignees; those broader card fields remain command-palette behavior.
+- The popover intentionally does not search Page descriptions, tags, or assignees; those broader Page fields remain command-palette behavior.
 - A non-empty query resets keyboard focus to the first visible row and auto-expands matching DB rows.
 - Arrow Up and Arrow Down move through visible rows.
-- Enter toggles a DB row or accepts a DB column/card row.
+- Enter toggles a DB row or accepts a DB status/Page row.
 - Escape closes the move-to popover before closing the parent side menu.
 
 ## Move Semantics
 
-- Selecting a DB column creates cards from the selected NFM blocks in that destination column.
-- Selecting a card appends the selected NFM blocks to that card description.
-- Selecting a DB column from `Card in` uses the same DB-column move semantics as selecting a DB column from `Move to`.
-- The implementation reuses the existing selected-block guard, projected-ancestor rejection, editor snapshot rollback, and grouped `card:import-block-drop` persistence path.
-- Grouped source/target card description updates advance the touched cards' revisions so Board summaries and full Card Stage descriptions converge through the same detail hydration path.
-- After a successful move, Nodex refreshes the full source card detail and, for card destinations, the full target card detail so already-open Card Stage tabs render the moved blocks.
+- Selecting a DB status moves the selected NFM Block subtrees into the current Project's primary Data Source. Core promotes eligible ordinary Blocks to Pages, preserves subtree content, and assigns the selected Status through an active Status-grouped View.
+- Selecting a Page moves the selected NFM Block subtrees into that Page body.
+- Selecting a DB status from `Page in` uses the same DB-status move semantics as selecting a DB status from `Move to`.
+- Page and DB destinations share one renderer move runtime. The editor first releases focus and flushes its source mutation barrier; the runtime then validates the source fence, resolves the destination authority, and commits one idempotent `BlockTransfer` intent.
+- Page destinations prepare the target Document and include exact source and target heads. DB destinations resolve the canonical Project-default Database descriptor and choose a real active View grouped by the built-in `status` Property rather than deriving Data Source identity from UI state.
+- Source and target epoch mismatches fail closed. Core commits source detachment, target attachment or Page promotion, typed membership values, Document updates, projections, receipt, and local delivery atomically.
+- The picker exposes only the source Project. Cross-Project movement requires a future Core command that authorizes both source and target contexts in the same transaction; the renderer must not emulate it with two mutations or advertise an unexecutable destination.
+- Structured Database, Document, and BlockTransfer failures preserve their code, retryability, reload requirement, and operation ID for diagnostics. The picker shows the safe command message and keeps the failed destination available for retry.

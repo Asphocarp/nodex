@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ActivitySpinnerIcon, NfmSideMenuChevronRightIcon, PageIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, NfmSideMenuChevronRightIcon } from "@/components/shared/icons";
 import {
   resolveQueryFreshAccept,
   shouldConsumeStalePickerNavigation,
@@ -27,6 +27,8 @@ import {
   buildNfmMoveToSections,
   flattenNfmMoveToRows,
   getDefaultNfmMoveToExpandedProjectIds,
+  getDefaultNfmMoveToProjectId,
+  getNfmMoveToExecutableProjects,
   moveNfmMoveToFocusedRowId,
   resolveNfmMoveToFocusedRowId,
   type NfmMoveToDestination,
@@ -38,6 +40,7 @@ import { createNfmMoveToSearchIndex } from "./nfm-move-to-menu-search";
 import { ProjectMarker } from "@/components/workbench/project-marker";
 import {
   NodexDestinationPicker,
+  NodexDestinationPickerPageRowContent,
   NodexDestinationPickerSection,
   NodexDestinationPickerStatus,
 } from "@/components/ui/destination-picker";
@@ -54,25 +57,23 @@ interface NfmMoveToMenuProps {
 
 export interface NfmMoveToMenuSurfaceProps extends NfmMoveToMenuProps {
   projects: readonly Project[];
-  boardMap: ReadonlyMap<string, BoardSummary>;
+  pageBoardMap: ReadonlyMap<string, BoardSummary>;
   loading: boolean;
   loadError?: string | null;
   initialQuery?: string;
-  loadExpandedBoards?: boolean;
+  loadPageWindow?: boolean;
   enableRemotePageSearch?: boolean;
 }
 
 const MOVE_TO_MENU_LOAD_DELAY_MS = 400;
-const MOVE_TO_MENU_ERROR = "Something went wrong";
+const MOVE_TO_MENU_ERROR = "Couldn’t move these blocks.";
 const MOVE_TO_ROW_BASE_PADDING_X = 6;
 const MOVE_TO_ROW_GAP = 6;
 const MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH = 22;
-const MOVE_TO_ROW_COLUMN_ICON_SLOT_WIDTH = 18;
 const MOVE_TO_ROW_COLUMN_PADDING_LEFT =
   MOVE_TO_ROW_BASE_PADDING_X
   + MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH
-  + MOVE_TO_ROW_GAP
-  - MOVE_TO_ROW_COLUMN_ICON_SLOT_WIDTH;
+  + MOVE_TO_ROW_GAP;
 
 function getMoveToRowDomId(listboxId: string, index: number) {
   return `${listboxId}-option-${index}`;
@@ -93,8 +94,9 @@ function MoveToProjectIcon({
   return <ProjectMarker appearance={projectAppearance} className={className} />;
 }
 
-function MoveToRowIcon({ row }: { row: NfmMoveToRow }) {
-  if (row.kind === "page") return <PageIcon className="size-4" aria-hidden="true" />;
+type NfmMoveToNonPageRow = Exclude<NfmMoveToRow, { kind: "page" }>;
+
+function MoveToRowIcon({ row }: { row: NfmMoveToNonPageRow }) {
   if (row.kind === "db-column") {
     return (
       <StatusIcon
@@ -107,16 +109,9 @@ function MoveToRowIcon({ row }: { row: NfmMoveToRow }) {
   return <MoveToProjectIcon projectAppearance={row.projectAppearance} />;
 }
 
-function getMoveToRowLabel(row: NfmMoveToRow) {
-  if (row.kind === "page") return row.pageTitle;
+function getMoveToRowLabel(row: NfmMoveToNonPageRow) {
   if (row.kind === "db-column") return row.columnName;
   return row.projectName;
-}
-
-function getMoveToRowMeta(row: NfmMoveToRow) {
-  if (row.kind === "page") return `${row.projectName} / ${row.columnName}`;
-  if (row.kind === "db-column") return row.projectName;
-  return "";
 }
 
 function isAcceptableMoveToRow(
@@ -132,6 +127,7 @@ function NfmMoveToResultRow({
   focused,
   disabled,
   accepting,
+  showProjectName,
   onToggleProject,
   onAccept,
   onFocusRowChange,
@@ -142,13 +138,11 @@ function NfmMoveToResultRow({
   focused: boolean;
   disabled: boolean;
   accepting: boolean;
+  showProjectName: boolean;
   onToggleProject: (projectId: string) => void;
   onAccept: (row: NfmMoveToRow) => void;
   onFocusRowChange: (rowId: string) => void;
 }) {
-  const metadata = getMoveToRowMeta(row);
-  const acceptable = isAcceptableMoveToRow(row);
-
   return (
     <button
       id={getMoveToRowDomId(listboxId, index)}
@@ -159,6 +153,7 @@ function NfmMoveToResultRow({
       aria-disabled={disabled || undefined}
       data-focused={focused ? "true" : undefined}
       data-nfm-move-to-row-kind={row.kind}
+      data-nfm-move-to-project-id={row.projectId}
       className={cn(
         "group flex h-7 w-full select-none items-center gap-1.5 rounded-[7px] pr-2 text-left text-[14px] leading-7 outline-hidden",
         "text-token-foreground",
@@ -182,60 +177,53 @@ function NfmMoveToResultRow({
         onAccept(row);
       }}
     >
-      <span
-        className={cn(
-          "relative flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground",
-          row.kind === "db-column" && "w-[18px]",
-        )}
-      >
-        {row.kind === "db" ? (
-          <>
-            <span
-              aria-hidden="true"
-              className={cn(
-                "absolute inset-0 flex items-center justify-center",
-                "group-hover:opacity-0 group-focus-visible:opacity-0",
-                focused && "opacity-0",
-              )}
-            >
+      {row.kind === "page" ? (
+        <NodexDestinationPickerPageRowContent
+          title={row.pageTitle}
+          statusId={row.columnId}
+          statusLabel={row.columnName}
+          projectName={showProjectName ? row.projectName : undefined}
+          accepting={accepting}
+        />
+      ) : (
+        <>
+          <span
+            className={cn(
+              "relative flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground",
+              row.kind === "db-column" && "w-[18px]",
+            )}
+          >
+            {row.kind === "db" ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-0 flex items-center justify-center",
+                    "group-hover:opacity-0 group-focus-visible:opacity-0",
+                    focused && "opacity-0",
+                  )}
+                >
+                  <MoveToRowIcon row={row} />
+                </span>
+                <NfmSideMenuChevronRightIcon
+                  className={cn(
+                    "icon-2xs opacity-0 transition-transform duration-150 ease-out",
+                    "group-hover:opacity-100 group-focus-visible:opacity-100",
+                    focused && "opacity-100",
+                    row.expanded ? "rotate-90" : "rotate-0",
+                  )}
+                />
+              </>
+            ) : (
               <MoveToRowIcon row={row} />
-            </span>
-            <NfmSideMenuChevronRightIcon
-              className={cn(
-                "icon-2xs opacity-0 transition-transform duration-150 ease-out",
-                "group-hover:opacity-100 group-focus-visible:opacity-100",
-                focused && "opacity-100",
-                row.expanded ? "rotate-90" : "rotate-0",
-              )}
-            />
-          </>
-        ) : (
-          <MoveToRowIcon row={row} />
-        )}
-      </span>
-      <span className="flex min-w-0 flex-1 items-baseline gap-2">
-        {row.kind === "page" && row.pageKey ? (
-          <span className="shrink-0 text-[12px] font-medium tabular-nums text-token-description-foreground">
-            {row.pageKey}
+            )}
           </span>
-        ) : null}
-        <span className="min-w-0 truncate">{getMoveToRowLabel(row)}</span>
-      </span>
-      {row.kind === "page"
-        && row.matchedPageKey
-        && row.matchedPageKeyIsCurrent === false ? (
-          <span className="ml-1 max-w-[108px] shrink truncate text-[11px] tabular-nums text-token-description-foreground">
-            Matched {row.matchedPageKey}
-          </span>
-        ) : null}
-      {metadata ? (
-        <span className="ml-1 max-w-[108px] shrink truncate text-[12px] leading-4 text-token-description-foreground">
-          {metadata}
-        </span>
-      ) : null}
-      {accepting && acceptable ? (
-        <ActivitySpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
-      ) : null}
+          <span className="min-w-0 flex-1 truncate">{getMoveToRowLabel(row)}</span>
+          {accepting && row.kind === "db-column" ? (
+            <ActivitySpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
+          ) : null}
+        </>
+      )}
     </button>
   );
 }
@@ -247,6 +235,7 @@ function NfmMoveToSectionView({
   focusedIndex,
   disabled,
   acceptingRowId,
+  showProjectName,
   onToggleProject,
   onAccept,
   onFocusRowChange,
@@ -257,6 +246,7 @@ function NfmMoveToSectionView({
   focusedIndex: number;
   disabled: boolean;
   acceptingRowId: string | null;
+  showProjectName: boolean;
   onToggleProject: (projectId: string) => void;
   onAccept: (row: NfmMoveToRow) => void;
   onFocusRowChange: (rowId: string) => void;
@@ -276,6 +266,7 @@ function NfmMoveToSectionView({
               focused={focusedIndex === index}
               disabled={disabled}
               accepting={acceptingRowId === row.id}
+              showProjectName={showProjectName}
               onToggleProject={onToggleProject}
               onAccept={onAccept}
               onFocusRowChange={onFocusRowChange}
@@ -300,14 +291,23 @@ export function NfmMoveToMenu({
     loading,
     error,
   } = useProjects();
+  const scopedProjects = getNfmMoveToExecutableProjects(
+    projects,
+    sourceProjectId,
+  );
+  const scopeError = error ?? (
+    !loading && sourceProjectId && scopedProjects.length === 0
+      ? "The current Project is unavailable."
+      : null
+  );
 
   return (
     <NfmMoveToMenuSurface
-      projects={projects}
-      boardMap={new Map()}
+      projects={scopedProjects}
+      pageBoardMap={new Map()}
       loading={loading}
-      loadError={error}
-      loadExpandedBoards
+      loadError={scopeError}
+      loadPageWindow
       enableRemotePageSearch
       sourceProjectId={sourceProjectId}
       sourcePageId={sourcePageId}
@@ -322,13 +322,13 @@ export function NfmMoveToMenu({
 
 export function NfmMoveToMenuSurface({
   projects,
-  boardMap: providedBoardMap,
+  pageBoardMap: providedPageBoardMap,
   sourceProjectId,
   sourcePageId,
   loading,
   loadError = null,
   initialQuery = "",
-  loadExpandedBoards = false,
+  loadPageWindow = false,
   enableRemotePageSearch = false,
   resultScope = "all",
   ariaLabel = "Move blocks to",
@@ -344,20 +344,20 @@ export function NfmMoveToMenuSurface({
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
     () => getDefaultNfmMoveToExpandedProjectIds(projects, sourceProjectId),
   );
-  const expandedProjects = useMemo(
-    () =>
-      loadExpandedBoards
-        ? projects.filter((project) => expandedProjectIds.has(project.id))
-        : [],
-    [expandedProjectIds, loadExpandedBoards, projects],
+  const defaultPageProjectId = getDefaultNfmMoveToProjectId(projects, sourceProjectId);
+  const pageProjects = useMemo(
+    () => loadPageWindow && resultScope === "all"
+      ? projects.filter((project) => project.id === defaultPageProjectId)
+      : [],
+    [defaultPageProjectId, loadPageWindow, projects, resultScope],
   );
-  const expandedBoards = useBoardsForProjects(expandedProjects);
-  const boardMap = useMemo(() => {
-    if (!loadExpandedBoards) return providedBoardMap;
-    return new Map([...providedBoardMap, ...expandedBoards.boards]);
-  }, [expandedBoards.boards, loadExpandedBoards, providedBoardMap]);
-  const resolvedLoading = loading || expandedBoards.loading;
-  const resolvedLoadError = loadError ?? expandedBoards.error;
+  const pageBoards = useBoardsForProjects(pageProjects);
+  const pageBoardMap = useMemo(() => {
+    if (!loadPageWindow) return providedPageBoardMap;
+    return new Map([...providedPageBoardMap, ...pageBoards.boards]);
+  }, [loadPageWindow, pageBoards.boards, providedPageBoardMap]);
+  const resolvedLoading = loading || pageBoards.loading;
+  const resolvedLoadError = loadError ?? pageBoards.error;
   const [acceptingRowId, setAcceptingRowId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
@@ -389,11 +389,11 @@ export function NfmMoveToMenuSurface({
   const searchIndex = useMemo(
     () => createNfmMoveToSearchIndex({
       projects,
-      boardMap,
+      boardMap: pageBoardMap,
       sourceProjectId,
       sourcePageId,
     }),
-    [boardMap, projects, sourcePageId, sourceProjectId],
+    [pageBoardMap, projects, sourcePageId, sourceProjectId],
   );
   const searchResult = useMemo(
     () => searchIndex.search(deferredQuery),
@@ -413,7 +413,7 @@ export function NfmMoveToMenuSurface({
   const sections = useMemo(
     () => buildNfmMoveToSections({
       projects,
-      boardMap,
+      pageBoardMap,
       sourceProjectId,
       sourcePageId,
       expandedProjectIds,
@@ -422,7 +422,7 @@ export function NfmMoveToMenuSurface({
       resultScope,
     }),
     [
-      boardMap,
+      pageBoardMap,
       deferredQuery,
       expandedProjectIds,
       projects,
@@ -439,7 +439,7 @@ export function NfmMoveToMenuSurface({
       : searchIndex.search(nextQuery);
     const nextSections = buildNfmMoveToSections({
       projects,
-      boardMap,
+      pageBoardMap,
       sourceProjectId,
       sourcePageId,
       expandedProjectIds,
@@ -449,7 +449,7 @@ export function NfmMoveToMenuSurface({
     });
     return flattenNfmMoveToRows(nextSections);
   }, [
-    boardMap,
+    pageBoardMap,
     expandedProjectIds,
     projects,
     resultScope,
@@ -477,6 +477,7 @@ export function NfmMoveToMenuSurface({
   const displayError = acceptError ?? resolvedLoadError;
   const visibleRowCount = rows.length;
   const disabled = Boolean(acceptingRowId);
+  const showProjectName = projects.length > 1;
 
   const toggleProject = useCallback((projectId: string) => {
     setExpandedProjectIds((current) => {
@@ -497,8 +498,16 @@ export function NfmMoveToMenuSurface({
     try {
       await onAccept(row.destination);
       setAcceptingRowId(null);
-    } catch {
-      setAcceptError(MOVE_TO_MENU_ERROR);
+    } catch (error) {
+      console.error("[nfm-move-to:accept]", {
+        destination: row.destination,
+        error,
+      });
+      setAcceptError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : MOVE_TO_MENU_ERROR,
+      );
       setAcceptingRowId(null);
     }
   }, [onAccept]);
@@ -589,6 +598,7 @@ export function NfmMoveToMenuSurface({
                 focusedIndex={focusedIndex}
                 disabled={disabled}
                 acceptingRowId={acceptingRowId}
+                showProjectName={showProjectName}
                 onToggleProject={(projectId) => {
                   if (rowsStale) return;
                   toggleProject(projectId);
@@ -605,16 +615,20 @@ export function NfmMoveToMenuSurface({
             );
           })}
           {showDelayedLoading ? (
-            <NodexDestinationPickerStatus>
+            <NodexDestinationPickerStatus role="status">
               <ActivitySpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
               Loading…
             </NodexDestinationPickerStatus>
           ) : null}
           {displayError ? (
-            <NodexDestinationPickerStatus>{MOVE_TO_MENU_ERROR}</NodexDestinationPickerStatus>
+            <NodexDestinationPickerStatus role="alert">
+              {displayError}
+            </NodexDestinationPickerStatus>
           ) : null}
           {!resolvedLoading && !displayError && visibleRowCount === 0 ? (
-            <NodexDestinationPickerStatus>No results</NodexDestinationPickerStatus>
+            <NodexDestinationPickerStatus role="status">
+              No results
+            </NodexDestinationPickerStatus>
           ) : null}
     </NodexDestinationPicker>
   );
