@@ -413,10 +413,12 @@ describe("terminal Project lifecycle guard", () => {
   }
 
   test("allows terminals owned by an active Project", async () => {
+    const workspace = makeWorkspace(makeProject());
     await expect(assertTerminalProjectIsActive(
-      makeWorkspace(makeProject()),
-      { projectSessionId: "session-1" },
+      workspace,
+      { projectSessionId: "session-1", conversationId: null },
     )).resolves.toBe("project-1");
+    expect(workspace.getThread).not.toHaveBeenCalled();
   });
 
   test("rejects new terminal work owned by an archived Project", async () => {

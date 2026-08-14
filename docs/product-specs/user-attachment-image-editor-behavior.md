@@ -27,7 +27,7 @@ Resize offers Square 1:1, Portrait 3:4, Story 9:16, Landscape 4:3, and Widescree
 
 ## Submission ownership
 
-The mounted root or side Composer is the single writable owner for image-edit selection, positional comments, prompt text, attachment materialization, and submission. The editor emits a typed intent and never guesses transport from a nullable Thread id. A stable Composer-channel identity survives promotion from New Chat to its created task while keeping root and side Composers isolated. Resolving an image for display must not erase or reinterpret its attachment id, host id, managed source, or trusted local path.
+The mounted root or side Composer is the single writable owner for image-edit selection, positional comments, prompt text, attachment materialization, and submission. The editor emits a typed intent and never guesses transport from a nullable Thread id. A stable Session Composer channel survives focus changes and the first Thread attachment while keeping root and side Composers isolated. Resolving an image for display must not erase or reinterpret its attachment id, host id, managed source, or trusted local path.
 
 New Chat, projectless tasks, Project tasks, and idle existing tasks use the normal Composer send boundary. The first edit from New Chat creates the task with the current run context; an edit sent during an active turn enters the ordinary queued-follow-up lane and is never steered. When no matching Composer is mounted, only an existing task may use the bounded direct-thread fallback. Failure preserves the editor and Composer drafts.
 

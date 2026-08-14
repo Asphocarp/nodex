@@ -134,7 +134,7 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(Boolean(exitingThreadRow?.closest("[data-app-action-sidebar-project-list-motion]"))).toBe(true);
   });
 
-  test("top new-chat row creates the Project's first ordinary Session", async () => {
+  test("top new-chat row ensures the Project's default draft Session", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [] },
       initialSelectedSessionId: null,
@@ -150,11 +150,14 @@ describe("workbench session shell / sidebar-projects", () => {
 
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:create"
-      && JSON.stringify(call[1]).includes('"projectId":"alpha"')
+      call[0] === "project-sessions:ensure-default-draft"
+      && call[1] === "alpha"
     ))).toBe(true);
     expect(props?.isNewThreadTab).toBe(true);
-    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:created"')).toBe(true);
+    expect(props?.newThreadTarget).toMatchObject({
+      projectId: "alpha",
+      sessionId: "session:alpha:created",
+    });
     expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
     expect(screen.queryByTestId("session-right-panel")).toBe(null);
   });
@@ -344,7 +347,7 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(screen.queryByRole("tab", { name: "Database" })).toBeNull();
   });
 
-  test("Chats section creates a projectless blank-session composer", async () => {
+  test("Chats section ensures a projectless default-draft composer", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
@@ -361,11 +364,8 @@ describe("workbench session shell / sidebar-projects", () => {
       __lastConnectedThreadStageProps?: Record<string, unknown>;
     }).__lastConnectedThreadStageProps;
     expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:create"
-      && JSON.stringify(call[1]) === JSON.stringify({
-        projectId: null,
-        noThreadFallbackTitle: "New thread",
-      })
+      call[0] === "project-sessions:ensure-default-draft"
+      && call[1] === null
     ))).toBe(true);
     expect(props?.isNewThreadTab).toBe(true);
     expect(props?.newThreadTarget).toMatchObject({
@@ -457,7 +457,7 @@ describe("workbench session shell / sidebar-projects", () => {
       screen.container.querySelectorAll<HTMLElement>("[data-app-action-sidebar-thread-title]"),
     ).map((row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "");
     const overviewIndex = rowTitles.indexOf("Database View");
-    const newThreadIndex = rowTitles.indexOf("New thread");
+    const newThreadIndex = rowTitles.indexOf("New chat");
     const olderThreadIndex = rowTitles.indexOf("Older chat");
 
     expect(overviewIndex >= 0).toBe(true);
@@ -517,7 +517,7 @@ describe("workbench session shell / sidebar-projects", () => {
 
     const rowTitles = getThreadRowTitles(screen.container);
     const databaseViewIndex = rowTitles.indexOf("Database View");
-    const newThreadIndex = rowTitles.indexOf("New thread");
+    const newThreadIndex = rowTitles.indexOf("New chat");
     const olderThreadIndex = rowTitles.indexOf("Older snapshot chat");
 
     expect(databaseViewIndex >= 0).toBe(true);
@@ -610,7 +610,7 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(within(chatsSection).queryByRole("button", { name: "Show less" }) !== null).toBe(true);
   });
 
-  test("Cmd+N creates a project-scoped ordinary Session", async () => {
+  test("Cmd+N ensures a project-scoped default Session", async () => {
     renderWorkbench({
       sessionsByProject: { alpha: [] },
     });
@@ -623,13 +623,16 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(true);
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:ensure-default-draft" && call[1] === "alpha"
+    ))).toBe(true);
     const props = (globalThis as {
       __lastConnectedThreadStageProps?: Record<string, unknown>;
     }).__lastConnectedThreadStageProps;
-    expect(JSON.stringify(props?.newThreadTarget).includes(
-      '"sessionId":"session:alpha:created"',
-    )).toBe(true);
+    expect(props?.newThreadTarget).toMatchObject({
+      projectId: "alpha",
+      sessionId: "session:alpha:created",
+    });
   });
 
   test("project row new-chat button opens a project composer without prompting or toggling", async () => {
@@ -668,11 +671,15 @@ describe("workbench session shell / sidebar-projects", () => {
       await settleAsyncRender();
 
       expect(promptCalls.length).toBe(0);
-      expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+      expect(invokeCalls.some((call) => (
+        call[0] === "project-sessions:ensure-default-draft" && call[1] === "beta"
+      ))).toBe(true);
       await waitFor(() => {
         const latestProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-        expect(JSON.stringify(latestProps?.newThreadTarget).includes('"projectId":"beta"')).toBe(true);
-        expect(JSON.stringify(latestProps?.newThreadTarget).includes('"sessionId":"session:beta:database-view"')).toBe(true);
+        expect(latestProps?.newThreadTarget).toMatchObject({
+          projectId: "beta",
+          sessionId: "session:beta:created",
+        });
       });
     } finally {
       window.prompt = originalPrompt;
@@ -931,6 +938,39 @@ describe("workbench session shell / sidebar-projects", () => {
     ]));
   });
 
+  test("keeps a pre-thread New Chat in its canonical Session position", async () => {
+    const chatA = makeAttachedSession({
+      id: "session:alpha:a",
+      threadId: "thread-alpha-a",
+      title: "Alpha A",
+    });
+    const draft = makeSession({
+      id: "session:alpha:draft",
+      projectId: "alpha",
+      noThreadFallbackTitle: "New chat",
+      displayTitle: "New chat",
+      thread: null,
+    });
+    const chatB = makeAttachedSession({
+      id: "session:alpha:b",
+      threadId: "thread-alpha-b",
+      title: "Alpha B",
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [chatA, draft, chatB] },
+      sidebarSnapshotItems: [chatA, chatB].map(makeSidebarSnapshotItemForSession),
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const projectsSection = getSidebarSection(screen.container, "Projects");
+    expect(getThreadRowTitles(projectsSection)).toEqual([
+      "Alpha A",
+      "New chat",
+      "Alpha B",
+    ]);
+  });
+
   test("keeps canonical project TaskWindow order stable across session selection", async () => {
     const pinned = makeAttachedSession({
       id: "session:alpha:pinned",
@@ -1120,6 +1160,9 @@ describe("workbench session shell / sidebar-projects", () => {
           betaBlank,
         ],
       },
+      defaultDraftSessionIdsByScope: {
+        beta: betaBlank.id,
+      },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -1130,10 +1173,15 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:create" && JSON.stringify(call[1]).includes('"projectId":"beta"'))).toBe(false);
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:ensure-default-draft" && call[1] === "beta"
+    ))).toBe(true);
     await waitFor(() => {
       const latestProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-      expect(JSON.stringify(latestProps?.newThreadTarget).includes('"sessionId":"session:beta:blank"')).toBe(true);
+      expect(latestProps?.newThreadTarget).toMatchObject({
+        projectId: "beta",
+        sessionId: "session:beta:blank",
+      });
     });
   });
 

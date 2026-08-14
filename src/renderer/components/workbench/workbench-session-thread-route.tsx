@@ -65,7 +65,7 @@ function ConnectedSessionThread({
   routeActive,
   threadBodyVisible,
   onRefreshProjectSessions,
-  onEnsureBlankSessionForProject,
+  onEnsureDefaultDraftSessionForProject,
   onStartNewChatWithPrompt,
   onOpenPendingWorktree,
   newThreadComposerIntent,
@@ -121,6 +121,7 @@ function ConnectedSessionThread({
   newThreadStartBlockedReason,
   projectDraftId,
   onMaterializeProjectDraft,
+  onCommitMaterializedProjectDraft,
 }: {
   session: WorkbenchSessionRenderProjection;
   project: Project | null;
@@ -130,7 +131,7 @@ function ConnectedSessionThread({
   onRefreshProjectSessions: (
     projectId: string | null,
   ) => Promise<WorkbenchSessionRenderProjection[]>;
-  onEnsureBlankSessionForProject: (
+  onEnsureDefaultDraftSessionForProject: (
     projectId: string | null,
   ) => Promise<WorkbenchSessionRenderProjection>;
   onStartNewChatWithPrompt?: NonNullable<
@@ -226,6 +227,7 @@ function ConnectedSessionThread({
   newThreadStartBlockedReason?: string | null;
   projectDraftId?: string | null;
   onMaterializeProjectDraft?: ThreadActionControllerInput["onMaterializeProjectDraft"];
+  onCommitMaterializedProjectDraft?: ThreadActionControllerInput["onCommitMaterializedProjectDraft"];
 }) {
   const attachedSummary = session.thread
     ? projectSessionThreadLinkToSummary(session.thread)
@@ -550,7 +552,7 @@ function ConnectedSessionThread({
       browserUseViewScopeId,
       codexControl,
       currentSessionId: session.id,
-      onEnsureBlankSessionForProject,
+      onEnsureDefaultDraftSessionForProject,
       onRefreshProjectSessions,
       onOpenPendingWorktree,
       newThreadStartBlockedReason: effectiveNewThreadStartBlockedReason,
@@ -608,6 +610,7 @@ function ConnectedSessionThread({
       selectedCollaborationMode,
       setSelectedCollaborationMode,
       onMaterializeProjectDraft,
+      onCommitMaterializedProjectDraft,
     }),
     ...(onConsumeNewThreadComposerIntent
       ? { onConsumeNewThreadComposerIntent }
@@ -615,7 +618,7 @@ function ConnectedSessionThread({
   }), [
     browserUseViewScopeId,
     codexControl,
-    onEnsureBlankSessionForProject,
+    onEnsureDefaultDraftSessionForProject,
     onStartNewChatWithPrompt,
     onRefreshProjectSessions,
     onOpenPendingWorktree,
@@ -652,6 +655,7 @@ function ConnectedSessionThread({
     effectiveProjectId,
     selectedCollaborationMode,
     onMaterializeProjectDraft,
+    onCommitMaterializedProjectDraft,
     summary?.threadId,
   ]);
 
@@ -788,8 +792,9 @@ export function ProjectSessionThreadComposerDock({
   newThreadStartBlockedReason,
   projectDraftId = null,
   onMaterializeProjectDraft,
+  onCommitMaterializedProjectDraft,
   onRefreshProjectSessions,
-  onEnsureBlankSessionForProject,
+  onEnsureDefaultDraftSessionForProject,
   onOpenPendingWorktree,
   onOpenLocalEnvironmentsSettings,
   onOpenHooksSettings,
@@ -812,8 +817,9 @@ export function ProjectSessionThreadComposerDock({
   readonly newThreadStartBlockedReason?: string | null;
   readonly projectDraftId?: string | null;
   readonly onMaterializeProjectDraft?: ThreadActionControllerInput["onMaterializeProjectDraft"];
+  readonly onCommitMaterializedProjectDraft?: ThreadActionControllerInput["onCommitMaterializedProjectDraft"];
   readonly onRefreshProjectSessions: ConnectedSessionThreadProps["onRefreshProjectSessions"];
-  readonly onEnsureBlankSessionForProject: ConnectedSessionThreadProps["onEnsureBlankSessionForProject"];
+  readonly onEnsureDefaultDraftSessionForProject: ConnectedSessionThreadProps["onEnsureDefaultDraftSessionForProject"];
   readonly onOpenPendingWorktree: ConnectedSessionThreadProps["onOpenPendingWorktree"];
   readonly onOpenLocalEnvironmentsSettings: ConnectedSessionThreadProps["onOpenLocalEnvironmentsSettings"];
   readonly onOpenHooksSettings: ConnectedSessionThreadProps["onOpenHooksSettings"];
@@ -838,7 +844,7 @@ export function ProjectSessionThreadComposerDock({
       routeActive
       threadBodyVisible={false}
       onRefreshProjectSessions={onRefreshProjectSessions}
-      onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
+      onEnsureDefaultDraftSessionForProject={onEnsureDefaultDraftSessionForProject}
       onOpenPendingWorktree={onOpenPendingWorktree}
       onRequestProjectPickerOpen={noOp}
       onOpenLocalEnvironmentsSettings={onOpenLocalEnvironmentsSettings}
@@ -887,6 +893,7 @@ export function ProjectSessionThreadComposerDock({
       newThreadStartBlockedReason={newThreadStartBlockedReason}
       projectDraftId={projectDraftId}
       onMaterializeProjectDraft={onMaterializeProjectDraft}
+      onCommitMaterializedProjectDraft={onCommitMaterializedProjectDraft}
     />
   );
 }

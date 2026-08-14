@@ -500,8 +500,8 @@ describe("workbench session shell / automations-conversation", () => {
       expect(promptInput.value).toBe(WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT);
     });
     expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:create"
-      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", noThreadFallbackTitle: "New thread" })
+      call[0] === "project-sessions:ensure-default-draft"
+      && call[1] === "alpha"
     )).toBe(true);
     expect(startThreadForSessionCalls.length).toBe(0);
   });
@@ -1377,8 +1377,8 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:create"
-      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", noThreadFallbackTitle: "New thread" })
+      call[0] === "project-sessions:ensure-default-draft"
+      && call[1] === "beta"
     )).toBe(true);
     expect(startThreadForSessionCalls.length).toBe(1);
     expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({

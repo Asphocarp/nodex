@@ -17380,6 +17380,7 @@ export class CodexService extends EventEmitter {
     let progressThreadId: string | null = null;
     let managedWorktreePath: string | null = null;
     let worktreeOwnershipTransferred = false;
+    let unlinkedStartedThreadId: string | null = null;
 
     try {
       await this.ensureClientReady();
@@ -17391,6 +17392,11 @@ export class CodexService extends EventEmitter {
       }
       if (session.projectId !== input.projectId) {
         throw new Error("Thread project must match the owning session project");
+      }
+      if (session.thread) {
+        throw new Error(
+          `Project session is already linked to Codex thread: ${session.thread.threadId}`,
+        );
       }
       if (input.projectId === null && requestedRunInTarget !== "localProject") {
         throw new Error("Projectless threads can only work locally");
@@ -17556,6 +17562,7 @@ export class CodexService extends EventEmitter {
       let effectiveCwd = runLocation.cwd;
       try {
         threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
+        unlinkedStartedThreadId = threadStart.thread.id.trim() || null;
         effectiveCwd = resolveCodexCanonicalHydratedCwd({
           requestedCwd: runLocation.cwd,
           responseCwd: threadStart.cwd,
@@ -17579,6 +17586,7 @@ export class CodexService extends EventEmitter {
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
         }
+        unlinkedStartedThreadId = null;
         if (executionProfile) {
           link = await this.updateWorkspaceThreadSummary(link.threadId, {
             modelProvider: executionProfile.providerId,
@@ -17870,6 +17878,11 @@ export class CodexService extends EventEmitter {
       });
       return { kind: "started", detail };
     } catch (error) {
+      if (unlinkedStartedThreadId) {
+        await this.client.request<"thread/delete", ThreadDeleteResponse>("thread/delete", {
+          threadId: unlinkedStartedThreadId,
+        }).catch(() => undefined);
+      }
       if (managedWorktreePath && !worktreeOwnershipTransferred) {
         await this.managedWorktreeLifecycle.remove({
           hostId: CODEX_APP_LOCAL_HOST_ID,

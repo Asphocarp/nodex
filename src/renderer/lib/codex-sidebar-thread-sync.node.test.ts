@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   buildCodexSidebarPinnedReorderMutation,
   buildSidebarThreadSyncModel,
-  listReorderableCodexSidebarProjectThreadKeys,
+  listReorderableCodexSidebarChatKeys,
   listPendingPinnedBeforeThreadUpdates,
   listRealThreadIdsForSidebarKeys,
   mergeVisibleCodexPinnedThreadOrder,
@@ -531,9 +531,9 @@ describe("sortSidebarThreadKeysForDisplay", () => {
 
 describe("project thread reorder eligibility", () => {
   test("enables child DnD for durable threads without requiring loaded session detail", () => {
-    expect(JSON.stringify(listReorderableCodexSidebarProjectThreadKeys({
+    expect(JSON.stringify(listReorderableCodexSidebarChatKeys({
       visibleThreadKeys: ["thread:a", "pending:x", "thread:b"],
-      getThreadId: (threadKey) => threadKey.startsWith("thread:") ? threadKey : null,
+      getSessionId: (threadKey) => threadKey.startsWith("thread:") ? threadKey : null,
     }))).toBe(JSON.stringify(["thread:a", "thread:b"]));
   });
 });

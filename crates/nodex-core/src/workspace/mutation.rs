@@ -32,9 +32,7 @@ use crate::infrastructure::durable_mutation::{
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
 };
-#[cfg(test)]
-use crate::infrastructure::local_commit;
-use crate::infrastructure::local_commit::CommitContext;
+use crate::infrastructure::local_commit::{self, CommitContext};
 use crate::infrastructure::module_receipts::read_module_receipt;
 #[cfg(test)]
 use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
@@ -386,6 +384,21 @@ pub(super) fn apply(
                     project_id,
                     title,
                 } => session_lifecycle::create_session(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    session_id,
+                    project_id.as_deref(),
+                    title,
+                ),
+                ProjectWorkspaceIntent::EnsureDefaultDraftSession {
+                    session_id,
+                    project_id,
+                    title,
+                } => session_lifecycle::ensure_default_draft_session(
                     transaction,
                     &library_id,
                     &context,
@@ -904,6 +917,66 @@ pub(super) fn finish_mutation(
         &committed_at,
         |_| Ok(effects),
     )
+}
+
+pub(super) fn finish_no_op(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    operation_kind: &'static str,
+    project_ids: Vec<String>,
+    session_ids: Vec<String>,
+    committed_at: &str,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::ProjectWorkspace,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at,
+            context,
+        },
+        |scope| {
+            let commit_seq = local_commit::head(scope.connection())?;
+            let event_sequence = scope.connection().query_row(
+                "SELECT COALESCE(MAX(seq), 0) FROM change_log",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            let committed = crate::ModuleWriterResult {
+                value: ProjectWorkspaceCommitValue {
+                    affected_project_ids: project_ids.clone(),
+                    affected_session_ids: session_ids.clone(),
+                    affected_thread_ids: Vec::new(),
+                },
+                receipt: ProjectWorkspaceReceipt {
+                    mutation: ModuleMutationReceipt {
+                        operation_id: operation_id.to_owned(),
+                        duplicate: false,
+                    },
+                    affected_project_ids: project_ids.clone(),
+                    affected_session_ids: session_ids.clone(),
+                },
+                commit_seq,
+                event_sequence,
+                store_epoch: StoreEpoch(store_epoch.to_owned()),
+            };
+            Ok(scope.no_op(
+                committed,
+                ReceiptMetadata {
+                    operation_kind,
+                    event_sequence: None,
+                    committed_at,
+                },
+            ))
+        },
+    )?;
+    workspace_commit_result(connection, result)
 }
 
 fn workspace_commit_result(
@@ -3695,6 +3768,334 @@ mod tests {
             ("Updated preview", "active")
         );
         assert_eq!((stored.7, stored.8, stored.9), (0, 0, 0));
+    }
+
+    #[test]
+    fn ensures_one_default_draft_per_scope_and_owns_its_lifecycle() {
+        let (_directory, kernel, module) = seeded_module();
+        for (operation_id, project_id) in [
+            ("default-draft-project-alpha", "project-alpha"),
+            ("default-draft-project-beta", "project-beta"),
+            ("default-draft-project-gamma", "project-gamma"),
+        ] {
+            module
+                .apply(&context(), create_request(operation_id, project_id))
+                .expect("create default-draft test Project");
+        }
+        module
+            .apply(
+                &context(),
+                request(
+                    "default-draft-ordinary-threadless",
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: "session:ordinary-threadless".to_owned(),
+                        project_id: Some("project-alpha".to_owned()),
+                        title: "Page workspace".to_owned(),
+                    },
+                ),
+            )
+            .expect("create ordinary threadless Session");
+
+        let first = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("first competing Workspace module");
+        let second = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("second competing Workspace module");
+        let first_thread = std::thread::spawn(move || {
+            first.apply(
+                &context(),
+                request(
+                    "default-draft-concurrent-a",
+                    ProjectWorkspaceIntent::EnsureDefaultDraftSession {
+                        session_id: "session:default-a".to_owned(),
+                        project_id: Some("project-alpha".to_owned()),
+                        title: "New chat".to_owned(),
+                    },
+                ),
+            )
+        });
+        let second_thread = std::thread::spawn(move || {
+            second.apply(
+                &context(),
+                request(
+                    "default-draft-concurrent-b",
+                    ProjectWorkspaceIntent::EnsureDefaultDraftSession {
+                        session_id: "session:default-b".to_owned(),
+                        project_id: Some("project-alpha".to_owned()),
+                        title: "New chat".to_owned(),
+                    },
+                ),
+            )
+        });
+        let outcomes = [
+            first_thread
+                .join()
+                .expect("first competing default-draft writer")
+                .expect("first default-draft ensure"),
+            second_thread
+                .join()
+                .expect("second competing default-draft writer")
+                .expect("second default-draft ensure"),
+        ];
+        let winner = outcomes[0].committed.value.affected_session_ids[0].clone();
+        assert_eq!(
+            outcomes[1].committed.value.affected_session_ids,
+            [winner.clone()]
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| outcome.event.is_some())
+                .count(),
+            1
+        );
+
+        let ensure = |operation_id: &str, candidate: &str, project_id: Option<&str>| {
+            module
+                .apply(
+                    &context(),
+                    request(
+                        operation_id,
+                        ProjectWorkspaceIntent::EnsureDefaultDraftSession {
+                            session_id: candidate.to_owned(),
+                            project_id: project_id.map(str::to_owned),
+                            title: "New chat".to_owned(),
+                        },
+                    ),
+                )
+                .expect("ensure default-draft Session")
+                .committed
+                .value
+                .affected_session_ids[0]
+                .clone()
+        };
+        assert_eq!(
+            ensure(
+                "default-draft-repeat-alpha",
+                "session:ignored-alpha",
+                Some("project-alpha")
+            ),
+            winner
+        );
+        let beta = ensure(
+            "default-draft-ensure-beta",
+            "session:default-beta",
+            Some("project-beta"),
+        );
+        let projectless = ensure(
+            "default-draft-ensure-projectless",
+            "session:default-projectless",
+            None,
+        );
+        assert_ne!(winner, beta);
+        assert_ne!(winner, projectless);
+
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "default-draft-rename",
+                    &winner,
+                    ProjectSessionIntent::Rename {
+                        title: "Still drafting".to_owned(),
+                    },
+                ),
+            )
+            .expect("rename default draft");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "default-draft-pin",
+                    &winner,
+                    ProjectSessionIntent::SetPinned { pinned: true },
+                ),
+            )
+            .expect("pin default draft");
+        let move_conflict = module
+            .apply(
+                &context(),
+                request(
+                    "default-draft-move-conflict",
+                    ProjectWorkspaceIntent::MoveSession {
+                        session_id: winner.clone(),
+                        project_id: Some("project-beta".to_owned()),
+                    },
+                ),
+            )
+            .expect_err("reject moving a default draft into an occupied scope");
+        assert_eq!(move_conflict.code, CoreErrorCode::Conflict);
+        module
+            .apply(
+                &context(),
+                request(
+                    "default-draft-move-gamma",
+                    ProjectWorkspaceIntent::MoveSession {
+                        session_id: winner.clone(),
+                        project_id: Some("project-gamma".to_owned()),
+                    },
+                ),
+            )
+            .expect("move default draft into empty scope");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO codex_threads(\
+                       thread_id, project_id, thread_name, thread_preview, model_provider, \
+                       status_type, status_active_flags_json, archived, created_at, updated_at, \
+                       linked_at\
+                     ) VALUES (\
+                       'thread:default-draft', 'project-gamma', '', '', 'openai', 'idle', '[]', \
+                       0, 1, 1, ?1\
+                     )",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO codex_threads(\
+                       thread_id, project_id, thread_name, thread_preview, model_provider, \
+                       status_type, status_active_flags_json, archived, created_at, updated_at, \
+                       linked_at\
+                     ) VALUES (\
+                       'thread:default-draft-race', 'project-gamma', '', '', 'openai', 'idle', \
+                       '[]', 0, 1, 1, ?1\
+                     )",
+                    [NOW],
+                )?;
+                Ok(())
+            })
+            .expect("seed Thread for default-draft graduation");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "default-draft-link-thread",
+                    &winner,
+                    ProjectSessionIntent::LinkThread {
+                        thread_id: "thread:default-draft".to_owned(),
+                        expected_project_id: Some("project-gamma".to_owned()),
+                        thread_patch: None,
+                        execution_location: None,
+                    },
+                ),
+            )
+            .expect("graduate default draft by linking a Thread");
+        let competing_link = module
+            .apply(
+                &context(),
+                session_request(
+                    "default-draft-competing-link",
+                    &winner,
+                    ProjectSessionIntent::LinkThread {
+                        thread_id: "thread:default-draft-race".to_owned(),
+                        expected_project_id: Some("project-gamma".to_owned()),
+                        thread_patch: None,
+                        execution_location: None,
+                    },
+                ),
+            )
+            .expect_err("reject replacing a Session's existing Thread link");
+        assert_eq!(competing_link.code, CoreErrorCode::Conflict);
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "default-draft-unlink-thread",
+                    &winner,
+                    ProjectSessionIntent::UnlinkThread {
+                        thread_id: "thread:default-draft".to_owned(),
+                    },
+                ),
+            )
+            .expect("unlink graduated Thread");
+        let gamma_after_link = ensure(
+            "default-draft-after-link",
+            "session:default-gamma-after-link",
+            Some("project-gamma"),
+        );
+        assert_ne!(gamma_after_link, winner);
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "default-draft-archive",
+                    &gamma_after_link,
+                    ProjectSessionIntent::SetArchived { archived: true },
+                ),
+            )
+            .expect("archive default draft");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "default-draft-restore",
+                    &gamma_after_link,
+                    ProjectSessionIntent::SetArchived { archived: false },
+                ),
+            )
+            .expect("restore graduated archived draft");
+        let gamma_after_archive = ensure(
+            "default-draft-after-archive",
+            "session:default-gamma-after-archive",
+            Some("project-gamma"),
+        );
+        assert_ne!(gamma_after_archive, gamma_after_link);
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "default-draft-delete-beta",
+                    ProjectWorkspaceIntent::DeleteSession {
+                        session_id: beta.clone(),
+                    },
+                ),
+            )
+            .expect("delete beta default draft");
+        assert_ne!(
+            ensure(
+                "default-draft-after-delete",
+                "session:default-beta-after-delete",
+                Some("project-beta")
+            ),
+            beta
+        );
+
+        let counts = kernel
+            .writer()
+            .call(move |connection| {
+                connection
+                    .query_row(
+                        "SELECT \
+                           (SELECT count(*) FROM project_sessions \
+                            WHERE project_id = 'project-alpha' AND is_default_draft = 1), \
+                           (SELECT count(*) FROM project_sessions \
+                            WHERE project_id = 'project-beta' AND is_default_draft = 1), \
+                           (SELECT count(*) FROM project_sessions \
+                            WHERE project_id = 'project-gamma' AND is_default_draft = 1), \
+                           (SELECT count(*) FROM project_sessions \
+                            WHERE project_id IS NULL AND is_default_draft = 1), \
+                           (SELECT is_default_draft FROM project_sessions \
+                            WHERE id = 'session:ordinary-threadless'), \
+                           (SELECT is_default_draft FROM project_sessions WHERE id = ?1), \
+                           (SELECT is_default_draft FROM project_sessions WHERE id = ?2)",
+                        [&winner, &gamma_after_link],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                                row.get::<_, i64>(3)?,
+                                row.get::<_, i64>(4)?,
+                                row.get::<_, i64>(5)?,
+                                row.get::<_, i64>(6)?,
+                            ))
+                        },
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("read default-draft invariants");
+        assert_eq!(counts, (0, 1, 1, 1, 0, 0, 0));
     }
 
     #[test]

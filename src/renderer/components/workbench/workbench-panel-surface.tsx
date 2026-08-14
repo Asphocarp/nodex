@@ -64,7 +64,7 @@ export function WorkbenchTabProjectionPanel({
   onSendPageToChat,
   onOpenCanvasStage,
   onOpenFileTab,
-  onEnsureBlankSessionForProject,
+  onEnsureDefaultDraftSessionForProject,
   onRefreshSessions,
   onCloseTab,
   onUpdateTab,
@@ -107,7 +107,7 @@ export function WorkbenchTabProjectionPanel({
     panelId: PanelId;
     mode?: "preview" | "durable";
   }) => Promise<unknown>;
-  onEnsureBlankSessionForProject: (
+  onEnsureDefaultDraftSessionForProject: (
     projectId: string,
     options?: { select?: boolean },
   ) => Promise<WorkbenchSessionRenderProjection>;
@@ -230,7 +230,7 @@ export function WorkbenchTabProjectionPanel({
             activeSession.panels.bottom.layout.activeLeafId,
           );
         }}
-        onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
+        onEnsureDefaultDraftSessionForProject={onEnsureDefaultDraftSessionForProject}
         onRefreshSessions={onRefreshSessions}
         onOpenPageTab={onOpenPageTab}
         onOpenCanvasStage={onOpenCanvasStage}
@@ -267,9 +267,7 @@ export function WorkbenchTabProjectionPanel({
         <TerminalPanel
           terminalId={tab.config.terminalSessionId}
           cwd={cwd}
-          conversationId={
-            activeSession.thread?.threadId ?? activeSession.id
-          }
+          conversationId={activeSession.thread?.threadId ?? null}
           projectSessionId={activeSession.id}
           onNewTerminalTab={() => {
             void onCreateTerminalTab(tab.panelId, leafId);

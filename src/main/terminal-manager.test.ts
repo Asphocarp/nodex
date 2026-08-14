@@ -266,6 +266,62 @@ describe("TerminalManager view leases", () => {
     expect(fakePty.kill).not.toHaveBeenCalled();
   });
 
+  test("keeps one PTY when a pre-thread Session later gains its Thread identity", () => {
+    const fakePty = makeFakePty();
+    ptyMock.spawn.mockReturnValue(fakePty);
+    const harness = makeHarness();
+    const renderer = owner(11);
+    const request = {
+      sessionId: "terminal-pre-thread",
+      conversationId: null,
+      projectSessionId: "session-default-draft",
+      cwd: process.cwd(),
+      size: { cols: 80, rows: 24 },
+    };
+
+    const created = harness.manager.create(
+      renderer,
+      "window-session-a",
+      request,
+      harness.emit,
+    );
+    fakePty.emitData("draft shell\r\n");
+    harness.manager.releaseViewLease(
+      renderer,
+      "window-session-a",
+      request.sessionId,
+    );
+    const attached = harness.manager.acquireViewLease(
+      renderer,
+      "window-session-a",
+      {
+        ...request,
+        conversationId: "thread-started",
+      },
+      harness.emit,
+    );
+
+    expect(created).toMatchObject({
+      status: "acquired",
+      snapshot: { osPid: fakePty.pid },
+    });
+    expect(attached).toMatchObject({
+      status: "acquired",
+      snapshot: {
+        osPid: fakePty.pid,
+        conversationId: "thread-started",
+        projectSessionId: "session-default-draft",
+        buffer: "draft shell\r\n",
+      },
+    });
+    expect(ptyMock.spawn).toHaveBeenCalledOnce();
+    expect(fakePty.kill).not.toHaveBeenCalled();
+    expect(harness.manager.getThreadSnapshot("thread-started")).toMatchObject({
+      sessionId: "terminal-pre-thread",
+      osPid: fakePty.pid,
+    });
+  });
+
   test("explicit kill and backend exit broadcast resource termination", () => {
     const killedPty = makeFakePty(100);
     const exitedPty = makeFakePty(200);

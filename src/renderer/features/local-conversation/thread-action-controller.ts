@@ -31,11 +31,16 @@ export interface ThreadActionControllerInput {
   onOpenSubagentsPanel?: ThreadStageActions["onOpenSubagentsPanel"];
   onOpenTurnDiffReview?: ThreadStageActions["onOpenTurnDiffReview"];
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
-  onEnsureBlankSessionForProject: (projectId: string | null) => Promise<ProjectSession>;
+  onEnsureDefaultDraftSessionForProject: (projectId: string | null) => Promise<ProjectSession>;
   onMaterializeProjectDraft?: (input: {
     readonly projectId: string;
     readonly draftId: string;
   }) => Promise<ProjectSession>;
+  onCommitMaterializedProjectDraft?: (input: {
+    readonly projectId: string;
+    readonly draftId: string;
+    readonly sessionId: string;
+  }) => void;
   cleanupThreadGoalMaterializedDraft?: (
     materialized: CodexThreadGoalMaterializedDraft | null,
   ) => Promise<void>;
@@ -247,7 +252,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
           }
         } else if (projectId !== input.currentSessionProjectId) {
           try {
-            targetSession = await input.onEnsureBlankSessionForProject(projectId);
+            targetSession = await input.onEnsureDefaultDraftSessionForProject(projectId);
           } catch (error) {
             await (input.cleanupThreadGoalMaterializedDraft
               ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
@@ -285,6 +290,13 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
             ? { browserUsePresentationOrigin: presentationOrigin }
             : {}),
         });
+        if (projectDraftId && projectId !== null) {
+          input.onCommitMaterializedProjectDraft?.({
+            projectId,
+            draftId: projectDraftId,
+            sessionId: targetSessionId,
+          });
+        }
         if (result.kind === "pending") {
           if (!input.onOpenPendingWorktree) {
             throw new Error("Pending worktree navigation is unavailable");

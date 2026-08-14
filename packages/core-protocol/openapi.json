@@ -19999,6 +19999,34 @@
                 "type": "object",
                 "required": [
                   "session_id",
+                  "title",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ensure_default_draft_session"
+                    ]
+                  },
+                  "project_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "session_id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "session_id",
                   "kind"
                 ],
                 "properties": {

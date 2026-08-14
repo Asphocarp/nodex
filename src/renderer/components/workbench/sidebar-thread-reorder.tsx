@@ -885,7 +885,10 @@ export function dispatchSidebarThreadDragEnd({
     && overPayload.controller === activePayload.controller;
   if (
     sameController
-    && isCodexSidebarPinnedThreadContainerId(activePayload.thread.containerId)
+    && (
+      activePayload.itemId !== undefined
+      || isCodexSidebarPinnedThreadContainerId(activePayload.thread.containerId)
+    )
   ) {
     activePayload.controller.handleDragEnd(event, pointerY);
     return "reordered";

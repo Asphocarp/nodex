@@ -5023,6 +5023,12 @@ export interface components {
                 readonly title: string;
             } | {
                 /** @enum {string} */
+                readonly kind: "ensure_default_draft_session";
+                readonly project_id?: string | null;
+                readonly session_id: string;
+                readonly title: string;
+            } | {
+                /** @enum {string} */
                 readonly kind: "delete_session";
                 readonly session_id: string;
             } | {

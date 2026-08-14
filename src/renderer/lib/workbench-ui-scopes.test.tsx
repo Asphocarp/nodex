@@ -224,7 +224,7 @@ describe("Workbench Maitai scopes", () => {
       .toBe("session:session-1");
   });
 
-  test("derives exact composer entry identities and fresh nonces", () => {
+  test("keeps composer entry identity stable while carrying focus signals", () => {
     expect(resolveComposerScopeIdentity({ kind: "new-conversation" }).identity)
       .toBe("new-conversation");
     expect(resolveComposerScopeIdentity({ kind: "panel-new-conversation" }).identity)
@@ -237,7 +237,10 @@ describe("Workbench Maitai scopes", () => {
       kind: "task",
       stableIdentity: "session-1",
       focusComposerNonce: 3,
-    }).identity).toBe("task:session-1:3");
+    })).toEqual({
+      identity: "task:session-1",
+      focusComposerNonce: 3,
+    });
   });
 
   test("pending-to-attached preserves the ThreadScope and Composer signal", () => {
