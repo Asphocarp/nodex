@@ -439,6 +439,7 @@ export function ThreadAgentActivityGroupBlock({
     <ThreadActivityDisclosure
       bodyTestId="agent-activity-group-body"
       canExpand={block.canExpand}
+      indentContent={false}
       summary={summary}
       summaryKey={block.header.key}
       summaryTransition={summaryTransition}
