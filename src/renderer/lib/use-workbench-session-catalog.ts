@@ -29,7 +29,9 @@ import { invoke } from "./api";
 import {
   getCachedProjectSessionDetail,
   prefetchProjectSessionDetail,
+  preferNewestProjectSessionSummaryWindow,
   projectSessionToSummary,
+  readProjectSessionSummaryWindowThrough,
   seedProjectSessionDetail,
   setProjectSessionSummaries,
 } from "./project-session-query-cache";
@@ -85,6 +87,7 @@ export type WorkbenchSessionCollectionState =
 export interface WorkbenchSessionCollection {
   readonly presentations: readonly WorkbenchSessionPresentation[];
   readonly projections: readonly WorkbenchSessionRenderProjection[];
+  readonly projectionRevision: number | null;
   readonly state: WorkbenchSessionCollectionState;
   readonly hasMore: boolean;
 }
@@ -137,6 +140,10 @@ export interface WorkbenchSessionCatalog {
   readonly refresh: (
     projectId: string | null,
   ) => Promise<readonly WorkbenchSessionPresentation[]>;
+  readonly refreshThrough: (
+    projectId: string | null,
+    projectionRevision: number,
+  ) => Promise<ProjectSessionSummaryWindow>;
   readonly retryCollection: (projectId: string | null) => Promise<void>;
   readonly loadMore: (projectId: string | null) => Promise<void>;
   readonly seed: (session: ProjectSession | null | undefined) => void;
@@ -265,6 +272,7 @@ export function useWorkbenchSessionCatalog({
       return {
         presentations,
         projections,
+        projectionRevision: null,
         state: { kind: "idle" },
         hasMore: false,
       };
@@ -274,6 +282,7 @@ export function useWorkbenchSessionCatalog({
       return {
         presentations,
         projections,
+        projectionRevision: query.data.projectionRevision,
         state: {
           kind: "ready",
           refreshing: query.isFetching,
@@ -289,6 +298,7 @@ export function useWorkbenchSessionCatalog({
       return {
         presentations,
         projections,
+        projectionRevision: null,
         state: {
           kind: "error",
           message: sessionCollectionErrorMessage(query.error),
@@ -300,6 +310,7 @@ export function useWorkbenchSessionCatalog({
     return {
       presentations,
       projections,
+      projectionRevision: null,
       state: { kind: "loading" },
       hasMore: false,
     };
@@ -369,12 +380,33 @@ export function useWorkbenchSessionCatalog({
     const result = await invoke("workspace:tasks:list", projectId, {
       first: 50,
     }) as ProjectSessionSummaryWindow;
-    queryClient.setQueryData(
+    const installed = queryClient.setQueryData<ProjectSessionSummaryWindow>(
       queryKeys.projectSessions.summaries(projectId),
-      result,
+      (current) => preferNewestProjectSessionSummaryWindow(current, result),
     );
-    return result.items.map(presentSummary);
+    return (installed ?? result).items.map(presentSummary);
   }, [presentSummary, queryClient]);
+  const refreshThrough = useCallback(async (
+    projectId: string | null,
+    projectionRevision: number,
+  ): Promise<ProjectSessionSummaryWindow> => {
+    const queryKey = queryKeys.projectSessions.summaries(projectId);
+    const previous = queryClient.getQueryData<ProjectSessionSummaryWindow>(queryKey);
+    const canonical = await readProjectSessionSummaryWindowThrough({
+      previousItemCount: previous?.items.length ?? 0,
+      projectionRevision,
+      read: async (after, first) => await invoke(
+        "workspace:tasks:list",
+        projectId,
+        after === null ? { first } : { after, first },
+      ) as ProjectSessionSummaryWindow,
+    });
+    const installed = queryClient.setQueryData<ProjectSessionSummaryWindow>(
+      queryKey,
+      (current) => preferNewestProjectSessionSummaryWindow(current, canonical),
+    );
+    return installed ?? canonical;
+  }, [queryClient]);
   const retryCollection = useCallback(async (
     projectId: string | null,
   ): Promise<void> => {
@@ -405,6 +437,12 @@ export function useWorkbenchSessionCatalog({
         queryKey,
         (latest) => {
           if (!latest || latest.nextCursor !== current.nextCursor) {
+            return latest;
+          }
+          if (
+            latest.projectionRevision !== current.projectionRevision
+            || next.projectionRevision !== current.projectionRevision
+          ) {
             return latest;
           }
           const knownIds = new Set(latest.items.map((item) => item.id));
@@ -468,8 +506,8 @@ export function useWorkbenchSessionCatalog({
       pinned,
       pinnedOrder: nextPinnedOrder,
     };
-    seedProjectSessionDetail(queryClient, optimistic);
-    setProjectSessionSummaries(
+    const optimisticDetail = seedProjectSessionDetail(queryClient, optimistic);
+    const optimisticWindow = setProjectSessionSummaries(
       queryClient,
       projectId,
       previousSummaries.map((candidate) =>
@@ -489,11 +527,14 @@ export function useWorkbenchSessionCatalog({
       await refresh(projectId);
       return updated;
     } catch (error) {
-      seedProjectSessionDetail(queryClient, session);
+      queryClient.setQueryData<ProjectSession | null | undefined>(
+        queryKeys.projectSessions.detail(session.id),
+        (current) => current === optimisticDetail ? session : current,
+      );
       if (previousWindow) {
-        queryClient.setQueryData(
+        queryClient.setQueryData<ProjectSessionSummaryWindow>(
           queryKeys.projectSessions.summaries(projectId),
-          previousWindow,
+          (current) => current === optimisticWindow ? previousWindow : current,
         );
       }
       throw error;
@@ -684,6 +725,7 @@ export function useWorkbenchSessionCatalog({
     select,
     selectProject,
     refresh,
+    refreshThrough,
     retryCollection,
     loadMore,
     seed,

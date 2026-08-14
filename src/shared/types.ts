@@ -1254,8 +1254,6 @@ export interface CodexSidebarSnapshot {
   pinnedThreadIds: string[];
   projectAssignments: Record<string, string>;
   projectlessThreadIds: string[];
-  projectThreadOrders: Record<string, string[]>;
-  projectlessThreadOrder: string[] | null;
   revision?: number;
   generatedAt: number;
 }

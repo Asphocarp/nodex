@@ -32,8 +32,6 @@ const EMPTY_SIDEBAR_SNAPSHOT: CodexSidebarSnapshot = {
   pinnedThreadIds: [],
   projectAssignments: {},
   projectlessThreadIds: [],
-  projectThreadOrders: {},
-  projectlessThreadOrder: null,
   revision: 0,
   generatedAt: 0,
 };

@@ -32,13 +32,14 @@ import {
   createSidebarThreadCollisionDetection,
   dispatchSidebarThreadDragEnd,
   readSidebarThreadDndPayload,
-  resolveSidebarThreadExternalDropTarget,
+  reconcilePendingSidebarThreadDrops,
   SidebarThreadDndStateProvider,
   type PendingSidebarThreadDrop,
+  type SidebarThreadCanonicalLanes,
   type SidebarThreadDndThread,
+  type SidebarThreadDropCommit,
   type SidebarThreadDropRequest,
   type SidebarThreadReorderController,
-  type SidebarThreadResolvedExternalDropTarget,
 } from "./sidebar-thread-reorder";
 import {
   readSidebarLibraryDragResource,
@@ -56,7 +57,8 @@ const DEFAULT_PROJECT_ERROR_REPORTER = (error: unknown): void => {
 const DEFAULT_THREAD_ERROR_REPORTER = (error: unknown): void => {
   console.error("Sidebar task reorder failed", error);
 };
-const DEFAULT_THREAD_DROP = (): void => undefined;
+const DEFAULT_THREAD_DROP = (): null => null;
+const EMPTY_CANONICAL_THREAD_LANES: SidebarThreadCanonicalLanes = new Map();
 
 type ActiveSidebarDrag =
   | {
@@ -156,7 +158,9 @@ export function SidebarReorderDndProvider({
   onProjectError?: (error: unknown) => void;
   onProjectDrop?: (drop: { projectId: string; targetContainerId: string }) => void;
   onThreadError?: (error: unknown) => void;
-  onThreadDrop?: (drop: SidebarThreadDropRequest) => Promise<void> | void;
+  onThreadDrop?: (
+    drop: SidebarThreadDropRequest,
+  ) => Promise<SidebarThreadDropCommit | null> | SidebarThreadDropCommit | null;
   onLibraryMove?: (drop: {
     resource: SidebarLibraryDragResource;
     parent: LibraryWriteParent;
@@ -176,9 +180,23 @@ export function SidebarReorderDndProvider({
   );
   const [activeDrag, setActiveDrag] = useState<ActiveSidebarDrag | null>(null);
   const [pendingThreadDrops, setPendingThreadDrops] = useState<PendingSidebarThreadDrop[]>([]);
+  const canonicalThreadLanesRef = useRef<SidebarThreadCanonicalLanes>(
+    EMPTY_CANONICAL_THREAD_LANES,
+  );
   const pointerYRef = useRef<number | null>(null);
   const destinationControllerRef = useRef<SidebarThreadReorderController | null>(null);
-  const cachedThreadDropTargetRef = useRef<SidebarThreadResolvedExternalDropTarget | null>(null);
+  const updatePendingThreadDrops = useCallback((
+    update: (current: PendingSidebarThreadDrop[]) => PendingSidebarThreadDrop[],
+  ) => {
+    setPendingThreadDrops((current) => reconcilePendingSidebarThreadDrops(
+      update(current),
+      canonicalThreadLanesRef.current,
+    ));
+  }, []);
+  const reportCanonicalThreadLanes = useCallback((lanes: SidebarThreadCanonicalLanes) => {
+    canonicalThreadLanesRef.current = lanes;
+    setPendingThreadDrops((current) => reconcilePendingSidebarThreadDrops(current, lanes));
+  }, []);
   const threadCollisionDetection = useMemo(
     () => createSidebarThreadCollisionDetection(homeContainerIdByThreadId),
     [homeContainerIdByThreadId],
@@ -213,13 +231,11 @@ export function SidebarReorderDndProvider({
 
   const resetGestureState = useCallback(() => {
     pointerYRef.current = null;
-    cachedThreadDropTargetRef.current = null;
     setActiveDrag(null);
   }, []);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     pointerYRef.current = null;
-    cachedThreadDropTargetRef.current = null;
     cancelDestinationController();
     clearTextSelection();
 
@@ -278,12 +294,7 @@ export function SidebarReorderDndProvider({
       destinationControllerRef.current = nextDestinationController;
     }
     nextDestinationController?.handleDragOver?.(event, pointerY);
-    cachedThreadDropTargetRef.current = resolveSidebarThreadExternalDropTarget(
-      event,
-      pointerY,
-      getThreadIdByThreadKey,
-    );
-  }, [cancelDestinationController, getThreadIdByThreadKey]);
+  }, [cancelDestinationController]);
 
   const handleDragCancel = useCallback((event: DragCancelEvent) => {
     cancelDestinationController(event);
@@ -304,7 +315,6 @@ export function SidebarReorderDndProvider({
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const pointerY = pointerYRef.current;
     const destinationController = destinationControllerRef.current;
-    const cachedDropTarget = cachedThreadDropTargetRef.current;
     destinationControllerRef.current = null;
     resetGestureState();
 
@@ -356,7 +366,6 @@ export function SidebarReorderDndProvider({
     }
 
     dispatchSidebarThreadDragEnd({
-      cachedDropTarget,
       destinationController,
       event,
       getThreadIdByThreadKey,
@@ -364,7 +373,7 @@ export function SidebarReorderDndProvider({
       onError: onThreadError,
       onThreadDrop,
       pointerY,
-      updatePendingThreadDrops: setPendingThreadDrops,
+      updatePendingThreadDrops,
     });
   }, [
     getThreadIdByThreadKey,
@@ -375,6 +384,7 @@ export function SidebarReorderDndProvider({
     onThreadDrop,
     onThreadError,
     resetGestureState,
+    updatePendingThreadDrops,
   ]);
 
   const overlay = typeof document === "undefined" ? null : createPortal(
@@ -413,6 +423,7 @@ export function SidebarReorderDndProvider({
       homeContainerIdByThreadId={homeContainerIdByThreadId}
       onError={onThreadError}
       pendingThreadDrops={pendingThreadDrops}
+      reportCanonicalLanes={reportCanonicalThreadLanes}
     >
       <SidebarProjectDndStateProvider
         activeProjectId={activeProjectId}

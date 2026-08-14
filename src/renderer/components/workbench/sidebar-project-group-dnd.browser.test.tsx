@@ -101,8 +101,10 @@ function SortableProject({
 }
 
 function ProjectReorderHarness({
+  beforeCanonicalCommit,
   onCommit,
 }: {
+  beforeCanonicalCommit?: Promise<void>;
   onCommit: (nextProjectIds: string[]) => void;
 }) {
   const [projectIds, setProjectIds] = useState(["alpha", "beta"]);
@@ -110,6 +112,10 @@ function ProjectReorderHarness({
     groupIds: projectIds,
     reorderGroups: async (nextProjectIds) => {
       onCommit(nextProjectIds);
+      if (beforeCanonicalCommit) {
+        void beforeCanonicalCommit.then(() => setProjectIds(nextProjectIds));
+        return;
+      }
       setProjectIds(nextProjectIds);
     },
   });
@@ -208,6 +214,29 @@ function PinnedProjectDropTarget() {
 }
 
 describe("sidebar project reorder in Chromium", () => {
+  test("paints the drop indicator without changing list geometry", () => {
+    const Rows = ({ indicator }: { indicator: boolean }) => (
+      <div data-testid="geometry-list" style={{ display: "flex", flexDirection: "column" }}>
+        <div data-testid="geometry-first" style={{ height: 32 }}>First</div>
+        {indicator ? <SidebarDropIndicator /> : null}
+        <div data-testid="geometry-second" style={{ height: 32 }}>Second</div>
+      </div>
+    );
+    const view = render(<Rows indicator={false} />);
+    const beforeList = view.getByTestId("geometry-list").getBoundingClientRect();
+    const beforeSecond = view.getByTestId("geometry-second").getBoundingClientRect();
+
+    view.rerender(<Rows indicator />);
+
+    const afterList = view.getByTestId("geometry-list").getBoundingClientRect();
+    const afterSecond = view.getByTestId("geometry-second").getBoundingClientRect();
+    const indicator = view.container.querySelector<HTMLElement>("[role='presentation']");
+    expect(indicator).not.toBeNull();
+    expect(afterList.height).toBe(beforeList.height);
+    expect(afterSecond.top).toBe(beforeSecond.top);
+    expect(indicator?.getBoundingClientRect().height).toBe(0);
+  });
+
   test("refreshes the insertion boundary while the pointer stays over one project", async () => {
     const committedOrders: string[][] = [];
     const view = render(
@@ -357,6 +386,89 @@ describe("sidebar project reorder in Chromium", () => {
           .map((row) => row.dataset.projectId)).toEqual(["beta", "alpha"]);
       });
     } finally {
+      view.unmount();
+    }
+  });
+
+  test("keeps an acknowledged project order until canonical props render it", async () => {
+    let resolveCanonicalCommit!: () => void;
+    const canonicalCommit = new Promise<void>((resolve) => {
+      resolveCanonicalCommit = resolve;
+    });
+    const view = render(
+      <SidebarReorderDndProvider>
+        <ProjectReorderHarness
+          beforeCanonicalCommit={canonicalCommit}
+          onCommit={() => {}}
+        />
+      </SidebarReorderDndProvider>,
+    );
+    const list = view.getByRole("list", { name: "Projects" });
+    const alpha = view.getByTestId("project-alpha");
+    const beta = view.getByTestId("project-beta");
+    const betaActivator = view.getByTestId("project-beta-activator");
+    const alphaRect = alpha.getBoundingClientRect();
+    const betaRect = beta.getBoundingClientRect();
+    const pointerId = 118;
+    const pointerX = alphaRect.left + alphaRect.width / 2;
+    const dropY = alphaRect.top + 4;
+
+    try {
+      await act(async () => {
+        fireEvent.pointerDown(betaActivator, {
+          button: 0,
+          clientX: betaRect.left + betaRect.width / 2,
+          clientY: betaRect.top + betaRect.height / 2,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: betaRect.top + betaRect.height / 2 - 8,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          clientX: pointerX,
+          clientY: dropY,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(list.querySelectorAll("[role='presentation']")).toHaveLength(1);
+      });
+      await act(async () => {
+        fireEvent.pointerUp(document, {
+          button: 0,
+          clientX: pointerX,
+          clientY: dropY,
+          isPrimary: true,
+          pointerId,
+          pointerType: "mouse",
+        });
+        await Promise.resolve();
+      });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(Array.from(list.querySelectorAll<HTMLElement>("[data-project-id]"))
+        .map((row) => row.dataset.projectId)).toEqual(["beta", "alpha"]);
+
+      await act(async () => {
+        resolveCanonicalCommit();
+        await canonicalCommit;
+      });
+      await waitFor(() => {
+        expect(Array.from(list.querySelectorAll<HTMLElement>("[data-project-id]"))
+          .map((row) => row.dataset.projectId)).toEqual(["beta", "alpha"]);
+      });
+    } finally {
+      resolveCanonicalCommit();
       view.unmount();
     }
   });

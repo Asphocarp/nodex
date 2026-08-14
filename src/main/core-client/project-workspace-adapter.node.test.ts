@@ -843,7 +843,7 @@ describe("Core Project Workspace adapter", () => {
       threadId: "thread:one",
       sourceProjectId: "project:one",
       targetProjectId: "project:two",
-      beforeThreadId: "thread:anchor",
+      afterThreadId: "thread:anchor",
       runtimeWorkspaceRoots: ["/workspace/two", "/workspace/one"],
       projectAccessGrant: {
         expectedTargetBindingRevision: 4,
@@ -862,11 +862,8 @@ describe("Core Project Workspace adapter", () => {
         projectId: "project:two",
         cwd: "/workspace/two",
       },
-      sidebar: {
-        threads: [expect.objectContaining({ threadId: "thread:one" })],
-        projectThreadOrders: {},
-        projectlessThreadOrder: null,
-      },
+      operationId: expect.any(String),
+      projectionRevision: 13,
     });
     expect(client.workspaceApplies).toEqual([{
       operationId: expect.any(String),
@@ -875,7 +872,7 @@ describe("Core Project Workspace adapter", () => {
         thread_id: "thread:one",
         source: { kind: "project", project_id: "project:one" },
         target: { kind: "project", project_id: "project:two" },
-        placement: { kind: "before", thread_id: "thread:anchor" },
+        placement: { kind: "after", thread_id: "thread:anchor" },
         runtime_workspace_roots: ["/workspace/two", "/workspace/one"],
         project_access_grant: {
           expected_target_binding_revision: 4,
@@ -890,6 +887,25 @@ describe("Core Project Workspace adapter", () => {
         },
       },
     }]);
+  });
+
+  test("rejects a Thread move anchored to the moving Thread before Core", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.moveThread({
+      threadId: "thread:one",
+      sourceProjectId: "project:one",
+      targetProjectId: "project:one",
+      beforeThreadId: "thread:one",
+    })).rejects.toThrow("Thread placement anchor must reference another Thread");
+    await expect(adapter.moveThread({
+      threadId: "thread:one",
+      sourceProjectId: "project:one",
+      targetProjectId: "project:one",
+      afterThreadId: "thread:one",
+    })).rejects.toThrow("Thread placement anchor must reference another Thread");
+    expect(client.workspaceApplies).toEqual([]);
   });
 
   test("commits an execution location atomically and maps the lifecycle snapshot", async () => {
@@ -1346,7 +1362,7 @@ describe("Core Project Workspace adapter", () => {
     }]);
   });
 
-  test("returns local receipts for every manual sidebar order mutation", async () => {
+  test("returns local snapshots for pinned sidebar mutations", async () => {
     const client = new FakeCoreClient();
     const enqueueApply = (eventSequence: number, operationId: string) =>
       client.enqueueWorkspaceApply({
@@ -1365,9 +1381,6 @@ describe("Core Project Workspace adapter", () => {
         store_epoch: "epoch:test",
       });
 
-    enqueueApply(21, "operation:set-project-order");
-    enqueueApply(22, "operation:clear-project-order");
-    enqueueApply(23, "operation:set-projectless-order");
     enqueueApply(24, "operation:pin-before");
     client.enqueueWorkspaceRead({
       contract_version: 5,
@@ -1392,32 +1405,6 @@ describe("Core Project Workspace adapter", () => {
     enqueueApply(27, "operation:reorder-pinned");
     const adapter = createCoreProjectWorkspaceAdapter(client);
 
-    await expect(adapter.setProjectThreadOrder(
-      "project:one",
-      ["thread:one"],
-    )).resolves.toMatchObject({
-      projectThreadOrders: {},
-    });
-    await expect(adapter.setProjectThreadOrder(
-      "project:one",
-      null,
-    )).resolves.toMatchObject({ projectThreadOrders: {} });
-    await expect(adapter.setProjectlessThreadOrder({
-      threadIdsInDisplayOrder: [
-        "thread:projectless-a",
-        "thread:projectless-b",
-      ],
-      visibleThreadIds: [
-        "thread:projectless-a",
-        "thread:projectless-b",
-      ],
-      nextVisibleThreadIds: [
-        "thread:projectless-b",
-        "thread:projectless-a",
-      ],
-    })).resolves.toMatchObject({
-      projectlessThreadOrder: null,
-    });
     await expect(adapter.setThreadPinned(
       "thread:one",
       true,
@@ -1459,39 +1446,6 @@ describe("Core Project Workspace adapter", () => {
       { kind: "thread", thread_id: "thread:one" },
     ]);
     expect(client.workspaceApplies).toEqual([
-      {
-        operationId: expect.any(String),
-        intent: {
-          kind: "set_project_thread_order",
-          project_id: "project:one",
-          ordered_thread_ids: ["thread:one"],
-        },
-      },
-      {
-        operationId: expect.any(String),
-        intent: {
-          kind: "clear_project_thread_order",
-          project_id: "project:one",
-        },
-      },
-      {
-        operationId: expect.any(String),
-        intent: {
-          kind: "set_projectless_thread_order",
-          thread_ids_in_display_order: [
-            "thread:projectless-a",
-            "thread:projectless-b",
-          ],
-          visible_thread_ids: [
-            "thread:projectless-a",
-            "thread:projectless-b",
-          ],
-          next_visible_thread_ids: [
-            "thread:projectless-b",
-            "thread:projectless-a",
-          ],
-        },
-      },
       {
         operationId: expect.any(String),
         intent: {

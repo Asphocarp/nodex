@@ -278,17 +278,11 @@ import {
 import { stripCodexRemarkDirectiveLines } from "../../shared/codex-remark-directives";
 import { CODEX_CLIENT_THREAD_ID_PREFIX } from "../../shared/codex-client-thread";
 import {
-  CodexSidebarChatsThreadOrderInputSchema,
   CodexSidebarThreadMoveInputSchema,
-  CodexSidebarProjectThreadOrderInputSchema,
   readCodexSidebarThreadContainerLocation,
   type CodexSidebarThreadMoveInput,
   type CodexSidebarThreadMoveResult,
   type CodexSidebarThreadMoveScope,
-  type CodexSidebarChatsThreadOrderInput,
-  type CodexSidebarChatsThreadOrderResult,
-  type CodexSidebarProjectThreadOrderInput,
-  type CodexSidebarProjectThreadOrderResult,
 } from "../../shared/codex-sidebar-thread-move";
 import { buildCodexDelegationInput } from "../../shared/codex-delegation";
 import {
@@ -9018,8 +9012,6 @@ export class CodexService extends EventEmitter {
       pinnedThreadIds: items.map((item) => item.threadId),
       projectAssignments,
       projectlessThreadIds,
-      projectThreadOrders: {},
-      projectlessThreadOrder: null,
       revision: this.sidebarSnapshotRevision,
       generatedAt: Date.now(),
     };
@@ -9040,14 +9032,16 @@ export class CodexService extends EventEmitter {
     threadId: string;
     sourceProjectId: string | null;
     targetProjectId: string | null;
-    snapshot: CodexSidebarSnapshot;
+    operationId: string;
+    projectionRevision: number;
   }): Promise<CodexSidebarThreadMoveResult> {
     return {
       status: "moved",
       threadId: input.threadId,
       source: await this.buildSidebarThreadMoveScope(input.sourceProjectId),
       destination: await this.buildSidebarThreadMoveScope(input.targetProjectId),
-      snapshot: input.snapshot,
+      operationId: input.operationId,
+      projectionRevision: input.projectionRevision,
     };
   }
 
@@ -9240,21 +9234,8 @@ export class CodexService extends EventEmitter {
     ) {
       throw new Error("Sidebar task Project access grant does not match its target");
     }
-    if (targetProjectId === sourceProjectId) {
-      if (input.projectAccessGrant) {
-        throw new Error("Sidebar task Project access grant requires a cross-Project move");
-      }
-      const snapshot = await this.setThreadPinned(
-        threadId,
-        targetLocation.pinned,
-        targetLocation.pinned ? input.beforeThreadId : undefined,
-      );
-      return await this.buildSidebarThreadMoveSuccess({
-        threadId,
-        sourceProjectId,
-        targetProjectId,
-        snapshot,
-      });
+    if (targetProjectId === sourceProjectId && input.projectAccessGrant) {
+      throw new Error("Sidebar task Project access grant requires a cross-Project move");
     }
 
     const [sourceProject, targetProject] = await Promise.all([
@@ -9351,12 +9332,15 @@ export class CodexService extends EventEmitter {
         ? {}
         : { runtimeWorkspaceRoots: workspaceMove.runtimeWorkspaceRoots }),
       ...(projectAccessGrant === undefined ? {} : { projectAccessGrant }),
-      ...(targetProjectId === null || targetLocation.pinned
+      ...(targetLocation.pinned
         ? {
             useDefaultOrder: true,
           }
         : {
             beforeThreadId: input.beforeThreadId,
+            ...(input.afterThreadId === undefined
+              ? {}
+              : { afterThreadId: input.afterThreadId }),
             ...(input.insertAtEnd ? { insertAtEnd: true } : {}),
             ...(input.useDefaultOrder ? { useDefaultOrder: true } : {}),
           }),
@@ -9374,7 +9358,6 @@ export class CodexService extends EventEmitter {
     });
     this.rememberWorkspaceThread(moved.thread);
 
-    this.rememberWorkspaceSidebar(moved.sidebar);
     await this.syncLoadedSidebarThreadWorkspaceMove({
       threadId,
       wasLoaded: workspaceThread.statusType !== "notLoaded",
@@ -9387,7 +9370,7 @@ export class CodexService extends EventEmitter {
           await this.projectWorkspace.setThreadPinned(
             threadId,
             targetLocation.pinned,
-            targetLocation.pinned ? input.beforeThreadId : undefined,
+            targetLocation.pinned ? (input.beforeThreadId ?? null) : undefined,
           ),
         );
       } catch (error) {
@@ -9406,7 +9389,7 @@ export class CodexService extends EventEmitter {
     const metadata = createSidebarThreadSyncMetadata();
     markSidebarSyncScopeChanged(metadata, sourceProjectId);
     markSidebarSyncScopeChanged(metadata, targetProjectId);
-    const syncResult = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
       metadata,
       "session-change",
     );
@@ -9414,7 +9397,8 @@ export class CodexService extends EventEmitter {
       threadId,
       sourceProjectId,
       targetProjectId,
-      snapshot: syncResult.snapshot,
+      operationId: moved.operationId,
+      projectionRevision: moved.projectionRevision,
     });
   }
 
@@ -9429,58 +9413,6 @@ export class CodexService extends EventEmitter {
       () => undefined,
     );
     return await move;
-  }
-
-  async setSidebarProjectThreadOrder(
-    input: CodexSidebarProjectThreadOrderInput,
-  ): Promise<CodexSidebarProjectThreadOrderResult> {
-    const parsed = CodexSidebarProjectThreadOrderInputSchema.parse(input);
-    const run = async () => {
-      await this.projectWorkspace.setProjectThreadOrder(
-        parsed.projectId,
-        parsed.orderedThreadIds,
-      );
-      const metadata = createSidebarThreadSyncMetadata();
-      markSidebarSyncScopeChanged(metadata, parsed.projectId);
-      const syncResult = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-        metadata,
-        "session-change",
-      );
-      return {
-        snapshot: syncResult.snapshot,
-      };
-    };
-    const order = this.sidebarThreadMoveQueue.then(run, run);
-    this.sidebarThreadMoveQueue = order.then(
-      () => undefined,
-      () => undefined,
-    );
-    return await order;
-  }
-
-  async setSidebarChatsThreadOrder(
-    input: CodexSidebarChatsThreadOrderInput,
-  ): Promise<CodexSidebarChatsThreadOrderResult> {
-    const parsed = CodexSidebarChatsThreadOrderInputSchema.parse(input);
-    const run = async () => {
-      await this.projectWorkspace.setProjectlessThreadOrder(parsed);
-      const metadata = createSidebarThreadSyncMetadata();
-      markSidebarSyncScopeChanged(metadata, null);
-      const syncResult = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-        metadata,
-        "session-change",
-      );
-      return {
-        orderedThreadIds: [...parsed.nextVisibleThreadIds],
-        snapshot: syncResult.snapshot,
-      };
-    };
-    const order = this.sidebarThreadMoveQueue.then(run, run);
-    this.sidebarThreadMoveQueue = order.then(
-      () => undefined,
-      () => undefined,
-    );
-    return await order;
   }
 
   async listPinnedThreads(): Promise<string[]> {

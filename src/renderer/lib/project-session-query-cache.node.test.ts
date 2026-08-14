@@ -8,7 +8,9 @@ import { queryKeys } from "./query-keys";
 import {
   getCachedProjectSessionDetail,
   invalidateProjectSessionScope,
+  preferNewestProjectSessionSummaryWindow,
   projectSessionToSummary,
+  readProjectSessionSummaryWindowThrough,
   seedProjectSessionDetail,
   setProjectSessionSummaries,
 } from "./project-session-query-cache";
@@ -81,6 +83,157 @@ describe("project session query cache", () => {
     expect(summary?.unread).toBe(false);
     expect(summary?.updatedAt).toBe("2026-01-02T00:00:00.000Z");
     queryClient.clear();
+  });
+
+  test("preserves canonical TaskWindow order while seeding detail changes", () => {
+    const queryClient = createQueryClient();
+    const first = createSession({ id: "session-first", order: 10 });
+    const second = createSession({ id: "session-second", order: 0 });
+    setProjectSessionSummaries(queryClient, "project-1", [
+      projectSessionToSummary(first),
+      projectSessionToSummary(second),
+    ]);
+
+    seedProjectSessionDetail(queryClient, {
+      ...first,
+      displayTitle: "Updated first",
+      order: 20,
+    });
+
+    const window = queryClient.getQueryData<ProjectSessionSummaryWindow>(
+      queryKeys.projectSessions.summaries("project-1"),
+    );
+    expect(window?.items.map((item) => item.id)).toEqual([
+      "session-first",
+      "session-second",
+    ]);
+    queryClient.clear();
+  });
+
+  test("keeps the canonical revision and pagination extent during a local summary patch", () => {
+    const queryClient = createQueryClient();
+    const summary = projectSessionToSummary(createSession());
+    queryClient.setQueryData<ProjectSessionSummaryWindow>(
+      queryKeys.projectSessions.summaries("project-1"),
+      {
+        items: [summary],
+        nextCursor: "cursor:one",
+        hasMore: true,
+        projectionRevision: 12,
+      },
+    );
+
+    setProjectSessionSummaries(queryClient, "project-1", [{
+      ...summary,
+      unread: true,
+    }]);
+
+    expect(queryClient.getQueryData<ProjectSessionSummaryWindow>(
+      queryKeys.projectSessions.summaries("project-1"),
+    )).toEqual({
+      items: [{ ...summary, unread: true }],
+      nextCursor: "cursor:one",
+      hasMore: true,
+      projectionRevision: 12,
+    });
+    queryClient.clear();
+  });
+
+  test("reads through the committed projection revision and preserves the loaded window", async () => {
+    const canonical = Array.from({ length: 51 }, (_, index) => (
+      projectSessionToSummary(createSession({ id: `session-${index}` }))
+    ));
+    const reads: Array<{ after: string | null; first: number }> = [];
+    let firstPageReads = 0;
+
+    const window = await readProjectSessionSummaryWindowThrough({
+      previousItemCount: 51,
+      projectionRevision: 10,
+      read: async (after, first) => {
+        reads.push({ after, first });
+        if (after === null) {
+          firstPageReads += 1;
+          if (firstPageReads === 1) {
+            return {
+              items: canonical.slice(0, 50),
+              nextCursor: "cursor:50",
+              hasMore: true,
+              projectionRevision: 9,
+            };
+          }
+          return {
+            items: canonical.slice(0, 50),
+            nextCursor: "cursor:50",
+            hasMore: true,
+            projectionRevision: 10,
+          };
+        }
+        return {
+          items: canonical.slice(50),
+          nextCursor: null,
+          hasMore: false,
+          projectionRevision: 10,
+        };
+      },
+    });
+
+    expect(reads).toEqual([
+      { after: null, first: 50 },
+      { after: null, first: 50 },
+      { after: "cursor:50", first: 1 },
+    ]);
+    expect(window.items.map((item) => item.id)).toEqual(
+      canonical.map((item) => item.id),
+    );
+    expect(window.projectionRevision).toBe(10);
+  });
+
+  test("rejects a late older projection instead of rolling canonical order back", () => {
+    const newer = {
+      items: [projectSessionToSummary(createSession({ id: "newer" }))],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 11,
+    } satisfies ProjectSessionSummaryWindow;
+    const older = {
+      items: [projectSessionToSummary(createSession({ id: "older" }))],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 10,
+    } satisfies ProjectSessionSummaryWindow;
+
+    expect(preferNewestProjectSessionSummaryWindow(newer, older)).toBe(newer);
+  });
+
+  test("keeps the larger loaded extent when a same-revision first page finishes late", () => {
+    const first = projectSessionToSummary(createSession({ id: "first" }));
+    const second = projectSessionToSummary(createSession({ id: "second" }));
+    const loaded = {
+      items: [first, second],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 11,
+    } satisfies ProjectSessionSummaryWindow;
+    const lateFirstPage = {
+      items: [first],
+      nextCursor: "cursor:1",
+      hasMore: true,
+      projectionRevision: 11,
+    } satisfies ProjectSessionSummaryWindow;
+
+    expect(
+      preferNewestProjectSessionSummaryWindow(loaded, lateFirstPage),
+    ).toBe(loaded);
+
+    const terminalRefresh = {
+      items: [first],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 11,
+    } satisfies ProjectSessionSummaryWindow;
+    expect(
+      preferNewestProjectSessionSummaryWindow(loaded, terminalRefresh),
+    ).toBe(terminalRefresh);
   });
 
   test("summary refresh replaces the identical domain detail shape", () => {

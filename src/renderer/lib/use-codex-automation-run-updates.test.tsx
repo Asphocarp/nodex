@@ -74,8 +74,6 @@ function makeSidebarSnapshot(revision: number): CodexSidebarSnapshot {
     pinnedThreadIds: [],
     projectAssignments: {},
     projectlessThreadIds: [],
-    projectThreadOrders: {},
-    projectlessThreadOrder: null,
     revision,
     generatedAt: revision,
   };

@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  CodexSidebarChatsThreadOrderInputSchema,
   CodexSidebarThreadMoveInputSchema,
-  CodexSidebarProjectThreadOrderInputSchema,
   codexSidebarProjectThreadContainerId,
   isCodexSidebarThreadContainerId,
   readCodexSidebarProjectContainerId,
@@ -26,6 +24,10 @@ describe("Codex sidebar thread move contract", () => {
     })).success).toBe(true);
     expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
       beforeThreadId: null,
+      afterThreadId: "thread-2",
+    })).success).toBe(true);
+    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
+      beforeThreadId: null,
       insertAtEnd: true,
     })).success).toBe(true);
     expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
@@ -40,6 +42,15 @@ describe("Codex sidebar thread move contract", () => {
   test("rejects ambiguous placement and malformed containers", () => {
     expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
       beforeThreadId: null,
+      afterThreadId: "thread-2",
+      insertAtEnd: true,
+    })).success).toBe(false);
+    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
+      beforeThreadId: "thread-3",
+      afterThreadId: "thread-2",
+    })).success).toBe(false);
+    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
+      beforeThreadId: null,
       insertAtEnd: true,
       useDefaultOrder: true,
     })).success).toBe(false);
@@ -47,6 +58,13 @@ describe("Codex sidebar thread move contract", () => {
       ...makeMove({ beforeThreadId: null }),
       targetContainerId: "project:",
     }).success).toBe(false);
+    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
+      beforeThreadId: "thread-1",
+    })).success).toBe(false);
+    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
+      beforeThreadId: null,
+      afterThreadId: "thread-1",
+    })).success).toBe(false);
   });
 
   test("accepts only a bounded, revision-fenced Project access grant", () => {
@@ -96,29 +114,5 @@ describe("Codex sidebar thread move contract", () => {
     expect(readCodexSidebarThreadContainerLocation("cloud")).toBe(null);
     expect(codexSidebarProjectThreadContainerId("alpha", true)).toBe("project-pinned:alpha");
     expect(codexSidebarProjectThreadContainerId("alpha", false)).toBe("project:alpha");
-  });
-
-  test("validates project custom-order writes and reset", () => {
-    expect(CodexSidebarProjectThreadOrderInputSchema.safeParse({
-      projectId: "alpha",
-      orderedThreadIds: ["thread-2", "thread-1"],
-    }).success).toBe(true);
-    expect(CodexSidebarProjectThreadOrderInputSchema.safeParse({
-      projectId: "alpha",
-      orderedThreadIds: null,
-    }).success).toBe(true);
-  });
-
-  test("validates exact global and Chats-visible manual-order inputs", () => {
-    expect(CodexSidebarChatsThreadOrderInputSchema.safeParse({
-      threadIdsInDisplayOrder: ["project-thread", "chat-a", "chat-b"],
-      visibleThreadIds: ["chat-a", "chat-b"],
-      nextVisibleThreadIds: ["chat-b", "chat-a"],
-    }).success).toBe(true);
-    expect(CodexSidebarChatsThreadOrderInputSchema.safeParse({
-      threadIdsInDisplayOrder: ["chat-a"],
-      visibleThreadIds: [""],
-      nextVisibleThreadIds: ["chat-a"],
-    }).success).toBe(false);
   });
 });

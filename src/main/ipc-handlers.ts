@@ -3568,14 +3568,6 @@ export function registerIpcHandlers(
     codexService.moveSidebarThread(input),
   );
 
-  registerHandle("codex:sidebar:project-thread-order:set", (_, input) =>
-    codexService.setSidebarProjectThreadOrder(input),
-  );
-
-  registerHandle("codex:sidebar:chats-thread-order:set", (_, input) =>
-    codexService.setSidebarChatsThreadOrder(input),
-  );
-
   registerHandle("codex:threads:pinned:list", async () =>
     await codexService.listPinnedThreads(),
   );

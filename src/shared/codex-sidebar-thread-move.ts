@@ -1,8 +1,4 @@
 import { z } from "zod";
-import type {
-  CodexSidebarSnapshot,
-} from "./types";
-
 export type CodexSidebarProjectKind = "local" | "remote";
 
 export type CodexSidebarThreadContainerId =
@@ -35,21 +31,31 @@ export interface CodexSidebarThreadMoveProjectAccessGrant {
 export type CodexSidebarThreadMovePlacement =
   | {
       beforeThreadId: string;
+      afterThreadId?: never;
+      insertAtEnd?: never;
+      useDefaultOrder?: never;
+  }
+  | {
+      beforeThreadId: null;
+      afterThreadId: string;
       insertAtEnd?: never;
       useDefaultOrder?: never;
     }
   | {
       beforeThreadId: null;
+      afterThreadId?: never;
       insertAtEnd: true;
       useDefaultOrder?: never;
     }
   | {
       beforeThreadId: null;
+      afterThreadId?: never;
       insertAtEnd?: never;
       useDefaultOrder: true;
     }
   | {
       beforeThreadId: null;
+      afterThreadId?: never;
       insertAtEnd?: never;
       useDefaultOrder?: never;
     };
@@ -66,7 +72,8 @@ export interface CodexSidebarThreadMoveSuccess {
   threadId: string;
   source: CodexSidebarThreadMoveScope;
   destination: CodexSidebarThreadMoveScope;
-  snapshot: CodexSidebarSnapshot;
+  operationId: string;
+  projectionRevision: number;
 }
 
 export interface CodexSidebarThreadMoveConfirmationRequired {
@@ -82,26 +89,6 @@ export interface CodexSidebarThreadMoveConfirmationRequired {
 export type CodexSidebarThreadMoveResult =
   | CodexSidebarThreadMoveSuccess
   | CodexSidebarThreadMoveConfirmationRequired;
-
-export interface CodexSidebarProjectThreadOrderInput {
-  projectId: string;
-  orderedThreadIds: string[] | null;
-}
-
-export interface CodexSidebarProjectThreadOrderResult {
-  snapshot: CodexSidebarSnapshot;
-}
-
-export interface CodexSidebarChatsThreadOrderInput {
-  threadIdsInDisplayOrder: string[];
-  visibleThreadIds: string[];
-  nextVisibleThreadIds: string[];
-}
-
-export interface CodexSidebarChatsThreadOrderResult {
-  orderedThreadIds: string[];
-  snapshot: CodexSidebarSnapshot;
-}
 
 const ContainerIdSchema = z.string().trim().min(1).refine((value) => (
   value === "pinned"
@@ -129,21 +116,31 @@ const MoveBaseSchema = z.object({
 const MovePlacementSchema = z.union([
   z.object({
     beforeThreadId: z.string().trim().min(1),
+    afterThreadId: z.undefined().optional(),
     insertAtEnd: z.undefined().optional(),
     useDefaultOrder: z.undefined().optional(),
   }),
   z.object({
     beforeThreadId: z.null(),
+    afterThreadId: z.string().trim().min(1),
+    insertAtEnd: z.undefined().optional(),
+    useDefaultOrder: z.undefined().optional(),
+  }),
+  z.object({
+    beforeThreadId: z.null(),
+    afterThreadId: z.undefined().optional(),
     insertAtEnd: z.literal(true),
     useDefaultOrder: z.undefined().optional(),
   }),
   z.object({
     beforeThreadId: z.null(),
+    afterThreadId: z.undefined().optional(),
     insertAtEnd: z.undefined().optional(),
     useDefaultOrder: z.literal(true),
   }),
   z.object({
     beforeThreadId: z.null(),
+    afterThreadId: z.undefined().optional(),
     insertAtEnd: z.undefined().optional(),
     useDefaultOrder: z.undefined().optional(),
   }),
@@ -151,18 +148,19 @@ const MovePlacementSchema = z.union([
 
 export const CodexSidebarThreadMoveInputSchema = MoveBaseSchema.and(
   MovePlacementSchema,
-) as z.ZodType<CodexSidebarThreadMoveInput>;
-
-export const CodexSidebarProjectThreadOrderInputSchema = z.object({
-  projectId: z.string().trim().min(1),
-  orderedThreadIds: z.array(z.string().trim().min(1)).nullable(),
-}) satisfies z.ZodType<CodexSidebarProjectThreadOrderInput>;
-
-export const CodexSidebarChatsThreadOrderInputSchema = z.object({
-  threadIdsInDisplayOrder: z.array(z.string().trim().min(1)),
-  visibleThreadIds: z.array(z.string().trim().min(1)),
-  nextVisibleThreadIds: z.array(z.string().trim().min(1)),
-}) satisfies z.ZodType<CodexSidebarChatsThreadOrderInput>;
+).superRefine((input, context) => {
+  if (
+    input.beforeThreadId !== input.threadId
+    && input.afterThreadId !== input.threadId
+  ) {
+    return;
+  }
+  context.addIssue({
+    code: "custom",
+    message: "Thread placement anchor must reference another Thread",
+    path: [input.beforeThreadId === input.threadId ? "beforeThreadId" : "afterThreadId"],
+  });
+}) as z.ZodType<CodexSidebarThreadMoveInput>;
 
 export function isCodexSidebarThreadContainerId(
   value: string,

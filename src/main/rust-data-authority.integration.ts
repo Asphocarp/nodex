@@ -1547,19 +1547,6 @@ describe("Electron native data authority", () => {
         statusType: "idle",
         agentPath: "agents/electron",
       });
-      await expect(workspace.setProjectThreadOrder(
-        createdProject.id,
-        ["thread:electron-session"],
-      )).resolves.toMatchObject({
-        projectThreadOrders: {},
-      });
-      const clearedProjectOrder = await workspace.setProjectThreadOrder(
-        createdProject.id,
-        null,
-      );
-      expect(
-        clearedProjectOrder.projectThreadOrders[createdProject.id],
-      ).toBeUndefined();
       const moveTargetRoot = path.join(nodexHome, "move-target");
       const moveTargetProject = await workspace.createProject({
         name: "Electron Thread Move Target",
@@ -1638,13 +1625,6 @@ describe("Electron native data authority", () => {
         statusActiveFlags: [],
         createdAt: threadTimestamp + 3,
         updatedAt: threadTimestamp + 3,
-      });
-      await expect(workspace.setProjectlessThreadOrder({
-        threadIdsInDisplayOrder: ["thread:electron-projectless-order"],
-        visibleThreadIds: ["thread:electron-projectless-order"],
-        nextVisibleThreadIds: ["thread:electron-projectless-order"],
-      })).resolves.toMatchObject({
-        projectlessThreadOrder: null,
       });
       await workspace.setThreadPinned(
         "thread:electron-projectless-order",

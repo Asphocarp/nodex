@@ -331,11 +331,15 @@ mod tests {
     use nodex_core_contracts::collection::{
         CollectionWindowRequest, MAX_COLLECTION_WINDOW_JSON_BYTES,
     };
-    use nodex_core_contracts::workspace::{ProjectWorkspaceRead, ProjectWorkspaceReadValue};
+    use nodex_core_contracts::workspace::{
+        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+        ProjectWorkspaceThreadLane, ProjectWorkspaceThreadMoveMetadataPatch,
+        ProjectWorkspaceThreadPlacement,
+    };
 
     use super::*;
     use crate::workspace::test_support::{
-        create_project, create_session_thread, read, seeded_workspace,
+        apply, create_project, create_session_thread, read, seeded_workspace,
     };
 
     fn task_window(
@@ -466,6 +470,55 @@ mod tests {
                 .map(|thread| thread.thread_id.as_str()),
             Some("thread:root")
         );
+    }
+
+    #[test]
+    fn task_window_observes_relative_same_lane_moves_at_the_commit_revision() {
+        let workspace = seeded_workspace();
+        create_project(&workspace.module, "create-project", "project:a");
+        for (index, thread_id) in ["thread:a", "thread:b", "thread:c", "thread:d"]
+            .iter()
+            .enumerate()
+        {
+            create_session_thread(
+                &workspace.module,
+                &format!("create-thread-{index}"),
+                &format!("session:{index}"),
+                thread_id,
+                Some("project:a"),
+                400 - i64::try_from(index).expect("small index"),
+            );
+        }
+
+        let before = task_window(&workspace, Some("project:a"), None, 3);
+        apply(
+            &workspace.module,
+            "move-after-visible-anchor",
+            ProjectWorkspaceIntent::MoveThread {
+                thread_id: "thread:a".to_owned(),
+                source: ProjectWorkspaceThreadLane::Project {
+                    project_id: "project:a".to_owned(),
+                },
+                target: ProjectWorkspaceThreadLane::Project {
+                    project_id: "project:a".to_owned(),
+                },
+                placement: ProjectWorkspaceThreadPlacement::After {
+                    thread_id: "thread:c".to_owned(),
+                },
+                metadata: ProjectWorkspaceThreadMoveMetadataPatch::default(),
+                runtime_workspace_roots: None,
+                project_access_grant: None,
+            },
+        );
+        let after = task_window(&workspace, Some("project:a"), None, 4);
+        let thread_ids = after
+            .items
+            .iter()
+            .filter_map(|task| task.thread.as_ref().map(|thread| thread.thread_id.as_str()))
+            .collect::<Vec<_>>();
+
+        assert!(after.authority.projection_revision > before.authority.projection_revision);
+        assert_eq!(thread_ids, ["thread:b", "thread:c", "thread:a", "thread:d"]);
     }
 
     #[test]
