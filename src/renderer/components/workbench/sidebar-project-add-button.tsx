@@ -22,11 +22,10 @@ export function SidebarProjectAddButton({
 
   const openProjectCreateDialog = () => {
     openModal(appHandle, ProjectCreateDialog, {
-      onCreate: async ({ appearance, name, pageKeyPrefix, sources }) => {
+      onCreate: async ({ appearance, name, sources }) => {
         const project = await onCreateProject({
           appearance,
           name,
-          pageKeyPrefix,
           sources,
         });
         if (!project) throw new Error("Could not create project");

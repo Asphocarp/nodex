@@ -555,7 +555,7 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     expect(Boolean(textContent(document.body).includes("Resume paused goal?"))).toBe(true);
-    expect(Boolean(textContent(document.body).includes("Codex will keep working toward this goal when the thread is idle"))).toBe(true);
+    expect(Boolean(textContent(document.body).includes("Nodex will keep working toward this goal when the thread is idle"))).toBe(true);
     expect(Boolean(textContent(document.body).includes("Finish goal parity with the Codex Electron resume prompt"))).toBe(true);
 
     await act(async () => {

@@ -19,12 +19,10 @@ readable locator, not Page identity: UUID remains authoritative for Documents,
 references, deep links, selection, drag state, caches, and every mutation.
 Project creation enables the namespace of its primary Database and exposes that
 Database prefix as the Page key prefix. Project rename does not change it.
-Create Project shows a quiet Core-confirmed summary such as
-`Page keys · LAB-1, LAB-2, …`; the advanced prefix input appears only after
-`Change`. Create submits the confirmed initial prefix as part of the Project and
-primary-Database genesis transaction. If the preview becomes stale because
-another window claims it, the form remains open with its draft and a
-collision-free Core alternative.
+Create Project does not show or request Page-key settings. The Project and
+primary-Database genesis transaction derives a collision-free initial prefix
+from the Project name; the transaction remains final authority. Prefix settings
+become visible only after the Project exists.
 
 Edit Project keeps the current prefix collapsed by default. Expanding it reads
 the primary Database namespace, including its assigned Page count and retained

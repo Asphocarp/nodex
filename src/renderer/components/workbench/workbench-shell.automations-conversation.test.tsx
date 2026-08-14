@@ -612,10 +612,10 @@ describe("workbench session shell / automations-conversation", () => {
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Daily bug scan");
     expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value.includes("Scan recent commits")).toBe(true);
     expect(textContent(screen.getByLabelText("Schedule")).includes("Daily at 9:00 AM")).toBe(true);
-    expect(screen.getByRole("button", { name: "Personalize with Codex" }) !== null).toBe(true);
+    expect(screen.getByRole("button", { name: "Personalize with Nodex" }) !== null).toBe(true);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Personalize with Codex" }));
+      fireEvent.click(screen.getByRole("button", { name: "Personalize with Nodex" }));
       await Promise.resolve();
     });
     await settleAsyncRender();

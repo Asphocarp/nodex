@@ -85,14 +85,13 @@ prefix's recorded range, so a future number cannot acquire an alias that never
 existed. An unused prefix may be released before the first number is allocated;
 once used, a prefix remains reserved in its Library.
 
-Project creation reads a Core-authored, non-reserving prefix preview that uses
-the same collision allocator as the create transaction. The collapsed form
-shows that confirmed prefix and only expands the advanced input on request.
-The transaction remains final authority: if another window claims the prefix
-after preview, the dialog preserves its draft and reports a typed conflict.
-Before an existing prefix changes, the same settings surface reads the assigned
-Page count and retained history so it can explain whether the old prefix is
-released or remains a permanent historical locator.
+Create Project does not expose Page-key configuration or perform a prefix
+preview. When no explicit prefix is supplied by a non-UI caller, the aggregate
+transaction derives a collision-free prefix from the Project name using the
+same allocator that owns namespace creation. Before an existing prefix changes,
+Edit Project reads the assigned Page count and retained history so it can
+explain whether the old prefix is released or remains a permanent historical
+locator.
 
 Core is the only formatter and resolver. TypeScript may normalize an unfinished
 draft for presentation and index Core-authored current keys for bounded local

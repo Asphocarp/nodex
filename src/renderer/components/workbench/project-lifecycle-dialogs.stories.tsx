@@ -158,14 +158,13 @@ export const CreateProject: Story = {
       <ProjectCreateDialog
         onClose={() => undefined}
         onCreate={async () => undefined}
-        pageKeyAuthority={STORY_PAGE_KEY_AUTHORITY}
       />
     </Surface>
   ),
   parameters: {
     docs: {
       description: {
-        story: "The direct add-project destination. Submitting the empty source-folder picker provisions a new Documents/Nodex workspace automatically.",
+        story: "The direct add-project destination stays focused on Project identity and source folders. Submitting the empty source-folder picker provisions a new Documents/Nodex workspace automatically.",
       },
     },
   },
@@ -173,44 +172,6 @@ export const CreateProject: Story = {
     fireEvent.change(getByRole(document.body, "textbox", { name: "Project name" }), {
       target: { value: "Lab" },
     });
-    await waitFor(() => {
-      if (getByRole(document.body, "button", { name: "Create project" }).hasAttribute("disabled")) {
-        throw new Error("Create prefix preview is still pending");
-      }
-    });
-  },
-};
-
-export const CreateProjectReservedPrefix: Story = {
-  render: () => (
-    <Surface>
-      <ProjectCreateDialog
-        onClose={() => undefined}
-        onCreate={async () => undefined}
-        pageKeyAuthority={{
-          ...STORY_PAGE_KEY_AUTHORITY,
-          previewPrefix: async (input) => input.requestedPrefix === "LAB"
-            ? {
-                prefix: "LAB",
-                availability: "reserved",
-                alternativePrefix: "LAB2",
-                nextNumber: 1,
-                exampleKeys: ["LAB-1", "LAB-2"],
-              }
-            : await STORY_PAGE_KEY_AUTHORITY.previewPrefix(input),
-        }}
-      />
-    </Surface>
-  ),
-  play: async () => {
-    fireEvent.change(getByRole(document.body, "textbox", { name: "Project name" }), {
-      target: { value: "Lab" },
-    });
-    fireEvent.click(getByRole(document.body, "button", { name: "Change" }));
-    fireEvent.change(getByRole(document.body, "textbox", { name: "Page key prefix" }), {
-      target: { value: "LAB" },
-    });
-    await waitFor(() => getByRole(document.body, "button", { name: "Use LAB2" }));
   },
 };
 

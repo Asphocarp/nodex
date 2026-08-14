@@ -14,7 +14,6 @@ export interface ProjectPageKeySaveFailure {
 
 export interface ProjectPageKeyEditorModel {
   readonly prefix: string;
-  readonly summary: string;
   readonly canSubmit: boolean;
   readonly statusText: string;
   readonly prefixError: string | null;
@@ -28,7 +27,6 @@ export interface ProjectPageKeyEditorModel {
 }
 
 interface ProjectPageKeyEditorModelInput {
-  readonly mode: "create" | "edit";
   readonly expanded: boolean;
   readonly draftPrefix: string;
   readonly currentPrefix?: string;
@@ -38,13 +36,7 @@ interface ProjectPageKeyEditorModelInput {
   readonly saveFailure?: ProjectPageKeySaveFailure | null;
 }
 
-const previewSummary = (preview: PageKeyPrefixPreviewState): string =>
-  "exampleKeys" in preview && preview.exampleKeys.length > 0
-    ? `Page keys · ${preview.exampleKeys.join(", ")}, …`
-    : "Page keys · Checking…";
-
 export function projectPageKeyEditorModel({
-  mode,
   expanded,
   draftPrefix,
   currentPrefix,
@@ -55,8 +47,7 @@ export function projectPageKeyEditorModel({
 }: ProjectPageKeyEditorModelInput): ProjectPageKeyEditorModel {
   const prefix = normalizePageKeyPrefixInput(draftPrefix);
   const valid = isPlausiblePageKeyPrefixDraft(prefix);
-  const renamed = mode === "edit"
-    && currentPrefix !== undefined
+  const renamed = currentPrefix !== undefined
     && prefix !== currentPrefix;
   const confirmed = preview.kind === "available" || preview.kind === "current";
   let statusText = "";
@@ -104,13 +95,12 @@ export function projectPageKeyEditorModel({
   }
 
   const renameImpactReady = !renamed || settingsStatus === "ready";
-  const namespaceReady = mode !== "edit" || !expanded || settingsStatus === "ready";
-  const canSubmit = mode === "edit" && !renamed
+  const namespaceReady = !expanded || settingsStatus === "ready";
+  const canSubmit = !renamed
     ? namespaceReady
     : valid && confirmed && renameImpactReady;
   return {
     prefix: confirmed ? preview.prefix : prefix,
-    summary: previewSummary(preview),
     canSubmit,
     statusText,
     prefixError,

@@ -3,8 +3,6 @@ import { describe, expect, test } from "vitest";
 import type { DatabasePageKeyNamespaceV2 } from "../../shared/database-module-v2";
 import { projectPageKeyEditorModel } from "./project-page-key-editor-model";
 
-type ModelInput = Parameters<typeof projectPageKeyEditorModel>[0];
-
 const settings = (
   overrides: Partial<DatabasePageKeyNamespaceV2> = {},
 ): DatabasePageKeyNamespaceV2 => ({
@@ -18,82 +16,6 @@ const settings = (
 });
 
 describe("Project Page-key editor model", () => {
-  const cases: Array<{
-    readonly name: string;
-    readonly input: ModelInput;
-    readonly canSubmit: boolean;
-    readonly summary: string;
-  }> = [
-    {
-      name: "confirmed automatic create",
-      input: {
-        mode: "create" as const,
-        expanded: false,
-        draftPrefix: "LAB",
-        preview: {
-          kind: "available" as const,
-          prefix: "LAB",
-          availability: "available" as const,
-          alternativePrefix: null,
-          nextNumber: 1,
-          exampleKeys: ["LAB-1", "LAB-2"],
-        },
-        settingsStatus: "idle" as const,
-      },
-      canSubmit: true,
-      summary: "Page keys · LAB-1, LAB-2, …",
-    },
-    {
-      name: "invalid manual create",
-      input: {
-        mode: "create" as const,
-        expanded: true,
-        draftPrefix: "1",
-        preview: { kind: "local" as const, prefix: "1" },
-        settingsStatus: "idle" as const,
-      },
-      canSubmit: false,
-      summary: "Page keys · Checking…",
-    },
-    {
-      name: "pending create",
-      input: {
-        mode: "create" as const,
-        expanded: true,
-        draftPrefix: "LAB",
-        preview: { kind: "checking" as const, prefix: "LAB" },
-        settingsStatus: "idle" as const,
-      },
-      canSubmit: false,
-      summary: "Page keys · Checking…",
-    },
-    {
-      name: "reserved create",
-      input: {
-        mode: "create" as const,
-        expanded: true,
-        draftPrefix: "LAB",
-        preview: {
-          kind: "reserved" as const,
-          prefix: "LAB",
-          availability: "reserved" as const,
-          alternativePrefix: "LAB2",
-          nextNumber: 1,
-          exampleKeys: ["LAB-1", "LAB-2"],
-        },
-        settingsStatus: "idle" as const,
-      },
-      canSubmit: false,
-      summary: "Page keys · LAB-1, LAB-2, …",
-    },
-  ];
-
-  test.each(cases)("derives $name", ({ input, canSubmit, summary }) => {
-    const model = projectPageKeyEditorModel(input);
-    expect(model.canSubmit).toBe(canSubmit);
-    expect(model.summary).toBe(summary);
-  });
-
   test("explains unused and used renames from authority settings", () => {
     const preview = {
       kind: "available" as const,
@@ -104,7 +26,6 @@ describe("Project Page-key editor model", () => {
       exampleKeys: ["RND-8", "RND-9"],
     };
     const unused = projectPageKeyEditorModel({
-      mode: "edit",
       expanded: true,
       draftPrefix: "RND",
       currentPrefix: "LAB",
@@ -116,7 +37,6 @@ describe("Project Page-key editor model", () => {
     expect(unused.impactText).toContain("old prefix will be released");
 
     const used = projectPageKeyEditorModel({
-      mode: "edit",
       expanded: true,
       draftPrefix: "RND",
       currentPrefix: "LAB",
@@ -136,7 +56,6 @@ describe("Project Page-key editor model", () => {
 
   test("keeps concurrency and reservation failures distinct", () => {
     const base = {
-      mode: "edit" as const,
       expanded: true,
       draftPrefix: "RND",
       currentPrefix: "LAB",

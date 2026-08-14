@@ -208,6 +208,26 @@ describe("workbench session shell / sidebar-projects", () => {
     )).toBe(false);
   });
 
+  test("empty Project bottom panel opens a Project-scoped Terminal", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/nodex")],
+      sessionsByProject: { alpha: [] },
+      initialSelectedSessionId: null,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Toggle bottom panel" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("project-bottom-panel") !== null).toBe(true);
+    expect(screen.getByRole("tab", { name: "Terminal", selected: true }) !== null).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+  });
+
   test("Project Home opens Database Pages in an adjacent right tab group", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [] },

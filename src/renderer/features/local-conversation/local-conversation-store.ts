@@ -338,7 +338,7 @@ const DEFAULT_PERMISSION_STATE: CodexPermissionState = {
     source: "none",
     filePath: null,
   },
-  customDescription: "Codex will use its built-in permission defaults.",
+  customDescription: "The agent will use its built-in permission defaults.",
 };
 const EMPTY_CONVERSATION_SUMMARY_FIELDS = {
   threadId: null,
@@ -4950,14 +4950,14 @@ export class CodexAppServerManager {
       || conversation.statusActiveFlags.length > 0
       || conversation.turns.some((turn) => turn.status === "inProgress")
     ) {
-      throw new Error("Codex is already running");
+      throw new Error("Nodex is already running");
     }
     if (
       conversation.requests.length > 0
       || (conversation.canonicalRequests?.length ?? 0) > 0
       || conversation.pendingSteers.length > 0
     ) {
-      throw new Error("Resolve the pending thread action before resuming Codex");
+      throw new Error("Resolve the pending thread action before resuming Nodex");
     }
     if (conversation.turns.at(-1)?.status !== "interrupted") {
       throw new Error("Only the latest interrupted turn can be resumed");
@@ -5908,7 +5908,7 @@ export class CodexAppServerManager {
 
     const expectedTurnId = input.expectedTurnId ?? getLatestInProgressTurnId(conversation);
     if (!expectedTurnId) {
-      throw new Error("Codex is already running. Wait for the active turn to load or queue the follow-up instead.");
+      throw new Error("Nodex is already running. Wait for the active turn to load or queue the follow-up instead.");
     }
 
     const preparedPrompt = await prepareCodexPrompt(input.prompt, input.promptInput, {

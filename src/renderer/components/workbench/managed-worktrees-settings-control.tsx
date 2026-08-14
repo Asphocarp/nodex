@@ -304,7 +304,7 @@ export function ManagedWorktreesSettingControl({
       <NodexSettingsSection>
         <NodexSettingsRow
           label="Worktree root"
-          description="Directory where ChatGPT creates managed worktrees; leave blank to use the default location"
+          description="Directory where Nodex creates managed worktrees; leave blank to use the default location"
         >
           <input
             aria-label="Worktree root"
@@ -346,8 +346,8 @@ export function ManagedWorktreesSettingControl({
         <NodexSettingsRow
           label="Auto-delete limit"
           description={resolvedSettings.autoDeleteEnabled
-            ? "Number of managed worktrees to keep before older ones are pruned automatically. ChatGPT snapshots worktrees before deleting, so pruned worktrees should always be restorable."
-            : "Automatic deletion is disabled. ChatGPT will not prune old worktrees automatically. Re-enable it to use this saved limit again."}
+            ? "Number of managed worktrees to keep before older ones are pruned automatically. Nodex snapshots worktrees before deleting, so pruned worktrees should always be restorable."
+            : "Automatic deletion is disabled. Nodex will not prune old worktrees automatically. Re-enable it to use this saved limit again."}
         >
           <div className="ms-6">
             <input
@@ -407,7 +407,7 @@ export function ManagedWorktreesSettingControl({
             )}
           />
           <div className="p-3 text-sm text-token-text-secondary">
-            Worktrees created by ChatGPT will appear here
+            Worktrees created by Nodex will appear here
           </div>
         </NodexSettingsSection>
       ) : groupedRecords.map((group, groupIndex) => (
@@ -472,7 +472,7 @@ export function ManagedWorktreesSettingControl({
               <NodexDialogTitle>Disable automatic worktree deletion?</NodexDialogTitle>
             </NodexDialogHeader>
             <NodexDialogDescription>
-              We highly recommend keeping automatic deletion on so old worktrees do not build up and use unnecessary disk space. If you prefer to manage old worktrees yourself, you can turn this off and ChatGPT will stop deleting them automatically.
+              We highly recommend keeping automatic deletion on so old worktrees do not build up and use unnecessary disk space. If you prefer to manage old worktrees yourself, you can turn this off and Nodex will stop deleting them automatically.
             </NodexDialogDescription>
             <NodexDialogFooter>
               <NodexDialogAction onClick={() => setConfirmDisable(false)}>

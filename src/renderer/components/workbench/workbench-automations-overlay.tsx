@@ -944,7 +944,7 @@ function LegacyAutomationModelReasoningDropdown({
       ? formatCodexModelLabel(selectedModel, [...models])
       : modelsError
         ? "Model unavailable"
-        : "No Codex models available";
+        : "No models available";
   const reasoningLabel = formatCodexReasoningEffortLabel(effectiveReasoningEffort);
 
   return (
@@ -994,7 +994,7 @@ function LegacyAutomationModelReasoningDropdown({
       <NodexDropdownTitle>Model</NodexDropdownTitle>
       <div className="vertical-scroll-fade-mask flex max-h-[250px] flex-col overflow-y-auto">
         {visibleModels.length === 0 ? (
-          <NodexDropdownMessage compact>No Codex models available</NodexDropdownMessage>
+          <NodexDropdownMessage compact>No models available</NodexDropdownMessage>
         ) : (
           visibleModels.map((model) => {
             const selected = model.id === selectedModel;
@@ -1041,7 +1041,7 @@ function automationDraftExecutionProfile(
 function formatAutomationProviderStatus(
   provider: NonNullable<AgentProviderCatalog["providers"][number]>,
 ): string {
-  if (provider.credentialStatus === "runtimeManaged") return "Managed by Codex sign-in";
+  if (provider.credentialStatus === "runtimeManaged") return "Managed by ChatGPT sign-in";
   if (provider.credentialStatus === "ready") return "API key saved";
   if (provider.credentialStatus === "inherited") return "Using environment key";
   if (provider.credentialStatus === "missing") return "API key required";
@@ -2672,7 +2672,7 @@ function AutomationDraftEditor({
             aria-label="Prompt"
             value={draft.prompt}
             disabled={isMutating}
-            placeholder="Describe what Codex should do each time this scheduled task runs."
+            placeholder="Describe what Nodex should do each time this scheduled task runs."
             className={AUTOMATION_TEXTAREA_CLASS}
             onInput={(event) => updateDraft({ prompt: event.currentTarget.value })}
           />
@@ -2691,7 +2691,7 @@ function AutomationDraftEditor({
                   ) : (
                     <SidePanelSideChatIcon className="icon-xs" />
                   )}
-                  Personalize with Codex
+                  Personalize with Nodex
                 </NodexButton>
               ) : (
                 <NodexTooltip
@@ -3341,8 +3341,8 @@ export function WorkbenchAutomationsRouteShell({
       setMutationError(null);
     } catch (error) {
       const description = error instanceof Error ? error.message : undefined;
-      setMutationError(description ?? "Could not start personalization with Codex.");
-      toast.danger("Could not start personalization with Codex", {
+      setMutationError(description ?? "Could not start personalization with Nodex.");
+      toast.danger("Could not start personalization with Nodex", {
         description,
       });
     } finally {

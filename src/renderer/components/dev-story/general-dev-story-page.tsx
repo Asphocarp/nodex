@@ -363,7 +363,7 @@ export function GeneralDevStoryPage({
 
             <ShowcaseCard
               title="Dropdown Choice"
-              description="Codex-style dropdown composition for single-choice selectors, using the same shared menu facade as model, reasoning, and workspace pickers."
+              description="Nodex dropdown composition for single-choice selectors, using the same shared menu facade as model, reasoning, and workspace pickers."
               source="src/renderer/components/ui/dropdown.tsx"
             >
               <PreviewSurface className="items-start">

@@ -2324,7 +2324,7 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const goalRow = view.container.querySelector('[data-slash-command-row="goal"]');
       if (!goalRow) throw new Error("Expected Goal slash command row.");
-      expect(Boolean(goalRow.textContent?.includes("Set a goal that Codex will keep working towards"))).toBe(true);
+      expect(Boolean(goalRow.textContent?.includes("Set a goal that Nodex will keep working towards"))).toBe(true);
     });
 
     await keyDownComposer(view, { key: "Enter" });
@@ -2692,7 +2692,7 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const goalRow = view.container.querySelector('[data-slash-command-row="goal"]');
       if (!goalRow) throw new Error("Expected Goal slash command row.");
-      expect(Boolean(goalRow.textContent?.includes("Set a goal that Codex will keep working towards"))).toBe(true);
+      expect(Boolean(goalRow.textContent?.includes("Set a goal that Nodex will keep working towards"))).toBe(true);
     });
 
     await keyDownComposer(view, { key: "Enter" });

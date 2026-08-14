@@ -303,7 +303,7 @@ export function LocalEnvironmentsSettingsPage({
       : snapshot?.environment?.name || selectedProject?.name || "Local environment";
   const subtitle = mode === "workspace" ? (
     <>
-      Local environments tell Codex how to set up worktrees for a project. {" "}
+      Local environments tell Nodex how to set up worktrees for a project. {" "}
       <a
         href="https://developers.openai.com/codex/app/local-environments"
         target="_blank"
