@@ -1187,11 +1187,14 @@ describe("ConnectedThreadStage new-chat home", () => {
     const lowerStatusRow = view.container.querySelector<HTMLElement>("[data-composer-lower-status-row='true']");
     const externalFooterSlot = view.container.querySelector<HTMLElement>("[data-composer-external-footer-slot='true']");
     const promptEditor = view.container.querySelector<HTMLElement>("[data-codex-composer='true']");
+    const mark = view.container.querySelector<HTMLElement>("[data-nodex-home-mark='true']");
     const projectTriggers = view.getAllByLabelText("Select project") as HTMLButtonElement[];
     const renderedText = textContent(view.container);
 
     expect(home !== null).toBe(true);
     expect(hero !== null).toBe(true);
+    expect(mark !== null).toBe(true);
+    expect(mark?.querySelector("canvas")).toBeNull();
     expect(renderedText.includes("What should we build in Nodex?")).toBe(true);
     expect(composer !== null).toBe(true);
     expect(promptEditor !== null).toBe(true);

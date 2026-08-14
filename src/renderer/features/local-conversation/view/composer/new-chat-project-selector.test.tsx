@@ -124,7 +124,7 @@ describe("NewChatProjectSelector", () => {
     const view = await renderSelector(buildModel({ projects: [], selectedProjectId: null }));
 
     await openMenu(view.getByRole("button", { name: "Select project" }));
-    expect(document.body.textContent?.includes("No folders found")).toBe(true);
+    expect(document.body.textContent?.includes("No projects found")).toBe(true);
   });
 
   test("emits project selection", async () => {
@@ -173,7 +173,7 @@ describe("NewChatProjectSelector", () => {
     );
 
     const trigger = view.getByRole("button", { name: "Select project" });
-    expect(trigger.textContent).toBe("Nodex");
+    expect(trigger.textContent).toBe("Nodex?");
     expect(trigger.querySelector("[aria-hidden='true']")).toBeNull();
 
     await openMenu(trigger);
@@ -216,5 +216,28 @@ describe("NewChatProjectSelector", () => {
     });
     await settleAsyncRender();
     expect(addProjectCount).toBe(1);
+  });
+
+  test("clears the selected project from the menu", async () => {
+    const selected: Array<string | null> = [];
+    const view = await renderSelector(
+      buildModel(),
+      buildActions({
+        onNewThreadProjectChange: (projectId) => {
+          selected.push(projectId);
+        },
+      }),
+      "heading",
+    );
+
+    await openMenu(view.getByRole("button", { name: "Select project" }));
+    const clearRow = document.body.querySelector("[data-new-chat-project-clear='true']");
+    if (!(clearRow instanceof HTMLElement)) throw new Error("Expected clear-project row.");
+    await act(async () => {
+      fireEvent.click(clearRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(selected).toEqual([null]);
   });
 });

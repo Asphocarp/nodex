@@ -79,7 +79,7 @@ import {
   ManagedWorktreeRestoreBannerContainer,
   useManagedWorktreeAvailability,
 } from "./managed-worktree-restore-banner";
-import { NewChatProjectSelector } from "./composer/new-chat-project-selector";
+import { NewThreadHomeHero } from "./new-thread-home-hero";
 import {
   ThreadFloatingSummaryPanel,
   ThreadSummaryPanelRenderBoundary,
@@ -977,34 +977,6 @@ export function ConnectedThreadComposerDock({
   );
 }
 
-function NewThreadHomeHero({
-  input,
-  actions,
-}: {
-  input: ConnectedThreadStageInput;
-  actions: ThreadStageActions;
-}) {
-  const projectName = input.newThreadTarget?.projectName ?? "this project";
-
-  return (
-    <div className="heading-xl flex max-w-full min-w-0 items-end justify-center text-center font-normal whitespace-pre-wrap text-token-foreground select-none">
-      <span className="group/title inline-block max-w-full">
-        {"What should we build in "}
-        {input.newThreadProjectSelector ? (
-          <NewChatProjectSelector
-            model={input.newThreadProjectSelector}
-            actions={actions}
-            variant="heading"
-          />
-        ) : (
-          projectName
-        )}
-        ?
-      </span>
-    </div>
-  );
-}
-
 export function ConnectedThreadStage({
   actions,
   composerScopeIdentity = null,
@@ -1241,7 +1213,13 @@ export function ConnectedThreadStage({
   if (isNewThreadHome) {
     return (
       <LocalConversationNewThreadHomeScreen
-        hero={<NewThreadHomeHero input={input} actions={actions} />}
+        hero={(
+          <NewThreadHomeHero
+            actions={actions}
+            projectName={input.newThreadTarget?.projectName ?? "this project"}
+            projectSelector={input.newThreadProjectSelector}
+          />
+        )}
         body={showNewThreadHomeBody && threadBodyVisible ? (
           <ConnectedThreadStageBody
             activeThreadId={activeThreadId}
