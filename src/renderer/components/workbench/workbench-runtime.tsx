@@ -2203,7 +2203,9 @@ export function WorkbenchRuntime({
   const {
     cycleFocusedPanelTab,
     closeFocusedPanelTab,
+    dispatchPanelAction,
     focusOrCreateDatabaseViewTab,
+    resolveActivePanelCapabilities,
   } = panelCommands;
 
   const openPendingViewDeepLink = useEffectEvent(async (
@@ -2519,12 +2521,66 @@ export function WorkbenchRuntime({
 
   const toggleActiveBottomPanel = useCallback(() => {
     if (!activePanelOwnerKey) return;
-    if (!bottomPanelOpen) {
+    if (bottomPanelOpen) {
+      void hideActiveBottomPanel();
+      return;
+    }
+
+    const hasBottomPanelContent = activeOwnedScene
+      ? listWorkbenchPanelLeaves(activeOwnedScene.panels.bottom.layout)
+          .some((leaf) => leaf.tabIds.length > 0)
+      : (activeSessionPanelModel?.bottomRenderableTabs.length ?? 0) > 0;
+    if (hasBottomPanelContent) {
       void showActiveBottomPanel();
       return;
     }
-    void hideActiveBottomPanel();
-  }, [activePanelOwnerKey, bottomPanelOpen, hideActiveBottomPanel, showActiveBottomPanel]);
+
+    if (projectSceneOwner && activeProject) {
+      const workspaceRoot = projectWorkspaceRootOrNull(activeProject);
+      if (!workspaceRoot) {
+        void showActiveBottomPanel();
+        return;
+      }
+      void openProjectSceneManualSurface(activeProject.id, "terminal", {
+        panelId: "bottom",
+        targetLeafId: activeProjectScene?.panels.bottom.layout.activeLeafId,
+      }).then((opened) => {
+        if (!opened) void showActiveBottomPanel();
+      });
+      return;
+    }
+
+    if (activeOwnedSceneOwner) {
+      void showActiveBottomPanel();
+      return;
+    }
+
+    const terminalAvailable = resolveActivePanelCapabilities("bottom")
+      .actions.terminal.available;
+    if (activeSession && terminalAvailable) {
+      void dispatchPanelAction("terminal", {
+        panelId: "bottom",
+      });
+      return;
+    }
+
+    void showActiveBottomPanel();
+  }, [
+    activePanelOwnerKey,
+    activeOwnedScene,
+    activeOwnedSceneOwner,
+    activeProject,
+    activeProjectScene?.panels.bottom.layout.activeLeafId,
+    activeSession,
+    activeSessionPanelModel?.bottomRenderableTabs.length,
+    bottomPanelOpen,
+    dispatchPanelAction,
+    hideActiveBottomPanel,
+    openProjectSceneManualSurface,
+    projectSceneOwner,
+    resolveActivePanelCapabilities,
+    showActiveBottomPanel,
+  ]);
 
   const handleDesktopNotificationAction = useCallback(async (
     invocation: DesktopNotificationActionInvocation,
