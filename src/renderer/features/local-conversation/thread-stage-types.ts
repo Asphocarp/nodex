@@ -73,6 +73,7 @@ import type {
   AgentProviderCredentialMutationResult,
 } from "../../../shared/agent-runtime";
 import type { ComposerIntelligenceSelection } from "./view/composer/composer-intelligence-types";
+import type { CommandShortcutPresentation } from "../../../shared/command-keybindings";
 
 export interface NewChatProjectSelectorModel {
   projects: NewChatProjectSelectorOption[];
@@ -218,6 +219,7 @@ export interface ThreadStageRouteInput {
   sessionId?: string | null;
   threadPinned?: boolean;
   threadActionShortcuts?: ThreadStageHeaderModel["shortcuts"];
+  modelPickerShortcut?: CommandShortcutPresentation | null;
   projectWorkspacePath?: string | null;
   isNewThreadTab: boolean;
   newThreadTarget: {
@@ -1073,6 +1075,7 @@ export interface ThreadFooterModel {
   collaborationModes: CodexCollaborationModePreset[];
   selectedCollaborationMode: CodexCollaborationModeKind;
   selectedModel: string;
+  modelPickerShortcut: CommandShortcutPresentation | null;
   availableModels: CodexModelOption[];
   agentProviderCatalog?: AgentProviderCatalog | null;
   agentProviderCatalogLoading?: boolean;

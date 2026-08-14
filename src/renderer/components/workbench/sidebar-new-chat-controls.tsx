@@ -7,7 +7,6 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
-  type ReactNode,
 } from "react";
 import { NewChatIcon, SettingsSearchIcon, TitlebarNewChatIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
@@ -107,7 +106,7 @@ export function SidebarExpandedHeader({
 }: {
   productName: string;
   productStatusLabel?: string;
-  searchShortcutLabel: ReactNode;
+  searchShortcutLabel: string;
   newChatShortcutLabel: string;
   scrolledContentUnderHeader: boolean;
   onSearch: () => void;
@@ -132,7 +131,7 @@ export function SidebarExpandedHeader({
             </span>
           ) : null}
         </div>
-        <NodexTooltip tooltipContent="Search" shortcut={searchShortcutLabel} side="right">
+        <NodexTooltip tooltipContent="Search" shortcutLabel={searchShortcutLabel} side="right">
           <button
             type="button"
             className={SIDEBAR_HEADER_SEARCH_BUTTON_CLASS}

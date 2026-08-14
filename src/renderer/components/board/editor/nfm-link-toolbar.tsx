@@ -15,7 +15,6 @@ import {
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
-import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -134,15 +133,9 @@ function NfmCreateLinkPopover({
     >
       <NodexTooltip
         tooltipContent={dict.formatting_toolbar.link.tooltip}
-        shortcut={(
-          <ShortcutKeycaps
-            keys={[
-              formatKeyboardShortcut(
-                dict.formatting_toolbar.link.secondary_tooltip,
-                dict.generic.ctrl_shortcut,
-              ),
-            ]}
-          />
+        shortcutLabel={formatKeyboardShortcut(
+          dict.formatting_toolbar.link.secondary_tooltip,
+          dict.generic.ctrl_shortcut,
         )}
         side="top"
         delayDuration={0}

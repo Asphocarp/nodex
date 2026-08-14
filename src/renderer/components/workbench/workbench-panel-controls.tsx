@@ -257,7 +257,7 @@ export function WindowNavigationToolbarButton({
     <NodexTooltip
       delayOpen
       tooltipContent={label}
-      shortcut={<ShortcutKeycaps keys={[shortcutLabel]} />}
+      shortcutLabel={shortcutLabel}
       side="bottom"
     >
       <button
