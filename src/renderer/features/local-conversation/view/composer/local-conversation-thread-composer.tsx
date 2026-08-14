@@ -2726,7 +2726,7 @@ function HydratedThreadComposer({
           });
         } else if (input.submitAction === "steer") {
           if (!model.activeTurn || model.activeTurn.turnId === null) {
-            onErrorMessage("Codex is already running. Wait for the active turn to load or queue the follow-up instead.");
+            onErrorMessage("Nodex is already running. Wait for the active turn to load or queue the follow-up instead.");
             return;
           }
           await actions.onSteerPrompt({
@@ -2736,7 +2736,7 @@ function HydratedThreadComposer({
             collaborationMode: model.selectedCollaborationMode,
           });
         } else {
-          onErrorMessage("Codex is already running. Choose Queue or Steer before submitting a follow-up.");
+          onErrorMessage("Nodex is already running. Choose Queue or Steer before submitting a follow-up.");
           return;
         }
       } else {
@@ -3118,7 +3118,7 @@ function HydratedThreadComposer({
     try {
       await actions.onInterruptTurn(model.activeTurn?.turnId ?? undefined);
     } catch (error) {
-      onErrorMessage(error instanceof Error ? error.message : "Could not stop Codex");
+      onErrorMessage(error instanceof Error ? error.message : "Could not stop Nodex");
     } finally {
       setBusyAction(null);
     }
@@ -3142,7 +3142,7 @@ function HydratedThreadComposer({
     try {
       await actions.onResumeInterruptedTurn();
     } catch (error) {
-      onErrorMessage(error instanceof Error ? error.message : "Could not resume Codex");
+      onErrorMessage(error instanceof Error ? error.message : "Could not resume Nodex");
     } finally {
       resumeInFlightRef.current = false;
       setBusyAction(null);
@@ -4368,7 +4368,7 @@ function HydratedThreadComposer({
           title="Hide desktop pet"
           onClick={() => setDesktopPetVisible(false)}
         >
-          <span className="text-lg" aria-hidden="true">Codex</span>
+          <span className="text-lg" aria-hidden="true">Nodex</span>
         </button>
       ) : null}
     </>

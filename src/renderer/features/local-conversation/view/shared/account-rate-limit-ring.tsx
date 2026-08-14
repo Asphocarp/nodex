@@ -47,10 +47,10 @@ function resolveQuotaColor(window: RateLimitRingWindowView | null, fallback: str
 }
 
 function connectionFallbackLabel(connection: CodexConnectionState): string {
-  if (connection.status === "starting") return "Codex connecting. Usage remaining unavailable";
+  if (connection.status === "starting") return "Agent runtime connecting. Usage remaining unavailable";
   if (connection.status === "missingBinary") return "Codex CLI missing. Usage remaining unavailable";
-  if (connection.status === "error") return "Codex connection error. Usage remaining unavailable";
-  if (connection.status === "disconnected") return "Codex disconnected. Usage remaining unavailable";
+  if (connection.status === "error") return "Agent runtime connection error. Usage remaining unavailable";
+  if (connection.status === "disconnected") return "Agent runtime disconnected. Usage remaining unavailable";
   return "Usage remaining unavailable";
 }
 

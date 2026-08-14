@@ -103,7 +103,7 @@ const SETTINGS_SEARCH_PANELS = {
         entries: [
           entry(
             "Default permissions mode",
-            "Choose the preset used for new local Codex threads.",
+            "Choose the preset used for new local tasks.",
             [
               "Ask for approval",
               "Approve for me",
@@ -404,13 +404,13 @@ const SETTINGS_SEARCH_PANELS = {
   },
   git: {
     title: "Git",
-    subtitle: "Branch naming and instructions used by Codex for Git operations.",
+    subtitle: "Branch naming and instructions used by Nodex for Git operations.",
     groups: [
       {
         title: "Branches",
         entries: [entry(
           "Branch prefix",
-          "Prefix used when Codex creates new branches.",
+          "Prefix used when Nodex creates new branches.",
           [DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX],
         )],
       },
@@ -455,7 +455,7 @@ const SETTINGS_SEARCH_PANELS = {
   },
   "local-environments": {
     title: "Local environments",
-    subtitle: "Local environments tell Codex how to set up worktrees for a project. Learn more.",
+    subtitle: "Local environments tell Nodex how to set up worktrees for a project. Learn more.",
     groups: [
       {
         title: "Select a project",

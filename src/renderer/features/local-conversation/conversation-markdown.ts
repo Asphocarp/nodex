@@ -461,8 +461,8 @@ function renderTurn(entry: VisibleConversationTurnEntry, cwd: string | null): st
 }
 
 function normalizeTitle(value: string | null | undefined): string {
-  const normalized = (value ?? "Codex conversation").replaceAll(/\s+/g, " ").trim();
-  return (normalized || "Codex conversation").replaceAll("#", "\\#");
+  const normalized = (value ?? "Nodex conversation").replaceAll(/\s+/g, " ").trim();
+  return (normalized || "Nodex conversation").replaceAll("#", "\\#");
 }
 
 export function renderConversationMarkdown({ cwd = null, title, turns }: ConversationMarkdownInput): string {

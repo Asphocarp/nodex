@@ -1746,7 +1746,7 @@ function ReviewDiffCommentAnnotationCard({
   const trimmedValue = draftValue.trim();
   const isLocalComment = metadata.kind === "local-comment";
   const authorLabel =
-    metadata.kind === "model-comment" ? "Codex" : "Local comment";
+    metadata.kind === "model-comment" ? "Nodex" : "Local comment";
   const title = metadata.title?.trim() || authorLabel;
 
   return (
@@ -1758,7 +1758,7 @@ function ReviewDiffCommentAnnotationCard({
         <div className="group/comment overflow-hidden rounded-[12px] border border-token-border/14 bg-token-dropdown-background composer-surface-chrome">
           <div className="flex min-w-0 items-center gap-2 px-2.5 py-2">
             <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-token-foreground/8 text-[10px] font-medium text-token-description-foreground">
-              {authorLabel === "Codex" ? "C" : "L"}
+              {authorLabel === "Nodex" ? "N" : "L"}
             </div>
             <div className="min-w-0 truncate text-sm font-medium text-token-foreground">
               {title}
@@ -4588,7 +4588,7 @@ export function ReviewDiffPanel({
       await onStartThreadPrompt(threadId, prompt);
     } catch (error) {
       toast.danger(
-        error instanceof Error ? error.message : "Could not start Codex turn.",
+        error instanceof Error ? error.message : "Could not start a Nodex turn.",
         {
           id: "review-diff-notice",
         },

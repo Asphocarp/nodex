@@ -86,7 +86,7 @@ function buildPermissionComposerRequest(
       question: title,
       isOther: true,
       isSecret: false,
-      otherPlaceholder: "No, and tell Codex what to do differently",
+      otherPlaceholder: "No, and tell Nodex what to do differently",
       options,
     }],
   };

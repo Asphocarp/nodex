@@ -45,9 +45,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(screen.queryAllByRole("tablist").length > 0).toBe(true);
   });
 
-  test("collapsed bottom panel opens from the global bottom-panel toggle", async () => {
+  test("empty collapsed bottom panel opens a Terminal from the global toggle", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
+      sessionsByProject: { alpha: [makeAttachedSession({ rightCollapsed: true })] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -76,6 +76,49 @@ describe("workbench session shell / layout-panel-actions", () => {
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBe(true);
     expect(screen.queryByTestId("session-bottom-panel") !== null).toBe(true);
+    expect(screen.getByRole("tab", { name: /^Terminal \d+$/, selected: true }) !== null).toBe(true);
+    expect(invokeCalls.some((call) =>
+      call[0] === "window-session-view:tab-create"
+      && (call[1] as { kind?: string; panelId?: string } | undefined)?.kind === "terminal"
+      && (call[1] as { kind?: string; panelId?: string } | undefined)?.panelId === "bottom"
+    )).toBe(true);
+  });
+
+  test("reopening a non-empty bottom panel preserves its active tab", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:bottom-browser",
+      rightCollapsed: true,
+      tabs: [{
+        id: "bottom-browser-tab",
+        kind: "browser",
+        title: "Browser",
+        panelId: "bottom",
+        config: { projectId: "alpha" },
+      }],
+      panels: makePanels({
+        rightCollapsed: true,
+        bottomTabIds: ["bottom-browser-tab"],
+        bottomActiveTabId: "bottom-browser-tab",
+        bottomCollapsed: true,
+      }),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Toggle bottom panel" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Browser", selected: true }) !== null).toBe(true);
+    expect(invokeCalls.some((call) =>
+      call[0] === "window-session-view:tab-create"
+      && (call[1] as { kind?: string } | undefined)?.kind === "terminal"
+    )).toBe(false);
   });
 
   test("native and command-palette bottom-panel commands share the shell action", async () => {
@@ -2217,6 +2260,15 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
     await openBottomPanel(screen);
+    await waitFor(() => {
+      expect(invokeCalls.some((call) =>
+        call[0] === "window-session-view:tab-create"
+        && (call[1] as { kind?: string } | undefined)?.kind === "terminal"
+      )).toBe(true);
+    });
+    const durableTabCreateCount = invokeCalls.filter((call) =>
+      call[0] === "window-session-view:tab-create"
+    ).length;
 
     const menu = await openPanelMenu(screen, "Open bottom panel tab");
     await act(async () => {
@@ -2232,7 +2284,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
     expect(String(startSideChatCalls.length)).toBe("1");
     expect(JSON.stringify(startSideChatCalls[0]).includes('"parentThreadId":"thread-alpha"')).toBe(true);
-    expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
+    expect(invokeCalls.filter((call) =>
+      call[0] === "window-session-view:tab-create"
+    )).toHaveLength(durableTabCreateCount);
     expect(textContent(screen.container).includes("Thread:side-thread-1")).toBe(true);
     const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(JSON.stringify(stageProps?.sideChatContext ?? null)).toBe(

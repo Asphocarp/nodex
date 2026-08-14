@@ -22,7 +22,7 @@ function buildPlanComposerRequest(request: CodexPlanImplementationRequest): Requ
       question: "Implement this plan?",
       isOther: true,
       isSecret: false,
-      otherPlaceholder: "No, and tell Codex what to do differently",
+      otherPlaceholder: "No, and tell Nodex what to do differently",
       options: [{ label: "Yes, implement this plan", description: "" }],
     }],
   };

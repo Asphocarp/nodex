@@ -101,7 +101,7 @@ function CodexSetupTaskRequestCard({
       header: "First task",
       question: "What's something we can knock off your list today?",
       isOther: true,
-      otherPlaceholder: "No, and tell ChatGPT what to do differently",
+      otherPlaceholder: "No, and tell Nodex what to do differently",
       options: resolveCodexSetupTaskSuggestions(roleState.roles).map((suggestion) => ({
         label: suggestion.title,
         description: suggestion.prompt,

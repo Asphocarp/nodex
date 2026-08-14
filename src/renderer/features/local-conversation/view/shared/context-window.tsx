@@ -61,7 +61,7 @@ export function ContextWindowTooltipContent({
           : `${state.percentFull}% used (${remainingPercent}% left)`}
       </span>
       <span>{formatRoundedTokenThousands(state.usedTokens)} / {formatRoundedTokenThousands(state.windowTokens)} tokens used</span>
-      {showAutoCompactionNote ? <p className="mt-2 font-medium">Codex automatically compacts its context</p> : null}
+      {showAutoCompactionNote ? <p className="mt-2 font-medium">Nodex automatically compacts its context</p> : null}
     </div>
   );
 }

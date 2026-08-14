@@ -237,7 +237,7 @@ describe("SidebarProjectsSection", () => {
     });
     expect(queryByText("Start from scratch")).toBe(null);
     expect(queryByText("Use an existing folder")).toBe(null);
-    expect(getByText("Add folders ChatGPT can read and edit")).toBeTruthy();
+    expect(getByText("Add folders Nodex can read and edit")).toBeTruthy();
     expect(getByRole("button", { name: "Create project" }).hasAttribute("disabled")).toBe(false);
 
     await act(async () => {
@@ -251,7 +251,6 @@ describe("SidebarProjectsSection", () => {
           marker: { kind: "icon", icon: "folder" },
         },
         name: "",
-        pageKeyPrefix: "NX",
         sources: [],
       }]);
       expect(queryByRole("heading", { name: "Create project" })).toBe(null);
@@ -284,7 +283,6 @@ describe("SidebarProjectsSection", () => {
             marker: { kind: "icon", icon: "folder" },
           },
           name: "",
-          pageKeyPrefix: "NX",
           sources: [],
         },
         {
@@ -293,7 +291,6 @@ describe("SidebarProjectsSection", () => {
             marker: { kind: "icon", icon: "folder" },
           },
           name: "",
-          pageKeyPrefix: "NX",
           sources: ["/repo/new-project"],
         },
       ]);

@@ -68,13 +68,11 @@ import {
 import { ProjectMarkerPicker } from "./project-marker-picker";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 
-const PRIMARY_SOURCE_TOOLTIP = "ChatGPT will run in this folder and look inside it for AGENTS.md and skills";
+const PRIMARY_SOURCE_TOOLTIP = "Nodex will run in this folder and look inside it for AGENTS.md and skills";
 
 export interface ProjectDialogSubmitInput {
   appearance: ProjectAppearance;
   name: string;
-  /** Present only for the Workspace-owned create aggregate. */
-  pageKeyPrefix?: string;
   sources: string[];
 }
 
@@ -253,7 +251,7 @@ export function ProjectSourcesEditor({
           onClick={() => void addFolder()}
         >
           <FolderPlusIcon className="icon-sm text-token-description-foreground" />
-          {empty ? "Add folders ChatGPT can read and edit" : "Add folder"}
+          {empty ? "Add folders Nodex can read and edit" : "Add folder"}
         </button>
       </motion.div>
     </NodexDialogBody>
@@ -273,7 +271,7 @@ function ProjectEditorForm({
   onSubmit,
   onClose,
   onRemoveProject,
-  pageKeyAuthority,
+  pageKeyAuthority = DEFAULT_PAGE_KEY_AUTHORITY,
 }: {
   mode: "create" | "edit";
   projectId?: string;
@@ -287,7 +285,7 @@ function ProjectEditorForm({
   onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
   onClose: () => void;
   onRemoveProject?: () => void;
-  pageKeyAuthority: DatabasePageKeyAuthority;
+  pageKeyAuthority?: DatabasePageKeyAuthority;
 }) {
   const queryClient = useQueryClient();
   const nameInputId = useId();
@@ -324,43 +322,44 @@ function ProjectEditorForm({
   const settings = settingsQuery.data?.namespace;
   const authorityCurrentPrefix = settings?.currentPrefix;
   const preview = usePageKeyPrefixPreview({
-    enabled: mode === "create" || (pageKeyExpanded && settings !== undefined),
-    projectId: mode === "edit" ? projectId : undefined,
-    databaseId: mode === "edit" ? databaseId : undefined,
+    enabled: mode === "edit" && pageKeyExpanded && settings !== undefined,
+    projectId,
+    databaseId,
     nameHint: name,
     readPreview: pageKeyAuthority.previewPrefix,
     requestedPrefix: pageKeyPrefixIsManual
       ? pageKeyPrefix
-      : mode === "edit"
-        ? authorityCurrentPrefix
-        : undefined,
+      : authorityCurrentPrefix,
   });
   const effectiveDraftPrefix = pageKeyPrefixIsManual
     ? pageKeyPrefix
     : "prefix" in preview && preview.prefix
       ? preview.prefix
       : authorityCurrentPrefix ?? "";
-  const settingsStatus = !pageKeyExpanded || mode === "create"
+  const settingsStatus = !pageKeyExpanded
     ? "idle"
     : settingsQuery.isPending
     ? "loading"
     : settingsQuery.error
     ? "error"
     : "ready";
-  const pageKeyModel = projectPageKeyEditorModel({
-    mode,
-    expanded: pageKeyExpanded,
-    draftPrefix: effectiveDraftPrefix,
-    currentPrefix: authorityCurrentPrefix,
-    preview,
-    settings,
-    settingsStatus,
-    saveFailure,
-  });
+  const pageKeyModel = mode === "edit"
+    ? projectPageKeyEditorModel({
+        expanded: pageKeyExpanded,
+        draftPrefix: effectiveDraftPrefix,
+        currentPrefix: authorityCurrentPrefix,
+        preview,
+        settings,
+        settingsStatus,
+        saveFailure,
+      })
+    : null;
+  const canSubmit = pageKeyModel?.canSubmit ?? true;
+  const formError = pageKeyModel?.formError ?? saveFailure?.message ?? null;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (saving || !pageKeyModel.canSubmit) return;
+    if (saving || !canSubmit) return;
     setSaving(true);
     setSaveFailure(null);
     let detailsWereCommitted = metadataCommitted;
@@ -369,13 +368,12 @@ function ProjectEditorForm({
         await onSubmit({
           appearance,
           name,
-          ...(mode === "create" ? { pageKeyPrefix: pageKeyModel.prefix } : {}),
           sources,
         });
         detailsWereCommitted = true;
         setMetadataCommitted(true);
       }
-      const shouldRename = mode === "edit"
+      const shouldRename = pageKeyModel !== null
         && pageKeyExpanded
         && pageKeyModel.prefix !== authorityCurrentPrefix;
       if (shouldRename) {
@@ -409,8 +407,9 @@ function ProjectEditorForm({
           };
       setSaveFailure(failure);
       if (
-        failure.code === "identity_conflict"
-        || failure.code === "revision_conflict"
+        mode === "edit"
+        && (failure.code === "identity_conflict"
+          || failure.code === "revision_conflict")
       ) {
         await queryClient.invalidateQueries({
           queryKey: queryKeys.pageKeys.namespace(databaseId ?? "create"),
@@ -460,15 +459,13 @@ function ProjectEditorForm({
               aria-label="Project name"
             />
           </div>
-          {!pageKeyExpanded ? (
+          {pageKeyModel === null ? null : !pageKeyExpanded ? (
             <div className="flex min-h-8 items-center justify-between gap-3 px-1">
               <span
                 className="min-w-0 truncate text-xs tabular-nums text-token-description-foreground"
                 aria-live="polite"
               >
-                {mode === "create"
-                  ? pageKeyModel.summary
-                  : "Page key settings"}
+                Page key settings
               </span>
               <button
                 type="button"
@@ -561,9 +558,9 @@ function ProjectEditorForm({
               ) : null}
             </div>
           )}
-          {pageKeyModel.formError ? (
+          {formError ? (
             <p className="px-1 text-xs leading-5 text-token-error-foreground" role="alert">
-              {pageKeyModel.formError}
+              {formError}
             </p>
           ) : null}
         </div>
@@ -600,7 +597,7 @@ function ProjectEditorForm({
             <NodexDialogAction
               tone="primary"
               type="submit"
-              disabled={saving || !pageKeyModel.canSubmit}
+              disabled={saving || !canSubmit}
             >
               {submitLabel}
             </NodexDialogAction>
@@ -709,11 +706,9 @@ export function ProjectEditDialog(props: ProjectEditDialogProps) {
 export function ProjectCreateDialog({
   onClose,
   onCreate,
-  pageKeyAuthority = DEFAULT_PAGE_KEY_AUTHORITY,
 }: {
   onClose: () => void;
   onCreate: (input: ProjectDialogSubmitInput) => Promise<void>;
-  pageKeyAuthority?: DatabasePageKeyAuthority;
 }) {
   return (
     <ProjectDialogShell onClose={onClose}>
@@ -727,7 +722,6 @@ export function ProjectCreateDialog({
         initialSources={[]}
         onSubmit={onCreate}
         onClose={onClose}
-        pageKeyAuthority={pageKeyAuthority}
       />
     </ProjectDialogShell>
   );

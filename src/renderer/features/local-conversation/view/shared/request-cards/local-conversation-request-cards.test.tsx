@@ -89,7 +89,7 @@ describe("local-conversation request cards", () => {
       </NodexTooltipProvider>,
     );
 
-    expect(textContent(container).includes("Tell Codex what to do differently")).toBe(false);
+    expect(textContent(container).includes("Tell Nodex what to do differently")).toBe(false);
   });
 
   test("allows an immediate freeform question to resolve without an answer", async () => {
@@ -108,7 +108,7 @@ describe("local-conversation request cards", () => {
         {
           id: "q_freeform",
           header: "Input required",
-          question: "Tell Codex what to do differently",
+          question: "Tell Nodex what to do differently",
           isOther: false,
           isSecret: false,
           options: undefined,
@@ -242,7 +242,7 @@ describe("local-conversation request cards", () => {
     expect(getByText("What is 1 + 1?").textContent).toBe("What is 1 + 1?");
     expect(getByText("2 (Recommended)").textContent).toBe("2 (Recommended)");
     expect(getByLabelText("About 2 (Recommended)").getAttribute("aria-label")).toBe("About 2 (Recommended)");
-    expect(textContent(container).includes("Tell Codex what to do differently")).toBe(true);
+    expect(textContent(container).includes("Tell Nodex what to do differently")).toBe(true);
     expect(container.querySelector('[data-user-input-focus-target="options"]')).not.toBeNull();
     expect(container.querySelector('[data-user-input-focus-target="other"]')).not.toBeNull();
     expect(getByText("Dismiss").textContent).toBe("Dismiss");

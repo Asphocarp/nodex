@@ -110,7 +110,7 @@ describe("request card questionnaire state", () => {
         {
           id: "q_freeform",
           header: "Input required",
-          question: "Tell Codex what to do differently",
+          question: "Tell Nodex what to do differently",
           isOther: false,
           isSecret: false,
           options: undefined,
