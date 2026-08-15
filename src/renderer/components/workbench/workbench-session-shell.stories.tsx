@@ -1431,6 +1431,20 @@ function installStoryApi(
                 rootIsCurrent: false,
               };
             }
+            if (read.mode === "page_reference_candidates") {
+              return { kind: "page_reference_candidates", items: [] };
+            }
+            if (read.mode === "page_backlinks") {
+              return {
+                kind: "page_backlinks",
+                targetPageId: read.targetPageId,
+                items: [],
+                nextCursor: null,
+                hasMore: false,
+                total: 0,
+                sourcePageCount: 0,
+              };
+            }
             return {
               kind: "children",
               parent: read.parent,

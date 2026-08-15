@@ -233,6 +233,15 @@ export const readPageStageSemanticProperties = (
   };
 };
 
+export const readPageDetailWorkflowStatus = (
+  detail: PageDetail | LibraryPageDetail | null,
+): WorkflowStatus | null => {
+  if (!detail) return null;
+  return readPageStageSemanticProperties(
+    buildPageStageDataSourceProperties(detail),
+  ).status?.value ?? null;
+};
+
 export const isPageStagePrimaryProperty = (
   property: PageStageDataSourceProperty,
 ): boolean => PAGE_STAGE_PRIMARY_PROPERTY_IDS.some(

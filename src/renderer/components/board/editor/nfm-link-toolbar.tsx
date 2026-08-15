@@ -39,6 +39,11 @@ import {
 } from "./nfm-edit-link-menu-items";
 import { applyNfmLinkEditAtRange } from "./nfm-link-editing";
 import { normalizeNfmEditorLinkUrl } from "./nfm-link-url";
+import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
+import { createPageReferenceSearchController } from "@/lib/page-reference-picker/search-controller";
+import type { PageReferenceCandidate } from "@/lib/page-reference-picker/types";
+import { buildPageDeepLink } from "../../../../shared/nodex-deeplink";
+import { PageIcon } from "@/components/shared/icons";
 
 function hasLinkInSchema(editor: { schema: { inlineContentSchema: Record<string, unknown> } }): boolean {
   return (
@@ -54,6 +59,128 @@ interface NfmCreateLinkSelectionState {
     from: number;
     to: number;
   };
+}
+
+function NfmPageLinkPicker({
+  onBack,
+  onSelect,
+}: {
+  readonly onBack: () => void;
+  readonly onSelect: (candidate: PageReferenceCandidate) => void;
+}) {
+  const hostRuntime = useBlockReferenceHostRuntime();
+  const controllerRef = useRef(createPageReferenceSearchController());
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<readonly PageReferenceCandidate[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useEffect(() => {
+    if (!hostRuntime) {
+      setStatus("error");
+      return;
+    }
+    let active = true;
+    setStatus("loading");
+    void controllerRef.current.search({
+      accessContext: hostRuntime.contentAccessContext,
+      hostPageId: hostRuntime.hostPageId,
+      ancestorPageIds: hostRuntime.ancestorPageIds,
+      intent: "link",
+      query,
+      limit: 24,
+    }).then((result) => {
+      if (!active || result.status === "stale") return;
+      setItems(result.items);
+      setSelectedIndex(0);
+      setStatus("ready");
+    }).catch(() => {
+      if (active) setStatus("error");
+    });
+    return () => {
+      active = false;
+    };
+  }, [hostRuntime, query]);
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Choose a Page link"
+      className="flex w-[17.5rem] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[14px] bg-token-dropdown-background/95 text-token-foreground shadow-lg ring-[0.5px] ring-token-border backdrop-blur-sm"
+    >
+      <div className="flex items-center gap-1.5 px-2 py-2">
+        <button
+          type="button"
+          aria-label="Back to URL"
+          onClick={onBack}
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-token-text-secondary hover:bg-token-foreground/5 hover:text-token-foreground"
+        >
+          ←
+        </button>
+        <input
+          autoFocus
+          type="text"
+          value={query}
+          placeholder="Search Pages"
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onBack();
+              return;
+            }
+            if (items.length === 0) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const delta = event.key === "ArrowDown" ? 1 : -1;
+              setSelectedIndex((current) =>
+                (current + delta + items.length) % items.length
+              );
+              return;
+            }
+            if (event.key === "Enter") {
+              event.preventDefault();
+              const selected = items[selectedIndex];
+              if (selected) onSelect(selected);
+            }
+          }}
+          className="h-7 min-w-0 flex-1 rounded-md border-[0.5px] border-token-border bg-token-input-background px-2 text-[13px] outline-none focus:border-token-focus-border focus:ring-1 focus:ring-token-focus-border"
+        />
+      </div>
+      <div
+        role="listbox"
+        aria-label="Page link results"
+        className="scrollbar-token max-h-64 overflow-y-auto px-1 pb-1"
+      >
+        {items.map((item, index) => (
+          <button
+            key={item.pageId}
+            type="button"
+            role="option"
+            aria-selected={selectedIndex === index}
+            data-selected={selectedIndex === index || undefined}
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseEnter={() => setSelectedIndex(index)}
+            onClick={() => onSelect(item)}
+            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-token-list-hover-background focus-visible:bg-token-list-hover-background data-[selected=true]:bg-token-list-hover-background"
+          >
+            <PageIcon className="icon-xs shrink-0 text-token-description-foreground" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm text-token-foreground">{item.title || "Untitled"}</span>
+              <span className="block truncate text-xs text-token-description-foreground">
+                {[item.pageKey, item.locationLabel].filter(Boolean).join(" · ")}
+              </span>
+            </span>
+          </button>
+        ))}
+        {status !== "ready" || items.length === 0 ? (
+          <div className="px-2 py-3 text-center text-xs text-token-description-foreground">
+            {status === "loading" ? "Loading…" : status === "error" ? "Pages unavailable" : "No matching Pages"}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export interface NfmCreateLinkTriggerProps {
@@ -83,6 +210,7 @@ function NfmCreateLinkPopover({
   state: NfmCreateLinkSelectionState;
   renderTrigger?: (props: NfmCreateLinkTriggerProps) => ReactNode;
 }) {
+  const [showPagePicker, setShowPagePicker] = useState(false);
   const {
     currentUrl,
     setCurrentUrl,
@@ -168,7 +296,15 @@ function NfmCreateLinkPopover({
         collisionPadding={8}
         className="w-[16.5rem] gap-0 p-0 overflow-hidden"
       >
-        <NfmCreateLinkDialogSurface
+        {showPagePicker ? (
+          <NfmPageLinkPicker
+            onBack={() => setShowPagePicker(false)}
+            onSelect={(candidate) => {
+              submit(buildPageDeepLink({ pageId: candidate.pageId }), state.text || candidate.title);
+              setShowPopover(false);
+            }}
+          />
+        ) : <NfmCreateLinkDialogSurface
           urlLabel={"Page or URL"}
           urlPlaceholder={dict.link_toolbar.form.url_placeholder}
           urlValue={currentUrl}
@@ -176,7 +312,9 @@ function NfmCreateLinkPopover({
           onUrlChange={setCurrentUrl}
           onUrlKeyDown={handleUrlKeyDown}
           onSubmit={handleSubmit}
-        />
+          secondaryActionLabel="Page…"
+          onSecondaryAction={() => setShowPagePicker(true)}
+        />}
       </NodexPopoverContent>
     </NodexPopover>
   );
@@ -275,6 +413,7 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
   const dict = useDictionary();
   const { opener } = useFileLinkOpener();
   const fileReferenceRouter = useFileReferenceRouter();
+  const hostRuntime = useBlockReferenceHostRuntime();
   const { deleteLink } = useExtension(LinkToolbarExtension);
   const [isEditing, setIsEditing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -284,7 +423,8 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
   const action = resolveNfmLinkAction(props.url, props.projectWorkspacePath);
   const tooltip = resolveNfmLinkTooltipLabel(action, false)
     ?? dict.link_toolbar.open.tooltip;
-  const canOpen = isOpenableLinkAction(action);
+  const canOpen = isOpenableLinkAction(action)
+    && (action.kind !== "page" || Boolean(hostRuntime?.openPage));
   const {
     currentUrl,
     currentText,
@@ -428,7 +568,20 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
           });
           return;
         }
-        void openNfmResolvedLinkAction(action, opener);
+        void openNfmResolvedLinkAction(
+          action,
+          opener,
+          undefined,
+          undefined,
+          hostRuntime?.openPage
+            ? {
+                openPage: (pageId) => hostRuntime.openPage?.({
+                  accessContext: hostRuntime.contentAccessContext,
+                  pageId,
+                }),
+              }
+            : undefined,
+        );
       }}
       onCopyLink={() => {
         void handleCopyLink();

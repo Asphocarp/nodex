@@ -51,6 +51,7 @@ export const portableRichTitleAtomLabel = (
   item: PortableRichTextItem,
 ): string => {
   if (item.type === "threadMention") return `@${item.uuid.slice(0, 8)}`;
+  if (item.type === "pageMention") return `@${item.targetPageId.slice(0, 8)}`;
   if (item.type === "dateMention") return formatDateMentionPlainText(item);
   return "";
 };

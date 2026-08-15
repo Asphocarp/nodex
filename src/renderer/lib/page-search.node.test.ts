@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import {
   buildPageSearchText,
   compilePageCollectionSearchQuery,
+  createPageSearchMiniSearch,
+  searchPageSearchMiniSearch,
   matchesPageCollectionSearchQuery,
   matchesSearchTokens,
   tokenizeSearchQuery,
@@ -31,6 +33,37 @@ function makeCard(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
 }
 
 describe("card search", () => {
+  test("provides one fuzzy Page matcher for search surfaces", () => {
+    const index = createPageSearchMiniSearch();
+    index.addAll([
+      {
+        id: "target",
+        title: "Preserve local-first identity",
+        description: "Canonical Page identity",
+        tags: "",
+        assignee: "",
+        columnName: "",
+        projectName: "",
+        pageId: "target",
+      },
+      {
+        id: "other",
+        title: "Verify Electron geometry",
+        description: "Desktop viewport",
+        tags: "",
+        assignee: "",
+        columnName: "",
+        projectName: "",
+        pageId: "other",
+      },
+    ]);
+
+    const [hit] = searchPageSearchMiniSearch(index, "presrve");
+
+    expect(hit?.id).toBe("target");
+    expect(hit?.match.preserve).toContain("title");
+  });
+
   test("tokenizeSearchQuery splits on whitespace and normalizes case", () => {
     expect(JSON.stringify(tokenizeSearchQuery("  NFM   Search   "))).toBe(
       JSON.stringify(["nfm", "search"])

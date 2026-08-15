@@ -37,6 +37,13 @@ export function SuggestionMenuController<
     getItems?: GetItemsType;
     shouldOpen?: SuggestionMenuOptions["shouldOpen"];
     minQueryLength?: number;
+    /**
+     * Defaults to true. Disable for open-ended search surfaces where an empty
+     * query is recoverable by continuing to type or pressing Backspace.
+     */
+    autoCloseWhenNoItems?: boolean;
+    /** Keeps utility rows such as incremental disclosure actions open. */
+    shouldCloseOnItemClick?: (item: ItemType<GetItemsType>) => boolean;
     floatingUIOptions?: FloatingUIOptions;
     /**
      * Override the DOM node this floating element portals into. Falls back to
@@ -74,6 +81,8 @@ export function SuggestionMenuController<
     minQueryLength,
     onItemClick,
     getItems,
+    shouldCloseOnItemClick,
+    autoCloseWhenNoItems,
   } = props;
 
   const onItemClickOrDefault = useMemo(() => {
@@ -193,6 +202,8 @@ export function SuggestionMenuController<
             suggestionMenuComponent || SuggestionMenu<ItemType<GetItemsType>>
           }
           onItemClick={onItemClickOrDefault}
+          shouldCloseOnItemClick={shouldCloseOnItemClick}
+          autoCloseWhenNoItems={autoCloseWhenNoItems}
         />
       )}
     </GenericPopover>

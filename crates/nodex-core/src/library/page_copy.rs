@@ -176,6 +176,7 @@ pub(super) fn write_parent(
             expected_document_generation: *expected_document_generation,
             expected_document_head_seq: *expected_document_head_seq,
             before: before.clone(),
+            insertion: None,
         }),
         LibraryPageCopyDestination::DataSource { .. } => {
             Ok(LibraryWriteParent::Library { before: None })
@@ -1955,6 +1956,7 @@ mod tests {
                 expected_document_generation: 1,
                 expected_document_head_seq: 1,
                 before: None,
+                insertion: None,
             },
         );
         create_page(
@@ -2780,6 +2782,7 @@ mod tests {
                     expected_document_generation: 1,
                     expected_document_head_seq: 1,
                     before: None,
+                    insertion: None,
                 },
             );
         }
@@ -2919,6 +2922,7 @@ mod tests {
                 expected_document_generation: 1,
                 expected_document_head_seq: 1,
                 before: None,
+                insertion: None,
             },
         );
         kernel
@@ -3473,6 +3477,7 @@ mod tests {
                 expected_document_generation: 1,
                 expected_document_head_seq: 1,
                 before: None,
+                insertion: None,
             },
         );
         create_page(
@@ -3990,6 +3995,7 @@ mod tests {
                 expected_document_generation: 1,
                 expected_document_head_seq: 1,
                 before: None,
+                insertion: None,
             },
         );
         kernel

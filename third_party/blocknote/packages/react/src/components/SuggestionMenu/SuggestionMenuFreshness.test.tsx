@@ -263,6 +263,69 @@ describe("suggestion menu freshness", () => {
     expect(clearQueryCalls).toBe(0);
   });
 
+  test("can activate a fresh utility item without closing or clearing the menu", async () => {
+    let closeMenuCalls = 0;
+    let clearQueryCalls = 0;
+    const clickedItems: string[] = [];
+    const fakeSuggestionMenu = {
+      getMenuState: () => ({
+        triggerCharacter: "@",
+        query: "now",
+        show: true,
+      }),
+    };
+    const editor = {
+      ...createFakeEditor(),
+      getExtension: () => fakeSuggestionMenu,
+    };
+
+    function MenuComponent({
+      items,
+      onItemClick,
+    }: SuggestionMenuProps<string>) {
+      return (
+        <button type="button" onClick={() => onItemClick?.(items[0]!)}>
+          more results
+        </button>
+      );
+    }
+
+    const view = render(
+      <BlockNoteContext.Provider
+        value={{ editor, setContentEditableProps: () => undefined }}
+      >
+        <SuggestionMenuWrapper
+          triggerCharacter="@"
+          query="now"
+          closeMenu={() => { closeMenuCalls += 1; }}
+          clearQuery={() => { clearQueryCalls += 1; }}
+          getItems={async () => ["more"]}
+          onItemClick={(item) => { clickedItems.push(item); }}
+          shouldCloseOnItemClick={() => false}
+          suggestionMenuComponent={MenuComponent}
+        />
+      </BlockNoteContext.Provider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(view.getByText("more results"));
+
+    expect(clickedItems).toEqual(["more"]);
+    expect(closeMenuCalls).toBe(0);
+    expect(clearQueryCalls).toBe(0);
+
+    editor.domElement.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }));
+    expect(clickedItems).toEqual(["more", "more"]);
+    expect(closeMenuCalls).toBe(0);
+    expect(clearQueryCalls).toBe(0);
+  });
+
   test("applies the same stale Enter guard to grid suggestion menus", async () => {
     const editor = createFakeEditor();
     const clickedItems: string[] = [];

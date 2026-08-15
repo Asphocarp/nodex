@@ -9,6 +9,7 @@ import {
   hasPageStageScheduleCapability,
   isPageStagePrimaryProperty,
   pageStageSectionProperties,
+  readPageDetailWorkflowStatus,
 } from "./page-stage-properties";
 
 const detail = (): PageDetail => {
@@ -40,6 +41,15 @@ const withoutProperty = (source: PageDetail, propertyId: string): PageDetail => 
 };
 
 describe("Page Stage properties", () => {
+  test("reads workflow Status for compact Page presentation", () => {
+    expect(readPageDetailWorkflowStatus(detail())).toBe("build");
+    expect(readPageDetailWorkflowStatus({
+      ...detail(),
+      dataSourceContext: { kind: "standalone" },
+    })).toBeNull();
+    expect(readPageDetailWorkflowStatus(null)).toBeNull();
+  });
+
   test.each(["assignee", "due_date", "priority", "tags"])(
     "keeps the remaining Property rows when %s is removed",
     (removedPropertyId) => {

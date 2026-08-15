@@ -852,6 +852,7 @@ fn resolve_destination(
                     expected_document_generation: *expected_document_generation,
                     expected_document_head_seq: *expected_document_head_seq,
                     before: None,
+                    insertion: None,
                 },
             )?;
             validate_insertion(&parent, insertion)?;
@@ -909,6 +910,73 @@ fn insertion_operations(
     Ok(operations)
 }
 
+pub(super) fn page_shell_insertion_operations(
+    document: &super::mutation::ResolvedParentDocument,
+    insertion: &LibraryPageInsertion,
+    block: MaterializedBlockNode,
+) -> Result<Vec<DocumentBlockOperation>, StoreError> {
+    let find_unit = |block_id: &str| {
+        document
+            .base_materialization
+            .search_units
+            .iter()
+            .find(|unit| unit.block_id == block_id)
+            .ok_or_else(|| invalid("Page insertion Block is unavailable in the target Page"))
+    };
+    let (parent_block_id, before_block_id, replaced_block_id) = match insertion {
+        LibraryPageInsertion::Append { parent_block_id } => {
+            if let Some(parent_block_id) = parent_block_id {
+                find_unit(parent_block_id)?;
+            }
+            (parent_block_id.clone(), None, None)
+        }
+        LibraryPageInsertion::Before {
+            parent_block_id,
+            anchor_block_id,
+        } => {
+            let anchor = find_unit(anchor_block_id)?;
+            if anchor.parent_block_id != *parent_block_id {
+                return Err(invalid(
+                    "Page insertion anchor is not a child of the requested parent",
+                ));
+            }
+            (parent_block_id.clone(), Some(anchor_block_id.clone()), None)
+        }
+        LibraryPageInsertion::ReplaceEmptyParagraph { block_id } => {
+            let unit = find_unit(block_id)?;
+            let replaced = find_block(&document.base_materialization.block_tree, block_id)
+                .ok_or_else(|| corrupt("Page replacement Block is not materialized"))?;
+            let empty_content = matches!(
+                replaced.content.as_ref(),
+                Some(Value::Array(items)) if items.is_empty()
+            );
+            if unit.block_type != "paragraph"
+                || !unit.text.is_empty()
+                || !replaced.children.is_empty()
+                || !empty_content
+            {
+                return Err(invalid(
+                    "Replacement target must be an empty childless paragraph",
+                ));
+            }
+            (
+                unit.parent_block_id.clone(),
+                Some(block_id.clone()),
+                Some(block_id.clone()),
+            )
+        }
+    };
+    let mut operations = vec![DocumentBlockOperation::InsertBlock {
+        block,
+        parent_block_id,
+        before_block_id,
+    }];
+    if let Some(block_id) = replaced_block_id {
+        operations.push(DocumentBlockOperation::DeleteBlock { block_id });
+    }
+    Ok(operations)
+}
+
 fn validate_insertion(
     parent: &ResolvedWriteParent,
     insertion: &LibraryPageInsertion,
@@ -948,7 +1016,7 @@ fn validate_insertion(
                 || !empty_content
             {
                 return Err(invalid(
-                    "Canvas replacement target must be an empty childless paragraph",
+                    "Replacement target must be an empty childless paragraph",
                 ));
             }
         }

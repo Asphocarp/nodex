@@ -9,11 +9,12 @@ export function useCloseSuggestionMenuNoItems<Item>(
   closeMenu: () => void,
   invalidQueries = 3,
   itemsFresh: () => boolean = () => true,
+  autoCloseWhenNoItems = true,
 ) {
   const lastUsefulQueryLength = useRef(0);
 
   useEffect(() => {
-    if (usedQuery === undefined || !itemsFresh()) {
+    if (!autoCloseWhenNoItems || usedQuery === undefined || !itemsFresh()) {
       return;
     }
 
@@ -25,5 +26,12 @@ export function useCloseSuggestionMenuNoItems<Item>(
     ) {
       closeMenu();
     }
-  }, [closeMenu, invalidQueries, items.length, itemsFresh, usedQuery]);
+  }, [
+    autoCloseWhenNoItems,
+    closeMenu,
+    invalidQueries,
+    items.length,
+    itemsFresh,
+    usedQuery,
+  ]);
 }

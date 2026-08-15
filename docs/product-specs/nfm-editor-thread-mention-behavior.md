@@ -45,13 +45,14 @@ The mention references a Codex app-server thread/session id as an opaque string.
 
 ## Insertion
 
-- The NFM `@` suggestion menu includes thread mention rows alongside Card mentions.
+- The NFM `@` suggestion menu includes thread mention rows alongside Page mentions.
+- Page connection semantics are defined separately in [NFM Editor Page Connection Behavior](nfm-editor-page-reference-behavior.md).
 - Thread rows use the same sidebar-wide chat search model as the command palette: non-archived sidebar chats from the current project, other projects, projectless chats, and sessionless chats are eligible.
-- The picker treats the editor's own `projectId` as the active project. Matching current-project chats and cards are rendered first in one `Current project` group, with chats before cards and each type preserving its selector order. Other chats, including projectless chats, follow in `Chats`; other cards follow in `Cards`.
+- The picker treats the editor's own `projectId` as the active project. Matching current-project chats and Pages are rendered first in one `Current project` group, with chats before Pages and each type preserving its selector order. Other chats, including projectless chats, follow in `Chats`; other Pages follow in `Pages`.
 - Archived, ephemeral, and side-conversation chats do not appear in the picker.
 - Metadata search covers title, preview, branch, project, cwd, and short/id fields with command-palette fuzzy and prefix ranking. Transcript matches use bounded app-server `thread/search` through `codex:threads:palette:search`; server-only chats remain eligible and may add a compact highlighted snippet to the item tooltip.
-- Mention rows render only the item title in the picker row and do not show right-side `@thread` or `@` syntax hints; slash-menu rows keep their syntax/shortcut hints.
-- Mention tooltips show only compact context, such as project, column, actionable state, and an optional search snippet. They do not concatenate raw thread ids, card ids, cwd paths, or long mixed metadata strings.
+- Mention rows render only the item title in the picker row and do not show right-side `@thread` or `@` syntax hints. Slash-menu rows show a right-side hint only when it teaches compact, meaningful syntax or a keyboard shortcut; Table, Canvas, Page Mention, Embed Page, Subpage, Thread Section, and Agent Config keep their aliases searchable without echoing those wordy slash queries in the row.
+- Mention tooltips show only compact context, such as project, column, actionable state, and an optional search snippet. They do not concatenate raw thread ids, Page ids, cwd paths, or long mixed metadata strings.
 - Idle and unknown-state threads do not show `Ready` or `Thread` as row state labels.
 - Choosing a thread row inserts `threadMention` inline content and a trailing space.
 - Page rows use the same command-palette Page search model: summary metadata is searched with MiniSearch ranking, and full-content hits come from bounded `pages:search` excerpts. Choosing a Page row inserts the current reference Block shape.

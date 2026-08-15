@@ -21,6 +21,10 @@ Not included:
 - Transcript markdown link behavior outside the editor
 - Copy/export serialization rules beyond normal stored link syntax
 
+Canonical `nodex://pages/<page-id>` targets are ordinary stored links with an
+internal Page open action. Their navigation and contextual paste behavior is
+defined by [NFM Editor Page Connection Behavior](nfm-editor-page-reference-behavior.md).
+
 ## Overview
 
 The NFM editor has 2 different link paths:

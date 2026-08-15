@@ -16,6 +16,8 @@ export function SuggestionMenuWrapper<Item>(props: {
   clearQuery: () => void;
   getItems: (query: string) => Promise<Item[]>;
   onItemClick?: (item: Item) => void;
+  shouldCloseOnItemClick?: (item: Item) => boolean;
+  autoCloseWhenNoItems?: boolean;
   suggestionMenuComponent: FC<SuggestionMenuProps<Item>>;
 }) {
   const ctx = useBlockNoteContext();
@@ -34,6 +36,8 @@ export function SuggestionMenuWrapper<Item>(props: {
     clearQuery,
     closeMenu,
     onItemClick,
+    shouldCloseOnItemClick,
+    autoCloseWhenNoItems,
   } = props;
 
   const { items, usedQuery, loadingState } = useLoadSuggestionMenuItems(
@@ -51,14 +55,23 @@ export function SuggestionMenuWrapper<Item>(props: {
         return;
       }
 
-      closeMenu();
-      clearQuery();
+      if (shouldCloseOnItemClick?.(item) !== false) {
+        closeMenu();
+        clearQuery();
+      }
       onItemClick?.(item);
     },
-    [onItemClick, closeMenu, clearQuery, itemsFresh],
+    [onItemClick, closeMenu, clearQuery, itemsFresh, shouldCloseOnItemClick],
   );
 
-  useCloseSuggestionMenuNoItems(items, usedQuery, closeMenu, 3, itemsFresh);
+  useCloseSuggestionMenuNoItems(
+    items,
+    usedQuery,
+    closeMenu,
+    3,
+    itemsFresh,
+    autoCloseWhenNoItems,
+  );
 
   const { selectedIndex } = useSuggestionMenuKeyboardNavigation(
     editor,

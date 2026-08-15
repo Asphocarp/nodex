@@ -283,7 +283,7 @@ export const ThreeBlocks: Story = {
 
 export const PageMentionBlock: Story = {
   args: {
-    selectionTitle: "Page mention",
+    selectionTitle: "Page reference",
     currentBlockType: "pageRef",
   },
 };

@@ -197,7 +197,7 @@ function resolveSingleBlockScopeTitle(block: NfmSideMenuTargetBlockDescriptor) {
   if (block.type === "image") return "Image";
   if (block.type === "callout") return "Callout";
   if (block.type === "table") return "Table";
-  if (block.type === "pageRef") return "Page mention";
+  if (block.type === "pageRef") return "Page reference";
   if (block.type === "threadSection") return "Thread section";
   return "Block";
 }

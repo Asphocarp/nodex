@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -23,6 +24,7 @@ import { PageStageContentSkeleton } from "./page-stage/content-skeleton";
 import { PageStagePropertiesSection } from "./page-stage/properties-section";
 import { PageStageRawContent } from "./page-stage/raw-content";
 import { PageStageToolbar } from "./page-stage/toolbar";
+import { PageStageReferencedBy } from "./page-stage/referenced-by-section";
 import { usePageStageController } from "./page-stage/use-page-stage-controller";
 import type { PageStageProps } from "./page-stage/types";
 import { toast } from "@/components/ui/toast";
@@ -33,6 +35,12 @@ import type { EditorSurfaceLease } from "@/lib/document-session-registry";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { materializePageDocument } from "../../../shared/block-documents/block-document-codec";
 import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
+import {
+  consumePageBlockFocus,
+  type PageBlockFocusIntent,
+  usePageBlockFocusIntent,
+} from "@/lib/page-block-focus-intents";
+import type { NfmEditorBoundaryHandle } from "./editor/nfm-editor";
 
 export type { PageStageProps } from "./page-stage/types";
 
@@ -80,6 +88,7 @@ interface PageStageDescriptionEditorProps {
   readonly headingRailPortalElement: HTMLElement | null;
   readonly scrollContainerRef: RefObject<HTMLDivElement | null>;
   readonly editorSession?: EditorSurfaceLease;
+  readonly focusIntent: PageBlockFocusIntent | null;
 }
 
 const useLivePageDocumentNfm = (document: Y.Doc): string => {
@@ -132,7 +141,15 @@ const PageStageDescriptionEditor = memo(
     headingRailPortalElement,
     scrollContainerRef,
     editorSession,
+    focusIntent,
   }: PageStageDescriptionEditorProps) {
+    const navigationRef = useRef<NfmEditorBoundaryHandle | null>(null);
+    useEffect(() => {
+      if (!focusIntent) return;
+      if (!navigationRef.current?.focusBlock(focusIntent.blockId)) return;
+      consumePageBlockFocus(focusIntent);
+    }, [focusIntent]);
+
     if (showRawContent) {
       return <CollaborativePageStageRawContent document={document} />;
     }
@@ -174,6 +191,7 @@ const PageStageDescriptionEditor = memo(
         }}
         placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
         editorSession={editorSession}
+        navigationRef={navigationRef}
       />
     );
   },
@@ -185,6 +203,7 @@ interface PageStageContentProps {
   readonly controller: PageStageController;
   readonly title: ReactNode;
   readonly description: ReactNode;
+  readonly referencedBy?: ReactNode;
   readonly syncStatus?: ReactNode;
 }
 
@@ -192,6 +211,7 @@ function PageStageContent({
   controller,
   title,
   description,
+  referencedBy,
   syncStatus,
 }: PageStageContentProps) {
   return (
@@ -210,7 +230,10 @@ function PageStageContent({
 
       <PageStagePropertiesSection controller={controller} />
 
-      <div className="pt-2 pb-8">{description}</div>
+      <div className="pt-2 pb-8">
+        {description}
+        {referencedBy}
+      </div>
     </div>
   );
 }
@@ -254,6 +277,12 @@ export function PageStage(props: PageStageProps) {
   const controller = usePageStageController(props, {
     persistDocument,
   });
+  const focusIntent = usePageBlockFocusIntent(
+    props.contentAccessContext.kind === "project"
+      ? props.contentAccessContext.projectId
+      : null,
+    controller.page?.id ?? "",
+  );
   const handleToggleHistoryPanel = useCallback(() => {
     void (async () => {
       await persistDocument();
@@ -322,6 +351,14 @@ export function PageStage(props: PageStageProps) {
           headingRailPortalElement={headingRailPortalElement}
           scrollContainerRef={controller.scrollContainerRef}
           editorSession={editorSession}
+          focusIntent={focusIntent}
+        />
+      }
+      referencedBy={
+        <PageStageReferencedBy
+          accessContext={props.contentAccessContext}
+          pageId={page.id}
+          onOpenPage={props.onOpenPage}
         />
       }
     />
@@ -379,6 +416,7 @@ export function PageStage(props: PageStageProps) {
     <div
       className="flex h-full w-full flex-col bg-(--background)"
       data-page-stage-surface="true"
+      data-page-stage-page-id={page.id}
     >
       {props.toolbarPlacement?.kind === "external"
         ? props.toolbarPlacement.render(toolbar)

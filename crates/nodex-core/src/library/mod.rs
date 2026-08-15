@@ -25,6 +25,7 @@ mod page_projection;
 mod projection_authorization;
 mod read_authorization;
 mod resource_access;
+mod search_match;
 mod search_snapshot;
 
 fn require_trusted_library_authority(context: &BoundModuleContext) -> Result<(), StoreError> {
@@ -979,6 +980,8 @@ mod tests {
 
     use super::*;
 
+    const NOW: &str = "2026-08-16T00:00:00.000Z";
+
     fn context() -> BoundModuleContext {
         BoundModuleContext {
             profile_id: ProfileId("profile-1".to_owned()),
@@ -1309,6 +1312,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -2790,6 +2794,25 @@ mod tests {
         assert_eq!(items[0].title, "Say hi");
         assert_eq!(items[0].status, LibraryPageWorkflowStatus::Triage);
         assert_eq!(items[0].score, 1_000_000);
+        let LibraryReadValue::PageReferenceCandidates { items } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageReferenceCandidates {
+                        query: "say hi".to_owned(),
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("Page reference candidate status")
+            .value
+        else {
+            panic!("Page reference candidates");
+        };
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].page_id, ROW_PAGE);
+        assert_eq!(items[0].status, Some(LibraryPageWorkflowStatus::Triage));
         let LibraryReadValue::ProjectPageSearch { items } = module
             .read(
                 &root_context,
@@ -3129,6 +3152,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -3150,6 +3174,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -3890,6 +3915,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -6643,6 +6669,212 @@ mod tests {
                 .map(|receipt| &receipt.outcome),
             Some(LibraryBlockPropertyMutationOutcome::Committed { .. })
         ));
+    }
+
+    #[test]
+    fn page_reference_candidates_and_backlinks_respect_project_authority() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    for (project_id, name) in [("project-1", "Local"), ("project-2", "Foreign")] {
+                        transaction.execute(
+                            "INSERT INTO projects(id, library_id, name, created, updated) \
+                             VALUES (?1, 'library-1', ?2, ?3, ?3)",
+                            params![project_id, name, NOW],
+                        )?;
+                    }
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed authority");
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        let local_context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:local-references".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let foreign_context = BoundModuleContext {
+            project_id: Some(ProjectId("project-2".to_owned())),
+            connection_id: "connection:foreign-references".to_owned(),
+            ..local_context.clone()
+        };
+        for (context, operation_id, page_id, document_id, title) in [
+            (
+                &local_context,
+                "create-reference-target",
+                "page:target",
+                "document:target",
+                "Target",
+            ),
+            (
+                &local_context,
+                "create-local-source",
+                "page:local",
+                "document:local",
+                "Local source",
+            ),
+            (
+                &foreign_context,
+                "create-foreign-source",
+                "page:foreign",
+                "document:foreign",
+                "Foreign source",
+            ),
+        ] {
+            module
+                .apply(
+                    context,
+                    ModuleApplyRequest {
+                        contract_version: LIBRARY_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent: LibraryIntent::CreatePage {
+                            page_id: page_id.to_owned(),
+                            document_id: document_id.to_owned(),
+                            title: title.to_owned(),
+                            parent: LibraryWriteParent::Library { before: None },
+                        },
+                    },
+                )
+                .expect("create Page");
+        }
+        module
+            .apply(
+                &local_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "create-nested-reference-candidate".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:nested".to_owned(),
+                        document_id: "document:nested".to_owned(),
+                        title: "Nested candidate".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:local".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                            insertion: None,
+                        },
+                    },
+                },
+            )
+            .expect("create nested Page candidate");
+
+        let candidates = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageReferenceCandidates {
+                        query: String::new(),
+                        limit: Some(20),
+                    },
+                },
+            )
+            .expect("read authorized Page candidates");
+        let LibraryReadValue::PageReferenceCandidates { items } = candidates.value else {
+            panic!("Page candidate snapshot");
+        };
+        assert!(items.iter().any(|item| item.page_id == "page:target"));
+        assert!(items.iter().any(|item| item.page_id == "page:local"));
+        assert!(!items.iter().any(|item| item.page_id == "page:foreign"));
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.page_id == "page:nested")
+                .map(|item| item.location_label.as_str()),
+            Some("Pages / Local source"),
+        );
+
+        let fuzzy_candidates = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageReferenceCandidates {
+                        query: "nesed".to_owned(),
+                        limit: Some(20),
+                    },
+                },
+            )
+            .expect("fuzzy Page reference candidate search");
+        let LibraryReadValue::PageReferenceCandidates { items } = fuzzy_candidates.value else {
+            panic!("fuzzy Page candidate snapshot");
+        };
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].page_id, "page:nested");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                for (document_id, source_page_id, source_block_id) in [
+                    ("document:local", "page:local", "block:local-reference"),
+                    (
+                        "document:foreign",
+                        "page:foreign",
+                        "block:foreign-reference",
+                    ),
+                ] {
+                    connection.execute(
+                        "INSERT INTO document_page_references( \
+                           document_id, source_owner_block_id, source_block_id, target_page_id, \
+                           presentation, occurrence_count, updated_at \
+                         ) VALUES (?1, ?2, ?3, 'page:target', 'mention', 1, ?4)",
+                        params![document_id, source_page_id, source_block_id, NOW],
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("seed normalized Page references");
+        let backlinks = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageBacklinks {
+                        target_page_id: "page:target".to_owned(),
+                        cursor: None,
+                        limit: Some(20),
+                    },
+                },
+            )
+            .expect("read authorized backlinks");
+        let LibraryReadValue::PageBacklinks {
+            items,
+            total,
+            source_page_count,
+            has_more,
+            ..
+        } = backlinks.value
+        else {
+            panic!("Page backlink snapshot");
+        };
+        assert_eq!(total, 1);
+        assert_eq!(source_page_count, 1);
+        assert!(!has_more);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].source_page_id, "page:local");
     }
 }
 pub(crate) mod agent_authorization;

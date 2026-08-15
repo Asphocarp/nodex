@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { streamdownCodePlugin } from "@/lib/streamdown";
 import { DateMentionInlineVisual } from "./date-mention-inline-visual";
 import { ThreadMentionInlineVisual } from "./thread-mention-inline-visual";
+import { PageMentionInlineVisual } from "./page-mention-inline-visual";
 
 interface NfmRendererProps {
   content: string;
@@ -581,6 +582,16 @@ function InlineItem({
     );
   }
 
+  if (item.type === "pageMention") {
+    return (
+      <PageMentionInlineVisual
+        className="max-w-[18rem] align-baseline"
+        title={buildPageDeepLink({ pageId: item.targetPageId })}
+        label={item.targetPageId}
+      />
+    );
+  }
+
   if (item.type === "dateMention") {
     return (
       <DateMentionInlineVisual
@@ -660,6 +671,7 @@ function inlineText(items: NfmInlineContent[]): string {
       if (item.type === "attachment") return item.name;
       if (item.type === "agentConfig") return "";
       if (item.type === "threadMention") return item.uuid;
+      if (item.type === "pageMention") return item.targetPageId;
       if (item.type === "dateMention") return formatDateMentionPlainText(item);
       return item.text;
     })

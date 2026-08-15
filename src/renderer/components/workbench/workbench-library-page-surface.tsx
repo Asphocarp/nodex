@@ -4,7 +4,6 @@ import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageStage } from "./workbench-page-stage";
 import {
   prepareLibraryOwnedBlockDocument,
-  readLibraryPageDetail,
 } from "../../lib/api";
 import {
   type ReadyPageBlockDocumentDescriptor,
@@ -25,6 +24,7 @@ import {
   pageDetailDataDependencies,
   pageDetailDocumentDependencies,
 } from "../../lib/page-detail-projection-dependencies";
+import { libraryPageDetailQueryOptions } from "../../lib/library-page-detail-query";
 import type { AuthorizedReadStamp } from "../../../shared/authorized-read-stamp";
 import {
   admitResourceAuthorityQuery,
@@ -71,19 +71,7 @@ export function WorkbenchLibraryPageSurface({
     [pageId],
   );
   const detail = useQuery({
-    queryKey: detailQueryKey,
-    queryFn: async () => {
-      const result = await readLibraryPageDetail(pageId);
-      if (!result.ok) throw new Error(result.error.message);
-      return await admitResourceAuthorityQuery(
-        result.value,
-        resolveLibraryPageAuthority,
-      );
-    },
-    meta: resourceAuthorityQueryMeta((_queryKey, data) => {
-      const resolved = resolveLibraryPageAuthority(_queryKey, data);
-      return resolved ? { ...resolved, relatedQueryKeys: [documentQueryKey] } : null;
-    }),
+    ...libraryPageDetailQueryOptions(pageId, [documentQueryKey]),
   });
   const document = useQuery({
     queryKey: documentQueryKey,

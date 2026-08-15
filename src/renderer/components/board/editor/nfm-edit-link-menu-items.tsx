@@ -25,11 +25,11 @@ export function useNfmLinkEditorState(
     setCurrentText(text);
   }, [text, url]);
 
-  const submit = useCallback(() => {
-    const normalizedUrl = normalizeNfmEditorLinkUrl(currentUrl);
+  const submit = useCallback((overrideUrl?: string, overrideText?: string) => {
+    const normalizedUrl = normalizeNfmEditorLinkUrl(overrideUrl ?? currentUrl);
     if (!normalizedUrl) return;
 
-    editLink(normalizedUrl, currentText, props.range.from);
+    editLink(normalizedUrl, overrideText ?? currentText, props.range.from);
     props.setToolbarOpen?.(false);
     props.setToolbarPositionFrozen?.(false);
   }, [currentText, currentUrl, editLink, props]);

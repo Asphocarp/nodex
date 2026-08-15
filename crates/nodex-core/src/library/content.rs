@@ -417,7 +417,7 @@ pub(super) fn project_page_search(
         else {
             continue;
         };
-        let Some(status) = project_search_status(connection, &resolution.page_block_id)? else {
+        let Some(status) = page_workflow_status(connection, &resolution.page_block_id)? else {
             continue;
         };
         let Some(title) = project_search_title(connection, &resolution.page_block_id)? else {
@@ -520,7 +520,7 @@ pub(super) fn project_page_search(
         else {
             continue;
         };
-        let Some(status) = project_search_status(connection, &candidate.page_id)? else {
+        let Some(status) = page_workflow_status(connection, &candidate.page_id)? else {
             continue;
         };
         let page_key = current_page_key_for_page(connection, library_id, &candidate.page_id)?;
@@ -675,7 +675,7 @@ fn project_search_scope_authorizes(
         })
 }
 
-fn project_search_status(
+pub(super) fn page_workflow_status(
     connection: &Connection,
     page_id: &str,
 ) -> Result<Option<LibraryPageWorkflowStatus>, StoreError> {

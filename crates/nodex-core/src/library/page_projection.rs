@@ -367,6 +367,9 @@ fn nfm_item(item: &RichTextItem) -> Result<NfmInlineContent, StoreError> {
         RichTextItem::ThreadMention { uuid } => {
             Ok(NfmInlineContent::ThreadMention { uuid: uuid.clone() })
         }
+        RichTextItem::PageMention { target_page_id } => Ok(NfmInlineContent::PageMention {
+            target_page_id: target_page_id.clone(),
+        }),
         RichTextItem::DateMention {
             start,
             end,

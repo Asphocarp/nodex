@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   buildCommandPaletteCharacterHighlightSegments,
+  buildCommandPaletteQueryHighlightPreview,
   buildCommandPaletteTokenHighlightSegments,
   type CommandPaletteHighlightSegment,
 } from "./command-palette-highlight";
@@ -59,5 +60,43 @@ describe("command palette character highlighting", () => {
     expect(buildCommandPaletteCharacterHighlightSegments("😀 Search", "")).toEqual([
       { text: "😀 Search", highlight: false },
     ]);
+  });
+
+  test("centers a bounded preview around the first matching query token", () => {
+    const preview = buildCommandPaletteQueryHighlightPreview(
+      `${"prefix ".repeat(20)}projection window ${"suffix ".repeat(20)}`,
+      "projection",
+      { maxCharacters: 72, leadingContextCharacters: 18 },
+    );
+
+    expect(preview?.excerpt.startsWith("…")).toBe(true);
+    expect(preview?.excerpt.endsWith("…")).toBe(true);
+    expect(preview?.excerpt.includes("projection window")).toBe(true);
+    expect(highlightedText(preview?.segments ?? [])).toBe("projection");
+  });
+
+  test("keeps a tail match near the visible leading edge instead of backfilling", () => {
+    const preview = buildCommandPaletteQueryHighlightPreview(
+      "A deliberately longer preview explains that local commits should update only the affected projection window while preserving causal coverage.",
+      "caus",
+      { maxCharacters: 88, leadingContextCharacters: 18 },
+    );
+
+    expect(preview?.excerpt.startsWith("…")).toBe(true);
+    expect(preview?.excerpt.endsWith("causal coverage.")).toBe(true);
+    expect(preview?.excerpt.indexOf("caus")).toBeLessThanOrEqual(24);
+    expect(highlightedText(preview?.segments ?? [])).toBe("caus");
+  });
+
+  test("repositions a short excerpt when CSS would ellipsize before its match", () => {
+    const preview = buildCommandPaletteQueryHighlightPreview(
+      "Exercise the actual desktop boundary at the canonical viewport.",
+      "ca",
+      { maxCharacters: 88, leadingContextCharacters: 18 },
+    );
+
+    expect(preview?.excerpt.startsWith("…")).toBe(true);
+    expect(preview?.excerpt.indexOf("ca")).toBeLessThanOrEqual(24);
+    expect(highlightedText(preview?.segments ?? [])).toBe("ca");
   });
 });

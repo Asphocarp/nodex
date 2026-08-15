@@ -26,6 +26,7 @@ import {
   type PageStageSemanticValues,
 } from "@/lib/page-stage-properties";
 import { readPageStageContentWidthPreference } from "@/lib/page-stage-layout";
+import { requestPageBlockFocus } from "@/lib/page-block-focus-intents";
 import { fetchPageDetail, usePageDetail } from "@/lib/page-detail-store";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { projectContentAccess } from "../../../shared/content-access-context";
@@ -457,10 +458,21 @@ export function PageStageSessionTab({
             canStartThreadInSession={canStartThreadInSession}
             linkedCodexThreads={[]}
             onOpenCodexThread={onOpenThread}
-            onOpenPage={({ accessContext, pageId, titleSnapshot }) => {
+            onOpenPage={async ({
+              accessContext,
+              pageId,
+              titleSnapshot,
+              sourceBlockId,
+            }) => {
               if (accessContext.kind !== "project") return;
-              void onOpenPageTab(accessContext.projectId, pageId, titleSnapshot, {
+              await onOpenPageTab(accessContext.projectId, pageId, titleSnapshot, {
                 openMode: "durable",
+              });
+              if (!sourceBlockId) return;
+              requestPageBlockFocus({
+                projectId: accessContext.projectId,
+                pageId,
+                blockId: sourceBlockId,
               });
             }}
             onOpenCanvas={({

@@ -35,6 +35,10 @@ export interface BlockReferenceHostRuntime {
     readonly blockId: string;
     readonly displayName?: string;
   }) => Promise<{ readonly canvasBlockId: string }>;
+  readonly createSubpageAtEmptyParagraph?: (input: {
+    readonly blockId: string;
+    readonly title: string;
+  }) => Promise<{ readonly pageId: string }>;
   readonly renameCanvas?: (input: {
     readonly canvasBlockId: string;
     readonly displayName: string;

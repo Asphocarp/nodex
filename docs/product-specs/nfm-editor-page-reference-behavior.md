@@ -1,0 +1,107 @@
+# NFM Editor Page Connection Behavior
+
+Status: Active
+Last updated: 2026-08-16
+
+## Purpose
+
+This document is the user-visible source of truth for connecting one Page to another in the NFM editor.
+It distinguishes presentation from ownership and gives each intent one predictable entry point.
+
+## Four Page occurrences
+
+| Occurrence | Editor entry | Stored identity | Owns or moves target |
+|---|---|---|---|
+| Page Mention | type `@`, or choose `/Mention a page` | inline `pageMention.targetPageId` | No |
+| Page Reference Block | `/Embed page…` and choose a Page | `pageRef.targetBlockId` plus the shell Block ID | No |
+| Page Link | create a link or paste over selected text | ordinary link with `nodex://pages/<page-id>` | No |
+| Owning Page Shell | `/Subpage…` or typed Move to | Core-created `page` shell whose Block ID is the Page ID | Yes |
+
+The first three never change parentage, Database membership, grants, or copy closure.
+
+## Page Mention
+
+Canonical NFM is:
+
+```xml
+<mention-page url="nodex://pages/<page-id>" />
+```
+
+The parser accepts only the exact self-closing tag with one canonical URL attribute.
+Invalid tags remain literal text.
+The editor stores only `targetPageId`; current title and availability are resolved under the nearest host content-access context.
+
+The visual is an inline semantic icon and underlined title, not a pill or card.
+Database Pages with an authorized workflow Status use that Status icon; Pages without one use the generic Page icon.
+It is one keyboard-selectable atom and remains readable when navigation is unavailable.
+Hovering or keyboard-focusing the mention shows a compact tooltip resolved under the same content-access context: current title, archived state when applicable, and a bounded Page preview. Missing, deleted, invalid, or unreadable targets show only a safe state explanation; the tooltip never exposes raw IDs, deeplinks, transport errors, or target content outside that authorized read model.
+Clicking an available mention opens the Page through the host navigator.
+Mention serialization never injects the target body into search, title, clipboard, or Agent prompt text.
+Choosing `/Mention a page` replaces the slash command with a visible `@`, leaves the caret after it, and enters the normal `@` suggestion flow so the user can continue typing a query.
+It does not select a Page immediately or introduce a separate picker or occurrence type.
+
+The `@` menu presents three semantic sections: `Mention a page`, `Mention a chat`, and `Date`; reminders belong to `Date`.
+When a query has no matches, the menu remains open with `No matching mentions` so the user can continue typing or Backspace into a useful query; it closes only through the normal explicit dismissal, selection, focus, caret, or Block lifecycle.
+An empty query orders them as Date, Page, then Chat so Today and Now advertise the temporal affordance.
+For a non-empty query, sections follow the relevance of their strongest result; explicit date intent therefore leads, followed by exact title, Page key, title prefix, broader title, and content matches, with active-project context used only as a tie-break boost.
+Each section has an independent visible budget so one abundant provider cannot crowd out the others.
+When a fetched section has more candidates, `N more results` is a real peer option in that section: pointer click or keyboard selection expands all currently fetched remainder without closing the mention menu or changing the query.
+Its label uses secondary emphasis at rest and returns to primary emphasis on hover, focus, or keyboard selection so it reads as a utility action rather than another result.
+The expanded section replaces the utility row with its remaining candidates; other sections keep their independent bounds.
+
+Rows are title-only by default.
+A second line appears only when it explains a content match, disambiguates duplicate titles, reports an unavailable embed, or shows a Page key that the user explicitly queried.
+Search excerpts are bounded around the matching location and highlight matching text in titles, Page keys, and excerpts.
+Page search uses the same normalized token, prefix, typo-tolerant title ranking, and indexed match evidence as the Command palette.
+Core still decides which Page identities are visible and selectable for the current content-access context; renderer search evidence may rank and explain those authorized candidates but never expands their authority.
+Content matching remains exact, substring, or token-prefix based so a fuzzy typo cannot fabricate a body match.
+When the index expands a prefix or typo to a complete matched term, the row highlights that actual term and moves the excerpt window close enough to keep it visible before CSS ellipsis, even when the full source excerpt is shorter than the nominal character budget.
+Database Page rows use their workflow Status icon; Pages without a Status use the generic Page icon at the standard compact-menu size.
+Tooltips preserve useful context that does not fit in the row, including the full title, full untruncated excerpt, Page location/key/status, or Chat context.
+
+## Page Reference Block
+
+`/Embed page…` opens a compact caret-anchored Page picker.
+No Block is created until a target is chosen.
+The resulting `pageRef` is a non-owning shell that can disclose the target Page body when authorized.
+Removing it removes only the shell.
+
+The picker and `@Page` use Page ID as the candidate key and the same authorized candidate source.
+The embed picker retains the Page candidate order; the sectioned `@` menu ranks those candidates within the Page section and orders that section against Chat and Date by its strongest result.
+Unavailable, self, and recursive-ancestor targets fail closed.
+The embed picker preserves its source Block before opening and inserts only if that Block is still the active insertion point.
+Cancel creates no placeholder; a stale insertion point is reported and leaves the Document unchanged.
+Changing an existing Reference Block’s target is intentionally not an operation: remove the old shell and run `/Embed page…` again so the new connection has a new shell identity and disclosure state.
+
+## Page Link and paste
+
+A canonical Page deeplink is an internal link action.
+Editable and readonly surfaces open it through Page navigation; they never send it to the browser or shell.
+
+When the clipboard contains only one exact canonical Page deeplink:
+
+- selected inline text becomes a Page Link;
+- a collapsed caret in a non-empty inline Block inserts a Page Mention and trailing space;
+- an empty paragraph becomes a Page Reference Block;
+- code blocks keep the URL literal;
+- structured HTML/Markdown/BlockNote clipboard and files keep their existing handlers.
+
+## Ownership
+
+Creating or moving a Subpage is a typed Core lifecycle operation fenced against the current parent Document head.
+The renderer never creates an owning `page` shell as generic ProseMirror content.
+A reference-mounted Page uses its own host runtime as parent authority, not the outer Stage route.
+`/Subpage…` atomically replaces the chosen empty paragraph with the Core-created owning shell; cancellation and head conflicts leave no incomplete Page Block.
+
+## Derived references
+
+Page Mention, Page Reference Block, and Page Link occurrences derive first-class Page reference edges with presentations `mention`, `reference_block`, and `link`.
+Repeated occurrences in the same source Block and presentation aggregate an occurrence count.
+Owning Page shells do not derive backlinks.
+Backlink rows and counts include only source Pages readable in the caller's content-access context.
+
+The Page Stage shows a collapsed `Referenced by` section below the body only when at least one authorized source Page is known.
+An authorized zero-result does not render the section.
+Its count is the number of unique authorized source Pages; rows are grouped by source Page and source Block, retain presentation kinds and occurrence count, and use bounded keyset pagination.
+Opening a row navigates to the source Page and focuses the exact source Block after its editor is ready.
+Adding or removing a Page occurrence invalidates both old and new target Page projections so an already-mounted section converges without a manual refresh.

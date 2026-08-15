@@ -1,14 +1,15 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use nodex_core_contracts::agent::{AgentAuthorizationTarget, AgentProjectResourceAction};
 use nodex_core_contracts::library::{
     LibraryAgentBlockTarget, LibraryCanvasLocation, LibraryCanvasSummary, LibraryCanvasTarget,
     LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle, LibraryMoveDestinationEntry,
     LibraryMoveDestinationScope, LibraryNavigationNode, LibraryNavigationParent,
-    LibraryPageAccessContext, LibraryPageDataSourceContext, LibraryPageDetail,
+    LibraryPageAccessContext, LibraryPageBacklink, LibraryPageDataSourceContext, LibraryPageDetail,
     LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty, LibraryPageKeyTarget,
     LibraryPageLocation, LibraryPageMembership, LibraryPageOwnershipPath,
-    LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead, LibraryReadValue,
+    LibraryPageOwnershipPathAncestor, LibraryPageReferenceCandidate,
+    LibraryPageReferencePresentation, LibraryPageTarget, LibraryRead, LibraryReadValue,
     LibraryResourceTarget, LibraryRouteTarget, LibraryViewLocation,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
@@ -18,12 +19,17 @@ use serde_json::Value;
 use crate::database::read::{page_data_source_projection, page_record};
 use crate::database::resolve_page_key_matches_in_library;
 use crate::document::is_primary_canvas_block_id;
+use crate::domain::page_key::is_explicit_page_key_search;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::cursor;
+use super::{
+    cursor,
+    search_match::{SearchTermMatchQuality, field_match_quality, search_tokens},
+};
 
 const DEFAULT_LIMIT: usize = 20;
 const MAX_LIMIT: usize = 100;
+const MAX_PAGE_REFERENCE_SEARCH_PAGES: usize = 5_000;
 
 pub(super) fn read(
     connection: &Connection,
@@ -427,6 +433,21 @@ pub(super) fn read(
             }
             super::content::project_page_search(connection, library_id, project_ids, &query, limit)
         }
+        LibraryRead::PageReferenceCandidates { query, limit } => {
+            page_reference_candidates(connection, library_id, context, &query, limit)
+        }
+        LibraryRead::PageBacklinks {
+            target_page_id,
+            cursor,
+            limit,
+        } => page_backlinks(
+            connection,
+            library_id,
+            context,
+            &target_page_id,
+            cursor,
+            limit,
+        ),
         LibraryRead::PageHistory {
             page_id,
             before,
@@ -462,6 +483,472 @@ pub(super) fn read(
             ))
         }
     }
+}
+
+fn page_reference_candidates(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    query: &str,
+    requested_limit: Option<u32>,
+) -> Result<LibraryReadValue, StoreError> {
+    let query = query.trim().to_lowercase();
+    if query.len() > 256 {
+        return Err(invalid("Page reference query exceeds its bound"));
+    }
+    let limit = usize::try_from(requested_limit.unwrap_or(20))
+        .map_err(|_| invalid("Page reference limit is invalid"))?
+        .clamp(1, 60);
+    if context.project_id.is_none() && !trusted_root_adapter(&context.adapter) {
+        return Err(unauthorized(
+            "Page reference candidates require a trusted root or bound Project Adapter",
+        ));
+    }
+    let mut items = Vec::new();
+    let mut seen = HashSet::new();
+    for resolution in resolve_page_key_matches_in_library(connection, library_id, &query)? {
+        let row = connection
+            .query_row(
+                "SELECT materialization.title, materialization.preview \
+                 FROM pages page \
+                 JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+                 JOIN documents document ON document.id = page.document_id \
+                 JOIN document_materializations materialization \
+                   ON materialization.document_id = document.id \
+                   AND materialization.generation = document.generation \
+                   AND materialization.projected_seq = document.head_seq \
+                   AND materialization.schema_version = document.schema_version \
+                 WHERE page.library_id = ?1 AND page.block_id = ?2 AND block.lifecycle = 'active'",
+                params![library_id, resolution.page_block_id],
+                |row| Ok((resolution.page_block_id.clone(), row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if let Some((page_id, title, preview)) = row
+            && push_page_reference_candidate(
+                connection,
+                library_id,
+                context,
+                limit,
+                &mut seen,
+                &mut items,
+                page_id,
+                title,
+                Some(preview),
+            )?
+        {
+            return Ok(LibraryReadValue::PageReferenceCandidates { items });
+        }
+    }
+    if is_explicit_page_key_search(&query) {
+        return Ok(LibraryReadValue::PageReferenceCandidates { items });
+    }
+
+    if query.is_empty() {
+        let mut statement = connection.prepare(
+            "SELECT page.block_id, materialization.title, materialization.preview \
+             FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             JOIN documents document ON document.id = page.document_id AND document.library_id = page.library_id \
+             JOIN document_materializations materialization \
+               ON materialization.document_id = document.id \
+               AND materialization.generation = document.generation \
+               AND materialization.projected_seq = document.head_seq \
+               AND materialization.schema_version = document.schema_version \
+             WHERE page.library_id = ?1 AND block.lifecycle = 'active' \
+             ORDER BY page.updated_at DESC, page.block_id",
+        )?;
+        let mut rows = statement.query([library_id])?;
+        while let Some(row) = rows.next()? {
+            if push_page_reference_candidate(
+                connection,
+                library_id,
+                context,
+                limit,
+                &mut seen,
+                &mut items,
+                row.get(0)?,
+                row.get(1)?,
+                None,
+            )? {
+                break;
+            }
+        }
+        return Ok(LibraryReadValue::PageReferenceCandidates { items });
+    }
+
+    let mut terms = Vec::new();
+    for term in search_tokens(&query) {
+        if !terms.contains(&term) {
+            terms.push(term);
+        }
+    }
+    if terms.len() > 32 {
+        return Err(invalid("Page reference query has too many terms"));
+    }
+    let mut statement = connection.prepare(
+        "SELECT page.block_id, materialization.title, materialization.preview, page.updated_at \
+         FROM pages page \
+         JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+         JOIN documents document ON document.id = page.document_id AND document.library_id = page.library_id \
+         JOIN document_materializations materialization \
+           ON materialization.document_id = document.id \
+           AND materialization.generation = document.generation \
+           AND materialization.projected_seq = document.head_seq \
+           AND materialization.schema_version = document.schema_version \
+         WHERE page.library_id = ?1 AND block.lifecycle = 'active' \
+         ORDER BY page.block_id LIMIT ?2",
+    )?;
+    let mut candidates = statement
+        .query_map(
+            params![
+                library_id,
+                i64::try_from(MAX_PAGE_REFERENCE_SEARCH_PAGES + 1)
+                    .map_err(|_| invalid("Page reference search bound is invalid"))?,
+            ],
+            |row| {
+                Ok(PageReferenceSearchCandidate {
+                    page_id: row.get(0)?,
+                    title: row.get(1)?,
+                    preview: row.get(2)?,
+                    updated_at: row.get(3)?,
+                    score: 0,
+                    content_match: false,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if candidates.len() > MAX_PAGE_REFERENCE_SEARCH_PAGES {
+        return Err(StoreError::new(
+            StoreErrorCode::ResourceExhausted,
+            "Page reference search exceeds its bounded Page index",
+            false,
+        ));
+    }
+    candidates.retain_mut(|candidate| {
+        let Some((score, content_match)) =
+            page_reference_search_score(&candidate.title, &candidate.preview, &query, &terms)
+        else {
+            return false;
+        };
+        candidate.score = score;
+        candidate.content_match = content_match;
+        true
+    });
+    candidates.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| left.page_id.cmp(&right.page_id))
+    });
+    for candidate in candidates {
+        let match_excerpt = if candidate.content_match {
+            candidate.preview
+        } else {
+            candidate.title.clone()
+        };
+        if push_page_reference_candidate(
+            connection,
+            library_id,
+            context,
+            limit,
+            &mut seen,
+            &mut items,
+            candidate.page_id,
+            candidate.title,
+            Some(match_excerpt),
+        )? {
+            break;
+        }
+    }
+    Ok(LibraryReadValue::PageReferenceCandidates { items })
+}
+
+struct PageReferenceSearchCandidate {
+    page_id: String,
+    title: String,
+    preview: String,
+    updated_at: String,
+    score: i64,
+    content_match: bool,
+}
+
+fn page_reference_search_score(
+    title: &str,
+    preview: &str,
+    query: &str,
+    terms: &[String],
+) -> Option<(i64, bool)> {
+    if terms.is_empty() {
+        return None;
+    }
+    let normalized_title = title.trim().to_lowercase();
+    let normalized_preview = preview.trim().to_lowercase();
+    let mut score = 0_i64;
+    let mut content_match = false;
+
+    if normalized_title == query {
+        score += 50_000;
+    } else if normalized_title.starts_with(query) {
+        score += 40_000;
+    } else if normalized_title.contains(query) {
+        score += 30_000;
+    } else if normalized_preview.contains(query) {
+        score += 10_000;
+        content_match = true;
+    }
+
+    for term in terms {
+        let title_match = field_match_quality(&normalized_title, term, true);
+        let preview_match = field_match_quality(&normalized_preview, term, false);
+        let title_substring = normalized_title.contains(term);
+        let preview_substring = normalized_preview.contains(term);
+        let term_score = match title_match {
+            Some(SearchTermMatchQuality::Exact) => 4_000,
+            Some(SearchTermMatchQuality::Prefix) => 3_000,
+            Some(SearchTermMatchQuality::Fuzzy) => 2_000,
+            None if title_substring => 2_500,
+            None => match preview_match {
+                Some(SearchTermMatchQuality::Exact) => {
+                    content_match = true;
+                    1_000
+                }
+                Some(SearchTermMatchQuality::Prefix) => {
+                    content_match = true;
+                    750
+                }
+                Some(SearchTermMatchQuality::Fuzzy) => 0,
+                None if preview_substring => {
+                    content_match = true;
+                    500
+                }
+                None => return None,
+            },
+        };
+        score += term_score;
+    }
+    Some((score, content_match))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_page_reference_candidate(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    limit: usize,
+    seen: &mut HashSet<String>,
+    items: &mut Vec<LibraryPageReferenceCandidate>,
+    page_id: String,
+    title: String,
+    match_excerpt: Option<String>,
+) -> Result<bool, StoreError> {
+    if !seen.insert(page_id.clone()) {
+        return Ok(false);
+    }
+    if let Some(project_id) = context.project_id.as_ref()
+        && super::page_read_authorization_roots(connection, library_id, &project_id.0, &page_id)?
+            .is_none()
+    {
+        return Ok(false);
+    }
+    let page_key = crate::database::current_page_key_for_page(connection, library_id, &page_id)?;
+    let status = super::content::page_workflow_status(connection, &page_id)?;
+    let location_label = move_destination_path(connection, library_id, &page_id)?.join(" / ");
+    items.push(LibraryPageReferenceCandidate {
+        page_id,
+        title,
+        page_key,
+        status,
+        location_label,
+        match_excerpt,
+    });
+    Ok(items.len() == limit)
+}
+
+#[derive(Debug)]
+struct PageBacklinkAccumulator {
+    source_page_id: String,
+    source_block_id: String,
+    source_title: String,
+    updated_at: String,
+    presentations: BTreeSet<String>,
+    occurrence_count: u32,
+}
+
+fn page_backlinks(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    target_page_id: &str,
+    requested_cursor: Option<String>,
+    requested_limit: Option<u32>,
+) -> Result<LibraryReadValue, StoreError> {
+    require_bound_page_read_access(
+        connection,
+        library_id,
+        context
+            .project_id
+            .as_ref()
+            .map(|project| project.0.as_str()),
+        &context.adapter,
+        target_page_id,
+    )?;
+    let limit = read_limit(requested_limit)?;
+    let subject = vec!["page_backlinks".to_owned(), target_page_id.to_owned()];
+    let after = cursor_coordinate(
+        connection,
+        requested_cursor.as_deref(),
+        library_id,
+        &subject,
+    )?;
+    let (after_updated_at, after_id) = keyset_text_coordinate(after.as_ref())?;
+    let mut statement = connection.prepare(
+        "SELECT reference.source_owner_block_id, reference.source_block_id, \
+                    materialization.title, reference.presentation, \
+                    reference.occurrence_count, reference.updated_at \
+             FROM document_page_references reference \
+             JOIN pages source_page ON source_page.block_id = reference.source_owner_block_id \
+               AND source_page.library_id = ?1 \
+             JOIN blocks source_block ON source_block.id = source_page.block_id \
+               AND source_block.library_id = source_page.library_id \
+               AND source_block.type = 'page' AND source_block.lifecycle = 'active' \
+             JOIN documents source_document ON source_document.id = source_page.document_id \
+             JOIN document_materializations materialization \
+               ON materialization.document_id = source_document.id \
+               AND materialization.generation = source_document.generation \
+               AND materialization.projected_seq = source_document.head_seq \
+               AND materialization.schema_version = source_document.schema_version \
+             WHERE reference.target_page_id = ?2 \
+             ORDER BY reference.updated_at DESC, reference.source_owner_block_id, \
+                      reference.source_block_id, reference.presentation",
+    )?;
+    let mut rows = statement.query(params![library_id, target_page_id])?;
+    let mut grouped = HashMap::<String, PageBacklinkAccumulator>::new();
+    let mut authorized_pages = HashSet::<String>::new();
+    while let Some(row) = rows.next()? {
+        let source_page_id = row.get::<_, String>(0)?;
+        let source_block_id = row.get::<_, String>(1)?;
+        let source_title = row.get::<_, String>(2)?;
+        let presentation = row.get::<_, String>(3)?;
+        let count = row.get::<_, u32>(4)?;
+        let updated_at = row.get::<_, String>(5)?;
+        let allowed = if let Some(project_id) = context.project_id.as_ref() {
+            authorized_pages.contains(&source_page_id)
+                || super::page_read_authorization_roots(
+                    connection,
+                    library_id,
+                    &project_id.0,
+                    &source_page_id,
+                )?
+                .is_some()
+        } else {
+            true
+        };
+        if !allowed {
+            continue;
+        }
+        authorized_pages.insert(source_page_id.clone());
+        let stable_id = format!("{source_page_id}\0{source_block_id}");
+        if !grouped.contains_key(&stable_id) && grouped.len() == 100_000 {
+            return Err(StoreError::new(
+                StoreErrorCode::ResourceExhausted,
+                "Authorized Page backlink projection exceeds its read bound",
+                false,
+            ));
+        }
+        let entry = grouped
+            .entry(stable_id)
+            .or_insert_with(|| PageBacklinkAccumulator {
+                source_page_id,
+                source_block_id,
+                source_title,
+                updated_at,
+                presentations: BTreeSet::new(),
+                occurrence_count: 0,
+            });
+        entry.presentations.insert(presentation);
+        entry.occurrence_count = entry.occurrence_count.saturating_add(count);
+    }
+    let mut authorized = grouped.into_iter().collect::<Vec<_>>();
+    authorized.sort_by(|(left_id, left), (right_id, right)| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| left_id.cmp(right_id))
+    });
+    let total =
+        u64::try_from(authorized.len()).map_err(|_| corrupt("Page backlink count overflowed"))?;
+    let source_page_count = u64::try_from(
+        authorized
+            .iter()
+            .map(|(_, item)| item.source_page_id.as_str())
+            .collect::<BTreeSet<_>>()
+            .len(),
+    )
+    .map_err(|_| corrupt("Page backlink source Page count overflowed"))?;
+    if let (Some(after_updated_at), Some(after_id)) = (after_updated_at, after_id) {
+        authorized.retain(|(stable_id, item)| {
+            item.updated_at < after_updated_at
+                || (item.updated_at == after_updated_at && stable_id > &after_id)
+        });
+    }
+    let has_more = authorized.len() > limit;
+    authorized.truncate(limit);
+    let next_cursor = has_more
+        .then(|| {
+            let (stable_id, item) = authorized
+                .last()
+                .ok_or_else(|| corrupt("Page backlink continuation has no entry"))?;
+            cursor::mint(
+                connection,
+                library_id,
+                &subject,
+                cursor::KeysetCoordinate {
+                    values: vec![cursor::KeysetValue::Text {
+                        value: item.updated_at.clone(),
+                    }],
+                    stable_id: stable_id.clone(),
+                },
+            )
+        })
+        .transpose()?;
+    let items = authorized
+        .into_iter()
+        .map(|(_, item)| {
+            let presentations = item
+                .presentations
+                .into_iter()
+                .map(|presentation| match presentation.as_str() {
+                    "mention" => Ok(LibraryPageReferencePresentation::Mention),
+                    "reference_block" => Ok(LibraryPageReferencePresentation::ReferenceBlock),
+                    "link" => Ok(LibraryPageReferencePresentation::Link),
+                    _ => Err(corrupt("Page backlink presentation is invalid")),
+                })
+                .collect::<Result<Vec<_>, StoreError>>()?;
+            Ok(LibraryPageBacklink {
+                location_label: move_destination_path(
+                    connection,
+                    library_id,
+                    &item.source_page_id,
+                )?
+                .join(" / "),
+                source_page_id: item.source_page_id,
+                source_block_id: item.source_block_id,
+                source_title: item.source_title,
+                presentations,
+                occurrence_count: item.occurrence_count,
+                updated_at: item.updated_at,
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    Ok(LibraryReadValue::PageBacklinks {
+        target_page_id: target_page_id.to_owned(),
+        items,
+        next_cursor,
+        has_more,
+        total,
+        source_page_count,
+    })
 }
 
 fn require_bound_page_read_access(
@@ -2664,7 +3151,7 @@ fn move_destination_path(
         hierarchy
             .iter()
             .rev()
-            .skip(1)
+            .take(hierarchy.len().saturating_sub(1))
             .map(|entry| entry.title.clone()),
     );
     Ok(path)
@@ -2976,7 +3463,7 @@ fn corrupt(message: &str) -> StoreError {
 mod tests {
     use serde_json::json;
 
-    use super::valid_intrinsic_value;
+    use super::{page_reference_search_score, valid_intrinsic_value};
 
     #[test]
     fn accepts_nullable_string_and_json_intrinsic_values() {
@@ -2986,5 +3473,24 @@ mod tests {
         assert!(valid_intrinsic_value("json", &json!({ "key": "value" })));
         assert!(!valid_intrinsic_value("string", &json!(42)));
         assert!(!valid_intrinsic_value("json", &json!("value")));
+    }
+
+    #[test]
+    fn page_reference_search_supports_fuzzy_titles_and_exact_content_prefixes() {
+        let fuzzy = page_reference_search_score(
+            "Preserve local-first identity",
+            "Unrelated body",
+            "presrve",
+            &["presrve".to_owned()],
+        );
+        assert!(fuzzy.is_some_and(|(_, content_match)| !content_match));
+
+        let content = page_reference_search_score(
+            "Verify real Electron geometry",
+            "Exercise the actual desktop boundary at the canonical viewport.",
+            "ca",
+            &["ca".to_owned()],
+        );
+        assert!(content.is_some_and(|(_, content_match)| content_match));
     }
 }

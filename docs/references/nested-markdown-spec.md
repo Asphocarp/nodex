@@ -66,10 +66,15 @@ So an alternative self-closing format is also supported: <mention-user url="{{UR
 Nodex extension for Codex thread references:
 <mention-thread uuid="{{CODEX_THREAD_ID}}" />
 The `uuid` attribute is the opaque Codex app-server thread/session id. It is required after trimming whitespace, is serialized as the only attribute, and is not regex-validated. Missing or empty `uuid` values remain plain text instead of creating structured mention content. In copy output and thread-section prompts, thread mentions serialize as `[Thread: {{CODEX_THREAD_ID}}]` and do not inject the referenced thread transcript.
+Nodex extension for inline Page mentions:
+<mention-page url="nodex://pages/{{PAGE_BLOCK_ID}}" />
+The canonical self-closing tag has exactly one `url` attribute. It stores only
+the Page ID, resolves current display metadata at render time, and never injects
+the referenced Page body into the containing Document or Agent prompt.
 Nodex extensions for owning Pages and block-level Page references:
 <page uuid="{{PAGE_BLOCK_ID}}" />
 <page-ref url="nodex://pages/{{PAGE_BLOCK_ID}}" />
-An owning `page` Block is a childless shell whose `uuid` is its stable Page/Block identity. During a semantically guarded whole-body replacement, that UUID may preserve or reorder only a Page already owned by the same Document; it never creates, copies, or moves a Page implicitly. Those operations require Nodex's typed ownership commands. `page-ref` is childless and non-owning in NFM and maps to the canonical `pageRef` editor node. Historical `card`, `cardRef`, `<card />`, `<card-ref ... />`, and `<mention-card ... />` forms are decode-only and are never emitted by current materialization.
+An owning `page` Block is a childless shell whose `uuid` is its stable Page/Block identity. During a semantically guarded whole-body replacement, that UUID may preserve or reorder only a Page already owned by the same Document; it never creates, copies, or moves a Page implicitly. Those operations require Nodex's typed ownership commands. `page-ref` is childless and non-owning in NFM and maps to the canonical `pageRef` editor node. Historical `card`, `cardRef`, `<card />`, and `<card-ref ... />` forms are decode-only and are never emitted by current materialization. The retired `<mention-card ... />` spelling is not accepted.
 
 ## Agent wire contract
 

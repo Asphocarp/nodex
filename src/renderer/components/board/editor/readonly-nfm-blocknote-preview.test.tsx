@@ -81,8 +81,8 @@ describe("readonly NFM BlockNote preview", () => {
     );
 
     await waitFor(() => {
-      if (!textContent(view.container).includes("Page mention")) {
-        throw new Error("Page mention placeholder not rendered");
+      if (!textContent(view.container).includes("Page reference")) {
+        throw new Error("Page reference placeholder not rendered");
       }
     });
 

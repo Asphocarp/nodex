@@ -88,7 +88,7 @@ describe("board/dense authoritative scenario", () => {
     expect(manifest).toMatchObject({
       version: 1,
       scenarioId: BOARD_DENSE_SCENARIO_ID,
-      scenarioRevision: 1,
+      scenarioRevision: 2,
       projectId: "project:board-dense",
       databaseViewId: "view:board-dense",
     });
@@ -103,7 +103,7 @@ describe("board/dense authoritative scenario", () => {
     );
     await expect(inspectScenario(manifest, port)).resolves.toEqual({
       scenarioId: BOARD_DENSE_SCENARIO_ID,
-      scenarioRevision: 1,
+      scenarioRevision: 2,
       totalRows: 10,
       groups: { triage: 3, plan: 2, build: 3, review: 1, ship: 1 },
       primaryBuildPage: {
@@ -122,7 +122,7 @@ describe("board/dense authoritative scenario", () => {
       .toThrow(/Scenario facts/u);
     expect(() => requireBoardDenseScenarioFacts({
       scenarioId: "board/dense",
-      scenarioRevision: 1,
+      scenarioRevision: 2,
       groups: {},
     }))
       .toThrow(/facts/u);

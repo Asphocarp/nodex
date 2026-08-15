@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 20;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 22;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -57,6 +57,7 @@ pub enum LibraryWriteParent {
         expected_document_generation: i64,
         expected_document_head_seq: i64,
         before: Option<LibraryPlacementAnchor>,
+        insertion: Option<LibraryPageInsertion>,
     },
 }
 
@@ -552,6 +553,15 @@ pub enum LibraryRead {
     ProjectPageSearch {
         project_ids: Vec<String>,
         query: String,
+        limit: Option<u32>,
+    },
+    PageReferenceCandidates {
+        query: String,
+        limit: Option<u32>,
+    },
+    PageBacklinks {
+        target_page_id: String,
+        cursor: Option<String>,
         limit: Option<u32>,
     },
     PageHistory {
@@ -1583,6 +1593,35 @@ pub struct LibraryProjectPageSearchHit {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageReferenceCandidate {
+    pub page_id: String,
+    pub title: String,
+    pub page_key: Option<String>,
+    pub status: Option<LibraryPageWorkflowStatus>,
+    pub location_label: String,
+    pub match_excerpt: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageReferencePresentation {
+    Mention,
+    ReferenceBlock,
+    Link,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageBacklink {
+    pub source_page_id: String,
+    pub source_block_id: String,
+    pub source_title: String,
+    pub location_label: String,
+    pub presentations: Vec<LibraryPageReferencePresentation>,
+    pub occurrence_count: u32,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum LibraryPageHistoryCursor {
     DocumentVersion {
@@ -1838,6 +1877,17 @@ pub enum LibraryReadValue {
     },
     ProjectPageSearch {
         items: Vec<LibraryProjectPageSearchHit>,
+    },
+    PageReferenceCandidates {
+        items: Vec<LibraryPageReferenceCandidate>,
+    },
+    PageBacklinks {
+        target_page_id: String,
+        items: Vec<LibraryPageBacklink>,
+        next_cursor: Option<String>,
+        has_more: bool,
+        total: u64,
+        source_page_count: u64,
     },
     PageHistory {
         value: Box<LibraryPageHistoryPage>,

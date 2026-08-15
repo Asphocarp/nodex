@@ -67,6 +67,9 @@ pub enum NfmInlineContent {
     ThreadMention {
         uuid: String,
     },
+    PageMention {
+        target_page_id: String,
+    },
     DateMention(NfmDateMention),
 }
 
@@ -436,17 +439,10 @@ fn materialize_block(block: &MaterializedBlockNode) -> Result<NfmBlock, NfmMater
         "page" => NfmBlock::Page {
             uuid: block.id.clone(),
         },
-        "pageRef" => {
-            if let Some(target_block_id) = non_empty_string_prop(&block.props, "targetBlockId") {
-                NfmBlock::PageRef { target_block_id }
-            } else {
-                NfmBlock::CardRef {
-                    source_project_id: non_empty_string_prop(&block.props, "sourceProjectId")
-                        .unwrap_or_else(|| "default".to_owned()),
-                    page_id: non_empty_string_prop(&block.props, "cardId").unwrap_or_default(),
-                }
-            }
-        }
+        "pageRef" => NfmBlock::PageRef {
+            target_block_id: non_empty_string_prop(&block.props, "targetBlockId")
+                .unwrap_or_default(),
+        },
         "threadSection" => NfmBlock::ThreadSection {
             label: non_empty_string_prop(&block.props, "label"),
             thread_id: non_empty_string_prop(&block.props, "threadId"),
@@ -486,6 +482,7 @@ fn materialize_inline(content: Option<&Value>) -> Vec<NfmInlineContent> {
             Some("attachment") => append_attachment(item, &mut output),
             Some("agentConfig") => append_agent_config(item, &mut output),
             Some("threadMention") => append_thread_mention(item, &mut output),
+            Some("pageMention") => append_page_mention(item, &mut output),
             Some("dateMention") => append_date_mention(item, &mut output),
             Some("link") => append_link(item, &mut output),
             Some("text") => append_text(item, &mut output),
@@ -548,6 +545,20 @@ fn append_thread_mention(item: &Map<String, Value>, output: &mut Vec<NfmInlineCo
     if let Some(uuid) = uuid {
         output.push(NfmInlineContent::ThreadMention {
             uuid: uuid.to_owned(),
+        });
+    }
+}
+
+fn append_page_mention(item: &Map<String, Value>, output: &mut Vec<NfmInlineContent>) {
+    let target_page_id = item
+        .get("props")
+        .and_then(Value::as_object)
+        .and_then(|props| map_string(props, "targetPageId"))
+        .map(str::trim)
+        .filter(|page_id| !page_id.is_empty());
+    if let Some(target_page_id) = target_page_id {
+        output.push(NfmInlineContent::PageMention {
+            target_page_id: target_page_id.to_owned(),
         });
     }
 }
@@ -1194,6 +1205,10 @@ fn serialize_inline_item(item: &NfmInlineContent) -> String {
         NfmInlineContent::ThreadMention { uuid } => {
             format!("<mention-thread uuid=\"{}\" />", escape_xml_attr(uuid))
         }
+        NfmInlineContent::PageMention { target_page_id } => format!(
+            "<mention-page url=\"{}\" />",
+            escape_xml_attr(&build_page_deep_link(target_page_id))
+        ),
         NfmInlineContent::DateMention(date) => {
             let attrs = serialize_date_mention_attrs(date);
             if attrs.is_empty() {
@@ -1532,6 +1547,9 @@ fn collect_inline_text(items: &[NfmInlineContent], parts: &mut Vec<String>) {
             }
             NfmInlineContent::LineBreak => parts.push(" ".to_owned()),
             NfmInlineContent::ThreadMention { uuid } => parts.push(uuid.clone()),
+            NfmInlineContent::PageMention { target_page_id } => {
+                parts.push(build_page_deep_link(target_page_id));
+            }
             NfmInlineContent::DateMention(date) => parts.push(format_date_plain_text(date)),
             NfmInlineContent::Attachment { name, .. } => parts.push(name.clone()),
             NfmInlineContent::AgentConfig {
@@ -1929,6 +1947,7 @@ impl<'a> InlineParser<'a> {
             "<attachment",
             "<agent-config",
             "<mention-thread",
+            "<mention-page",
             "<mention-date",
         ]
         .into_iter()
@@ -1984,6 +2003,14 @@ impl<'a> InlineParser<'a> {
                 NfmInlineContent::ThreadMention {
                     uuid: uuid.to_owned(),
                 }
+            }
+            "<mention-page" => {
+                if attrs.len() != 1 {
+                    return None;
+                }
+                let url = attrs.get("url")?;
+                let target_page_id = parse_page_deep_link(url)?;
+                NfmInlineContent::PageMention { target_page_id }
             }
             "<mention-date" => {
                 NfmInlineContent::DateMention(normalize_date_mention(&attrs_to_json(&attrs))?)
@@ -2335,6 +2362,28 @@ fn unescape_xml_attr(input: &str) -> String {
 fn build_page_deep_link(page_id: &str) -> String {
     format!("nodex://pages/{}", encode_uri_component(page_id))
 }
+pub(super) fn parse_page_deep_link(value: &str) -> Option<String> {
+    let path = value
+        .strip_prefix("nodex://pages/")
+        .or_else(|| value.strip_prefix("nodex:/pages/"))?;
+    percent_decode(path).filter(|value| !value.trim().is_empty() && value.trim() == value)
+}
+fn percent_decode(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut output = Vec::new();
+    let mut cursor = 0usize;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'%' {
+            let encoded = std::str::from_utf8(bytes.get(cursor + 1..cursor + 3)?).ok()?;
+            output.push(u8::from_str_radix(encoded, 16).ok()?);
+            cursor += 3;
+        } else {
+            output.push(bytes[cursor]);
+            cursor += 1;
+        }
+    }
+    String::from_utf8(output).ok()
+}
 fn encode_uri_component(input: &str) -> String {
     let mut output = String::new();
     for byte in input.as_bytes() {
@@ -2418,6 +2467,29 @@ mod tests {
             serialize_inline_content(&parsed),
             r#"**bold**<br><mention-thread uuid="thread-1" />[link](https://nodex.local)"#
         );
+    }
+
+    #[test]
+    fn round_trips_canonical_page_mentions_and_keeps_invalid_tags_literal() {
+        let canonical = r#"See <mention-page url="nodex://pages/page-1" /> now"#;
+        assert_eq!(
+            serialize_inline_content(&parse_inline_content(canonical)),
+            canonical,
+        );
+
+        for invalid in [
+            r#"<mention-page />"#,
+            r#"<mention-page url="https://example.com" />"#,
+            r#"<mention-page url="nodex://pages/page-1" title="Page" />"#,
+        ] {
+            assert_eq!(
+                parse_inline_content(invalid),
+                vec![NfmInlineContent::Text {
+                    text: invalid.to_owned(),
+                    styles: NfmStyleSet::default(),
+                }],
+            );
+        }
     }
 
     #[test]

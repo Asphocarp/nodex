@@ -1,0 +1,29 @@
+import type { ContentAccessContext } from "../../../shared/content-access-context";
+import type { WorkflowStatus } from "../../../shared/workflow-status";
+
+export type PageReferenceIntent = "mention" | "reference_block" | "link";
+
+export interface PageReferencePickerRequest {
+  readonly accessContext: ContentAccessContext;
+  readonly hostPageId: string | null;
+  readonly ancestorPageIds: readonly string[];
+  readonly intent: PageReferenceIntent;
+  readonly query: string;
+  readonly limit: number;
+}
+
+export interface PageReferenceCandidate {
+  readonly pageId: string;
+  readonly title: string;
+  readonly pageKey: string | null;
+  readonly status: WorkflowStatus | null;
+  readonly locationLabel: string;
+  readonly lifecycle: "active" | "archived";
+  readonly matchExcerpt: string | null;
+  readonly disabledReason: "self" | "ancestor_cycle" | null;
+}
+
+export interface PageReferenceSelection {
+  readonly pageId: string;
+  readonly titleSnapshot: string;
+}
