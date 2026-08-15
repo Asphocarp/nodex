@@ -1,7 +1,7 @@
 # NFM Block Side Menu Behavior
 
 Status: Active
-Last updated: 2026-06-24
+Last updated: 2026-08-16
 
 ## Purpose
 
@@ -81,6 +81,19 @@ The side menu surface is a compact dialog:
 - Right-side submenu flyouts for `Turn into`, `Color`, and `Move to`
 - Entry/exit motion: `200ms` opacity/scale, with reduced-motion fallback
 - Transform origin follows popup placement, including right-side `50%` origin behavior
+
+The hover-only drag handle remains attached to the same Block and DOM node from
+primary-button `pointerdown` until the click/cancel settles or the native drag
+reaches `dragend`. A `pointercancel` after `dragstart` is the browser handing
+pointer ownership to native DnD, not the end of that drag. Ancestor scrolling
+may reposition or hide an idle side menu, but it must not replace a handle
+during an owned pointer/drag gesture.
+
+Exit motion is visual-only. A closing editor popover preserves its final
+committed React subtree and geometry, leaves editor interaction ownership, and
+is inert and hidden from assistive technology until unmounted. It must never
+materialize an eventless `draggable`, link, button, input, or other native HTML
+interaction from a serialized DOM snapshot.
 
 Footer metadata is optional. Production hides the footer when there is no real metadata. Storybook fixtures may provide footer text.
 

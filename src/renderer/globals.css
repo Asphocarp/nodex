@@ -478,26 +478,6 @@
   pointer-events: none !important;
 }
 
-.nfm-editor .bn-side-menu {
-  --nfm-side-menu-icon-color: var(--color-token-description-foreground);
-}
-
-.nfm-editor .bn-side-menu .bn-button[aria-label="Add block"] {
-  height: 24px;
-  width: 24px;
-  color: var(--nfm-side-menu-icon-color);
-  cursor: pointer;
-  transition: none;
-}
-.nfm-editor .bn-side-menu .bn-button[draggable="true"] {
-  height: 24px;
-  width: 18px;
-  margin-right: 10px;
-  color: var(--nfm-side-menu-icon-color);
-  cursor: grab;
-  transition: none;
-}
-
 /*
  * BlockNote appends the native drag image to document.body at (0, 0).
  * Keep it out of hit-testing so it cannot steal clicks or dragover/drop.
@@ -505,29 +485,6 @@
 .bn-drag-preview {
   pointer-events: none;
   user-select: none;
-}
-
-.nfm-editor .bn-side-menu .bn-button[draggable="true"]::before {
-  content: none;
-}
-
-.nfm-editor .bn-side-menu .bn-button[draggable="true"] svg {
-  width: 20px;
-  height: 20px;
-  cursor: grab;
-  opacity: 1;
-  transition: none;
-}
-
-.nfm-editor .bn-side-menu .bn-button[aria-label="Add block"] svg {
-  width: 18px;
-  height: 18px;
-  opacity: 1;
-  pointer-events: none;
-}
-
-.nfm-editor .bn-side-menu .bn-button[aria-label="Add block"] svg * {
-  pointer-events: none;
 }
 
 .nfm-editor .bn-block-group .bn-block-group .bn-block-outer::before {

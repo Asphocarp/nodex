@@ -1,4 +1,3 @@
-import { assertEmpty } from "@blocknote/core";
 import { ComponentProps } from "@blocknote/react";
 import { forwardRef } from "react";
 
@@ -13,31 +12,20 @@ export const SideMenuButton = forwardRef<
     className,
     children,
     icon,
-    onClick,
-    onDragEnd,
-    onDragStart,
-    draggable,
     label,
-    ...rest
+    ...buttonProps
   } = props;
-
-  // false, because rest props can be added by ariakit when button is used as a trigger
-  // assertEmpty in this case is only used at typescript level, not runtime level
-  assertEmpty(rest, false);
 
   const ShadCNComponents = useShadCNComponentsContext()!;
 
   return (
     <ShadCNComponents.Button.Button
+      {...buttonProps}
       variant={"ghost"}
-      className={cn(className, "text-gray-400")}
+      className={cn("text-gray-400", className)}
       ref={ref}
+      type={buttonProps.type ?? "button"}
       aria-label={label}
-      onClick={onClick}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      draggable={draggable}
-      {...rest}
     >
       {icon}
       {children}
