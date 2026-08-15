@@ -24,6 +24,10 @@ import type {
   ThreadWorkedForBlockModel,
 } from "../thread-stage-types";
 import { projectThreadActivityPresentation } from "./thread-activity-presentation";
+import {
+  countAgentBodyUnits,
+  projectAgentBodyCollapsePresentation,
+} from "./agent-body-collapse-presentation";
 import type { ThreadWorkedForTiming } from "../thread-worked-for-time";
 
 interface BuildTurnViewModelInput {
@@ -517,6 +521,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     mcpServerStatuses: input.mcpServerStatuses ?? null,
   });
   const agentBodyUnits = activityPresentation.units;
+  const agentBodyCollapsePresentation = projectAgentBodyCollapsePresentation(agentBodyUnits);
   const liveActivity: ThreadLiveActivityPresentation = activityPresentation.liveActivity;
 
   const leadingBlocks: ThreadBlockModel[] = [
@@ -575,6 +580,8 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     hasRenderableAgentBodyUnits,
     defaultAgentBodyCollapsed:
       hasRenderableAgentBodyUnits && !subagentActivityState.hasActiveActivity,
-    collapsedMessageCount: agentBodyUnits.length,
+    collapsedMessageCount: countAgentBodyUnits(
+      agentBodyCollapsePresentation.collapsibleUnits,
+    ),
   };
 }

@@ -376,6 +376,29 @@ describe("UserMessageBubble collapse", () => {
     expect(queryByLabelText("Edit message")).toBe(null);
   });
 
+  test("keeps compact hook feedback actions beside the bubble without duplicating copy", () => {
+    const block = buildUserMessageBlock("Please address the failed check.");
+    block.entry.hookFeedback = true;
+    block.userMessageActions = { canEdit: false, sentAtMs: null };
+    const { getAllByLabelText, getByText } = render(
+      <TooltipProvider>
+        <UserMessageBubble
+          block={block}
+          isLatestTurn
+          isStreamingTurn={false}
+          compactUserMessageActions
+        />
+      </TooltipProvider>,
+    );
+
+    const bubble = getByText("Please address the failed check.").closest<HTMLElement>(
+      '[data-user-message-bubble="true"]',
+    );
+    expect(getAllByLabelText("Copy message")).toHaveLength(1);
+    expect(bubble?.parentElement?.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
+    expect(getByText("Hook feedback")).toBeTruthy();
+  });
+
   test("links matching project hook feedback to its filtered settings source", () => {
     const block = buildUserMessageBlock("Please address the failed check.");
     block.entry.hookFeedback = true;
