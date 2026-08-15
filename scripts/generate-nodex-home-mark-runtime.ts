@@ -19,13 +19,46 @@ interface CorrectiveMorphMesh {
 
 type Vec2 = readonly [number, number];
 type Vec3 = readonly [number, number, number];
+type Mat2 = readonly [number, number, number, number, number, number];
+
+interface GlyphShape {
+  vertices: readonly Vec2[];
+}
+
+interface GlyphLayer {
+  shape: GlyphShape;
+  x: number;
+  y: number;
+  rotation: number;
+  scaleX: number;
+  scaleY: number;
+  role?: "slash";
+}
+
+interface GlyphLayout {
+  gap: number;
+  offsetX: number;
+  offsetY: number;
+  slashStroke?: number;
+  slashAngle?: number;
+}
 
 const OUTPUT_PATH = resolve(
   "src/renderer/components/ui/nodex-home-mark-model.generated.ts",
 );
+const GLYPH_OUTPUT_PATH = resolve(
+  "src/renderer/components/ui/nodex-home-mark-glyph-scenes.generated.ts",
+);
 const REGULAR_BEVEL = 0.052;
 const FITTED_SCALE = 544.3973872;
+const GLYPH_PROJECTION_SCALE = 636.945;
 const FITTED_PRINCIPAL: Vec2 = [396.941096, 404.431016];
+const GLYPH_PRINCIPAL: Vec2 = [396.941, 404.431];
+const HERO_GEOMETRY_SCALE = 1.17;
+const FRONT_Z = 0.49985;
+const GLYPH_TARGET_Z = 0.5008;
+const GLYPH_STROKE = 5.742;
+const PROMPT_STROKE = 50 * HERO_GEOMETRY_SCALE;
 const BASE_ROTATION = [
   0.9591977392402923, 0, 0.282736090791947,
   -0.0590442569816084, 0.9779515955840853, 0.2003108893995316,
@@ -38,6 +71,91 @@ const FITTED_GLYPH_SCREEN: readonly Vec2[] = [
   [458.035, 565.638],
   [579.966, 558.361],
 ];
+
+const SHORT_ARROW: GlyphShape = {
+  vertices: [[9.794, 2.771], [0.221, -2.771], [-9.794, 2.771]],
+};
+const SHORT_LINE: GlyphShape = {
+  vertices: [[6.784, 0], [-6.784, 0]],
+};
+const GLYPH_LAYOUTS = {
+  prompt: { gap: 1, offsetX: 0, offsetY: 0 },
+  face: { gap: 1.15, offsetX: -0.014, offsetY: 0 },
+  wink: { gap: 1.04, offsetX: 0, offsetY: 0 },
+  split: { gap: 1.11, offsetX: 0, offsetY: 0 },
+  inverted: { gap: 1.11, offsetX: 0, offsetY: 0 },
+  "bar-caret": { gap: 1.11, offsetX: 0, offsetY: 0 },
+  bars: { gap: 1.01, offsetX: 0, offsetY: 0 },
+  "offset-caret": { gap: 1.11, offsetX: 0, offsetY: 0 },
+  "double-bars": { gap: 1.01, offsetX: 0, offsetY: 0 },
+  "chevron-equals": { gap: 1.15, offsetX: 0, offsetY: 0 },
+  code: {
+    gap: 1.21,
+    offsetX: 0,
+    offsetY: 0,
+    slashStroke: 6.377,
+    slashAngle: -70.25,
+  },
+} as const satisfies Record<string, GlyphLayout>;
+
+function glyphLayer(
+  shape: GlyphShape,
+  x: number,
+  y: number,
+  rotation = 0,
+  scaleX = 500,
+  scaleY = 500,
+  role?: "slash",
+): GlyphLayer {
+  return { shape, x, y, rotation, scaleX, scaleY, role };
+}
+
+const GLYPH_LAYERS = {
+  face: [
+    glyphLayer(SHORT_ARROW, 307.52, 250.557, 90, 500, -500),
+    glyphLayer(SHORT_LINE, 200.422, 235.768, 180),
+    glyphLayer(SHORT_LINE, 200.422, 275.768, 180),
+  ],
+  wink: [
+    glyphLayer(SHORT_ARROW, 307.52, 250.557, -90),
+    glyphLayer(SHORT_LINE, 184.422, 251.768, 90),
+  ],
+  split: [
+    glyphLayer(SHORT_ARROW, 207.52, 250.557),
+    glyphLayer(SHORT_LINE, 336.422, 251.768, 90),
+  ],
+  inverted: [
+    glyphLayer(SHORT_ARROW, 303.52, 234.557, 180),
+    glyphLayer(SHORT_LINE, 192.422, 291.768),
+  ],
+  "bar-caret": [
+    glyphLayer(SHORT_ARROW, 303.52, 246.557),
+    glyphLayer(SHORT_LINE, 172.422, 251.768, 90),
+  ],
+  bars: [
+    glyphLayer(SHORT_LINE, 200.422, 251.768),
+    glyphLayer(SHORT_LINE, 200.422, 251.768, 90),
+    glyphLayer(SHORT_LINE, 324.422, 251.768, 90),
+  ],
+  "offset-caret": [
+    glyphLayer(SHORT_ARROW, 199.52, 226.557),
+    glyphLayer(SHORT_LINE, 316.422, 283.768, 180),
+  ],
+  "double-bars": [
+    glyphLayer(SHORT_LINE, 184.422, 251.768, 90),
+    glyphLayer(SHORT_LINE, 326.422, 251.768, 90),
+  ],
+  "chevron-equals": [
+    glyphLayer(SHORT_ARROW, 207.52, 250.557, -90, 500, -500),
+    glyphLayer(SHORT_LINE, 312.422, 235.768, 180),
+    glyphLayer(SHORT_LINE, 312.422, 275.768, 180),
+  ],
+  code: [
+    glyphLayer(SHORT_ARROW, 323.52, 250.557, 90),
+    glyphLayer(SHORT_ARROW, 179.52, 250.557, 90, 500, -500),
+    glyphLayer(SHORT_LINE, 252.422, 249.768, -65, 500, 500, "slash"),
+  ],
+} as const;
 
 function readSourceArgument(): string {
   const index = process.argv.indexOf("--source");
@@ -186,6 +304,257 @@ function numberArray(name: string, values: readonly number[]): string {
     .join(", ")}\n]);`;
 }
 
+function multiply2(a: Mat2, b: Mat2): Mat2 {
+  return [
+    a[0] * b[0] + a[2] * b[1],
+    a[1] * b[0] + a[3] * b[1],
+    a[0] * b[2] + a[2] * b[3],
+    a[1] * b[2] + a[3] * b[3],
+    a[0] * b[4] + a[2] * b[5] + a[4],
+    a[1] * b[4] + a[3] * b[5] + a[5],
+  ];
+}
+
+function translate2(x: number, y: number): Mat2 {
+  return [1, 0, 0, 1, x, y];
+}
+
+function scale2(x: number, y = x): Mat2 {
+  return [x, 0, 0, y, 0, 0];
+}
+
+function rotate2(degrees: number): Mat2 {
+  const radians = degrees * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return [cosine, sine, -sine, cosine, 0, 0];
+}
+
+function apply2(matrix: Mat2, point: Vec2): Vec2 {
+  return [
+    matrix[0] * point[0] + matrix[2] * point[1] + matrix[4],
+    matrix[1] * point[0] + matrix[3] * point[1] + matrix[5],
+  ];
+}
+
+function layerMatrix(layer: GlyphLayer): Mat2 {
+  return multiply2(
+    translate2(layer.x, layer.y),
+    multiply2(
+      rotate2(layer.rotation),
+      scale2(layer.scaleX / 100, layer.scaleY / 100),
+    ),
+  );
+}
+
+function performanceChevronShape(): GlyphShape {
+  const originalUpper = Math.hypot(9.794 - 0.221, 2.771 - -2.771);
+  const originalLower = Math.hypot(-9.794 - 0.221, 2.771 - -2.771);
+  const armLength = (originalUpper + originalLower) * 0.5 * 1.42;
+  const halfAngle = 73.25 * Math.PI / 360;
+  const halfSpan = Math.sin(halfAngle) * armLength;
+  const depth = Math.cos(halfAngle) * armLength;
+  return {
+    vertices: [[halfSpan, depth * 0.5], [0, -depth * 0.5], [-halfSpan, depth * 0.5]],
+  };
+}
+
+function resolvedShape(shape: GlyphShape): GlyphShape {
+  return shape === SHORT_ARROW ? performanceChevronShape() : shape;
+}
+
+function adjustedLayers(id: keyof typeof GLYPH_LAYERS): GlyphLayer[] {
+  const layout = GLYPH_LAYOUTS[id];
+  const pivots: Record<keyof typeof GLYPH_LAYERS, number> = {
+    face: (307.52 + 200.422) * 0.5,
+    wink: (307.52 + 184.422) * 0.5,
+    split: (207.52 + 336.422) * 0.5,
+    inverted: (303.52 + 192.422) * 0.5,
+    "bar-caret": (303.52 + 172.422) * 0.5,
+    bars: (200.422 + 324.422) * 0.5,
+    "offset-caret": (199.52 + 316.422) * 0.5,
+    "double-bars": (184.422 + 326.422) * 0.5,
+    "chevron-equals": (207.52 + 312.422) * 0.5,
+    code: (323.52 + 179.52) * 0.5,
+  };
+  return GLYPH_LAYERS[id].map((layer) => {
+    const rotation = id === "code" && layer.role === "slash"
+      ? GLYPH_LAYOUTS.code.slashAngle
+      : layer.rotation;
+    if (id === "code" && layer.role === "slash") return { ...layer, rotation };
+    return {
+      ...layer,
+      rotation,
+      x: pivots[id] + (layer.x - pivots[id]) * layout.gap,
+    };
+  });
+}
+
+const LEGACY_EXTENT_MAP: Mat2 = (() => {
+  const source = { minX: 152.55, maxX: 344.145, minY: 191.57, maxY: 312.025 };
+  const legacy = {
+    minX: -0.323427709,
+    maxX: 0.203195827,
+    minY: -0.220405539,
+    maxY: 0.19903722,
+  };
+  const scaleX = (legacy.maxX - legacy.minX) / (source.maxX - source.minX);
+  const scaleY = (legacy.maxY - legacy.minY) / (source.maxY - source.minY);
+  return [
+    scaleX,
+    0,
+    0,
+    scaleY,
+    legacy.minX - scaleX * source.minX,
+    legacy.minY - scaleY * source.minY,
+  ];
+})();
+
+function objectMap(id: keyof typeof GLYPH_LAYERS): Mat2 {
+  const layout = GLYPH_LAYOUTS[id];
+  return multiply2(translate2(layout.offsetX, layout.offsetY), LEGACY_EXTENT_MAP);
+}
+
+function projection2(scale: number, principal: Vec2, z: number): Mat2 {
+  return [
+    BASE_ROTATION[0] * scale,
+    BASE_ROTATION[3] * scale,
+    BASE_ROTATION[1] * scale,
+    BASE_ROTATION[4] * scale,
+    principal[0] + BASE_ROTATION[2] * z * scale,
+    principal[1] + BASE_ROTATION[5] * z * scale,
+  ];
+}
+
+function pathData(shape: GlyphShape): string {
+  return shape.vertices.reduce(
+    (path, point, index) => `${path}${index === 0 ? "M" : "L"}${point[0]} ${point[1]}`,
+    "",
+  );
+}
+
+function matrixString(matrix: Mat2): string {
+  return `matrix(${matrix.map((value) => Number(value.toFixed(8))).join(" ")})`;
+}
+
+function exactPromptScreenPoint(point: Vec2): Vec2 {
+  return [
+    400 + (point[0] - 400) * HERO_GEOMETRY_SCALE,
+    400 + (point[1] - 400) * HERO_GEOMETRY_SCALE,
+  ];
+}
+
+function unprojectToFrontPlane(point: Vec2): Vec3 {
+  const targetX = (point[0] - GLYPH_PRINCIPAL[0]) / GLYPH_PROJECTION_SCALE
+    - BASE_ROTATION[2] * FRONT_Z;
+  const targetY = (point[1] - GLYPH_PRINCIPAL[1]) / GLYPH_PROJECTION_SCALE
+    - BASE_ROTATION[5] * FRONT_Z;
+  const determinant = BASE_ROTATION[0] * BASE_ROTATION[4]
+    - BASE_ROTATION[1] * BASE_ROTATION[3];
+  return [
+    (targetX * BASE_ROTATION[4] - BASE_ROTATION[1] * targetY) / determinant,
+    (BASE_ROTATION[0] * targetY - targetX * BASE_ROTATION[3]) / determinant,
+    GLYPH_TARGET_Z,
+  ];
+}
+
+function projectFittedScreen(target: Vec3): Vec2 {
+  const fittedProjectionScale = FITTED_SCALE * HERO_GEOMETRY_SCALE;
+  const screenX = FITTED_PRINCIPAL[0]
+    + (BASE_ROTATION[0] * target[0]
+      + BASE_ROTATION[1] * target[1]
+      + BASE_ROTATION[2] * target[2]) * fittedProjectionScale;
+  const screenY = FITTED_PRINCIPAL[1]
+    + (BASE_ROTATION[3] * target[0]
+      + BASE_ROTATION[4] * target[1]
+      + BASE_ROTATION[5] * target[2]) * fittedProjectionScale;
+  return [
+    400 + (screenX - 400) / HERO_GEOMETRY_SCALE,
+    400 + (screenY - 400) / HERO_GEOMETRY_SCALE,
+  ];
+}
+
+function roundedTuple(values: readonly number[]): number[] {
+  return values.map((value) => Number(value.toFixed(9)));
+}
+
+function buildGlyphScenes(
+  positions: readonly number[],
+  fittedPrompt: readonly number[],
+): Record<string, unknown> {
+  const promptTargets = FITTED_GLYPH_SCREEN.map((point) =>
+    unprojectToFrontPlane(exactPromptScreenPoint(point))
+  );
+  const promptPairs = [[0, 1], [1, 2], [3, 4]] as const;
+  const promptSegments = promptPairs.map(([a, b]) => ({
+    fittedA: roundedTuple(fittedPrompt.slice(a * 3, a * 3 + 3)),
+    fittedB: roundedTuple(fittedPrompt.slice(b * 3, b * 3 + 3)),
+    targetA: roundedTuple(promptTargets[a]),
+    targetB: roundedTuple(promptTargets[b]),
+    radius: Number((PROMPT_STROKE / (GLYPH_PROJECTION_SCALE * 2)).toFixed(9)),
+  }));
+  const promptPaths = [
+    {
+      d: "M305 352L411 438.203L305 535",
+      transform: "translate(400 400) scale(1.17) translate(-400 -400)",
+      strokeWidth: 50,
+    },
+    {
+      d: "M458.035 565.638L579.966 558.361",
+      transform: "translate(400 400) scale(1.17) translate(-400 -400)",
+      strokeWidth: 50,
+    },
+  ];
+  const result: Record<string, unknown> = {
+    prompt: { segments: promptSegments, svgPaths: promptPaths },
+    "prompt-no-cursor": {
+      segments: promptSegments.slice(0, 2),
+      svgPaths: promptPaths.slice(0, 1),
+    },
+  };
+
+  for (const id of Object.keys(GLYPH_LAYERS) as (keyof typeof GLYPH_LAYERS)[]) {
+    const map = objectMap(id);
+    const canonicalMap = multiply2(
+      projection2(GLYPH_PROJECTION_SCALE, GLYPH_PRINCIPAL, FRONT_Z),
+      map,
+    );
+    const segments: unknown[] = [];
+    const svgPaths = adjustedLayers(id).map((layer) => {
+      const localTransform = multiply2(map, layerMatrix(layer));
+      const shape = resolvedShape(layer.shape);
+      const strokeWidth = id === "code" && layer.role === "slash"
+        ? GLYPH_LAYOUTS.code.slashStroke
+        : GLYPH_STROKE;
+      const areaScale = Math.sqrt(Math.abs(
+        localTransform[0] * localTransform[3]
+          - localTransform[1] * localTransform[2],
+      ));
+      for (let index = 0; index < shape.vertices.length - 1; index += 1) {
+        const a2 = apply2(localTransform, shape.vertices[index]);
+        const b2 = apply2(localTransform, shape.vertices[index + 1]);
+        const targetA: Vec3 = [a2[0], a2[1], GLYPH_TARGET_Z];
+        const targetB: Vec3 = [b2[0], b2[1], GLYPH_TARGET_Z];
+        segments.push({
+          fittedA: roundedTuple(raycastFittedScreen(projectFittedScreen(targetA), positions)),
+          fittedB: roundedTuple(raycastFittedScreen(projectFittedScreen(targetB), positions)),
+          targetA: roundedTuple(targetA),
+          targetB: roundedTuple(targetB),
+          radius: Number((strokeWidth * 0.5 * areaScale).toFixed(9)),
+        });
+      }
+      return {
+        d: pathData(shape),
+        transform: matrixString(multiply2(canonicalMap, layerMatrix(layer))),
+        strokeWidth,
+      };
+    });
+    if (segments.length > 9) throw new Error(`${id} exceeds the nine-segment shader limit.`);
+    result[id] = { segments, svgPaths };
+  }
+  return result;
+}
+
 const sourcePath = readSourceArgument();
 const sourceText = readFileSync(sourcePath, "utf8");
 const mesh = JSON.parse(sourceText) as CorrectiveMorphMesh;
@@ -282,11 +651,53 @@ ${numberArray("NODEX_HOME_MARK_FITTED_FRONT_BOUNDARY", fittedFrontBoundary)}
 ${numberArray("NODEX_HOME_MARK_FITTED_GLYPH", fittedGlyph)}
 `;
 
+const glyphScenes = buildGlyphScenes(mesh.fitted.positions, fittedGlyph);
+const glyphOutput = `// This file is generated by scripts/generate-nodex-home-mark-runtime.ts.
+// Source sha256: ${sourceHash}
+
+export type NodexHomeMarkGlyphSceneId =
+  | "prompt"
+  | "prompt-no-cursor"
+  | "face"
+  | "wink"
+  | "split"
+  | "inverted"
+  | "bar-caret"
+  | "bars"
+  | "offset-caret"
+  | "double-bars"
+  | "chevron-equals"
+  | "code";
+
+export interface NodexHomeMarkGlyphSegment {
+  readonly fittedA: readonly [number, number, number];
+  readonly fittedB: readonly [number, number, number];
+  readonly targetA: readonly [number, number, number];
+  readonly targetB: readonly [number, number, number];
+  readonly radius: number;
+}
+
+export interface NodexHomeMarkSvgPath {
+  readonly d: string;
+  readonly transform: string;
+  readonly strokeWidth: number;
+}
+
+export interface NodexHomeMarkGlyphScene {
+  readonly segments: readonly NodexHomeMarkGlyphSegment[];
+  readonly svgPaths: readonly NodexHomeMarkSvgPath[];
+}
+
+export const NODEX_HOME_MARK_GLYPH_SCENES = ${JSON.stringify(glyphScenes, null, 2)} as const satisfies Record<NodexHomeMarkGlyphSceneId, NodexHomeMarkGlyphScene>;
+`;
+
 writeFileSync(OUTPUT_PATH, output);
+writeFileSync(GLYPH_OUTPUT_PATH, glyphOutput);
 console.log(JSON.stringify({
-  output: OUTPUT_PATH,
+  outputs: [OUTPUT_PATH, GLYPH_OUTPUT_PATH],
   sourceSha256: sourceHash,
   vertexCount,
   packedBytes: packed.byteLength,
+  glyphSceneCount: Object.keys(glyphScenes).length,
   maxPositionError,
 }, null, 2));
