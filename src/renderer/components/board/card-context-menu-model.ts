@@ -2,7 +2,6 @@ export interface CardActionMenuEntry {
   id:
     | "favorite"
     | "edit-icon"
-    | "edit-property"
     | "layout"
     | "property-visibility"
     | "open-page"
@@ -41,13 +40,6 @@ const CARD_ACTION_MENU_ENTRIES: CardActionMenuEntry[] = [
     disabled: true,
     mockReason: MOCK_ACTION_REASON,
     keywords: ["icon", "emoji", "cover"],
-  },
-  {
-    id: "edit-property",
-    label: "Edit property",
-    disabled: true,
-    mockReason: MOCK_ACTION_REASON,
-    keywords: ["property", "field", "metadata"],
   },
   {
     id: "layout",

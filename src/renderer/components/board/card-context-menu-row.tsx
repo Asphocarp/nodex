@@ -5,7 +5,6 @@ import {
   MessageCirclePlusIcon,
   PanelRightOpen,
   SendHorizontal,
-  SlidersHorizontal,
   Star,
   Trash2,
 } from "@/components/shared/icons/generic-icons";
@@ -19,8 +18,6 @@ function ActionIcon({ entryId }: { entryId: CardActionMenuEntry["id"] }) {
       return <Star className={className} strokeWidth={1.8} />;
     case "edit-icon":
       return <Image className={className} strokeWidth={1.8} />;
-    case "edit-property":
-      return <SlidersHorizontal className={className} strokeWidth={1.8} />;
     case "layout":
       return <LayoutGrid className={className} strokeWidth={1.8} />;
     case "property-visibility":

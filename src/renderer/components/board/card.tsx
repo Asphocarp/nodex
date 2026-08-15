@@ -15,6 +15,7 @@ import { EMPTY_DISPLAY_VALUE_TOKEN, getMetaChipClassName } from "../../lib/toggl
 import { estimateStyles } from "@/lib/types";
 import type { DatabasePageSummary } from "@/lib/types";
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
+import type { DataSourcePropertyEditorBinding } from "@/components/database/data-source-property-editor-binding";
 import { useCardPropertyPosition } from "./card-deps";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
@@ -99,6 +100,8 @@ interface CardProps {
     onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
     onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
     onMenuOpen?: () => void;
+    propertyBindings: readonly DataSourcePropertyEditorBinding[];
+    groupingPropertyId: string | null;
   };
 }
 
@@ -823,6 +826,8 @@ export function Card({
           onOpenPageInNewChat={contextMenu.onOpenPageInNewChat}
           onSendPageToChat={contextMenu.onSendPageToChat}
           onMenuOpen={contextMenu.onMenuOpen}
+          propertyBindings={contextMenu.propertyBindings}
+          groupingPropertyId={contextMenu.groupingPropertyId}
         >
           {surface}
         </CardContextMenu>

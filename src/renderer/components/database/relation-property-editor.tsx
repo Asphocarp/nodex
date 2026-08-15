@@ -42,6 +42,32 @@ const mergeTargets = (
   ];
 };
 
+export type RelationPropertyEditorHost = "popover" | "embedded";
+
+function RelationPropertyEditorContentFrame({
+  host,
+  children,
+}: {
+  readonly host: RelationPropertyEditorHost;
+  readonly children: ReactNode;
+}) {
+  if (host === "embedded") {
+    return (
+      <div className="w-full min-w-0 overflow-hidden">
+        {children}
+      </div>
+    );
+  }
+  return (
+    <NodexPopoverContent
+      align="start"
+      className="w-[min(360px,calc(100vw-16px))] overflow-hidden p-0"
+    >
+      {children}
+    </NodexPopoverContent>
+  );
+}
+
 export function RelationPropertyEditor({
   label,
   value,
@@ -62,6 +88,8 @@ export function RelationPropertyEditor({
   showLabel = true,
   presentation = "compact",
   triggerIcon,
+  host = "popover",
+  onRequestClose,
 }: {
   readonly label: string;
   readonly value: unknown;
@@ -88,6 +116,8 @@ export function RelationPropertyEditor({
   readonly showLabel?: boolean;
   readonly presentation?: "compact" | "page" | "list";
   readonly triggerIcon?: ReactNode;
+  readonly host?: RelationPropertyEditorHost;
+  readonly onRequestClose?: () => void;
 }) {
   const parsedPreview = readRelationValuePreview(value);
   const invalidPreview = value != null && parsedPreview === null;
@@ -99,6 +129,11 @@ export function RelationPropertyEditor({
     hasMore: false,
   };
   const [open, setOpen] = useState(false);
+  const editorOpen = host === "embedded" || open;
+  const closeEditor = () => {
+    setOpen(false);
+    onRequestClose?.();
+  };
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [targetName, setTargetName] = useState<string | null>(null);
@@ -170,7 +205,7 @@ export function RelationPropertyEditor({
     if (cardinality === "one") {
       if (!onReplace) return;
       onReplace(pageId);
-      setOpen(false);
+      closeEditor();
       return;
     }
     onPatch({ addPageIds: [pageId], removeEdgeIds: [] });
@@ -213,7 +248,7 @@ export function RelationPropertyEditor({
   }, [readOnly]);
 
   useEffect(() => {
-    if (!open || !loadTargetDescriptorRef.current) return;
+    if (!editorOpen || !loadTargetDescriptorRef.current) return;
     const generation = ++descriptorGeneration.current;
     void loadTargetDescriptorRef.current()
       .then((descriptor) => {
@@ -226,11 +261,11 @@ export function RelationPropertyEditor({
         setTargetName(null);
         setTargetDescriptorLoaded(true);
       });
-  }, [canLoadTargetDescriptor, open]);
+  }, [canLoadTargetDescriptor, editorOpen]);
 
   useEffect(() => {
     const searchCandidates = searchCandidatesRef.current;
-    if (!open || !searchCandidates) return;
+    if (!editorOpen || !searchCandidates) return;
     const generation = ++searchGeneration.current;
     setSearching(true);
     setCandidateErrorQuery(null);
@@ -253,7 +288,7 @@ export function RelationPropertyEditor({
       .finally(() => {
         if (generation === searchGeneration.current) setSearching(false);
       });
-  }, [canSearchCandidates, deferredQuery, open, preview.valueRevision, searchRetry]);
+  }, [canSearchCandidates, deferredQuery, editorOpen, preview.valueRevision, searchRetry]);
 
   const loadSelectedTargets = () => {
     if (!onLoadMore || loadingTargets || readOnly) return;
@@ -364,27 +399,22 @@ export function RelationPropertyEditor({
       });
   };
 
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1">
-      {showLabel ? (
-        <span className={cn(
-          "shrink-0 text-token-description-foreground",
-          presentation === "page" ? "text-sm" : "text-[11px]",
-        )}>{label}</span>
-      ) : null}
-      <NodexPopover open={open} onOpenChange={(next) => {
-        if (next && actionDisabled) return;
-        setOpen(next);
-        if (!next) {
-          searchGeneration.current += 1;
-          targetGeneration.current += 1;
-          descriptorGeneration.current += 1;
-          setSearching(false);
-          setLoadingTargets(false);
-          setQuery("");
-          setConfirmingClear(false);
-        }
-      }}>
+  const editor = (
+    <NodexPopover open={editorOpen} onOpenChange={(next) => {
+      if (host === "embedded") return;
+      if (next && actionDisabled) return;
+      setOpen(next);
+      if (!next) {
+        searchGeneration.current += 1;
+        targetGeneration.current += 1;
+        descriptorGeneration.current += 1;
+        setSearching(false);
+        setLoadingTargets(false);
+        setQuery("");
+        setConfirmingClear(false);
+      }
+    }}>
+      {host === "popover" ? (
         <NodexPopoverTrigger asChild disabled={actionDisabled}>
           <button
             type="button"
@@ -427,7 +457,8 @@ export function RelationPropertyEditor({
             ) : null}
           </button>
         </NodexPopoverTrigger>
-        <NodexPopoverContent align="start" className="w-[min(360px,calc(100vw-16px))] overflow-hidden p-0">
+      ) : null}
+      <RelationPropertyEditorContentFrame host={host}>
           <div className="px-2 pb-1 pt-2">
             <div className="flex h-8 items-center gap-1.5 rounded-lg bg-token-foreground/5 px-2">
               <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />
@@ -436,7 +467,7 @@ export function RelationPropertyEditor({
                 autoFocus
                 role="combobox"
                 aria-autocomplete="list"
-                aria-expanded={open}
+                aria-expanded={editorOpen}
                 aria-controls={candidateListboxId}
                 aria-activedescendant={available[activeCandidateIndex]
                   ? `${candidateListboxId}-${activeCandidateIndex}`
@@ -448,7 +479,7 @@ export function RelationPropertyEditor({
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
                     event.preventDefault();
-                    setOpen(false);
+                    closeEditor();
                     return;
                   }
                   if (event.key === "Home") {
@@ -527,7 +558,7 @@ export function RelationPropertyEditor({
                         if (actionDisabled) return;
                         if (cardinality === "one" && onReplace) {
                           onReplace(null);
-                          setOpen(false);
+                          closeEditor();
                           return;
                         }
                         onPatch({ addPageIds: [], removeEdgeIds: [target.edgeId] });
@@ -552,7 +583,7 @@ export function RelationPropertyEditor({
                         if (actionDisabled) return;
                         if (cardinality === "one" && onReplace) {
                           onReplace(null);
-                          setOpen(false);
+                          closeEditor();
                           return;
                         }
                         onPatch({ addPageIds: [], removeEdgeIds: [target.edgeId] });
@@ -667,7 +698,7 @@ export function RelationPropertyEditor({
                   </p>
                   <div className="mt-1 flex justify-end gap-1">
                     <button type="button" disabled={readOnly} onClick={() => setConfirmingClear(false)} className="h-7 rounded-md px-2 text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50">Cancel</button>
-                    <button type="button" disabled={actionDisabled} onClick={() => { if (actionDisabled) return; onClear(); setConfirmingClear(false); setOpen(false); }} className="h-7 rounded-md bg-token-error-background/40 px-2 text-xs text-token-error-foreground hover:bg-token-error-background/55 disabled:opacity-50">Clear all</button>
+                    <button type="button" disabled={actionDisabled} onClick={() => { if (actionDisabled) return; onClear(); setConfirmingClear(false); closeEditor(); }} className="h-7 rounded-md bg-token-error-background/40 px-2 text-xs text-token-error-foreground hover:bg-token-error-background/55 disabled:opacity-50">Clear all</button>
                   </div>
                 </div>
               ) : (
@@ -685,8 +716,19 @@ export function RelationPropertyEditor({
               )}
             </div>
           ) : null}
-        </NodexPopoverContent>
-      </NodexPopover>
+      </RelationPropertyEditorContentFrame>
+    </NodexPopover>
+  );
+  if (host === "embedded") return editor;
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      {showLabel ? (
+        <span className={cn(
+          "shrink-0 text-token-description-foreground",
+          presentation === "page" ? "text-sm" : "text-[11px]",
+        )}>{label}</span>
+      ) : null}
+      {editor}
     </span>
   );
 }

@@ -204,6 +204,11 @@ uses local state and a submit-time guard.
   each portalled descendant's next layer through React context, including
   recursively nested surfaces. Feature callers do not assign child-menu
   z-indexes or move them into clipping ancestors.
+- Radix ContextMenu roots and submenus use the shared Nodex ContextMenu content
+  primitives as their sole visual surface owner. The positioned Content or
+  SubContent node owns collision bounds, overflow, ring, radius, and shadow;
+  feature bodies supply semantic width and internal scrolling but never nest a
+  second fixed-width dropdown Surface inside it.
 - Use the named layer constants in `src/renderer/lib/app-shell-layers.ts` and
   shared portal primitives. Exact layer values are executable code, not prose.
 

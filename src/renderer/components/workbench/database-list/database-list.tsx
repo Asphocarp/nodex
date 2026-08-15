@@ -90,6 +90,7 @@ import {
   type DatabaseListSelectionState,
 } from "./database-list-model";
 import {
+  createDatabaseListPropertyEditorBinding,
   DatabaseListInlineProperties,
   DatabaseListTrailingPropertyCells,
   type DatabaseListPropertyRuntime,
@@ -1549,6 +1550,9 @@ export function DatabaseList({
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
         pageKey={item.row.pageKey}
+        propertyBindings={model.query.properties.map((property) =>
+          createDatabaseListPropertyEditorBinding(property, authority, propertyRuntime)
+        )}
         onOpen={() => onOpenPage(item.pageId, item.row.title)}
         onSelectOnly={() => updateSelection((current) => selectDatabaseListOccurrence({
           state: current,

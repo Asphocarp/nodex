@@ -1873,7 +1873,7 @@ test("converges a Move to operation in the live standalone Pages projection", as
   }
 });
 
-test("creates one stable Board Page through the app modal @create-modal-smoke", async () => {
+test("creates one stable Board Page and edits its grouping Property @create-modal-smoke @property-menu-smoke", async () => {
   test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-create-modal-"));
   const nodexHome = path.join(fixtureRoot, "profile");
@@ -1939,6 +1939,10 @@ test("creates one stable Board Page through the app modal @create-modal-smoke", 
       hasText: "Modal-created Page",
     });
     await expect(createdCard).toHaveCount(1, { timeout: 15_000 });
+    const createdPageId = requireString(
+      await createdCard.getAttribute("data-board-uuid-v7"),
+      "Modal-created Page id",
+    );
     await expect.poll(
       async () => await readConvergenceBoardTotal(page, project),
       { timeout: 15_000 },
@@ -1968,6 +1972,124 @@ test("creates one stable Board Page through the app modal @create-modal-smoke", 
     expect(frameCounts.length).toBeGreaterThan(0);
     expect(new Set(frameCounts)).toEqual(new Set([1]));
     await expect(createdCard).toHaveCount(1);
+
+    await createdCard.locator('[data-card-context-menu-trigger="true"]')
+      .click({ button: "right" });
+    const tagsItem = page.getByRole("menuitem", { name: /Tags/ });
+    await expect(tagsItem).toBeVisible();
+    await tagsItem.click();
+    const tagsSearch = page.getByRole("combobox", { name: "Search Tags options" });
+    await expect(tagsSearch).toBeVisible();
+    await tagsSearch.fill("Context created");
+    const createTag = page.getByRole("button", { name: "Create “Context created”" });
+    await expect(createTag).toBeVisible();
+    await createTag.click();
+    await expect(page.getByLabel("Selected Tags").getByText("Context created", {
+      exact: true,
+    })).toBeVisible({ timeout: 15_000 });
+    await tagsSearch.press("Escape");
+    await expect(tagsSearch).toHaveCount(0);
+
+    await createdCard.locator('[data-card-context-menu-trigger="true"]')
+      .click({ button: "right" });
+    const assigneeItem = page.getByRole("menuitem", { name: /Assignee/ });
+    await expect(assigneeItem).toBeVisible();
+    await assigneeItem.click();
+    const assigneeInput = page.getByRole("textbox", { name: "Assignee value" });
+    await expect(assigneeInput).toBeVisible();
+    const assigneeSubmenu = page.locator('[data-slot="context-menu-subcontent"]')
+      .filter({ has: assigneeInput });
+    await expect(assigneeSubmenu).toHaveCount(1);
+    const assigneeSubmenuGeometry = await assigneeSubmenu.evaluate((element) => {
+      const style = window.getComputedStyle(element);
+      return {
+        boxShadow: style.boxShadow,
+        clientWidth: element.clientWidth,
+        overflowX: style.overflowX,
+        scrollWidth: element.scrollWidth,
+      };
+    });
+    expect(assigneeSubmenuGeometry.boxShadow).not.toBe("none");
+    expect(assigneeSubmenuGeometry.overflowX).toBe("hidden");
+    expect(assigneeSubmenuGeometry.scrollWidth)
+      .toBeLessThanOrEqual(assigneeSubmenuGeometry.clientWidth);
+    await assigneeInput.press("Escape");
+    await expect(assigneeInput).toHaveCount(0);
+
+    await createdCard.locator('[data-card-context-menu-trigger="true"]')
+      .click({ button: "right" });
+    const dueDateItem = page.getByRole("menuitem", { name: /Due date/ });
+    await expect(dueDateItem).toBeVisible();
+    await dueDateItem.click();
+    const dueDateInput = page.getByRole("textbox", { name: "Due date date" });
+    await expect(dueDateInput).toBeVisible();
+    const dueDateSubmenu = page.getByRole("menu").filter({ has: dueDateInput });
+    await expect(dueDateSubmenu.getByText("Empty", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Edit Due date" })).toHaveCount(0);
+    await dueDateInput.press("Escape");
+    await expect(dueDateInput).toHaveCount(0);
+
+    await createdCard.locator('[data-card-context-menu-trigger="true"]')
+      .click({ button: "right" });
+    const statusItem = page.getByRole("menuitem", { name: /Status/ });
+    await expect(statusItem).toBeVisible();
+    await statusItem.click();
+    const buildOption = page.getByRole("option", { name: "Build", exact: true });
+    await expect(buildOption).toBeVisible();
+    await buildOption.click();
+
+    const buildColumn = page.locator(
+      '[data-board-column-root][data-board-column-id="build"]',
+    );
+    await expect(buildColumn.locator("[data-board-uuid-v7]").filter({
+      hasText: "Modal-created Page",
+    })).toHaveCount(1, { timeout: 15_000 });
+    await expect(createdCard).toHaveCount(0);
+    await expect.poll(
+      async () => await readConvergenceBoardTotal(page, project),
+      { timeout: 15_000 },
+    ).toBe(1);
+
+    await page.getByRole("tablist", { name: "Database views" })
+      .getByRole("tab", { name: "List", exact: true })
+      .click();
+    const listGrid = page.getByRole("grid", { name: /List$/ });
+    await expect(listGrid).toBeVisible({ timeout: 15_000 });
+    const createdRow = listGrid.locator(
+      `[data-list-row="true"][data-database-view-page-id="${createdPageId}"]`,
+    );
+    await expect(createdRow).toBeVisible();
+    await createdRow.click({ button: "right" });
+    const priorityItem = page.getByRole("menuitem", { name: /Priority/ });
+    await expect(priorityItem).toBeVisible();
+    await priorityItem.click();
+    const priorityOption = page.getByRole("option", { name: "P1 - High", exact: true });
+    await expect(priorityOption).toBeVisible();
+    await priorityOption.click();
+
+    await expect.poll(async () => {
+      const snapshot = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(page, "database:list-window:get", project.projectId, {
+          databaseViewId: project.defaultDatabaseViewId,
+          first: 50,
+          presentationOverride: { layout: "list" },
+        }),
+        "Read Property-edited List window",
+      );
+      if (!Array.isArray(snapshot.rows)) return null;
+      for (const occurrence of snapshot.rows) {
+        if (!isRecord(occurrence) || !isRecord(occurrence.row)) continue;
+        const row = occurrence.row;
+        if (!isRecord(row.page) || row.page.pageId !== createdPageId) continue;
+        if (!isRecord(row.values) || !isRecord(row.values.priority)) return null;
+        if (!isRecord(row.values.tags) || !Array.isArray(row.values.tags.value)) return null;
+        return {
+          priority: row.values.priority.value,
+          tagCount: row.values.tags.value.length,
+        };
+      }
+      return null;
+    }, { timeout: 15_000 }).toEqual({ priority: "p1-high", tagCount: 1 });
   } finally {
     if (application) await stopApplication(application);
     await shutdownTemporaryCore(nodexHome);
