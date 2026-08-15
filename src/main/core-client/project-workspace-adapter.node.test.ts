@@ -70,6 +70,7 @@ const thread = {
   writable_roots: ["/workspace/one"],
   created_at: 1,
   updated_at: 2,
+  recency_at: 2,
   linked_at: "2026-07-19T15:00:00.000Z",
 };
 

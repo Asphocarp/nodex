@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatElapsedSince } from "./elapsed-time";
+import { formatElapsedSince, getNextElapsedTimeUpdateDelay } from "./elapsed-time";
 
 describe("formatElapsedSince", () => {
   test("matches sidebar-style elapsed labels", () => {
@@ -13,5 +13,16 @@ describe("formatElapsedSince", () => {
     expect(formatElapsedSince(now - 7 * 86_400_000, now)).toBe("1w");
     expect(formatElapsedSince(now - 30 * 86_400_000, now)).toBe("1mo");
     expect(formatElapsedSince(now - 365 * 86_400_000, now)).toBe("1y");
+  });
+
+  test("schedules the next semantic label boundary", () => {
+    const updatedAt = 1_000_000;
+
+    expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt)).toBe(60_000);
+    expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt + 59_999)).toBe(1);
+    expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt + 61_000)).toBe(59_000);
+    expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt + 29 * 86_400_000)).toBe(
+      86_400_000,
+    );
   });
 });

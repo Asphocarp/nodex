@@ -1283,6 +1283,8 @@ export interface components {
                 readonly projectless_output_directory?: string | null;
                 readonly projectless_workspace_browser_root?: string | null;
                 readonly reasoning_effort?: string | null;
+                /** Format: int64 */
+                readonly recency_at: number;
                 readonly service_name?: string | null;
                 readonly service_tier?: string | null;
                 readonly session_id?: string | null;
@@ -6327,6 +6329,8 @@ export interface components {
             readonly managed_worktree_path?: string | null;
             readonly parent_thread_id?: string | null;
             readonly project_id?: string | null;
+            /** Format: int64 */
+            readonly recency_at: number;
             readonly service_name?: string | null;
             readonly session_id?: string | null;
             readonly status: components["schemas"]["ProjectWorkspaceThreadStatus"];
@@ -6361,6 +6365,8 @@ export interface components {
             readonly projectless_output_directory?: string | null;
             readonly projectless_workspace_browser_root?: string | null;
             readonly reasoning_effort?: string | null;
+            /** Format: int64 */
+            readonly recency_at: number;
             readonly service_name?: string | null;
             readonly service_tier?: string | null;
             readonly session_id?: string | null;
@@ -6421,6 +6427,8 @@ export interface components {
             readonly projectless_output_directory?: string | null;
             readonly projectless_workspace_browser_root?: string | null;
             readonly reasoning_effort?: string | null;
+            /** Format: int64 */
+            readonly recency_at?: number | null;
             readonly service_name?: string | null;
             readonly service_tier?: string | null;
             readonly status?: null | components["schemas"]["ProjectWorkspaceThreadStatus"];

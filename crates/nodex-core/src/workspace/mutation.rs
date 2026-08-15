@@ -3307,10 +3307,10 @@ mod tests {
                     "INSERT INTO codex_threads(\
                        thread_id, project_id, thread_name, thread_preview, model_provider, \
                        status_type, status_active_flags_json, archived, created_at, updated_at, \
-                       linked_at\
+                       recency_at, linked_at\
                      ) VALUES (\
                        'thread-archived-owner', 'project-native', '', 'Preview', 'openai', \
-                       'idle', '[]', 0, 1, 2, ?1\
+                       'idle', '[]', 0, 1, 2, 2, ?1\
                      )",
                     [NOW],
                 )?;
@@ -3582,10 +3582,10 @@ mod tests {
                     "INSERT INTO codex_threads(\
                        thread_id, project_id, thread_name, thread_preview, model_provider, \
                        status_type, status_active_flags_json, archived, created_at, updated_at, \
-                       linked_at\
+                       recency_at, linked_at\
                      ) VALUES (\
                        'thread-native', 'project-native', '', 'Preview', 'openai', 'idle', '[]', \
-                       0, 1, 2, ?1\
+                       0, 1, 2, 2, ?1\
                      )",
                     [NOW],
                 )?;
@@ -3944,10 +3944,10 @@ mod tests {
                     "INSERT INTO codex_threads(\
                        thread_id, project_id, thread_name, thread_preview, model_provider, \
                        status_type, status_active_flags_json, archived, created_at, updated_at, \
-                       linked_at\
+                       recency_at, linked_at\
                      ) VALUES (\
                        'thread:default-draft', 'project-gamma', '', '', 'openai', 'idle', '[]', \
-                       0, 1, 1, ?1\
+                       0, 1, 1, 1, ?1\
                      )",
                     [NOW],
                 )?;
@@ -3955,10 +3955,10 @@ mod tests {
                     "INSERT INTO codex_threads(\
                        thread_id, project_id, thread_name, thread_preview, model_provider, \
                        status_type, status_active_flags_json, archived, created_at, updated_at, \
-                       linked_at\
+                       recency_at, linked_at\
                      ) VALUES (\
                        'thread:default-draft-race', 'project-gamma', '', '', 'openai', 'idle', \
-                       '[]', 0, 1, 1, ?1\
+                       '[]', 0, 1, 1, 1, ?1\
                      )",
                     [NOW],
                 )?;
@@ -4237,10 +4237,10 @@ mod tests {
                     "INSERT INTO codex_threads(\
                        thread_id, project_id, thread_name, thread_preview, model_provider, \
                        status_type, status_active_flags_json, archived, created_at, updated_at, \
-                       linked_at\
+                       recency_at, linked_at\
                      ) VALUES (\
                        'thread-projectless', NULL, '', 'Projectless preview', 'openai', \
-                       'idle', '[]', 0, 1, 2, ?1\
+                       'idle', '[]', 0, 1, 2, 2, ?1\
                      )",
                     [NOW],
                 )?;

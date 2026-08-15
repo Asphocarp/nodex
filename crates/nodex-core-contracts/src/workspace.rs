@@ -222,6 +222,7 @@ pub struct ProjectWorkspaceThread {
     pub writable_roots: Vec<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    pub recency_at: i64,
     pub linked_at: String,
 }
 
@@ -490,6 +491,7 @@ pub struct ProjectWorkspaceThreadPatch {
     pub archived: Option<bool>,
     pub created_at: Option<i64>,
     pub updated_at: Option<i64>,
+    pub recency_at: Option<i64>,
     pub linked_at: Option<String>,
 }
 
@@ -654,6 +656,7 @@ pub struct ProjectWorkspaceTaskThreadSummary {
     pub archived: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    pub recency_at: i64,
     pub linked_at: String,
 }
 
@@ -685,6 +688,7 @@ pub struct ProjectWorkspaceThreadSummary {
     pub archived: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    pub recency_at: i64,
     pub linked_at: String,
 }
 

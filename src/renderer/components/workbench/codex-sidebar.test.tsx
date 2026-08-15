@@ -23,6 +23,7 @@ function makeThreadItem(overrides: Partial<CodexSidebarThreadItem> = {}): CodexS
     preview: "",
     cwd: "/Users/asc/repo/nodex",
     updatedAt: Date.now() - TWO_DAYS_MS,
+    recencyAt: Date.now() - TWO_DAYS_MS,
     createdAt: Date.now() - TWO_DAYS_MS,
     pinned: false,
     pinnedOrder: null,
@@ -36,23 +37,41 @@ function makeThreadItem(overrides: Partial<CodexSidebarThreadItem> = {}): CodexS
   };
 }
 
-function renderOpenThreadHoverCard(item: CodexSidebarThreadItem, props: {
+function OpenThreadHoverCard({
+  item,
+  projectLabel,
+  branchName,
+}: {
+  item: CodexSidebarThreadItem;
   projectLabel?: string | null;
   branchName?: string | null;
-} = {}) {
-  return render(
+}) {
+  return (
     <NodexHoverCardProvider>
       <NodexTooltipProvider>
         <CodexSidebarThreadRow
           item={item}
           active={false}
           hoverCardOpen
-          hoverCardProjectLabel={props.projectLabel}
-          hoverCardBranchName={props.branchName}
+          hoverCardProjectLabel={projectLabel}
+          hoverCardBranchName={branchName}
           onSelect={() => {}}
         />
       </NodexTooltipProvider>
-    </NodexHoverCardProvider>,
+    </NodexHoverCardProvider>
+  );
+}
+
+function renderOpenThreadHoverCard(item: CodexSidebarThreadItem, props: {
+  projectLabel?: string | null;
+  branchName?: string | null;
+} = {}) {
+  return render(
+    <OpenThreadHoverCard
+      item={item}
+      projectLabel={props.projectLabel}
+      branchName={props.branchName}
+    />,
   );
 }
 
@@ -94,6 +113,43 @@ describe("codex sidebar thread hover card", () => {
     const hoverCardText = textContent(hoverCard as HTMLElement);
     expect(hoverCardText.includes("Projectless chat")).toBe(true);
     expect(hoverCardText.includes("Chat")).toBe(true);
+  });
+
+  test("does not present Session metadata time as draft conversation age", async () => {
+    await act(async () => {
+      renderOpenThreadHoverCard(makeThreadItem({
+        threadId: "session-draft",
+        updatedAt: Date.now(),
+        recencyAt: null,
+        title: "New thread",
+      }));
+    });
+
+    const hoverCard = document.body.querySelector('[role="dialog"]') as HTMLElement | null;
+    expect(hoverCard).not.toBeNull();
+    expect(hoverCard?.querySelector("time")).toBeNull();
+  });
+
+  test("updates an open hover card when a fresh recency snapshot arrives", async () => {
+    const staleItem = makeThreadItem({
+      recencyAt: Date.now() - 7 * 60 * 60 * 1_000,
+    });
+    let view!: ReturnType<typeof renderOpenThreadHoverCard>;
+    await act(async () => {
+      view = renderOpenThreadHoverCard(staleItem);
+    });
+    expect(textContent(document.body.querySelector('[role="dialog"]') as HTMLElement)).toContain("7h");
+
+    await act(async () => {
+      view.rerender(
+        <OpenThreadHoverCard
+          item={{ ...staleItem, recencyAt: Date.now() }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(textContent(document.body.querySelector('[role="dialog"]') as HTMLElement)).toContain("now");
   });
 
   test("renders remote host, branch, and managed worktree as separate metadata", async () => {
@@ -198,7 +254,7 @@ describe("codex sidebar thread row", () => {
     expect(view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" })).not.toBeNull();
   });
 
-  test("replaces elapsed metadata with a running indicator for active threads", async () => {
+  test("renders the running indicator without row time metadata", async () => {
     let container!: HTMLElement;
 
     await act(async () => {
@@ -219,11 +275,11 @@ describe("codex sidebar thread row", () => {
     expect(row?.querySelector("[data-app-action-sidebar-thread-elapsed]")).toBeNull();
   });
 
-  test("renders the relative elapsed time in the row", async () => {
-    let container!: HTMLElement;
+  test("keeps relative age out of an idle thread row", async () => {
+    let view!: ReturnType<typeof render>;
 
     await act(async () => {
-      ({ container } = render(
+      view = render(
         <NodexTooltipProvider>
           <CodexSidebarThreadRow
             item={makeThreadItem({ updatedAt: Date.now() - TWO_DAYS_MS - 60_000 })}
@@ -231,12 +287,11 @@ describe("codex sidebar thread row", () => {
             onSelect={() => {}}
           />
         </NodexTooltipProvider>,
-      ));
+      );
     });
 
-    const elapsed = container.querySelector("[data-app-action-sidebar-thread-elapsed]") as HTMLElement | null;
-    expect(elapsed).not.toBeNull();
-    expect(textContent(elapsed as HTMLElement).trim()).toBe("2d");
+    expect(view.queryByText("2d")).toBeNull();
+    expect(view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" })).not.toBeNull();
   });
 
   test("keeps hover actions out of the main title content flow", async () => {
@@ -303,21 +358,4 @@ describe("codex sidebar thread row", () => {
     expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBe(true);
   });
 
-  test("omits elapsed metadata when the timestamp is unavailable", async () => {
-    let container!: HTMLElement;
-
-    await act(async () => {
-      ({ container } = render(
-        <NodexTooltipProvider>
-          <CodexSidebarThreadRow
-            item={makeThreadItem({ updatedAt: Number.NaN })}
-            active={false}
-            onSelect={() => {}}
-          />
-        </NodexTooltipProvider>,
-      ));
-    });
-
-    expect(container.querySelector("[data-app-action-sidebar-thread-elapsed]") === null).toBe(true);
-  });
 });
