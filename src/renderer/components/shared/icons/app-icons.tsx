@@ -2267,9 +2267,9 @@ export function TextActionBlockColorIcon({ className }: IconProps) {
   );
 }
 
-export function NfmSideMenuDragHandleIcon({ className }: IconProps) {
+export function DragHandleDotsIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+    <svg width="20" height="20" viewBox="0 0 20 20" className={cn("shrink-0", className)} fill="currentColor" aria-hidden="true">
       <path d="M6.25 4a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0m5 0a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0m1.25 7.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5M6.25 10a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0m6.25 7.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5M6.25 16a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0" />
     </svg>
   );

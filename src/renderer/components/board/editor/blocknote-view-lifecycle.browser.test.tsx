@@ -276,6 +276,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
         ".notion-text-action-menu",
       );
       if (!openPopover) throw new Error("Expected an open formatting toolbar popover.");
+      const openProbe = view.getByTestId("formatting-toolbar-exit-probe");
       const openPosition = {
         left: openPopover.style.left,
         top: openPopover.style.top,
@@ -306,6 +307,9 @@ describe("BlockNote view lifecycle in Chromium", () => {
           ".notion-text-action-menu",
         );
         if (!closingPopover) break;
+        expect(view.getByTestId("formatting-toolbar-exit-probe")).toBe(openProbe);
+        expect(closingPopover.inert).toBe(true);
+        expect(closingPopover.getAttribute("aria-hidden")).toBe("true");
         exitPositions.push({
           left: closingPopover.style.left,
           top: closingPopover.style.top,

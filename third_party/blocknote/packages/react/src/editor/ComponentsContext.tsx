@@ -1,4 +1,5 @@
 import {
+  ButtonHTMLAttributes,
   ChangeEvent,
   ComponentType,
   createContext,
@@ -58,6 +59,16 @@ type MenuButtonType = {
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: (e: React.DragEvent) => void;
   draggable?: boolean;
+} & (
+  | { children: ReactNode; label?: string }
+  | { children?: undefined; label: string }
+);
+
+type SideMenuButtonType = Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "children"
+> & {
+  icon?: ReactNode;
 } & (
   | { children: ReactNode; label?: string }
   | { children?: undefined; label: string }
@@ -126,17 +137,7 @@ export type ComponentProps = {
       className?: string;
       children?: ReactNode;
     };
-    Button: {
-      className?: string;
-      onClick?: (e: MouseEvent) => void;
-      icon?: ReactNode;
-      onDragStart?: (e: React.DragEvent) => void;
-      onDragEnd?: (e: React.DragEvent) => void;
-      draggable?: boolean;
-    } & (
-      | { children: ReactNode; label?: string }
-      | { children?: undefined; label: string }
-    );
+    Button: SideMenuButtonType;
   };
   SuggestionMenu: {
     Root: SuggestionMenuRootType;

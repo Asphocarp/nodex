@@ -273,16 +273,38 @@ async function seedConvergenceDocument(
   return { ...source, blockIds };
 }
 
+async function dispatchEditorAncestorScroll({
+  page,
+  sourceEditor,
+}: {
+  page: Page;
+  sourceEditor: Locator;
+}): Promise<void> {
+  await sourceEditor.evaluate((editor) => {
+    let ancestor: Element | null = editor;
+    while (ancestor) {
+      ancestor.dispatchEvent(new Event("scroll"));
+      ancestor = ancestor.parentElement;
+    }
+    window.dispatchEvent(new Event("scroll"));
+  });
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+}
+
 async function dragBlockToBoardWithMouse({
   page,
   sourceBlock,
   sourceEditor,
   targetColumn,
+  exerciseAncestorScrollLifecycle = false,
 }: {
   page: Page;
   sourceBlock: Locator;
   sourceEditor: Locator;
   targetColumn: Locator;
+  exerciseAncestorScrollLifecycle?: boolean;
 }): Promise<void> {
   await sourceBlock.scrollIntoViewIfNeeded();
   const sourceBlockContent = sourceBlock.locator(":scope > .bn-block-content");
@@ -293,7 +315,7 @@ async function dragBlockToBoardWithMouse({
   // content to reveal the correct dynamic handle. Keep that same connected node
   // stable for two frames before pressing it; a remount aborts native DnD.
   const dragHandle = sourceEditor.locator(
-    '.bn-side-menu button[draggable="true"]:visible',
+    '.bn-side-menu button.nfm-side-menu-drag-handle[draggable="true"]:visible',
   );
   await expect(dragHandle).toHaveCount(1);
   await expect(dragHandle).toBeVisible();
@@ -317,10 +339,29 @@ async function dragBlockToBoardWithMouse({
   await page.mouse.move(handleCenter.x, handleCenter.y);
   await page.mouse.down();
   let mouseReleased = false;
+  const pressedHandle = exerciseAncestorScrollLifecycle
+    ? await dragHandle.elementHandle()
+    : null;
+  if (exerciseAncestorScrollLifecycle && !pressedHandle) {
+    throw new Error("Pressed block drag handle is missing");
+  }
   try {
+    if (pressedHandle) {
+      await dispatchEditorAncestorScroll({ page, sourceEditor });
+      expect(await pressedHandle.evaluate((handle) => handle.isConnected)).toBe(true);
+    }
+
     // This first segment crosses both Nodex's click tolerance and Chromium's
     // native drag activation threshold before the long trip to the Board.
     await page.mouse.move(handleCenter.x + 12, handleCenter.y, { steps: 4 });
+
+    // Chromium can emit pointercancel once native DnD takes pointer ownership.
+    // Scrolling after activation proves that handoff does not release the
+    // gesture lease and remount the pressed handle mid-drag.
+    if (pressedHandle) {
+      await dispatchEditorAncestorScroll({ page, sourceEditor });
+      expect(await pressedHandle.evaluate((handle) => handle.isConnected)).toBe(true);
+    }
 
     const columnBox = await targetColumn.boundingBox();
     if (!columnBox) throw new Error("Board target column has no layout box");
@@ -343,6 +384,38 @@ async function dragBlockToBoardWithMouse({
     // Deliberately do not retry: a failed gesture may already have committed.
     if (!mouseReleased) await page.mouse.up().catch(() => undefined);
   }
+}
+
+async function expectClosingSideMenuToBeInert({
+  page,
+  sourceBlock,
+  sourceEditor,
+}: {
+  page: Page;
+  sourceBlock: Locator;
+  sourceEditor: Locator;
+}): Promise<void> {
+  const sourceBlockContent = sourceBlock.locator(":scope > .bn-block-content");
+  await sourceBlockContent.hover();
+  const dragHandle = sourceEditor.locator(
+    '.bn-side-menu button.nfm-side-menu-drag-handle[draggable="true"]:visible',
+  );
+  await expect(dragHandle).toHaveCount(1);
+  const handleCenter = await dragHandle.evaluate((handle) => {
+    const box = handle.getBoundingClientRect();
+    return {
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+    };
+  });
+  await page.mouse.move(handleCenter.x, handleCenter.y);
+  await dispatchEditorAncestorScroll({ page, sourceEditor });
+
+  expect(await page.evaluate(({ x, y }) => {
+    return document.elementsFromPoint(x, y).some((element) => {
+      return element.closest(".bn-side-menu") !== null;
+    });
+  }, handleCenter)).toBe(false);
 }
 
 async function dragListRowWithMouse({
@@ -2344,11 +2417,13 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     }).first();
     await expect(sourceBlock).toBeVisible();
 
+    await expectClosingSideMenuToBeInert({ page, sourceBlock, sourceEditor });
     await dragBlockToBoardWithMouse({
       page,
       sourceBlock,
       sourceEditor,
       targetColumn: triageColumn,
+      exerciseAncestorScrollLifecycle: true,
     });
 
     await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(4, {

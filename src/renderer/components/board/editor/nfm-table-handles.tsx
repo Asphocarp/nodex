@@ -39,9 +39,9 @@ import {
 import type { ReactNode } from "react";
 import {
   CheckmarkIcon,
+  DragHandleDotsIcon,
   NfmSideMenuColorIcon,
   NfmSideMenuDeleteIcon,
-  NfmSideMenuDragHandleIcon,
   NfmSideMenuDuplicateIcon,
   NfmSideMenuTableHeaderIcon,
   PlusIcon,
@@ -636,7 +636,7 @@ function NfmTableHandle(props: TableHandleProps) {
         data-nfm-table-handle-orientation={props.orientation}
         aria-hidden="true"
       >
-        <NfmSideMenuDragHandleIcon className="icon-xs" />
+        <DragHandleDotsIcon className="icon-xs" />
       </span>
     </TableHandle>
   );

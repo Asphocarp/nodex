@@ -43,6 +43,7 @@ import {
 import {
   CheckmarkIcon,
   CodeBracketsIcon,
+  DragHandleDotsIcon,
   NfmSideMenuAiFaceIcon,
   NfmSideMenuBulletedListBlockIcon,
   NfmSideMenuChevronRightIcon,
@@ -52,7 +53,6 @@ import {
   NfmSideMenuCommentIcon,
   NfmSideMenuCopyLinkIcon,
   NfmSideMenuDeleteIcon,
-  NfmSideMenuDragHandleIcon,
   NfmSideMenuDuplicateIcon,
   NfmSideMenuHeadingBlockIcon,
   NfmSideMenuMoveToIcon,
@@ -155,19 +155,6 @@ interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
   };
 }
 
-interface SideMenuButtonProps {
-  label: string;
-  className?: string;
-  icon?: ReactNode;
-  onClick?: () => void;
-  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onPointerUp?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onDragStart?: (event: SideMenuDragStartEvent) => void;
-  onDragEnd?: () => void;
-  draggable?: boolean;
-}
-
 interface SideMenuDragStartEvent {
   dataTransfer: DataTransfer | null;
   clientY: number;
@@ -202,6 +189,7 @@ interface NfmSideMenuOpenSelectionInput {
 }
 
 interface NfmSideMenuOpenController {
+  acquireSideMenuFreeze: () => () => void;
   openForBlock: (input: NfmSideMenuOpenBlockInput) => boolean;
   openForCurrentSelection: (input?: NfmSideMenuOpenSelectionInput) => boolean;
   formattingToolbarSuppressionRange: NfmSideMenuSelectionRange | null;
@@ -299,6 +287,7 @@ const SIDE_MENU_COLOR_VALUES = [
 ] as const satisfies readonly NfmSideMenuColorValue[];
 
 const DEFAULT_SIDE_MENU_OPEN_CONTROLLER: NfmSideMenuOpenController = {
+  acquireSideMenuFreeze: () => () => undefined,
   openForBlock: () => false,
   openForCurrentSelection: () => false,
   formattingToolbarSuppressionRange: null,
@@ -654,7 +643,7 @@ function NfmAddBlockButton() {
   const dict = useDictionary();
   const editor = useBlockNoteEditor();
   const suggestionMenu = useExtension(SuggestionMenu);
-  const SideMenuButton = Components.SideMenu.Button as unknown as (props: SideMenuButtonProps) => ReactNode;
+  const SideMenuButton = Components.SideMenu.Button;
   type CursorTarget = Parameters<typeof editor.setTextCursorPosition>[0];
   const lastPointerActivationAtRef = useRef<number | null>(null);
   const block = useExtensionState(SideMenuExtension, {
@@ -700,7 +689,7 @@ function NfmAddBlockButton() {
 
   return (
     <SideMenuButton
-      className="bn-button"
+      className="bn-button nfm-side-menu-add-button size-6 cursor-pointer p-0 text-token-description-foreground transition-none"
       label={dict.side_menu.add_block_label}
       onClick={handleClick}
       onPointerUp={handlePointerUp}
@@ -1959,11 +1948,13 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
   }, [editor, openForBlock]);
 
   const value = useMemo<NfmSideMenuOpenController>(() => ({
+    acquireSideMenuFreeze: freezeController.acquire,
     openForBlock,
     openForCurrentSelection,
     formattingToolbarSuppressionRange,
   }), [
     formattingToolbarSuppressionRange,
+    freezeController,
     openForBlock,
     openForCurrentSelection,
   ]);
@@ -1983,7 +1974,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
   ]);
 
   useEffect(() => () => {
-    freezeController.release();
+    freezeController.releaseAll();
   }, [freezeController]);
 
   return (
@@ -2037,7 +2028,7 @@ export function NfmSideMenu() {
   const dict = useDictionary();
   const sideMenu = useExtension(SideMenuExtension);
   const editor = useBlockNoteEditor();
-  const SideMenuButton = Components.SideMenu.Button as unknown as (props: SideMenuButtonProps) => ReactNode;
+  const SideMenuButton = Components.SideMenu.Button;
   const block = useExtensionState(SideMenuExtension, {
     selector: (state) => state?.block,
   }) as unknown as SideMenuBlock | undefined;
@@ -2047,9 +2038,30 @@ export function NfmSideMenu() {
   const selectionIntentRef = useRef<SideMenuSelectionIntent | null>(null);
   const dragSelectionSnapshotRef = useRef<SideMenuDragSelectionSnapshot | null>(null);
   const dragStartedRef = useRef(false);
+  const dragFreezeReleaseRef = useRef<(() => void) | null>(null);
   const lastPointerActivationAtRef = useRef<number | null>(null);
   const sideMenuOpenController = useNfmSideMenuOpenController();
   const runtime = useNfmSideMenuRuntime();
+
+  const releaseDragFreeze = useCallback(() => {
+    dragFreezeReleaseRef.current?.();
+    dragFreezeReleaseRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const cancelPendingGesture = () => {
+      pointerStartRef.current = null;
+      selectionIntentRef.current = null;
+      dragSelectionSnapshotRef.current = null;
+      dragStartedRef.current = false;
+      releaseDragFreeze();
+    };
+    window.addEventListener("blur", cancelPendingGesture);
+    return () => {
+      window.removeEventListener("blur", cancelPendingGesture);
+      cancelPendingGesture();
+    };
+  }, [releaseDragFreeze]);
 
   const dragTargetBlock = block;
 
@@ -2104,6 +2116,8 @@ export function NfmSideMenu() {
           draggable
           onPointerDown={(event) => {
             if (event.pointerType !== "mouse" || event.button !== 0) return;
+            releaseDragFreeze();
+            dragFreezeReleaseRef.current = sideMenuOpenController.acquireSideMenuFreeze();
             dragStartedRef.current = false;
             selectionIntentRef.current = createSideMenuSelectionIntent(runtimeEditor, block);
             dragSelectionSnapshotRef.current = createSideMenuDragSelectionSnapshot(runtimeEditor);
@@ -2129,6 +2143,7 @@ export function NfmSideMenu() {
             if (!start || start.moved || dragStartedRef.current) {
               if (!dragStartedRef.current) {
                 dragSelectionSnapshotRef.current = null;
+                releaseDragFreeze();
               }
               return;
             }
@@ -2138,6 +2153,18 @@ export function NfmSideMenu() {
             dragSelectionSnapshotRef.current = null;
             lastPointerActivationAtRef.current = performance.now();
             openFromHandle(event.currentTarget, selectionIntent);
+            releaseDragFreeze();
+          }}
+          onPointerCancel={(event) => {
+            if (event.pointerType !== "mouse") return;
+            pointerStartRef.current = null;
+            selectionIntentRef.current = null;
+            // Chromium hands pointer ownership to native HTML DnD by firing
+            // pointercancel after dragstart. The drag lease must then live until
+            // dragend (or window blur), not end at that ownership handoff.
+            if (dragStartedRef.current) return;
+            dragSelectionSnapshotRef.current = null;
+            releaseDragFreeze();
           }}
           onClick={() => {
             const lastPointerActivationAt = lastPointerActivationAtRef.current;
@@ -2154,6 +2181,8 @@ export function NfmSideMenu() {
             );
           }}
           onDragStart={(event: SideMenuDragStartEvent) => {
+            dragFreezeReleaseRef.current ??=
+              sideMenuOpenController.acquireSideMenuFreeze();
             dragStartedRef.current = true;
             selectionIntentRef.current = null;
             const dragEvent = {
@@ -2172,13 +2201,16 @@ export function NfmSideMenu() {
             }
           }}
           onDragEnd={() => {
+            pointerStartRef.current = null;
+            selectionIntentRef.current = null;
             dragStartedRef.current = false;
             dragSelectionSnapshotRef.current = null;
             runtime.getSnapshot().onBlockDragEnd();
             sideMenu.blockDragEnd();
+            releaseDragFreeze();
           }}
-          className="bn-button"
-          icon={<NfmSideMenuDragHandleIcon className="pointer-events-none" />}
+          className="bn-button nfm-side-menu-drag-handle mr-2.5 h-6 w-[18px] cursor-grab p-0 text-token-description-foreground transition-none"
+          icon={<DragHandleDotsIcon className="icon-base pointer-events-none" />}
         />
       </span>
     </Components.SideMenu.Root>
