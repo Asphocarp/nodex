@@ -12,10 +12,17 @@ normalized `Int16` stream:
 
 1. fitted position and normal;
 2. regular position and normal at bevel `0.052`;
-3. precomputed fitted top/front panel and glyph anchors.
+3. precomputed fitted top/front panel anchors.
 
-The generated payload is lazy-loaded with the WebGL renderer. Do not import it
-from the static React shell and do not hand-edit its base64 or anchor arrays.
+The same generator also writes
+`src/renderer/components/ui/nodex-home-mark-glyph-scenes.generated.ts`. It
+contains the fixed front-face glyph scenes used by both SVG and WebGL: at most
+three SVG paths and nine precomputed fitted/regular line segments per scene.
+All fitted raycasts and projection matrices are resolved at generation time.
+
+Both generated payloads are lazy-loaded after mark interaction. Do not import
+them from the static React shell and do not hand-edit their base64, anchors,
+paths, or segment arrays.
 
 To regenerate it from the approved research mesh:
 
@@ -25,5 +32,5 @@ To regenerate it from the approved research mesh:
 The source mesh is a development artifact, not a runtime/build dependency. The
 generator records its SHA-256 and quantization error in the generated module.
 Regeneration must keep the triangle topology shared between both endpoints and
-must not add runtime JSON fetches, raycasts, textures, framebuffer copies, or
-additional draw calls.
+the nine-segment glyph shader budget. It must not add runtime JSON fetches,
+raycasts, textures, framebuffer copies, or additional draw calls.

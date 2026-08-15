@@ -2,6 +2,7 @@
 
 | Spec | Status | Last Updated | Summary |
 |------|--------|--------------|---------|
+| new-chat-home-behavior.md | Active | 2026-08-15 | New Chat hero composition, Project selector, lazy glyph performance, directional 3D mark, reduced motion, and renderer handoff |
 | brand-language.md | Active | 2026-08-14 | Product-wide Nodex naming boundary and the external ChatGPT/Codex names that remain explicit |
 | composer-image-attachments-behavior.md | Active | 2026-08-14 | Composer image paste, picker, drop, direct-editor thumbnail routing, first-send/queue editing, and trusted transcript replay |
 | user-attachment-image-editor-behavior.md | Active | 2026-08-14 | Shared image preview, durable right-panel editing, positional comments, remove/resize, and generated-image Canvas |

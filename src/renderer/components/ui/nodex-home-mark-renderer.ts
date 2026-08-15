@@ -1,11 +1,11 @@
 import {
   NODEX_HOME_MARK_FITTED_FRONT_BOUNDARY,
-  NODEX_HOME_MARK_FITTED_GLYPH,
   NODEX_HOME_MARK_FITTED_TOP_BOUNDARY,
   NODEX_HOME_MARK_PACKED_BASE64,
   NODEX_HOME_MARK_VERTEX_COUNT,
   NODEX_HOME_MARK_VERTEX_STRIDE_BYTES,
 } from "./nodex-home-mark-model.generated";
+import type { NodexHomeMarkGlyphScene } from "./nodex-home-mark-glyph-scenes.generated";
 import {
   NODEX_HOME_MARK_BASE_ROTATION,
   resolveNodexHomeMarkFramebuffer,
@@ -24,7 +24,7 @@ const REGULAR_BEVEL = 0.052;
 const PANEL_MARGIN = 0.037;
 const PANEL_RADIUS = 0.055;
 const PANEL_VERTEX_COUNT = 36;
-const FITTED_GLYPH_RADIUS = 25 * HERO_GEOMETRY_SCALE;
+const GLYPH_SEGMENT_COUNT = 9;
 const REAR_BOTTOM_LIFT = 0.1553330427;
 
 const VERTEX_SHADER = `#version 300 es
@@ -67,13 +67,9 @@ const FRAGMENT_SHADER = `#version 300 es
   uniform vec2 uResolution;
   uniform vec2 uFramebufferResolution;
   uniform float uAaHalfWidth;
-  uniform vec2 uGlyphA;
-  uniform vec2 uGlyphB;
-  uniform vec2 uGlyphC;
-  uniform vec2 uGlyphUnderlineA;
-  uniform vec2 uGlyphUnderlineB;
-  uniform float uChevronRadius;
-  uniform float uUnderscoreRadius;
+  uniform vec4 uGlyphSegments[${GLYPH_SEGMENT_COUNT}];
+  uniform float uGlyphRadii[${GLYPH_SEGMENT_COUNT}];
+  uniform float uGlyphSegmentCount;
   uniform float uTopVisibility;
   uniform float uFrontVisibility;
   uniform float uMorph;
@@ -134,15 +130,18 @@ const FRAGMENT_SHADER = `#version 300 es
     float topDistance=uTopVisibility>.001?sdTopPanel(fragmentScreen):1e5;
     float frontDistance=uFrontVisibility>.001?sdFrontPanel(fragmentScreen):1e5;
     float white=aaFill(min(topDistance,frontDistance));
-    float chevronDistance=min(
-      sdSegment(fragmentScreen,uGlyphA,uGlyphB),
-      sdSegment(fragmentScreen,uGlyphB,uGlyphC)
-    )-uChevronRadius;
-    float underscoreDistance=sdSegment(
-      fragmentScreen,uGlyphUnderlineA,uGlyphUnderlineB
-    )-uUnderscoreRadius;
+    float glyphDistance=1e5;
+    for(int index=0;index<${GLYPH_SEGMENT_COUNT};index++){
+      if(float(index)>=uGlyphSegmentCount) continue;
+      vec4 segment=uGlyphSegments[index];
+      glyphDistance=min(
+        glyphDistance,
+        sdSegment(fragmentScreen,segment.xy,segment.zw)-uGlyphRadii[index]
+      );
+    }
+    float frontOwnership=smoothstep(.94,.995,regularNormal.z);
     if(uFrontVisibility>.001){
-      white*=1.0-aaFill(min(chevronDistance,underscoreDistance))*aaFill(frontDistance);
+      white*=1.0-aaFill(glyphDistance)*aaFill(frontDistance)*frontOwnership;
     }
 
     float rightCenterY=mix(-${REAR_BOTTOM_LIFT}*.25,0.0,uMorph);
@@ -158,19 +157,13 @@ const FRAGMENT_SHADER = `#version 300 es
 `;
 
 const TARGET_BOUNDARY_COEFFICIENTS = buildTargetBoundaryCoefficients();
-const TARGET_GLYPH = new Float32Array([
-  -0.27, -0.18, 0.5008,
-  -0.08, 0, 0.5008,
-  -0.27, 0.18, 0.5008,
-  0.06, 0.22, 0.5008,
-  0.27, 0.22, 0.5008,
-]);
 
 export interface NodexHomeMarkRenderFrame {
   rotation: NodexMarkMat3;
   morph: number;
   chargedScale: number;
   color: readonly [number, number, number];
+  glyphScene: NodexHomeMarkGlyphScene;
 }
 
 export interface NodexHomeMarkRenderer {
@@ -193,13 +186,9 @@ interface RendererUniforms {
   frontBoundary: WebGLUniformLocation;
   topNormals: WebGLUniformLocation;
   frontNormals: WebGLUniformLocation;
-  glyphA: WebGLUniformLocation;
-  glyphB: WebGLUniformLocation;
-  glyphC: WebGLUniformLocation;
-  glyphUnderlineA: WebGLUniformLocation;
-  glyphUnderlineB: WebGLUniformLocation;
-  chevronRadius: WebGLUniformLocation;
-  underscoreRadius: WebGLUniformLocation;
+  glyphSegments: WebGLUniformLocation;
+  glyphRadii: WebGLUniformLocation;
+  glyphSegmentCount: WebGLUniformLocation;
   topVisibility: WebGLUniformLocation;
   frontVisibility: WebGLUniformLocation;
 }
@@ -320,24 +309,28 @@ function resolveUniforms(
     frontBoundary: requiredUniform(gl, program, "uFrontBoundary[0]"),
     topNormals: requiredUniform(gl, program, "uTopNormals[0]"),
     frontNormals: requiredUniform(gl, program, "uFrontNormals[0]"),
-    glyphA: requiredUniform(gl, program, "uGlyphA"),
-    glyphB: requiredUniform(gl, program, "uGlyphB"),
-    glyphC: requiredUniform(gl, program, "uGlyphC"),
-    glyphUnderlineA: requiredUniform(gl, program, "uGlyphUnderlineA"),
-    glyphUnderlineB: requiredUniform(gl, program, "uGlyphUnderlineB"),
-    chevronRadius: requiredUniform(gl, program, "uChevronRadius"),
-    underscoreRadius: requiredUniform(gl, program, "uUnderscoreRadius"),
+    glyphSegments: requiredUniform(gl, program, "uGlyphSegments[0]"),
+    glyphRadii: requiredUniform(gl, program, "uGlyphRadii[0]"),
+    glyphSegmentCount: requiredUniform(gl, program, "uGlyphSegmentCount"),
     topVisibility: requiredUniform(gl, program, "uTopVisibility"),
     frontVisibility: requiredUniform(gl, program, "uFrontVisibility"),
   };
 }
 
-function columnMajor(matrix: NodexMarkMat3): Float32Array {
-  return new Float32Array([
-    matrix[0], matrix[3], matrix[6],
-    matrix[1], matrix[4], matrix[7],
-    matrix[2], matrix[5], matrix[8],
-  ]);
+function writeColumnMajor(
+  matrix: NodexMarkMat3,
+  target = new Float32Array(9),
+): Float32Array {
+  target[0] = matrix[0];
+  target[1] = matrix[3];
+  target[2] = matrix[6];
+  target[3] = matrix[1];
+  target[4] = matrix[4];
+  target[5] = matrix[7];
+  target[6] = matrix[2];
+  target[7] = matrix[5];
+  target[8] = matrix[8];
+  return target;
 }
 
 function matVec3(matrix: NodexMarkMat3, x: number, y: number, z: number) {
@@ -351,7 +344,7 @@ function matVec3(matrix: NodexMarkMat3, x: number, y: number, z: number) {
 function writeScreenPoint(input: {
   target: Float32Array;
   targetOffset: number;
-  fitted: Float32Array;
+  fitted: ArrayLike<number>;
   fittedOffset: number;
   regularX: number;
   regularY: number;
@@ -422,6 +415,7 @@ export function createNodexHomeMarkRenderer(input: {
     display: "block",
     width: `${FRAME_CSS_SIZE}px`,
     height: `${FRAME_CSS_SIZE}px`,
+    visibility: "hidden",
     pointerEvents: "none",
   });
   const gl = canvas.getContext("webgl2", {
@@ -445,7 +439,10 @@ export function createNodexHomeMarkRenderer(input: {
   const frontScreen = new Float32Array(PANEL_VERTEX_COUNT * 2);
   const topNormals = new Float32Array(PANEL_VERTEX_COUNT * 2);
   const frontNormals = new Float32Array(PANEL_VERTEX_COUNT * 2);
-  const glyphScreen = new Float32Array(10);
+  const glyphSegments = new Float32Array(GLYPH_SEGMENT_COUNT * 4);
+  const glyphRadii = new Float32Array(GLYPH_SEGMENT_COUNT);
+  const cameraMatrix = writeColumnMajor(NODEX_HOME_MARK_BASE_ROTATION);
+  const poseMatrix = new Float32Array(9);
 
   const handleContextLost = (event: Event) => {
     event.preventDefault();
@@ -497,7 +494,13 @@ export function createNodexHomeMarkRenderer(input: {
     return null;
   }
 
-  const render = ({ rotation, morph, chargedScale, color }: NodexHomeMarkRenderFrame) => {
+  const render = ({
+    rotation,
+    morph,
+    chargedScale,
+    color,
+    glyphScene,
+  }: NodexHomeMarkRenderFrame) => {
     if (disposed || !program || !vertexArray) return;
     const framebuffer = resolveNodexHomeMarkFramebuffer({
       devicePixelRatio: input.devicePixelRatio,
@@ -556,15 +559,33 @@ export function createNodexHomeMarkRenderer(input: {
     }
     writeOutwardNormals(topScreen, topNormals);
     writeOutwardNormals(frontScreen, frontNormals);
-    for (let index = 0; index < 5; index += 1) {
+    glyphSegments.fill(0);
+    glyphRadii.fill(0);
+    for (let index = 0; index < glyphScene.segments.length; index += 1) {
+      const segment = glyphScene.segments[index];
+      const screenOffset = index * 4;
       writeScreenPoint({
-        target: glyphScreen,
-        targetOffset: index * 2,
-        fitted: NODEX_HOME_MARK_FITTED_GLYPH,
-        fittedOffset: index * 3,
-        regularX: TARGET_GLYPH[index * 3],
-        regularY: TARGET_GLYPH[index * 3 + 1],
-        regularZ: TARGET_GLYPH[index * 3 + 2],
+        target: glyphSegments,
+        targetOffset: screenOffset,
+        fitted: segment.fittedA,
+        fittedOffset: 0,
+        regularX: segment.targetA[0],
+        regularY: segment.targetA[1],
+        regularZ: segment.targetA[2],
+        morph,
+        rotation,
+        scale,
+        principalX,
+        principalY,
+      });
+      writeScreenPoint({
+        target: glyphSegments,
+        targetOffset: screenOffset + 2,
+        fitted: segment.fittedB,
+        fittedOffset: 0,
+        regularX: segment.targetB[0],
+        regularY: segment.targetB[1],
+        regularZ: segment.targetB[2],
         morph,
         rotation,
         scale,
@@ -604,10 +625,9 @@ export function createNodexHomeMarkRenderer(input: {
     const faceScale = Math.sqrt(
       Math.hypot(frontX[0], frontX[1]) * Math.hypot(frontY[0], frontY[1]),
     ) * scale;
-    const chevronRadius = FITTED_GLYPH_RADIUS
-      + (0.042 * faceScale - FITTED_GLYPH_RADIUS) * morph;
-    const underscoreRadius = FITTED_GLYPH_RADIUS
-      + (0.044 * faceScale - FITTED_GLYPH_RADIUS) * morph;
+    for (let index = 0; index < glyphScene.segments.length; index += 1) {
+      glyphRadii[index] = glyphScene.segments[index].radius * faceScale;
+    }
 
     gl.viewport(0, 0, framebuffer.size, framebuffer.size);
     gl.clearColor(0, 0, 0, 0);
@@ -630,22 +650,18 @@ export function createNodexHomeMarkRenderer(input: {
     gl.uniformMatrix3fv(
       uniforms.camera,
       false,
-      columnMajor(NODEX_HOME_MARK_BASE_ROTATION),
+      cameraMatrix,
     );
-    gl.uniformMatrix3fv(uniforms.pose, false, columnMajor(rotation));
+    gl.uniformMatrix3fv(uniforms.pose, false, writeColumnMajor(rotation, poseMatrix));
     gl.uniform1f(uniforms.morph, morph);
     gl.uniform3f(uniforms.color, color[0], color[1], color[2]);
     gl.uniform2fv(uniforms.topBoundary, topScreen);
     gl.uniform2fv(uniforms.frontBoundary, frontScreen);
     gl.uniform2fv(uniforms.topNormals, topNormals);
     gl.uniform2fv(uniforms.frontNormals, frontNormals);
-    gl.uniform2f(uniforms.glyphA, glyphScreen[0], glyphScreen[1]);
-    gl.uniform2f(uniforms.glyphB, glyphScreen[2], glyphScreen[3]);
-    gl.uniform2f(uniforms.glyphC, glyphScreen[4], glyphScreen[5]);
-    gl.uniform2f(uniforms.glyphUnderlineA, glyphScreen[6], glyphScreen[7]);
-    gl.uniform2f(uniforms.glyphUnderlineB, glyphScreen[8], glyphScreen[9]);
-    gl.uniform1f(uniforms.chevronRadius, chevronRadius);
-    gl.uniform1f(uniforms.underscoreRadius, underscoreRadius);
+    gl.uniform4fv(uniforms.glyphSegments, glyphSegments);
+    gl.uniform1fv(uniforms.glyphRadii, glyphRadii);
+    gl.uniform1f(uniforms.glyphSegmentCount, glyphScene.segments.length);
     gl.uniform1f(uniforms.topVisibility, cameraTop[2]);
     gl.uniform1f(uniforms.frontVisibility, cameraFront[2]);
     gl.drawArrays(gl.TRIANGLES, 0, NODEX_HOME_MARK_VERTEX_COUNT);
