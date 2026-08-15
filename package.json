@@ -133,7 +133,7 @@
     "package:mac:x64": "pnpm run build && pnpm run stage:native-runtime:mac:x64 && tsx scripts/prepared-electron-build.ts verify && electron-builder --mac dmg --x64 --publish never",
     "install:local:mac": "tsx scripts/install-local-macos.ts",
     "package:all": "pnpm run build && pnpm run stage:codex-runtime:mac && electron-builder -mwl",
-    "dev:storybook": "pnpm --filter @nodex/storybook storybook",
+    "dev:storybook": "pnpm --filter @nodex/storybook exec storybook dev -p \"${STORYBOOK_PORT:-6006}\" --host 127.0.0.1 --ci --no-open --exact-port --no-version-updates",
     "build:storybook": "pnpm --filter @nodex/storybook build",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint src/ packages/storybook/.storybook/ packages/landing/vite.config.ts packages/landing/src/ scripts/release/ scripts/ci/ scripts/semantic-theme/ --cache --cache-strategy content --cache-location .cache/eslint/.eslintcache",
