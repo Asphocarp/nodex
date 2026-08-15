@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Fragment, type ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import type {
   CodexConversationChildMembership,
   ProtocolAppInfo,
@@ -14,16 +15,12 @@ import type {
   ThreadStageActions,
   ThreadTurnModel,
 } from "../thread-stage-types";
-import {
-  CODEX_THREAD_ACCORDION_TRANSITION,
-  CODEX_THREAD_DIVIDER_ENTER_ANIMATE,
-  CODEX_THREAD_DIVIDER_ENTER_INITIAL,
-  CODEX_THREAD_DIVIDER_EXIT,
-} from "./shared/thread-motion";
+import { resolveCodexThreadWorkedForEnterMotion } from "./shared/thread-motion";
 import { useWorkedForLabelText } from "./shared/use-worked-for-label";
 import { CodexShimmerText } from "./shared/codex-shimmer-text";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 import { ThreadMcpAppsProvider } from "./shared/tools/mcp-apps-context";
+import { projectAgentBodyCollapsePresentation } from "../projection/agent-body-collapse-presentation";
 
 const EMPTY_THREAD_LIVE_ACTIVITY: ThreadTurnModel["liveActivity"] = {
   global: {
@@ -106,14 +103,14 @@ function AgentBodyToggleRow({
       <div className="text-size-chat text-token-text-secondary">
         <button
           type="button"
-          className="text-size-chat hover:bg-token-bg-subtle inline-flex items-center gap-1 rounded-md border border-transparent focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
+          className="text-size-chat inline-flex items-center gap-1 rounded-md border border-transparent focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
           aria-expanded={!collapsed}
           onClick={onToggle}
         >
           <span>
             <span className="text-token-foreground/60">{label}</span>
           </span>
-          <ChevronRightIcon className={cn("icon-2xs text-token-foreground/40 transition-transform duration-200", collapsed ? "rotate-0" : "rotate-90")} />
+          <ChevronRightIcon className={cn("icon-2xs text-token-foreground/40 transition-transform duration-basic", collapsed ? "rotate-0" : "rotate-90")} />
         </button>
       </div>
       <div className="text-size-chat pt-1 text-token-text-secondary">
@@ -136,7 +133,7 @@ function renderSpacedBlocks<TBlock extends { id: string }>(
 }
 
 function renderAgentUnits(
-  units: ThreadAgentRenderUnit[],
+  units: readonly ThreadAgentRenderUnit[],
   renderUnit: (unit: ThreadAgentRenderUnit, index: number) => ReactNode,
 ) {
   return units.map((unit, index) => {
@@ -188,8 +185,12 @@ function ThreadTurnBody({
   turnDiffHoverPreviewDisabled = false,
   latestTurnFollowContentRef,
 }: ThreadTurnProps & { agentBodyUnits: ThreadAgentRenderUnit[] }) {
-  const shouldAllowAgentBodyCollapse = turn.hasRenderableAgentBodyUnits;
+  const agentBodyCollapsePresentation = projectAgentBodyCollapsePresentation(agentBodyUnits);
+  const shouldAllowAgentBodyCollapse = turn.hasRenderableAgentBodyUnits
+    && agentBodyCollapsePresentation.collapsibleUnits.length > 0;
   const effectiveAgentBodyCollapsed = shouldAllowAgentBodyCollapse ? agentBodyCollapsed : false;
+  const reducedMotion = useResolvedReducedMotion();
+  const workedForEnterMotion = resolveCodexThreadWorkedForEnterMotion(reducedMotion);
   const workedForLabel = useWorkedForLabelText({
     timing: turn.workedForItem
       ? {
@@ -225,7 +226,10 @@ function ThreadTurnBody({
     />
   );
 
-  const renderAgentUnit = (unit: ThreadAgentRenderUnit) => (
+  const renderAgentUnit = (
+    unit: ThreadAgentRenderUnit,
+    compactUserMessageActions = false,
+  ) => (
     <ThreadBlockRenderer
       block={unit.block}
       isLatestTurn={turn.isLatestTurn}
@@ -246,6 +250,7 @@ function ThreadTurnBody({
       onClosePlanSidePanel={onClosePlanSidePanel}
       planSidePanelState={planSidePanelState}
       turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+      compactUserMessageActions={compactUserMessageActions}
     />
   );
 
@@ -262,7 +267,7 @@ function ThreadTurnBody({
             <div className="flex flex-col">
               {shouldAllowAgentBodyCollapse ? (
                 <AgentBodyToggleRow
-                  collapsedMessageCount={agentBodyUnits.length}
+                  collapsedMessageCount={turn.collapsedMessageCount}
                   workedForLabel={workedForLabel}
                   collapsed={effectiveAgentBodyCollapsed}
                   onToggle={() => onAgentBodyCollapsedChange(turn.turnKey, !effectiveAgentBodyCollapsed)}
@@ -273,19 +278,32 @@ function ThreadTurnBody({
                   <motion.div
                     ref={latestTurnFollowContentRef}
                     key="agent-body"
-                    initial={CODEX_THREAD_DIVIDER_ENTER_INITIAL}
-                    animate={CODEX_THREAD_DIVIDER_ENTER_ANIMATE}
-                    exit={CODEX_THREAD_DIVIDER_EXIT}
-                    transition={CODEX_THREAD_ACCORDION_TRANSITION}
-                    style={{ overflow: "hidden" }}
+                    initial={workedForEnterMotion.initial}
+                    animate={workedForEnterMotion.animate}
+                    transition={workedForEnterMotion.transition}
                   >
                     {shouldAllowAgentBodyCollapse ? <ThreadGap /> : null}
                     <div className="flex flex-col gap-[var(--conversation-item-gap,16px)]">
-                      {renderAgentUnits(agentBodyUnits, renderAgentUnit)}
+                      {renderAgentUnits(
+                        agentBodyCollapsePresentation.expandedUnits,
+                        (unit) => renderAgentUnit(unit),
+                      )}
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
+              {effectiveAgentBodyCollapsed
+                && agentBodyCollapsePresentation.persistentUnits.length > 0 ? (
+                  <>
+                    <ThreadGap />
+                    <div className="flex flex-col gap-[var(--conversation-item-gap,16px)]">
+                      {renderAgentUnits(
+                        agentBodyCollapsePresentation.persistentUnits,
+                        (unit) => renderAgentUnit(unit, true),
+                      )}
+                    </div>
+                  </>
+                ) : null}
             </div>
           </>
         ) : null}

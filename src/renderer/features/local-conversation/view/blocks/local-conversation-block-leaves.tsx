@@ -106,6 +106,7 @@ export interface ThreadLeafBlockProps {
   turnDiffHoverPreviewDisabled?: boolean;
   assistantAfter?: ReactNode;
   alwaysShowAssistantMessageActions?: boolean;
+  compactUserMessageActions?: boolean;
 }
 
 export interface ThreadSpecialBlockProps {
@@ -126,23 +127,6 @@ export interface ThreadSpecialBlockProps {
   onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
   planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
-}
-
-function SteeringStatusIcon() {
-  return (
-    <svg viewBox="0 0 21 21" className="icon-2xs shrink-0 text-token-description-foreground" fill="none" aria-hidden="true">
-      <path
-        d="M13.1293 7.34753C13.3565 7.12027 13.7081 7.09207 13.9662 7.26257L14.0707 7.34753L18.0707 11.3475C18.3304 11.6072 18.3304 12.0292 18.0707 12.2889L14.0707 16.2889C13.811 16.5486 13.389 16.5486 13.1293 16.2889C12.8696 16.0292 12.8696 15.6072 13.1293 15.3475L15.9935 12.4833H6.59998C4.57585 12.4833 2.93494 10.8424 2.93494 8.81824V5.31824C2.93494 4.95097 3.23271 4.6532 3.59998 4.6532C3.96724 4.6532 4.26501 4.95097 4.26501 5.31824V8.81824C4.26501 10.1078 5.31039 11.1532 6.59998 11.1532H15.9935L13.1293 8.28894L13.0443 8.18445C12.8738 7.92632 12.902 7.5748 13.1293 7.34753Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function resolveSteeringStatusLabel(status: CodexConversationItem["steeringStatus"]): string | null {
-  if (status === "pending") return "Steering conversation";
-  if (status === "accepted") return "Steered conversation";
-  return null;
 }
 
 function UserMessageGoalStatus() {
@@ -668,11 +652,11 @@ export function UserMessageBubble({
   onEditLastUserTurn,
   projectWorkspacePath,
   threadCwd,
+  compactUserMessageActions = false,
 }: ThreadLeafBlockProps) {
   const content = block.entry.markdownText ?? "";
   const userActions = block.userMessageActions;
   const canEdit = userActions?.canEdit ?? false;
-  const steeringStatusLabel = resolveSteeringStatusLabel(block.entry.steeringStatus);
   const isGoalMessage = block.entry.goal === true;
   const isHookFeedback = block.entry.hookFeedback === true;
   const hookSettingsNavigation = useHookFeedbackSettingsNavigation();
@@ -687,7 +671,9 @@ export function UserMessageBubble({
     sources: block.hookFeedbackSources,
   });
   const hasMessageContent = content.trim().length > 0;
-  const shouldRenderFooter = hasMessageContent || isGoalMessage || isHookFeedback;
+  const shouldRenderFooter = isGoalMessage
+    || isHookFeedback
+    || (hasMessageContent && !compactUserMessageActions);
   const [isEditing, setIsEditing] = useState(false);
   const [draftMessage, setDraftMessage] = useState(content);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
@@ -723,6 +709,19 @@ export function UserMessageBubble({
     resizeEditMessageTextarea(element);
     setDraftMessage(element.value);
   }, []);
+  const messageBubble = (
+    <div
+      data-user-message-bubble="true"
+      data-thread-selected-text-target="true"
+      className={THREAD_VISUAL_TOKENS.userBubble}
+    >
+      <UserMessageText
+        text={content}
+        cwd={threadCwd}
+        projectWorkspacePath={projectWorkspacePath}
+      />
+    </div>
+  );
 
   return (
     <div
@@ -734,12 +733,6 @@ export function UserMessageBubble({
       data-content-search-unit-key={block.searchUnitKey}
     >
       <div className="group flex w-full flex-col items-end justify-end gap-1">
-        {steeringStatusLabel ? (
-          <div className="ms-1 mr-1 flex items-center gap-2">
-            <SteeringStatusIcon />
-            <span className="text-token-description-foreground text-xs">{steeringStatusLabel}</span>
-          </div>
-        ) : null}
         {isEditing ? (
           <form
             className="flex w-full flex-col gap-4 rounded-2xl bg-token-foreground/5 px-3 py-2.5"
@@ -787,18 +780,19 @@ export function UserMessageBubble({
               </button>
             </div>
           </form>
-        ) : (
-          <div
-            data-user-message-bubble="true"
-            data-thread-selected-text-target="true"
-            className={THREAD_VISUAL_TOKENS.userBubble}
-          >
-            <UserMessageText
-              text={content}
-              cwd={threadCwd}
-              projectWorkspacePath={projectWorkspacePath}
-            />
+        ) : compactUserMessageActions && hasMessageContent ? (
+          <div className="flex w-full items-center justify-end gap-1">
+            <div className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+              <CopyMessageActionButton
+                text={content}
+                feedbackMs={USER_COPY_FEEDBACK_MS}
+                disabledWhenCopied
+              />
+            </div>
+            {messageBubble}
           </div>
+        ) : (
+          messageBubble
         )}
         {shouldRenderFooter ? (
           <div className="flex flex-row-reverse items-center gap-1">
@@ -811,7 +805,7 @@ export function UserMessageBubble({
                   : undefined}
               />
             ) : null}
-            {isEditing || !hasMessageContent ? null : (
+            {isEditing || !hasMessageContent || compactUserMessageActions ? null : (
               <ThreadMessageActionRow align="end">
                 <MessageTimestamp sentAtMs={userActions?.sentAtMs ?? null} />
                 <div className="flex items-center gap-1">
@@ -841,25 +835,6 @@ export function UserMessageBubble({
 
 export function ThreadUserBubbleBlock(props: ThreadLeafBlockProps) {
   return <UserMessageBubble {...props} />;
-}
-
-export function ThreadSteeredDividerBlock({
-  block,
-  isSearchMatch = false,
-  isActiveSearchMatch = false,
-}: ThreadLeafBlockProps) {
-  return (
-    <div
-      className={cn(
-        "relative overflow-visible py-0 min-w-0 text-size-chat",
-        isSearchMatch && THREAD_VISUAL_TOKENS.searchUnitMatched,
-        isActiveSearchMatch && THREAD_VISUAL_TOKENS.searchUnitActive,
-      )}
-      data-content-search-unit-key={block.searchUnitKey}
-    >
-      <span className="block truncate text-token-foreground/40">Steered conversation</span>
-    </div>
-  );
 }
 
 export function ThreadReasoningBlock({
