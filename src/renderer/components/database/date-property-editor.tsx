@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type PointerEventHandler,
   type ReactNode,
 } from "react";
 import { CalendarIcon, ClockIcon } from "@/components/shared/icons";
@@ -48,6 +49,38 @@ const formatListDate = (date: Date): string => {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 };
 
+export type DatePropertyEditorHost = "popover" | "embedded";
+
+function DatePropertyEditorContentFrame({
+  host,
+  onPointerDownCapture,
+  children,
+}: {
+  readonly host: DatePropertyEditorHost;
+  readonly onPointerDownCapture: PointerEventHandler<HTMLDivElement>;
+  readonly children: ReactNode;
+}) {
+  if (host === "embedded") {
+    return (
+      <div
+        className="w-full min-w-0 overflow-hidden"
+        onPointerDownCapture={onPointerDownCapture}
+      >
+        {children}
+      </div>
+    );
+  }
+  return (
+    <NodexPopoverContent
+      align="start"
+      className="w-[280px] overflow-hidden p-0"
+      onPointerDownCapture={onPointerDownCapture}
+    >
+      {children}
+    </NodexPopoverContent>
+  );
+}
+
 export function DatePropertyEditor({
   label,
   mode,
@@ -56,6 +89,8 @@ export function DatePropertyEditor({
   disabled,
   presentation,
   triggerIcon,
+  host = "popover",
+  onRequestClose,
   onChange,
 }: {
   readonly label: string;
@@ -65,6 +100,8 @@ export function DatePropertyEditor({
   readonly disabled: boolean;
   readonly presentation: "compact" | "page" | "list";
   readonly triggerIcon?: ReactNode;
+  readonly host?: DatePropertyEditorHost;
+  readonly onRequestClose?: () => void;
   readonly onChange: (value: string | null) => void;
 }) {
   const committed = mode === "date"
@@ -79,6 +116,11 @@ export function DatePropertyEditor({
   const [error, setError] = useState<string | null>(null);
   const skipBlurCommitRef = useRef(false);
   const lastCommittedDraftRef = useRef<string | null>(null);
+  const editorOpen = host === "embedded" || open;
+  const closeEditor = () => {
+    setOpen(false);
+    onRequestClose?.();
+  };
 
   useEffect(() => {
     setDateInput(committed.date);
@@ -144,11 +186,24 @@ export function DatePropertyEditor({
     setDateInput(committed.date);
     setTimeInput(committed.time);
     setError(null);
-    setOpen(false);
+    closeEditor();
+  };
+
+  const handlePointerDownCapture: PointerEventHandler<HTMLDivElement> = (event) => {
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement
+      && active.dataset.propertyDateDraft === "true"
+      && event.target instanceof Node
+      && !active.contains(event.target)
+    ) {
+      skipBlurCommitRef.current = true;
+    }
   };
 
   return (
-    <NodexPopover open={open} onOpenChange={(next) => {
+    <NodexPopover open={editorOpen} onOpenChange={(next) => {
+      if (host === "embedded") return;
       if (next && disabled) return;
       setOpen(next);
       if (next) {
@@ -160,46 +215,37 @@ export function DatePropertyEditor({
       setTimeInput(committed.time);
       setError(null);
     }}>
-      <NodexPopoverTrigger asChild disabled={disabled}>
-        <button
-          type="button"
-          aria-label={`Edit ${label}`}
-          onPointerEnter={() => {
-            void loadDateCalendar();
-          }}
-          onFocus={() => {
-            void loadDateCalendar();
-          }}
-          className={cn(
-            "inline-flex min-h-6 min-w-0 items-center gap-1.5 rounded-md px-1 text-left outline-hidden",
-            "text-token-text-secondary hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
-            presentation === "page"
-              ? "text-sm"
-              : presentation === "list"
-                ? DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
-                : "text-[11px]",
-          )}
-        >
-          {selected ? (
-            triggerIcon ?? <CalendarIcon className="icon-2xs shrink-0 text-token-description-foreground" />
-          ) : null}
-          {display ? <span className="truncate">{display}</span> : <PropertyEmptyValue />}
-        </button>
-      </NodexPopoverTrigger>
-      <NodexPopoverContent
-        align="start"
-        className="w-[280px] overflow-hidden p-0"
-        onPointerDownCapture={(event) => {
-          const active = document.activeElement;
-          if (
-            active instanceof HTMLElement
-            && active.dataset.propertyDateDraft === "true"
-            && event.target instanceof Node
-            && !active.contains(event.target)
-          ) {
-            skipBlurCommitRef.current = true;
-          }
-        }}
+      {host === "popover" ? (
+        <NodexPopoverTrigger asChild disabled={disabled}>
+          <button
+            type="button"
+            aria-label={`Edit ${label}`}
+            onPointerEnter={() => {
+              void loadDateCalendar();
+            }}
+            onFocus={() => {
+              void loadDateCalendar();
+            }}
+            className={cn(
+              "inline-flex min-h-6 min-w-0 items-center gap-1.5 rounded-md px-1 text-left outline-hidden",
+              "text-token-text-secondary hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
+              presentation === "page"
+                ? "text-sm"
+                : presentation === "list"
+                  ? DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+                  : "text-[11px]",
+            )}
+          >
+            {selected ? (
+              triggerIcon ?? <CalendarIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+            ) : null}
+            {display ? <span className="truncate">{display}</span> : <PropertyEmptyValue />}
+          </button>
+        </NodexPopoverTrigger>
+      ) : null}
+      <DatePropertyEditorContentFrame
+        host={host}
+        onPointerDownCapture={handlePointerDownCapture}
       >
         <div className="px-2 pt-2">
           <div className="flex h-8 items-center gap-1 rounded-lg bg-token-foreground/5 px-2">
@@ -296,14 +342,14 @@ export function DatePropertyEditor({
               setTimeInput("");
               setError(null);
               onChange(null);
-              setOpen(false);
+              closeEditor();
             }}
             className="flex min-h-7 w-full items-center rounded-lg px-2 text-left text-sm text-token-description-foreground hover:bg-token-list-hover-background disabled:opacity-40"
           >
             Clear
           </button>
         </div>
-      </NodexPopoverContent>
+      </DatePropertyEditorContentFrame>
     </NodexPopover>
   );
 }

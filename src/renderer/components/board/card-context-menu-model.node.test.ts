@@ -28,7 +28,6 @@ describe("card context menu model", () => {
       [
         "Add to Favorites",
         "Edit icon",
-        "Edit property",
         "Layout",
         "Property visibility",
         "Open Page",

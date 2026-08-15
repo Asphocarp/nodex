@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { NodexCheckbox } from "@/components/ui/settings";
 import { cn } from "@/lib/utils";
 import {
@@ -14,7 +20,10 @@ import { defaultDataSourcePropertyOptionColor } from "@/lib/data-source-property
 import {
   RelationPropertyEditor,
 } from "./relation-property-editor";
-import { PropertyOptionPicker } from "./property-option-picker";
+import {
+  PropertyOptionPicker,
+  type PropertyOptionPickerHost,
+} from "./property-option-picker";
 import { SemanticSelectPropertyEditor } from "./semantic-property-editors";
 import { DatePropertyEditor } from "./date-property-editor";
 import type { DataSourcePropertyEditorBinding } from "./data-source-property-editor-binding";
@@ -141,6 +150,11 @@ export interface DataSourcePropertyValueEditorProps
   readonly showLabel?: boolean;
   readonly presentation?: "compact" | "page" | "list";
   readonly listIcon?: ReactNode;
+  readonly optionPickerHost?: PropertyOptionPickerHost;
+  readonly optionPickerTrigger?: ReactElement;
+  readonly onOptionPickerCommit?: () => void;
+  readonly overlayHost?: "popover" | "embedded";
+  readonly onOverlayRequestClose?: () => void;
 }
 
 export function DataSourcePropertyValueEditor({
@@ -152,6 +166,11 @@ export function DataSourcePropertyValueEditor({
   showLabel = true,
   presentation = "compact",
   listIcon,
+  optionPickerHost,
+  optionPickerTrigger,
+  onOptionPickerCommit,
+  overlayHost = "popover",
+  onOverlayRequestClose,
   onChange,
   onCreateOption,
   onRequestOptions,
@@ -221,6 +240,8 @@ export function DataSourcePropertyValueEditor({
         showLabel={showLabel}
         presentation={presentation}
         triggerIcon={listIcon}
+        host={overlayHost}
+        onRequestClose={onOverlayRequestClose}
       />
     );
   }
@@ -247,6 +268,7 @@ export function DataSourcePropertyValueEditor({
       : null;
     const editor = semanticKind ? (
       <SemanticSelectPropertyEditor
+        host={optionPickerHost}
         kind={semanticKind}
         label={property.name}
         options={options}
@@ -256,14 +278,17 @@ export function DataSourcePropertyValueEditor({
         pending={pending}
         presentation={presentation}
         triggerPrefix={presentation === "list" ? listIcon : undefined}
+        triggerButton={optionPickerTrigger}
         onRequestOptions={onRequestOptions}
         hasMore={optionRegistryHasMore}
         loadingMore={optionRegistryLoadingMore}
         onRequestMoreOptions={onRequestMoreOptions}
+        onCommit={onOptionPickerCommit}
         onChange={onChange}
       />
     ) : (
       <PropertyOptionPicker
+        host={optionPickerHost}
         label={property.name}
         mode="single"
         options={options}
@@ -272,12 +297,14 @@ export function DataSourcePropertyValueEditor({
         pending={pending}
         presentation={presentation}
         triggerPrefix={presentation === "list" ? listIcon : undefined}
+        triggerButton={optionPickerTrigger}
         registryError={optionRegistryState === "error"}
         loading={optionRegistryState === "idle" || optionRegistryState === "loading"}
         onOpen={onRequestOptions}
         hasMore={optionRegistryHasMore}
         loadingMore={optionRegistryLoadingMore}
         onLoadMore={onRequestMoreOptions}
+        onCommit={onOptionPickerCommit}
         allowCreate={
           optionRegistryState === "ready"
           && !optionRegistryHasMore
@@ -287,6 +314,7 @@ export function DataSourcePropertyValueEditor({
         onCreateOption={createOption}
       />
     );
+    if (optionPickerHost === "context-menu") return editor;
     return <span className="inline-flex min-w-0 items-center gap-1">{label}{editor}</span>;
   }
   if (property.valueType === "multi_select") {
@@ -305,10 +333,9 @@ export function DataSourcePropertyValueEditor({
         removeOptionIds: [...current].filter((optionId) => !next.has(optionId)),
       });
     };
-    return (
-      <span className="inline-flex min-w-0 items-center gap-1">
-        {label}
-        <PropertyOptionPicker
+    const editor = (
+      <PropertyOptionPicker
+          host={optionPickerHost}
           label={property.name}
           mode="multiple"
           options={options}
@@ -323,6 +350,8 @@ export function DataSourcePropertyValueEditor({
           pending={pending}
           presentation={presentation}
           triggerPrefix={presentation === "list" ? listIcon : undefined}
+          triggerButton={optionPickerTrigger}
+          onCommit={onOptionPickerCommit}
           allowCreate={
             optionRegistryState === "ready"
             && !optionRegistryHasMore
@@ -333,29 +362,31 @@ export function DataSourcePropertyValueEditor({
           }
           onSelectedIdsChange={changeSelectedIds}
           onCreateOption={createOption}
-        />
-      </span>
+      />
     );
+    if (optionPickerHost === "context-menu") return editor;
+    return <span className="inline-flex min-w-0 items-center gap-1">{label}{editor}</span>;
   }
   if (
     property.valueType === "date"
     || property.valueType === "datetime"
   ) {
-    return (
-      <span className="inline-flex min-w-0 items-center gap-1">
-        {label}
-        <DatePropertyEditor
-          label={property.name}
-          mode={property.valueType}
-          value={scalarString(value) || null}
-          revision={revision}
-          disabled={disabled || pending}
-          presentation={presentation}
-          triggerIcon={presentation === "list" ? listIcon : undefined}
-          onChange={onChange}
-        />
-      </span>
+    const editor = (
+      <DatePropertyEditor
+        label={property.name}
+        mode={property.valueType}
+        value={scalarString(value) || null}
+        revision={revision}
+        disabled={disabled || pending}
+        presentation={presentation}
+        triggerIcon={presentation === "list" ? listIcon : undefined}
+        host={overlayHost}
+        onRequestClose={onOverlayRequestClose}
+        onChange={onChange}
+      />
     );
+    if (overlayHost === "embedded") return editor;
+    return <span className="inline-flex min-w-0 items-center gap-1">{label}{editor}</span>;
   }
   if (
     property.valueType === "text"

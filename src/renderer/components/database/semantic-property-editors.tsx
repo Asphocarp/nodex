@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { EstimateIcon, PriorityValueIcon } from "@/components/shared/icons";
 import { StatusLabel } from "@/lib/status-presentation";
 import { BOARD_PRIORITY_OPTIONS } from "@/lib/board-options";
@@ -14,6 +14,7 @@ import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import {
   PropertyOptionPicker,
   PropertyOptionToken,
+  type PropertyOptionPickerHost,
 } from "./property-option-picker";
 import type { PresentedDataSourcePropertyOption } from "@/lib/data-source-property-options";
 import type { DataSourcePropertyOptionRegistryState } from "./data-source-property-editor-binding";
@@ -122,10 +123,12 @@ const semanticOption = (
 };
 
 export function SemanticSelectPropertyEditor({
+  host,
   kind,
   label,
   triggerAriaLabel,
   triggerPrefix,
+  triggerButton,
   options,
   selectedId,
   disabled,
@@ -138,15 +141,18 @@ export function SemanticSelectPropertyEditor({
   emptyOptionLabel,
   onRequestOptions,
   onOpenChange,
+  onCommit,
   hasMore = false,
   loadingMore = false,
   onRequestMoreOptions,
   onChange,
 }: {
+  readonly host?: PropertyOptionPickerHost;
   readonly kind: "status" | "priority" | "estimate";
   readonly label: string;
   readonly triggerAriaLabel?: string;
   readonly triggerPrefix?: ReactNode;
+  readonly triggerButton?: ReactElement;
   readonly options: readonly DatabasePropertyOption[];
   readonly selectedId: string | null;
   readonly disabled: boolean;
@@ -159,6 +165,7 @@ export function SemanticSelectPropertyEditor({
   readonly emptyOptionLabel?: string;
   readonly onRequestOptions?: () => void;
   readonly onOpenChange?: (open: boolean) => void;
+  readonly onCommit?: () => void;
   readonly hasMore?: boolean;
   readonly loadingMore?: boolean;
   readonly onRequestMoreOptions?: () => void;
@@ -169,6 +176,7 @@ export function SemanticSelectPropertyEditor({
     : selectedId;
   return (
     <PropertyOptionPicker
+      host={host}
       label={label}
       triggerAriaLabel={triggerAriaLabel}
       mode="single"
@@ -189,12 +197,14 @@ export function SemanticSelectPropertyEditor({
       onLoadMore={onRequestMoreOptions}
       presentation={presentation}
       triggerPrefix={triggerPrefix}
+      triggerButton={triggerButton}
       searchPlaceholder={searchPlaceholder}
       searchLeading={searchLeading}
       contentClassName={contentClassName}
       allowClear={kind !== "status"}
       emptyOptionLabel={emptyOptionLabel}
       onOpenChange={onOpenChange}
+      onCommit={onCommit}
       onSelectedIdsChange={(ids) => onChange(ids[0] ?? null)}
       renderOption={(option) => semanticOption(kind, option)}
     />

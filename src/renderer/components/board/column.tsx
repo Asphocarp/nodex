@@ -27,6 +27,7 @@ import type {
 } from "@/lib/page-chat-actions";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
+import type { DataSourcePropertyEditorBinding } from "@/components/database/data-source-property-editor-binding";
 
 export { columnStyles } from "../../lib/status-presentation";
 
@@ -84,6 +85,11 @@ interface ColumnProps {
   highlightedPageId?: string | null;
   keyboardPropertyRequest?: CardKeyboardPropertyRequest | null;
   tagOptions?: readonly DatabasePropertyOption[];
+  propertyBindingsByPageId?: ReadonlyMap<
+    string,
+    readonly DataSourcePropertyEditorBinding[]
+  >;
+  groupingPropertyId?: string | null;
   onCardHighlight?: (pageId: string) => void;
   onExternalBlockDragOver?: (
     columnId: CardType["status"],
@@ -136,6 +142,8 @@ export const Column = memo(function Column({
   highlightedPageId = null,
   keyboardPropertyRequest,
   tagOptions = [],
+  propertyBindingsByPageId = new Map(),
+  groupingPropertyId = null,
   onCardHighlight,
   onExternalBlockDragOver,
   onExternalBlockDragLeave,
@@ -452,6 +460,8 @@ export const Column = memo(function Column({
                         onOpenPageInNewChat: onOpenPageInNewChatFromMenu,
                         onSendPageToChat: onSendPageToChatFromMenu,
                         onMenuOpen: onOpenPageMenu ? () => onOpenPageMenu(card.id) : undefined,
+                        propertyBindings: propertyBindingsByPageId.get(card.id) ?? [],
+                        groupingPropertyId,
                       }}
                     />
                   </div>
