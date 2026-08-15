@@ -26,6 +26,7 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 
 - Install deps: `pnpm install`
 - Dev app: `pnpm run dev`
+- Dev Storybook: `pnpm run dev:storybook` (defaults to port 6006; override an occupied port with `STORYBOOK_PORT=6007 pnpm run dev:storybook`)
 - Build: `pnpm run build`
 - Package installers: `pnpm run package`
 - Typecheck: `pnpm run typecheck`
