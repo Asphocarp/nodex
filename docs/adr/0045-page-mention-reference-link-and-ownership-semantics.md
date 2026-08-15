@@ -1,0 +1,67 @@
+# ADR 0045: Page mention, reference, link, and ownership semantics
+
+## Status
+
+Accepted
+
+## Context
+
+A Page may appear inside another Page as inline prose, a live block preview, a normal hyperlink, or an owned child.
+Historically these presentations shared Card-era names and partially shared storage shapes, so an inline mention could be mistaken for a Block and a reference could appear to imply containment.
+That ambiguity made insertion commands, paste behavior, authorization, and derived references disagree about identity and ownership.
+
+## Decision
+
+Nodex defines four distinct Page occurrences:
+
+- A **Page Mention** is an atomic inline occurrence with only a canonical Page ID.
+- A **Page Reference Block** is a non-owning `pageRef` shell with its own Block ID and a target Page ID.
+- A **Page Link** is an ordinary link whose `href` is a canonical `nodex://pages/<page-id>` deeplink.
+- An **Owning Page Shell** is a childless `page` Block created and moved only by Core Page lifecycle operations; it establishes containment.
+
+The first three are presentations of a stable Page identity.
+They never change Page parentage, membership, grants, or copy closure.
+Only the owning shell changes containment.
+
+Canonical inline NFM uses `<mention-page url="nodex://pages/..." />`.
+The atom stores only the Page ID and resolves current display metadata under the host content-access context.
+It is valid in rich Page titles and contributes deterministic identity text to plain projections without embedding target content.
+
+`/Mention a page` rewrites the slash command to `@` and hands control to the normal `@Page` flow, which creates a Page Mention atom after selection.
+`/Embed page…` chooses a target before creating a Page Reference Block.
+A Page deeplink pasted over selected text creates a Page Link; at a collapsed caret in non-empty inline content it creates a Page Mention; in an empty paragraph it creates a Page Reference Block.
+Structured clipboard data and code blocks retain their existing paste behavior.
+
+Mentions, reference blocks, and Page links project as one Page reference edge family with a presentation discriminator and occurrence count.
+Owning Page shells are not backlinks.
+Reading a target or its backlinks is always filtered by the caller's existing content-access context; following an edge never expands authorization.
+The durable backlink read is served from a normalized projection maintained in the same transaction as the source Document materialization.
+It groups by source Page and source Block, uses bounded keyset pagination, and exposes counts only after source authorization.
+
+Reference shells cannot be retargeted in place.
+Removing a shell ends that connection identity; embedding again creates a new shell.
+
+This decision supersedes the parts of ADR 0011 and ADR 0017 that model every Page mention as owning a distinct Block identity.
+It extends ADR 0006 by admitting Page Mention atoms in portable rich titles and preserves ADR 0040's LocalCommit authority for owning structural mutations.
+
+## Consequences
+
+- Inline prose, block embedding, linking, and containment use different commands and wire shapes.
+- Renaming a target updates rendered labels without rewriting source Documents.
+- Internal Page links open through the injected content navigator and never through the system browser.
+- Reference projection can aggregate all non-owning Page occurrences without treating ownership as a reference.
+- Historical Card-shaped reference syntax may be decoded into canonical Page identity, but live editors store and emit only canonical Page-reference fields.
+
+## Rejected alternatives
+
+### Give every mention a Block identity
+
+Inline atoms do not need placement or disclosure identity, and manufacturing it makes sentence editing behave like structural editing.
+
+### Let reference creation imply nesting
+
+That would make presentation silently mutate ownership, grants, and copy closure.
+
+### Open `nodex://` links as generic protocols
+
+System handling bypasses the active content-access context and loses in-app Page navigation semantics.

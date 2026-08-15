@@ -52,6 +52,13 @@ export const DateMentionInline: Story = {
   },
 };
 
+export const PageMentionInline: Story = {
+  args: {
+    content:
+      'Continue in <mention-page url="nodex://pages/019-page-reference" /> after review.',
+  },
+};
+
 export const OrderedListNumbering: Story = {
   args: {
     content: "99. Ninety-nine\n100. One hundred\n101. One hundred one",

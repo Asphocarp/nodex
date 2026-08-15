@@ -118,7 +118,7 @@ describe("PageDocumentCodec", () => {
     expect(
       genesis.materialization.references.map((reference) => reference.kind).join(","),
     ).toBe(
-      "thread,legacy_card_projection,block,legacy_database_query,database_view,legacy_card_projection",
+      "thread,page,page,legacy_database_query,database_view,legacy_card_projection",
     );
     expect(genesis.materialization.assetRefs.length).toBe(2);
     expect(genesis.materialization.assetRefs[0]?.managedFileName).toBe(

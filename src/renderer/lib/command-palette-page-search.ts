@@ -1,9 +1,17 @@
-import MiniSearch, { type AsPlainObject, type Options, type SearchResult } from "minisearch";
+import MiniSearch, { type AsPlainObject, type SearchResult } from "minisearch";
 import { WORKFLOW_STATUS_LABELS } from "../../shared/workflow-status";
 import {
   normalizeSearchText,
-  resolveFuzzyThreshold,
 } from "./search-text";
+import {
+  collectPageSearchMatchedTerms,
+  createPageSearchMiniSearch,
+  createPageSearchMiniSearchOptions,
+  DEFAULT_PAGE_SEARCH_FIELD_BOOSTS,
+  searchPageSearchMiniSearch,
+  type PageSearchDocument,
+  type PageSearchField,
+} from "./page-search";
 import {
   buildCurrentPageKeyIndex,
   parsePageKeySearchQuery,
@@ -12,9 +20,7 @@ import {
 } from "./page-key";
 import {
   buildCommandPaletteHighlightedSegments,
-  buildCommandPaletteHighlightRegex,
-  buildCommandPaletteHighlightSegments,
-  normalizeCommandPalettePreviewText,
+  buildSearchTermHighlightPreview,
 } from "./command-palette-highlight";
 import type {
   CommandPalettePage,
@@ -24,16 +30,8 @@ import type {
   CommandPalettePageSearchPreviewSegment,
 } from "./command-palette";
 
-interface CommandPalettePageSearchDocument {
-  id: string;
+interface CommandPalettePageSearchDocument extends PageSearchDocument {
   pageKey: string;
-  title: string;
-  description: string;
-  tags: string;
-  assignee: string;
-  columnName: string;
-  projectName: string;
-  pageId: string;
 }
 
 export interface CommandPalettePageSearchHit {
@@ -61,25 +59,6 @@ export interface CommandPalettePageSearchCacheStore {
   write: (snapshot: CommandPalettePageSearchCacheSnapshot) => Promise<void>;
 }
 
-const SEARCH_FIELDS: Array<keyof CommandPalettePageSearchDocument> = [
-  "title",
-  "description",
-  "tags",
-  "assignee",
-  "columnName",
-  "projectName",
-  "pageId",
-];
-
-const FIELD_BOOSTS: Partial<Record<keyof CommandPalettePageSearchDocument, number>> = {
-  title: 8,
-  tags: 5,
-  assignee: 4,
-  columnName: 2,
-  projectName: 2,
-  description: 1,
-  pageId: 1,
-};
 const FAST_FIELD_BOOSTS = {
   title: 8,
   tags: 5,
@@ -91,8 +70,6 @@ const FAST_FIELD_BOOSTS = {
   pageId: 1,
 } as const;
 
-const EXCERPT_BEFORE = 96;
-const EXCERPT_AFTER = 220;
 const SEARCH_CACHE_VERSION = 4;
 const SEARCH_CACHE_DB_NAME = "nodex/command-palette-page-search";
 const SEARCH_CACHE_DB_VERSION = 1;
@@ -180,20 +157,8 @@ function buildCommandPalettePageSearchSource(
   };
 }
 
-function createCommandPalettePageSearchOptions(): Options<CommandPalettePageSearchDocument> {
-  return {
-    fields: SEARCH_FIELDS,
-    idField: "id",
-    storeFields: ["id"],
-    processTerm: (term) => {
-      const normalized = normalizeCommandPaletteSearchText(term);
-      return normalized.length > 0 ? normalized : null;
-    },
-  };
-}
-
 function createMiniSearch(): MiniSearch<CommandPalettePageSearchDocument> {
-  return new MiniSearch<CommandPalettePageSearchDocument>(createCommandPalettePageSearchOptions());
+  return createPageSearchMiniSearch<CommandPalettePageSearchDocument>();
 }
 
 function cloneDocumentRefs(
@@ -224,8 +189,11 @@ function hasMatchingDocumentRefs(
   return left.every((ref) => rightById.get(ref.id) === ref.signature);
 }
 
-function collectMatchedTermsForField(result: SearchResult, field: keyof CommandPalettePageSearchDocument): string[] {
-  return result.terms.filter((term) => result.match[term]?.includes(field));
+function collectMatchedTermsForField(
+  result: SearchResult,
+  field: PageSearchField,
+): string[] {
+  return collectPageSearchMatchedTerms(result, field);
 }
 
 function buildHighlightedSegments(
@@ -303,58 +271,32 @@ function buildDescriptionPreview(
   item: CommandPalettePage,
   result: SearchResult,
 ): CommandPalettePageSearchPreview | null {
-  const description = normalizeCommandPalettePreviewText(item.page.descriptionPreview);
-  if (!description) {
-    return null;
-  }
-
   const descriptionTerms = result.terms.filter((term) => result.match[term]?.includes("description"));
   const previewTerms = descriptionTerms.length > 0
     ? descriptionTerms
     : result.terms;
-  const regex = buildCommandPaletteHighlightRegex(previewTerms);
-  if (!regex) {
-    return null;
-  }
-
-  regex.lastIndex = 0;
-  const firstMatch = regex.exec(description);
-  if (!firstMatch) {
-    return null;
-  }
-
-  const from = Math.max(0, firstMatch.index - EXCERPT_BEFORE);
-  const to = Math.min(description.length, firstMatch.index + firstMatch[0].length + EXCERPT_AFTER);
-  const excerpt = `${from > 0 ? "…" : ""}${description.slice(from, to).trim()}${to < description.length ? "…" : ""}`;
-
-  return {
-    excerpt,
-    segments: buildCommandPaletteHighlightSegments(excerpt, buildCommandPaletteHighlightRegex(previewTerms)),
-  };
+  const preview = buildSearchTermHighlightPreview(
+    item.page.descriptionPreview,
+    previewTerms,
+    { maxCharacters: 320, leadingContextCharacters: 96 },
+  );
+  return preview?.segments.some(({ highlight }) => highlight)
+    ? preview
+    : null;
 }
 
 function buildDescriptionPreviewFromTerms(
   item: CommandPalettePage,
   terms: string[],
 ): CommandPalettePageSearchPreview | null {
-  const description = normalizeCommandPalettePreviewText(item.page.descriptionPreview);
-  if (!description) return null;
-
-  const regex = buildCommandPaletteHighlightRegex(terms);
-  if (!regex) return null;
-
-  regex.lastIndex = 0;
-  const firstMatch = regex.exec(description);
-  if (!firstMatch) return null;
-
-  const from = Math.max(0, firstMatch.index - EXCERPT_BEFORE);
-  const to = Math.min(description.length, firstMatch.index + firstMatch[0].length + EXCERPT_AFTER);
-  const excerpt = `${from > 0 ? "…" : ""}${description.slice(from, to).trim()}${to < description.length ? "…" : ""}`;
-
-  return {
-    excerpt,
-    segments: buildCommandPaletteHighlightSegments(excerpt, buildCommandPaletteHighlightRegex(terms)),
-  };
+  const preview = buildSearchTermHighlightPreview(
+    item.page.descriptionPreview,
+    terms,
+    { maxCharacters: 320, leadingContextCharacters: 96 },
+  );
+  return preview?.segments.some(({ highlight }) => highlight)
+    ? preview
+    : null;
 }
 
 function collectFastMatchedTerms(value: string, terms: readonly string[]): string[] {
@@ -469,13 +411,11 @@ function createCommandPalettePageSearchIndexFromSource(
 
       const hitsById = new Map<string, CommandPalettePageSearchHit>();
       if (!pageKeyQuery.explicit) {
-        miniSearch
-          .search(normalizedQuery, {
-            combineWith: "AND",
-            prefix: (term) => term.length >= 2,
-            fuzzy: resolveFuzzyThreshold,
-            boost: FIELD_BOOSTS,
-          })
+        searchPageSearchMiniSearch(
+          miniSearch,
+          normalizedQuery,
+          DEFAULT_PAGE_SEARCH_FIELD_BOOSTS,
+        )
           .forEach((result) => {
             const item = source.itemsById.get(String(result.id));
             if (!item) return;
@@ -705,7 +645,7 @@ export async function hydrateCommandPalettePageSearchIndex(
     try {
       miniSearch = await MiniSearch.loadJSAsync(
         persistedSnapshot.data,
-        createCommandPalettePageSearchOptions(),
+        createPageSearchMiniSearchOptions<CommandPalettePageSearchDocument>(),
       );
       shouldWriteSnapshot = reconcileCommandPalettePageSearchIndex(
         miniSearch,

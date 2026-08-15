@@ -20,6 +20,7 @@ import { createDatabaseBlockSpec } from "./database-block";
 import { imageBlockSpec } from "./image-block";
 import { createThreadSectionBlockSpec } from "./thread-section-block";
 import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
+import { createPageMentionInlineContentSpec } from "./page-mention-inline-content";
 import { createSyncedBlockRefBlockSpec } from "./synced-block-ref-block";
 import { createReusableTemplateRefBlockSpec } from "./document-bearing-shell-block";
 
@@ -51,6 +52,7 @@ export const nfmSchema = BlockNoteSchema.create({
     agentConfig: createAgentConfigInlineContentSpec(),
     attachment: createAttachmentInlineContentSpec(),
     dateMention: createDateMentionInlineContentSpec(),
+    pageMention: createPageMentionInlineContentSpec(),
     threadMention: createThreadMentionInlineContentSpec(),
   },
   styleSpecs: defaultStyleSpecs,

@@ -293,8 +293,6 @@ function nfmBlockToBN(
         type: "pageRef",
         props: {
           targetBlockId: block.targetBlockId,
-          sourceProjectId: "",
-          cardId: "",
         },
         children: [],
       };
@@ -314,9 +312,7 @@ function nfmBlockToBN(
       return {
         type: "pageRef",
         props: {
-          targetBlockId: "",
-          sourceProjectId: block.sourceProjectId,
-          cardId: block.pageId,
+          targetBlockId: block.pageId,
         },
         children: [],
       };
@@ -397,6 +393,15 @@ function nfmInlineToBN(items: NfmInlineContent[]): BNInlineContent[] {
         type: "threadMention",
         props: {
           uuid: item.uuid,
+        },
+      };
+    }
+
+    if (item.type === "pageMention") {
+      return {
+        type: "pageMention",
+        props: {
+          targetPageId: item.targetPageId,
         },
       };
     }
@@ -728,21 +733,9 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
 
     case "pageRef": {
       const targetBlockId = normalizeString(block.props?.targetBlockId);
-      const sourceProjectId = normalizeString(block.props?.sourceProjectId) ?? "default";
-      const pageId = normalizeString(block.props?.cardId) ?? "";
-
-      if (targetBlockId !== undefined) {
-        return {
-          type: "pageRef",
-          targetBlockId,
-          children: [],
-        };
-      }
-
       return {
-        type: "cardRef",
-        sourceProjectId,
-        pageId,
+        type: "pageRef",
+        targetBlockId: targetBlockId ?? "",
         children: [],
       };
     }
@@ -957,6 +950,14 @@ function bnInlineToNfm(content: unknown): NfmInlineContent[] {
       items.push({
         type: "threadMention",
         uuid,
+      });
+    } else if (item.type === "pageMention") {
+      const targetPageId = normalizeString(item.props?.targetPageId)?.trim();
+      if (!targetPageId) continue;
+
+      items.push({
+        type: "pageMention",
+        targetPageId,
       });
     } else if (item.type === "dateMention") {
       const normalized = normalizeDateMention({

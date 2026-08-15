@@ -27,6 +27,8 @@ export interface ContentPageNavigationTarget {
   readonly accessContext: ContentAccessContext;
   readonly pageId: string;
   readonly titleSnapshot?: string;
+  /** Best-effort semantic focus target after the Page surface is ready. */
+  readonly sourceBlockId?: string;
 }
 
 export interface ContentCanvasNavigationTarget {

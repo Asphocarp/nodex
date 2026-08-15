@@ -35,7 +35,7 @@ Single-block labels:
 | `image` | `Image` |
 | `callout` | `Callout` |
 | `table` | `Table` |
-| `pageRef` | `Page mention` |
+| `pageRef` | `Page reference` |
 | `cardToggle` | `Card` |
 | `toggleListInlineView` | `Toggle list view` |
 | `threadSection` | `Thread section` |
@@ -57,15 +57,11 @@ Production row order for a normal editable block is:
 
 `Make thread section` appears only for one selected `divider` root when the Card Stage runtime can convert dividers. Table header row/column actions appear only for one selected `table` root when table headers are supported.
 
-## Card Deeplinks
+## Page connections
 
-Card deeplinks open cards only:
-
-```text
-nodex://cards/<cardId>
-```
-
-The parser ignores unsupported query parameters such as `block`. Block-level links should not be emitted until NFM has a product-level persisted block identity.
+Page Mention, Page Reference Block, Page Link, and owning Subpage behavior is
+defined by [NFM Editor Page Connection Behavior](nfm-editor-page-reference-behavior.md).
+Deleting a `pageRef` removes only its non-owning shell and never deletes the target Page.
 
 ## Layout
 

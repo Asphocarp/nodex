@@ -536,6 +536,44 @@ describe("blocknote adapter", () => {
     expect(mention?.props.uuid).toBe("019-thread");
   });
 
+  test("Page mention inline content round-trips between BlockNote and NFM", () => {
+    const pageMentionDoc = asDoc([
+      {
+        type: "paragraph",
+        props: {},
+        content: [
+          { type: "text", text: "See ", styles: {} },
+          {
+            type: "pageMention",
+            props: {
+              targetPageId: "page/alpha",
+            },
+          },
+          { type: "text", text: " next", styles: {} },
+        ],
+        children: [],
+      },
+    ]);
+
+    const nfmBlocks = blockNoteToNfm(pageMentionDoc);
+    expect(nfmBlocks[0]?.type).toBe("paragraph");
+    if (nfmBlocks[0]?.type !== "paragraph") return;
+    expect(nfmBlocks[0].content[1]).toEqual({
+      type: "pageMention",
+      targetPageId: "page/alpha",
+    });
+    expect(serializeNfm(nfmBlocks)).toBe(
+      'See <mention-page url="nodex://pages/page%2Falpha" /> next',
+    );
+
+    const reloaded = nfmToBlockNote(nfmBlocks);
+    const mention = Array.isArray(reloaded[0]?.content)
+      ? reloaded[0]?.content[1]
+      : undefined;
+    expect(mention?.type).toBe("pageMention");
+    expect(mention?.props.targetPageId).toBe("page/alpha");
+  });
+
   test("empty agent config props serialize as omitted attributes", () => {
     const agentConfigDoc = asDoc([
       {
@@ -939,7 +977,7 @@ describe("blocknote adapter", () => {
     expect(serialized).toBe(nfm);
   });
 
-  test("card-ref NFM → BN maps custom props", () => {
+  test("card-ref NFM → BN retires live legacy props", () => {
     const blocks = parseNfm(
       '<card-ref project="my-project" card="abc1234" />',
     );
@@ -947,18 +985,16 @@ describe("blocknote adapter", () => {
 
     expect(bnBlocks.length).toBe(1);
     expect(bnBlocks[0].type).toBe("pageRef");
-    expect(bnBlocks[0].props.sourceProjectId).toBe("my-project");
-    expect(bnBlocks[0].props.cardId).toBe("abc1234");
+    expect(bnBlocks[0].props.targetBlockId).toBe("abc1234");
   });
 
-  test("card-ref BN → NFM maps custom props", () => {
+  test("page-ref BN → NFM emits only the canonical Page target", () => {
     const blocks = blockNoteToNfm(
       asDoc([
         {
           type: "pageRef",
           props: {
-            sourceProjectId: "my-project",
-            cardId: "abc1234",
+            targetBlockId: "abc1234",
           },
           content: undefined,
           children: [],
@@ -967,20 +1003,18 @@ describe("blocknote adapter", () => {
     );
 
     expect(blocks.length).toBe(1);
-    expect(blocks[0].type).toBe("cardRef");
-    if (blocks[0].type !== "cardRef") return;
-    expect(blocks[0].sourceProjectId).toBe("my-project");
-    expect(blocks[0].pageId).toBe("abc1234");
+    expect(blocks[0].type).toBe("pageRef");
+    if (blocks[0].type !== "pageRef") return;
+    expect(blocks[0].targetBlockId).toBe("abc1234");
   });
 
-  test("card-ref with empty pageId survives BN → NFM round-trip", () => {
+  test("page-ref with an empty target remains explicit and invalidatable", () => {
     const blocks = blockNoteToNfm(
       asDoc([
         {
           type: "pageRef",
           props: {
-            sourceProjectId: "default",
-            cardId: "",
+            targetBlockId: "",
           },
           content: undefined,
           children: [],
@@ -989,9 +1023,9 @@ describe("blocknote adapter", () => {
     );
 
     expect(blocks.length).toBe(1);
-    expect(blocks[0].type).toBe("cardRef");
-    if (blocks[0].type !== "cardRef") return;
-    expect(blocks[0].pageId).toBe("");
+    expect(blocks[0].type).toBe("pageRef");
+    if (blocks[0].type !== "pageRef") return;
+    expect(blocks[0].targetBlockId).toBe("");
   });
 
   test("card-ref with missing card attribute parses with empty pageId", () => {

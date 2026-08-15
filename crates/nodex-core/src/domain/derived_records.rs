@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use super::block_materialization::MaterializedBlockNode;
 use super::block_tree::MAX_BLOCK_ID_LENGTH;
-use super::nfm::{NfmBlock, NfmInlineContent};
+use super::nfm::{NfmBlock, NfmInlineContent, parse_page_deep_link};
 
 const MAX_REFERENCE_DISPLAY_HINT_LENGTH: usize = 512;
 const NODEX_ASSET_SCHEME: &str = "nodex://assets/";
@@ -11,6 +11,16 @@ const NODEX_ASSET_SCHEME: &str = "nodex://assets/";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum BlockDocumentReference {
+    #[serde(rename = "page")]
+    Page {
+        #[serde(rename = "sourceBlockId")]
+        source_block_id: String,
+        #[serde(rename = "targetPageId")]
+        target_page_id: String,
+        presentation: PageReferencePresentation,
+        #[serde(rename = "occurrenceCount")]
+        occurrence_count: u32,
+    },
     #[serde(rename = "block")]
     Block {
         #[serde(rename = "sourceBlockId")]
@@ -54,9 +64,18 @@ pub enum BlockDocumentReference {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PageReferencePresentation {
+    Mention,
+    ReferenceBlock,
+    Link,
+}
+
 impl BlockDocumentReference {
     pub(crate) fn target_block_id(&self) -> Option<&str> {
         match self {
+            Self::Page { target_page_id, .. } => Some(target_page_id),
             Self::Block {
                 target_block_id, ..
             }
@@ -74,7 +93,8 @@ impl BlockDocumentReference {
             Self::DatabaseView {
                 database_view_id, ..
             } => Some(database_view_id),
-            Self::Block { .. }
+            Self::Page { .. }
+            | Self::Block { .. }
             | Self::Thread { .. }
             | Self::LegacyCardProjection { .. }
             | Self::LegacyDatabaseQuery { .. } => None,
@@ -184,11 +204,12 @@ fn collect_records(
             }
             NfmBlock::PageRef { target_block_id } => {
                 assert_reference_id(target_block_id, "targetBlockId")?;
-                records.references.push(BlockDocumentReference::Block {
-                    source_block_id: block.id.clone(),
-                    target_block_id: target_block_id.clone(),
-                    display_hint: None,
-                });
+                append_page_reference(
+                    &mut records.references,
+                    block.id.clone(),
+                    target_block_id.clone(),
+                    PageReferencePresentation::ReferenceBlock,
+                );
             }
             NfmBlock::CardRef {
                 source_project_id,
@@ -301,6 +322,24 @@ fn collect_inline_records(
 ) {
     for item in content {
         match item {
+            NfmInlineContent::PageMention { target_page_id } => {
+                append_page_reference(
+                    &mut records.references,
+                    source_block_id.to_owned(),
+                    target_page_id.clone(),
+                    PageReferencePresentation::Mention,
+                );
+            }
+            NfmInlineContent::Link { href, .. } => {
+                if let Some(target_page_id) = parse_page_deep_link(href) {
+                    append_page_reference(
+                        &mut records.references,
+                        source_block_id.to_owned(),
+                        target_page_id,
+                        PageReferencePresentation::Link,
+                    );
+                }
+            }
             NfmInlineContent::ThreadMention { uuid } => {
                 records.references.push(BlockDocumentReference::Thread {
                     source_block_id: source_block_id.to_owned(),
@@ -316,6 +355,38 @@ fn collect_inline_records(
             _ => {}
         }
     }
+}
+
+fn append_page_reference(
+    references: &mut Vec<BlockDocumentReference>,
+    source_block_id: String,
+    target_page_id: String,
+    presentation: PageReferencePresentation,
+) {
+    if let Some(BlockDocumentReference::Page {
+        occurrence_count, ..
+    }) = references.iter_mut().find(|reference| {
+        matches!(
+            reference,
+            BlockDocumentReference::Page {
+                source_block_id: existing_source,
+                target_page_id: existing_target,
+                presentation: existing_presentation,
+                ..
+            } if existing_source == &source_block_id
+                && existing_target == &target_page_id
+                && *existing_presentation == presentation
+        )
+    }) {
+        *occurrence_count = occurrence_count.saturating_add(1);
+        return;
+    }
+    references.push(BlockDocumentReference::Page {
+        source_block_id,
+        target_page_id,
+        presentation,
+        occurrence_count: 1,
+    });
 }
 
 fn append_asset_reference(

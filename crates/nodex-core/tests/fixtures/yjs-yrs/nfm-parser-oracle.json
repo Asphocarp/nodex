@@ -412,9 +412,7 @@
       "id": "oracle-nfm-19",
       "type": "pageRef",
       "props": {
-        "targetBlockId": "page-target",
-        "sourceProjectId": "",
-        "cardId": ""
+        "targetBlockId": "page-target"
       },
       "children": []
     },

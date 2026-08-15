@@ -1347,6 +1347,26 @@ fn assert_unreferenced(connection: &Connection, closure: &OwnedClosure) -> Resul
         .iter()
         .map(|head| head.document_id.as_str())
         .collect::<BTreeSet<_>>();
+    let page_reference = connection
+        .prepare(
+            "SELECT document_id, target_page_id FROM document_page_references \
+             ORDER BY document_id, target_page_id",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .any(|(document_id, target)| {
+            !owned_documents.contains(document_id.as_str()) && targets.contains(&target)
+        });
+    if page_reference {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "Owned Page is still referenced by another Document",
+            false,
+        ));
+    }
     let materials = connection
         .prepare(
             "SELECT document_id, references_json FROM document_materializations ORDER BY document_id",
@@ -1392,6 +1412,9 @@ fn assert_unreferenced(connection: &Connection, closure: &OwnedClosure) -> Resul
 fn value_references_target(value: &Value, targets: &BTreeSet<&String>) -> bool {
     match value {
         Value::Object(object) => {
+            if object.get("kind").and_then(Value::as_str) == Some("page") {
+                return false;
+            }
             object
                 .get("targetBlockId")
                 .and_then(Value::as_str)

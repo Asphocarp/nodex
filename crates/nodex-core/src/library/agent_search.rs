@@ -18,7 +18,10 @@ use crate::database::{self, resolve_page_key_matches_in_library};
 use crate::domain::page_key::is_explicit_page_key_search;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::{agent_authorization, cursor};
+use super::{
+    agent_authorization, cursor,
+    search_match::{SearchTermMatchQuality, field_match_quality, search_tokens},
+};
 
 const MAX_QUERY_BYTES: usize = 512;
 const MAX_TERMS: usize = 32;
@@ -879,22 +882,11 @@ fn field_quality(
     term: &str,
     allow_fuzzy: bool,
 ) -> Option<LibraryAgentSearchMatchQuality> {
-    let tokens = search_tokens(text);
-    if tokens.iter().any(|token| token == term) {
-        return Some(LibraryAgentSearchMatchQuality::Exact);
-    }
-    if term.chars().count() >= 2 && tokens.iter().any(|token| token.starts_with(term)) {
-        return Some(LibraryAgentSearchMatchQuality::Prefix);
-    }
-    if !allow_fuzzy {
-        return None;
-    }
-    let maximum = fuzzy_distance(term);
-    (maximum > 0
-        && tokens
-            .iter()
-            .any(|token| levenshtein(token, term) <= maximum))
-    .then_some(LibraryAgentSearchMatchQuality::Fuzzy)
+    field_match_quality(text, term, allow_fuzzy).map(|quality| match quality {
+        SearchTermMatchQuality::Exact => LibraryAgentSearchMatchQuality::Exact,
+        SearchTermMatchQuality::Prefix => LibraryAgentSearchMatchQuality::Prefix,
+        SearchTermMatchQuality::Fuzzy => LibraryAgentSearchMatchQuality::Fuzzy,
+    })
 }
 
 fn representative_evidence(
@@ -1036,15 +1028,6 @@ fn search_terms(query: &str) -> Result<Vec<String>, StoreError> {
     Ok(terms)
 }
 
-fn search_tokens(value: &str) -> Vec<String> {
-    value
-        .trim()
-        .to_lowercase()
-        .split_whitespace()
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
 fn build_fts_match_query(query: &str) -> Result<Option<String>, StoreError> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -1086,32 +1069,6 @@ fn exact_or_prefix(excerpt: &str, term: &str) -> LibraryAgentSearchMatchQuality 
     } else {
         LibraryAgentSearchMatchQuality::Prefix
     }
-}
-
-fn fuzzy_distance(term: &str) -> usize {
-    let length = term.chars().count();
-    if length <= 3 {
-        return 0;
-    }
-    let threshold = if length <= 5 { 0.1 } else { 0.2 };
-    ((length as f64) * threshold).round() as usize
-}
-
-fn levenshtein(left: &str, right: &str) -> usize {
-    let right = right.chars().collect::<Vec<_>>();
-    let mut previous = (0..=right.len()).collect::<Vec<_>>();
-    for (left_index, left_character) in left.chars().enumerate() {
-        let mut current = vec![left_index + 1];
-        for (right_index, right_character) in right.iter().enumerate() {
-            current.push(
-                (previous[right_index + 1] + 1)
-                    .min(current[right_index] + 1)
-                    .min(previous[right_index] + usize::from(left_character != *right_character)),
-            );
-        }
-        previous = current;
-    }
-    previous[right.len()]
 }
 
 fn normalize_block_types(

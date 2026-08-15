@@ -919,6 +919,7 @@ pub(super) fn finish_mutation(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn finish_no_op(
     connection: &Connection,
     context: &BoundModuleContext,
@@ -3839,7 +3840,7 @@ mod tests {
         let winner = outcomes[0].committed.value.affected_session_ids[0].clone();
         assert_eq!(
             outcomes[1].committed.value.affected_session_ids,
-            [winner.clone()]
+            std::slice::from_ref(&winner)
         );
         assert_eq!(
             outcomes

@@ -120,12 +120,20 @@ const renderRichTitleDom = (
       nodes.push(element);
       return;
     }
-    if (item.type === "threadMention" || item.type === "dateMention") {
+    if (
+      item.type === "threadMention"
+      || item.type === "pageMention"
+      || item.type === "dateMention"
+    ) {
       element.dataset.richTitleKind = "atom";
       element.dataset.richTitleAtom = item.type;
       element.contentEditable = "false";
       element.className = "mx-0.5 inline-flex max-w-[18rem] rounded-md bg-token-foreground/5 px-1.5 align-baseline text-[0.72em] font-medium text-token-text-secondary";
-      element.title = item.type === "threadMention" ? item.uuid : portableRichTitleAtomLabel(item);
+      element.title = item.type === "threadMention"
+        ? item.uuid
+        : item.type === "pageMention"
+          ? item.targetPageId
+          : portableRichTitleAtomLabel(item);
       element.textContent = portableRichTitleAtomLabel(item);
       nodes.push(element);
       return;

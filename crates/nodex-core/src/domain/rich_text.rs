@@ -69,6 +69,8 @@ pub enum RichTextItem {
     LineBreak,
     #[serde(rename = "threadMention")]
     ThreadMention { uuid: String },
+    #[serde(rename = "pageMention", rename_all = "camelCase")]
+    PageMention { target_page_id: String },
     #[serde(rename = "dateMention", rename_all = "camelCase")]
     DateMention {
         start: String,
@@ -151,6 +153,9 @@ pub fn rich_text_plain_text(items: &[RichTextItem]) -> String {
             RichTextItem::Text { text, .. } | RichTextItem::Link { text, .. } => text.clone(),
             RichTextItem::LineBreak => "\n".to_owned(),
             RichTextItem::ThreadMention { uuid } => format!("@thread:{uuid}"),
+            RichTextItem::PageMention { target_page_id } => {
+                format!("@page:{target_page_id}")
+            }
             RichTextItem::DateMention { start, end, .. } => end
                 .as_ref()
                 .map(|end| format!("@date:{start}..{end}"))
@@ -201,7 +206,9 @@ fn encode_rich_text_delta(items: &[RichTextItem]) -> Result<Vec<TextDelta>, Rich
                 insert: "\n".to_owned(),
                 attributes: BTreeMap::new(),
             }),
-            RichTextItem::ThreadMention { .. } | RichTextItem::DateMention { .. } => {
+            RichTextItem::ThreadMention { .. }
+            | RichTextItem::PageMention { .. }
+            | RichTextItem::DateMention { .. } => {
                 validate_atom(item)?;
                 let encoded =
                     serde_json::to_string(item).map_err(|_| RichTextError::InvalidInlineItem)?;
@@ -379,6 +386,11 @@ fn validate_atom(item: &RichTextItem) -> Result<(), RichTextError> {
     match item {
         RichTextItem::ThreadMention { uuid }
             if valid_bounded_string(uuid, MAX_INLINE_PROPERTY_LENGTH) =>
+        {
+            Ok(())
+        }
+        RichTextItem::PageMention { target_page_id }
+            if valid_bounded_string(target_page_id, MAX_INLINE_PROPERTY_LENGTH) =>
         {
             Ok(())
         }

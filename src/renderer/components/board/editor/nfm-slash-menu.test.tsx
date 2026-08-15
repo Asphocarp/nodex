@@ -1,33 +1,64 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
-  buildNfmPageMentionBlock,
-  buildNfmPageMentionSuggestionItem,
+  buildPageReferenceCandidateSuggestionItems,
   buildNfmDateMentionInlineContent,
-  buildNfmMentionSuggestionItems,
+  buildNfmDateMentionSuggestionItems,
   buildNfmThreadMentionInlineContent,
-  buildNfmThreadMentionSuggestionItem,
+  buildNfmThreadMentionSuggestionItems,
   getNfmSlashMenuCustomItems,
+  isPageReferenceInsertionBookmarkValid,
   NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS,
   NfmSuggestionMenuSurface,
+  type NfmSuggestionItem,
   resolveThreadMentionSubtext,
   resolveNfmSuggestionHint,
+  selectNfmMentionSuggestionItems,
   scrollElementIntoContainerView,
+  startNfmMentionAtCursor,
 } from "./nfm-slash-menu";
+
 import {
   NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX,
   NFM_SUGGESTION_MENU_Z_INDEX,
 } from "./nfm-blocknote-floating-ui";
-import type { DefaultReactSuggestionItem } from "@blocknote/react";
-import type { CommandPalettePage, CommandPaletteThread } from "@/lib/command-palette";
-import type { DatabasePageSummary, CodexThreadSummary, Project } from "@/lib/types";
-import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";
+import type { BlockNoteEditor } from "@blocknote/core";
+import {
+  BlockNoteContext,
+  SuggestionMenuWrapper,
+  type DefaultReactSuggestionItem,
+  type SuggestionMenuProps,
+} from "@blocknote/react";
+import type { CommandPaletteThread } from "@/lib/command-palette";
+import type { CodexThreadSummary, Project } from "@/lib/types";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../../../shared/project-appearance";
 
-function makeItems(): DefaultReactSuggestionItem[] {
+describe("Page reference insertion bookmark", () => {
+  test("accepts only the still-current source Block", () => {
+    const editor = {
+      getBlock: (blockId: string) => blockId === "source" ? { id: blockId } : undefined,
+      getTextCursorPosition: () => ({ block: { id: "source" } }),
+    };
+
+    expect(isPageReferenceInsertionBookmarkValid(editor, { blockId: "source" })).toBe(true);
+    expect(isPageReferenceInsertionBookmarkValid(editor, { blockId: "missing" })).toBe(false);
+    expect(isPageReferenceInsertionBookmarkValid(editor, null)).toBe(false);
+  });
+
+  test("fails closed after the selection moves", () => {
+    const editor = {
+      getBlock: () => ({ id: "source" }),
+      getTextCursorPosition: () => ({ block: { id: "other" } }),
+    };
+
+    expect(isPageReferenceInsertionBookmarkValid(editor, { blockId: "source" })).toBe(false);
+  });
+});
+
+function makeItems(): NfmSuggestionItem[] {
   return [
     {
       title: "Paragraph",
@@ -41,8 +72,8 @@ function makeItems(): DefaultReactSuggestionItem[] {
     {
       title: "Agent Config",
       subtext: "Insert a one-send plan-mode config chip",
-      badge: "/agent-config",
-      aliases: [],
+      hint: null,
+      aliases: ["agent-config"],
       group: "Others",
       icon: <span aria-hidden="true">A</span>,
       onItemClick: () => undefined,
@@ -126,60 +157,6 @@ function createMentionProject(): Project {
   };
 }
 
-function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
-  const descriptionPreview = overrides.descriptionPreview ?? "Add shared mention search.";
-  const title = overrides.title ?? "Mention search page";
-  return {
-    id: overrides.id ?? "page-1",
-    pageKey: overrides.pageKey ?? null,
-    title,
-    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
-    descriptionPreview,
-    descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
-    hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
-    status: overrides.status ?? "build",
-    archived: overrides.archived ?? false,
-    priority: overrides.priority,
-    estimate: overrides.estimate,
-    tags: overrides.tags ?? [],
-    dueDate: overrides.dueDate,
-    scheduledStart: overrides.scheduledStart,
-    scheduledEnd: overrides.scheduledEnd,
-    isAllDay: overrides.isAllDay ?? false,
-    recurrence: overrides.recurrence,
-    reminders: overrides.reminders ?? [],
-    scheduleTimezone: overrides.scheduleTimezone,
-    assignee: overrides.assignee,
-    runInTarget: overrides.runInTarget ?? "localProject",
-    runInLocalPath: overrides.runInLocalPath,
-    runInBaseBranch: overrides.runInBaseBranch,
-    runInWorktreePath: overrides.runInWorktreePath,
-    runInEnvironmentPath: overrides.runInEnvironmentPath,
-    revision: overrides.revision ?? 1,
-    created: overrides.created ?? new Date("2026-06-20T00:00:00.000Z"),
-    order: overrides.order ?? 0,
-  };
-}
-
-function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPalettePage {
-  const page = overrides.page ?? makePage();
-  return {
-    kind: "page",
-    id: overrides.id ?? `${overrides.projectId ?? "project-1"}:${page.id}`,
-    projectId: overrides.projectId ?? "project-1",
-    projectName: overrides.projectName ?? "Alpha",
-    projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
-    columnName: overrides.columnName ?? "Doing",
-    page,
-    tagLabels: overrides.tagLabels ?? page.tags,
-    inActiveProject: overrides.inActiveProject ?? true,
-    recentIndex: overrides.recentIndex ?? null,
-    boardIndex: overrides.boardIndex ?? 0,
-    searchPreview: overrides.searchPreview,
-    searchDecorations: overrides.searchDecorations,
-  };
-}
-
 function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
   return {
     kind: "thread",
@@ -206,6 +183,19 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
 }
 
 describe("NfmSlashMenu", () => {
+  test("turns the slash command into the normal visible @ mention flow", () => {
+    const openSuggestionMenu = vi.fn();
+
+    startNfmMentionAtCursor({
+      getExtension: () => ({ openSuggestionMenu }),
+    });
+
+    expect(openSuggestionMenu).toHaveBeenCalledWith("@", {
+      deleteTriggerCharacter: true,
+      ignoreQueryLength: true,
+    });
+  });
+
   test("slash commands never create unresolved Page or legacy Database references", () => {
     const items = getNfmSlashMenuCustomItems({});
     const keys = items
@@ -218,10 +208,65 @@ describe("NfmSlashMenu", () => {
     expect(keys.includes("agent_config")).toBe(true);
     expect(keys.includes("canvas")).toBe(false);
     expect(
-      getNfmSlashMenuCustomItems({}, async () => ({
-        canvasBlockId: "canvas-1",
-      })).some((item) => (item as { key?: string }).key === "canvas"),
+      getNfmSlashMenuCustomItems({}, {
+        createCanvasAtEmptyParagraph: async () => ({
+          canvasBlockId: "canvas-1",
+        }),
+      }).some((item) => (item as { key?: string }).key === "canvas"),
     ).toBe(true);
+
+    let mentionOpened = false;
+    let embedOpened = false;
+    const pageItems = getNfmSlashMenuCustomItems({}, {
+      startMentionFlow: () => {
+        mentionOpened = true;
+      },
+      openEmbedPagePicker: () => {
+        embedOpened = true;
+      },
+    });
+    const mentionPageItem = pageItems.find(
+      (item) => (item as { key?: string }).key === "mention_page",
+    );
+    expect(mentionPageItem?.title).toBe("Mention a page");
+    mentionPageItem?.onItemClick();
+    expect(mentionOpened).toBe(true);
+
+    const embedPageItem = pageItems.find(
+      (item) => (item as { key?: string }).key === "embed_page",
+    );
+    expect(embedPageItem?.title).toBe("Embed page");
+    embedPageItem?.onItemClick();
+    expect(embedOpened).toBe(true);
+  });
+
+  test("keeps action aliases searchable without presenting them as syntax hints", () => {
+    const items = getNfmSlashMenuCustomItems({}, {
+      createCanvasAtEmptyParagraph: async () => ({
+        canvasBlockId: "canvas-1",
+      }),
+      startMentionFlow: () => undefined,
+      openEmbedPagePicker: () => undefined,
+      openSubpageCreator: () => undefined,
+    }) as NfmSuggestionItem[];
+    const actionKeys = [
+      "table",
+      "canvas",
+      "mention_page",
+      "embed_page",
+      "subpage",
+      "thread_section",
+      "agent_config",
+    ];
+    const actionItems = items.filter((item) =>
+      item.key ? actionKeys.includes(item.key) : false
+    );
+
+    expect(actionItems.map((item) => item.key)).toEqual(actionKeys);
+    for (const item of actionItems) {
+      expect(item.aliases ?? []).not.toHaveLength(0);
+      expect(resolveNfmSuggestionHint(item)).toBe(null);
+    }
   });
 
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {
@@ -234,53 +279,71 @@ describe("NfmSlashMenu", () => {
     }), project)).toBe("Alpha / Waiting / 019-thread");
   });
 
-  test("mention suggestion builders expose command-palette snippets in compact row tooltips", () => {
-    const editor = {};
-    const cardItem = buildNfmPageMentionSuggestionItem(editor, makePalettePage({
-      page: makePage({ id: "page-snippet", title: "Searchable page", status: "plan" }),
-      searchPreview: {
-        excerpt: "Description-only vector clock hit.",
-        segments: [{ text: "Description-only vector clock hit.", highlight: true }],
-      },
-    }));
-    const threadItem = buildNfmThreadMentionSuggestionItem(editor, makePaletteThread({
-      threadId: "thr-snippet",
-      searchPreview: {
-        source: "content",
-        excerpt: "Transcript-only approval heuristic hit.",
-        segments: [{ text: "Transcript-only approval heuristic hit.", highlight: true }],
-      },
-    }));
+  test("Page candidates expose only disambiguation or content-match detail", () => {
+    const insertInlineContent = vi.fn();
+    const items = buildPageReferenceCandidateSuggestionItems(
+      { insertInlineContent },
+      [
+        {
+          pageId: "page-title",
+          title: "Projection notes",
+          pageKey: "NDX-42",
+          status: "build",
+          locationLabel: "Product / Editor",
+          lifecycle: "active",
+          matchExcerpt: "Projection notes",
+          disabledReason: null,
+        },
+        {
+          pageId: "page-content",
+          title: "Architecture",
+          pageKey: "NDX-7",
+          status: null,
+          locationLabel: "Product / Foundations",
+          lifecycle: "active",
+          matchExcerpt: "The affected projection window stays bounded.",
+          disabledReason: null,
+        },
+      ],
+      "mention",
+      "projection",
+    );
 
-    expect(cardItem.group).toBe("Pages");
-    expect(cardItem.subtext?.includes("Description-only vector clock")).toBe(true);
-    expect(cardItem.subtext?.includes("page-snippet")).toBe(false);
-    expect(resolveNfmSuggestionHint(cardItem)).toBe(null);
-    expect(threadItem.group).toBe("Chats");
-    expect(threadItem.subtext?.includes("Transcript-only approval heuristic")).toBe(true);
-    expect(threadItem.subtext?.includes("thr-snippet")).toBe(false);
-    expect(resolveNfmSuggestionHint(threadItem)).toBe(null);
+    expect(items[0]).toMatchObject({
+      title: "Projection notes",
+      detail: null,
+      group: "Mention a page",
+    });
+    expect(items[0]?.tooltipContent).not.toBeNull();
+    expect(items[1]).toMatchObject({
+      title: "Architecture",
+      detail: "The affected projection window stays bounded.",
+      group: "Mention a page",
+    });
+    expect(items[1]?.tooltipContent).not.toBeNull();
+    const view = renderSuggestionMenu({
+      items,
+      loadingState: "loaded",
+      selectedIndex: 0,
+      onItemClick: () => undefined,
+    });
+    const [statusRow, genericPageRow] = view.getAllByRole("option");
+    expect(statusRow?.querySelector("svg")?.classList.contains("size-4")).toBe(true);
+    expect(statusRow?.querySelector("svg")?.getAttribute("style"))
+      .toContain("--status-build-dot");
+    expect(genericPageRow?.querySelector("svg")?.classList.contains("icon-xs"))
+      .toBe(true);
+    items[1]?.onItemClick();
+    expect(insertInlineContent).toHaveBeenCalledWith([
+      { type: "pageMention", props: { targetPageId: "page-content" } },
+      " ",
+    ], { updateSelection: true });
   });
 
-  test("mention payload helpers preserve pageRef and threadMention storage shapes", () => {
-    const pageRefBlock = buildNfmPageMentionBlock(makePalettePage({
-      projectId: "project-2",
-      page: makePage({ id: "page-2" }),
-    })) as {
-      type?: string;
-      props?: Record<string, unknown> & {
-        targetBlockId?: string;
-      };
-    };
+  test("mention payload helpers preserve thread and date inline storage shapes", () => {
     const threadContent = buildNfmThreadMentionInlineContent(makePaletteThread({
       threadId: "thr-payload",
     })) as Array<{ type?: string; props?: { uuid?: string } } | string>;
-
-    expect(pageRefBlock.type).toBe("pageRef");
-    expect(pageRefBlock.props?.targetBlockId).toBe("page-2");
-    expect(Object.hasOwn(pageRefBlock.props ?? {}, "displayHint")).toBe(false);
-    expect(Object.hasOwn(pageRefBlock.props ?? {}, "sourceProjectId")).toBe(false);
-    expect(Object.hasOwn(pageRefBlock.props ?? {}, "pageId")).toBe(false);
     const firstThreadContent = threadContent[0];
     expect(typeof firstThreadContent === "string").toBe(false);
     if (typeof firstThreadContent === "string") return;
@@ -289,14 +352,14 @@ describe("NfmSlashMenu", () => {
     expect(threadContent[1]).toBe(" ");
   });
 
-  test("mention suggestion mapping groups current-project chats and Pages first", () => {
-    const items = buildNfmMentionSuggestionItems({
-      editor: {},
-      threadResults: [
+  test("thread rows disclose only duplicate-title context or content excerpts", () => {
+    const items = buildNfmThreadMentionSuggestionItems(
+      {},
+      [
         makePaletteThread({
           threadId: "other-thread",
           id: "thread:other-thread",
-          title: "Other project thread",
+          title: "Weekly planning",
           projectId: "project-2",
           projectName: "Beta",
           inActiveProject: false,
@@ -304,85 +367,35 @@ describe("NfmSlashMenu", () => {
         makePaletteThread({
           threadId: "active-thread",
           id: "thread:active-thread",
-          title: "Current project thread",
+          title: "Weekly planning",
           inActiveProject: true,
         }),
         makePaletteThread({
-          threadId: "projectless-thread",
-          id: "thread:projectless-thread",
-          title: "Projectless thread",
-          projectId: null,
-          projectName: null,
-          projectless: true,
-          inActiveProject: false,
+          threadId: "content-thread",
+          id: "thread:content-thread",
+          title: "Architecture review",
+          searchPreview: {
+            source: "content",
+            excerpt: "Only transcript content matched vector clocks.",
+            segments: [],
+          },
         }),
       ],
-      pageResults: [
-        makePalettePage({
-          projectId: "project-2",
-          projectName: "Beta",
-          page: makePage({ id: "other-page", title: "Other project page" }),
-          inActiveProject: false,
-        }),
-        makePalettePage({
-          page: makePage({ id: "active-page", title: "Current project page" }),
-          inActiveProject: true,
-        }),
-      ],
-    });
+      "vector",
+    );
 
-    expect(items.length).toBe(7);
-    expect(items[0]?.title).toBe("Current project thread");
-    expect(items[0]?.group).toBe("Current project");
-    expect(items[1]?.title).toBe("Current project page");
-    expect(items[1]?.group).toBe("Current project");
-    expect(items[2]?.title).toBe("Today");
-    expect(items[2]?.group).toBe("Dates");
-    expect(items[3]?.title).toBe("Now");
-    expect(items[3]?.group).toBe("Dates");
-    expect(items[4]?.title).toBe("Other project thread");
-    expect(items[4]?.group).toBe("Chats");
-    expect(items[5]?.title).toBe("Projectless thread");
-    expect(items[5]?.group).toBe("Chats");
-    expect(items[6]?.title).toBe("Other project page");
-    expect(items[6]?.group).toBe("Pages");
-  });
-
-  test("mention suggestion mapping preserves search-preview-only matches without substring filtering", () => {
-    const items = buildNfmMentionSuggestionItems({
-      editor: {},
-      threadResults: [makePaletteThread({
-        title: "Unrelated visible title",
-        searchPreview: {
-          source: "content",
-          excerpt: "Only transcript content matched the query.",
-          segments: [{ text: "Only transcript content matched the query.", highlight: true }],
-        },
-      })],
-      pageResults: [makePalettePage({
-        page: makePage({
-          title: "Unrelated page title",
-        }),
-        searchPreview: {
-          excerpt: "Only page description matched the query.",
-          segments: [{ text: "Only page description matched the query.", highlight: true }],
-        },
-      })],
-    });
-
-    expect(items.length).toBe(4);
-    expect(items[0]?.group).toBe("Current project");
-    expect(items[0]?.subtext?.includes("Only transcript content")).toBe(true);
-    expect(items[1]?.group).toBe("Current project");
-    expect(items[1]?.subtext?.includes("Only page description")).toBe(true);
-    expect(items[2]?.title).toBe("Today");
-    expect(items[3]?.title).toBe("Now");
+    expect(items[0]?.detail).toBe("Beta");
+    expect(items[1]?.detail).toBe("Alpha");
+    expect(items[2]?.detail).toBe(
+      "…content matched vector clocks.",
+    );
+    expect(items.every((item) => item.tooltipContent !== null)).toBe(true);
   });
 
   test("maps an app-server-only chat into a thread mention suggestion", () => {
-    const items = buildNfmMentionSuggestionItems({
-      editor: {},
-      threadResults: [makePaletteThread({
+    const items = buildNfmThreadMentionSuggestionItems(
+      {},
+      [makePaletteThread({
         id: "thread:server-only-mention",
         threadId: "server-only-mention",
         sessionId: null,
@@ -393,29 +406,35 @@ describe("NfmSlashMenu", () => {
           segments: [{ text: "Mention evidence", highlight: true }],
         },
       })],
-      pageResults: [],
-    });
+      "evidence",
+    );
 
     expect(items[0]).toMatchObject({
       title: "Historical mention target",
-      group: "Current project",
+      group: "Mention a chat",
+      detail: "Mention evidence from app-server history.",
     });
   });
 
   test("date mention suggestions are first for date-like queries and insert inline content", () => {
-    const items = buildNfmMentionSuggestionItems({
-      editor: {},
-      query: "today",
-      threadResults: [makePaletteThread({ title: "Current project thread" })],
-      pageResults: [makePalettePage({ page: makePage({ title: "Current project page" }) })],
-    });
+    expect(buildNfmDateMentionSuggestionItems({}, "").map(({ title }) => title))
+      .toEqual(["Today", "Now"]);
+    const items = selectNfmMentionSuggestionItems("today", [
+      ...buildNfmThreadMentionSuggestionItems(
+        {},
+        [makePaletteThread({ title: "Today planning" })],
+        "today",
+      ),
+      ...buildNfmDateMentionSuggestionItems({}, "today"),
+    ]);
 
     expect(items.length > 0).toBe(true);
     expect(items[0]?.title).toBe("Today");
-    expect(items[0]?.group).toBe("Dates");
+    expect(items[0]?.group).toBe("Date");
     expect(items[1]?.title).toBe("Remind today");
-    expect(items[1]?.group).toBe("Reminders");
-    expect(items[2]?.title).toBe("Current project thread");
+    expect(items[1]?.group).toBe("Date");
+    expect(items[2]?.title).toBe("Today planning");
+    expect(items[2]?.group).toBe("Mention a chat");
 
     const inlineContent = buildNfmDateMentionInlineContent({
       type: "dateMention",
@@ -478,7 +497,7 @@ describe("NfmSlashMenu", () => {
     expect(selected?.getAttribute("role")).toBe("option");
     expect(selected?.getAttribute("aria-selected")).toBe("true");
     expect(selected?.textContent?.includes("Agent Config")).toBe(true);
-    expect(selected?.textContent?.includes("/agent-config")).toBe(true);
+    expect(selected?.textContent?.includes("/agent-config")).toBe(false);
   });
 
   test("pins suggestion menu controllers to the body-level portal target", () => {
@@ -662,6 +681,31 @@ describe("NfmSlashMenu", () => {
     expect(view.queryByText(longSubtext)).toBe(null);
   });
 
+  test("mention rows render only explicit inline detail", () => {
+    const view = renderSuggestionMenu(
+      {
+        items: [{
+          key: "page:target",
+          title: "Projection notes",
+          subtext: "This legacy field is not row detail",
+          detail: "Product / Editor",
+          tooltipContent: null,
+          aliases: [],
+          group: "Pages",
+          onItemClick: () => undefined,
+        } as NfmSuggestionItem],
+        loadingState: "loaded",
+        selectedIndex: 0,
+        onItemClick: () => undefined,
+      },
+    );
+
+    expect(view.getByText("Projection notes").textContent).toBe("Projection notes");
+    expect(view.getByText("Product / Editor").textContent)
+      .toBe("Product / Editor");
+    expect(view.queryByText("This legacy field is not row detail")).toBe(null);
+  });
+
   test("description details are disclosed through the item tooltip", async () => {
     const view = renderSuggestionMenu(
       {
@@ -689,27 +733,18 @@ describe("NfmSlashMenu", () => {
     expect(tooltipLayer?.style.zIndex).toBe(String(NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX));
   });
 
-  test("mention tooltips keep only compact context and search snippets", async () => {
-    const rawCwd = "/tmp/project";
-    const items = [
-      buildNfmThreadMentionSuggestionItem({}, makePaletteThread({
-        threadId: "raw-thread-id",
-        cwd: rawCwd,
+  test("mention details highlight the match and retain useful full tooltips", async () => {
+    const fullExcerpt = `${"Earlier context ".repeat(10)}Compact transcript snippet. ${"Later context ".repeat(10)}`;
+    const items = buildNfmThreadMentionSuggestionItems({}, [
+      makePaletteThread({
         title: "Searchable thread",
         searchPreview: {
           source: "content",
-          excerpt: "Compact transcript snippet.",
-          segments: [{ text: "Compact transcript snippet.", highlight: true }],
+          excerpt: fullExcerpt,
+          segments: [{ text: fullExcerpt, highlight: true }],
         },
-      })),
-      buildNfmPageMentionSuggestionItem({}, makePalettePage({
-        page: makePage({ id: "raw-uuid-v7", title: "Searchable page" }),
-        searchPreview: {
-          excerpt: "Compact page snippet.",
-          segments: [{ text: "Compact page snippet.", highlight: true }],
-        },
-      })),
-    ];
+      }),
+    ], "compact");
     const view = renderSuggestionMenu(
       {
         items,
@@ -719,11 +754,13 @@ describe("NfmSlashMenu", () => {
       },
     );
 
-    expect(view.queryByText("Compact transcript snippet.")).toBe(null);
-
     const row = view.container.querySelector("#bn-suggestion-menu-item-0") as HTMLElement | null;
     expect(row).not.toBeNull();
     if (!row) return;
+    expect(row.textContent?.includes("…")).toBe(true);
+    expect(row.textContent?.includes("Compact transcript snippet.")).toBe(true);
+    const highlighted = row.querySelector(".font-medium");
+    expect(highlighted?.textContent).toBe("Compact");
 
     await act(async () => {
       fireEvent.focus(row);
@@ -732,43 +769,173 @@ describe("NfmSlashMenu", () => {
 
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip).not.toBeNull();
-    const tooltipText = tooltip?.textContent ?? "";
-    expect(tooltipText.includes("Alpha")).toBe(true);
-    expect(tooltipText.includes("Compact transcript snippet.")).toBe(true);
-    expect(tooltipText.includes("raw-thread-id")).toBe(false);
-    expect(tooltipText.includes("raw-uuid-v7")).toBe(false);
-    expect(tooltipText.includes(rawCwd)).toBe(false);
+    expect(tooltip?.textContent?.includes("Searchable thread")).toBe(true);
+    expect(tooltip?.textContent?.includes(fullExcerpt.trim())).toBe(true);
   });
 
-  test("page mention tooltips suppress duplicate column and status labels", async () => {
-    const item = buildNfmPageMentionSuggestionItem({}, makePalettePage({
-      columnName: "Triage",
-      page: makePage({ id: "draft-page", title: "Triage page", status: "triage" }),
-    }));
+  test("lets pointer and keyboard selection expand a section without selecting a mention", () => {
+    const query = "weekly";
+    const sourceItems = Array.from({ length: 9 }, (_, index) => ({
+        ...buildNfmThreadMentionSuggestionItems(
+          {},
+          [makePaletteThread({
+            id: `thread:${index}`,
+            threadId: `thread-${index}`,
+            title: `Weekly ${index}`,
+          })],
+          "weekly",
+        )[0]!,
+        mentionRank: {
+          family: "chat" as const,
+          match: "title" as const,
+          activeContext: true,
+          sourceOrder: index,
+        },
+      }));
+    let expandedFamily: "chat" | null = null;
+    const items = selectNfmMentionSuggestionItems(
+      query,
+      sourceItems,
+      { onExpandSection: (family) => { expandedFamily = family as "chat"; } },
+    );
+    const view = renderSuggestionMenu({
+      items,
+      loadingState: "loaded",
+      selectedIndex: 4,
+      onItemClick: (item) => { item.onItemClick(); },
+    });
+
+    expect(view.getAllByRole("option")).toHaveLength(5);
+    const moreRow = view.getByRole("option", { name: "5 more results" });
+    expect(moreRow.getAttribute("data-selected")).toBe("true");
+    expect(moreRow.getAttribute("data-mention-utility")).toBe("expand_section");
+    fireEvent.click(moreRow);
+    expect(expandedFamily).toBe("chat");
+
+    view.unmount();
+    const expandedItems = selectNfmMentionSuggestionItems(
+      query,
+      sourceItems,
+      { expandedFamilies: new Set(["chat"]) },
+    );
+    const expandedView = renderSuggestionMenu({
+      items: expandedItems,
+      loadingState: "loaded",
+      selectedIndex: 4,
+      onItemClick: () => undefined,
+    });
+    expect(expandedView.getAllByRole("option")).toHaveLength(9);
+    expect(expandedView.queryByText("5 more results")).toBeNull();
+  });
+
+  test("keeps the live suggestion menu open for pointer and Enter on utility rows", async () => {
+    let closeMenuCalls = 0;
+    let clearQueryCalls = 0;
+    let activationCalls = 0;
+    const editorElement = document.createElement("div");
+    const suggestionMenu = {
+      getMenuState: () => ({
+        triggerCharacter: "@",
+        query: "weekly",
+        show: true,
+      }),
+    };
+    const editor = {
+      domElement: editorElement,
+      _tiptapEditor: { on: () => undefined, off: () => undefined },
+      getExtension: () => suggestionMenu,
+    } as unknown as BlockNoteEditor;
+    const UtilityMenu = ({ items, onItemClick }: SuggestionMenuProps<string>) => (
+      <button type="button" onClick={() => onItemClick?.(items[0]!)}>
+        5 more results
+      </button>
+    );
+    const view = render(
+      <BlockNoteContext.Provider
+        value={{ editor, setContentEditableProps: () => undefined }}
+      >
+        <SuggestionMenuWrapper
+          triggerCharacter="@"
+          query="weekly"
+          closeMenu={() => { closeMenuCalls += 1; }}
+          clearQuery={() => { clearQueryCalls += 1; }}
+          getItems={async () => ["expand"]}
+          onItemClick={() => { activationCalls += 1; }}
+          shouldCloseOnItemClick={() => false}
+          suggestionMenuComponent={UtilityMenu}
+        />
+      </BlockNoteContext.Provider>,
+    );
+
+    await act(async () => {
+      await settleAsyncRender();
+    });
+    fireEvent.click(view.getByText("5 more results"));
+    await act(async () => {
+      editorElement.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }));
+      await Promise.resolve();
+    });
+
+    expect(activationCalls).toBe(2);
+    expect(closeMenuCalls).toBe(0);
+    expect(clearQueryCalls).toBe(0);
+  });
+
+  test("keeps a long no-result mention query open for correction", async () => {
+    let closeMenuCalls = 0;
+    const suggestionMenu = {
+      getMenuState: () => ({
+        triggerCharacter: "@",
+        query: "zzzz",
+        show: true,
+      }),
+    };
+    const editor = {
+      domElement: document.createElement("div"),
+      _tiptapEditor: { on: () => undefined, off: () => undefined },
+      getExtension: () => suggestionMenu,
+    } as unknown as BlockNoteEditor;
+    const EmptyMentionMenu = () => <div>No matching mentions</div>;
+    const view = render(
+      <BlockNoteContext.Provider
+        value={{ editor, setContentEditableProps: () => undefined }}
+      >
+        <SuggestionMenuWrapper
+          triggerCharacter="@"
+          query="zzzz"
+          closeMenu={() => { closeMenuCalls += 1; }}
+          clearQuery={() => undefined}
+          getItems={async () => []}
+          autoCloseWhenNoItems={false}
+          suggestionMenuComponent={EmptyMentionMenu}
+        />
+      </BlockNoteContext.Provider>,
+    );
+
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    expect(view.getByText("No matching mentions")).toBeTruthy();
+    expect(closeMenuCalls).toBe(0);
+  });
+
+  test("supports a mention-specific empty state", () => {
     const view = renderSuggestionMenu(
       {
-        items: [item],
+        items: [],
         loadingState: "loaded",
-        selectedIndex: 0,
+        selectedIndex: undefined,
         onItemClick: () => undefined,
+        emptyMessage: "No matching mentions",
       },
     );
 
-    expect(item.subtext).toBe("Alpha / Triage");
-
-    const row = view.container.querySelector("#bn-suggestion-menu-item-0") as HTMLElement | null;
-    expect(row).not.toBeNull();
-    if (!row) return;
-
-    await act(async () => {
-      fireEvent.focus(row);
-      await settleAsyncRender();
-    });
-
-    const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
-    expect(tooltip).not.toBeNull();
-    const tooltipText = tooltip?.textContent ?? "";
-    expect(tooltipText.includes("Alpha / Triage")).toBe(true);
-    expect(tooltipText.includes("Triage / draft")).toBe(false);
+    expect(view.getByText("No matching mentions").textContent)
+      .toBe("No matching mentions");
   });
 });

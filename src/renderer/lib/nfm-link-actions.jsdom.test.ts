@@ -66,6 +66,35 @@ describe("nfm link actions", () => {
     expect((wwwDomain as { url: string }).url).toBe("https://www.example.com/docs");
   });
 
+  test("classifies and opens Page deeplinks through the injected Page port", async () => {
+    const action = resolveNfmLinkAction("nodex://pages/page%2Falpha");
+    const opened: string[] = [];
+
+    expect(action).toEqual({
+      kind: "page",
+      href: "nodex://pages/page%2Falpha",
+      pageId: "page/alpha",
+    });
+    await expect(openNfmResolvedLinkAction(
+      action!,
+      "fileManager",
+      async () => true,
+      { assign: () => {}, open: () => {} },
+      { openPage: (pageId) => { opened.push(pageId); } },
+    )).resolves.toBe(true);
+    expect(opened).toEqual(["page/alpha"]);
+    expect(windowOpenCalls).toEqual([]);
+    expect(invokeCalls).toEqual([]);
+  });
+
+  test("fails Page deeplinks closed without a Page navigation port", async () => {
+    const action = resolveNfmLinkAction("nodex://pages/page-1");
+
+    await expect(openNfmResolvedLinkAction(action!)).resolves.toBe(false);
+    expect(windowOpenCalls).toEqual([]);
+    expect(invokeCalls).toEqual([]);
+  });
+
   test("resolves relative file-like values against project workspace", () => {
     const direct = resolveNfmLinkAction("folder/abc/file", "/workspace/project");
     const dotRelative = resolveNfmLinkAction("./foo.ts#L8", "/workspace/project");

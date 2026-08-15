@@ -67,6 +67,10 @@ const PortableRichTextItemSchema = z.discriminatedUnion("type", [
     uuid: z.string().trim().min(1).max(1_024),
   }),
   z.strictObject({
+    type: z.literal("pageMention"),
+    targetPageId: z.string().trim().min(1).max(1_024),
+  }),
+  z.strictObject({
     type: z.literal("dateMention"),
     start: z.string().trim().min(1).max(1_024),
     end: z.string().trim().min(1).max(1_024).optional(),

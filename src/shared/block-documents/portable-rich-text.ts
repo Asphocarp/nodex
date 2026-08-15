@@ -62,6 +62,11 @@ export interface PortableRichTextThreadMention {
   readonly uuid: string;
 }
 
+export interface PortableRichTextPageMention {
+  readonly type: "pageMention";
+  readonly targetPageId: string;
+}
+
 export interface PortableRichTextDateMention {
   readonly type: "dateMention";
   readonly start: string;
@@ -77,6 +82,7 @@ export type PortableRichTextItem =
   | PortableRichTextLink
   | PortableRichTextLineBreak
   | PortableRichTextThreadMention
+  | PortableRichTextPageMention
   | PortableRichTextDateMention;
 
 export type PortableRichText = readonly PortableRichTextItem[];
@@ -239,6 +245,16 @@ const readItem = (value: unknown, index: number): PortableRichTextItem => {
       uuid: readBoundedString(value.uuid, `${label}.uuid`),
     };
   }
+  if (value.type === "pageMention") {
+    assertExactKeys(value, ["type", "targetPageId"], label);
+    return {
+      type: "pageMention",
+      targetPageId: readBoundedString(
+        value.targetPageId,
+        `${label}.targetPageId`,
+      ),
+    };
+  }
   if (value.type === "dateMention") {
     assertExactKeys(
       value,
@@ -272,6 +288,7 @@ export const portableRichTextPlainText = (value: PortableRichText): string =>
       if (item.type === "text" || item.type === "link") return item.text;
       if (item.type === "linebreak") return "\n";
       if (item.type === "threadMention") return `@thread:${item.uuid}`;
+      if (item.type === "pageMention") return `@page:${item.targetPageId}`;
       const end = item.end ? `..${item.end}` : "";
       return `@date:${item.start}${end}`;
     })
@@ -379,7 +396,12 @@ const attributesToStyles = (
   return styles;
 };
 
-const atomAttribute = (item: PortableRichTextThreadMention | PortableRichTextDateMention) => ({
+const atomAttribute = (
+  item:
+    | PortableRichTextThreadMention
+    | PortableRichTextPageMention
+    | PortableRichTextDateMention,
+) => ({
   [ATOM_ATTRIBUTE]: JSON.stringify(item),
 });
 
@@ -388,7 +410,11 @@ export const portableRichTextToYTextDelta = (
 ): readonly PortableRichTextDeltaOperation[] =>
   canonicalizePortableRichText(value).map((item) => {
     if (item.type === "linebreak") return { insert: "\n" };
-    if (item.type === "threadMention" || item.type === "dateMention") {
+    if (
+      item.type === "threadMention"
+      || item.type === "pageMention"
+      || item.type === "dateMention"
+    ) {
       return { insert: PORTABLE_RICH_TEXT_ATOM_CHARACTER, attributes: atomAttribute(item) };
     }
     const attributes = {
@@ -439,7 +465,14 @@ export const portableRichTextFromYTextDelta = (
       }
       const canonical = canonicalizePortableRichText([atom]);
       const parsed = canonical[0];
-      if (!parsed || (parsed.type !== "threadMention" && parsed.type !== "dateMention")) {
+      if (
+        !parsed
+        || (
+          parsed.type !== "threadMention"
+          && parsed.type !== "pageMention"
+          && parsed.type !== "dateMention"
+        )
+      ) {
         throw new PortableRichTextError(`title Delta atom ${index} is not title-safe`);
       }
       result.push(parsed);

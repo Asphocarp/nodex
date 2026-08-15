@@ -1,5 +1,6 @@
 import { parseAssetSource } from "../assets";
 import { parseNfm } from "../nfm/parser";
+import { parsePageDeepLink } from "../nodex-deeplink";
 import type { NfmBlock, NfmInlineContent } from "../nfm/types";
 import type { BlockTreeNode } from "./block-document-codec";
 import {
@@ -9,6 +10,13 @@ import {
 } from "./contracts";
 
 export type BlockDocumentReference =
+  | {
+      readonly kind: "page";
+      readonly sourceBlockId: BlockId;
+      readonly targetPageId: string;
+      readonly presentation: "mention" | "reference_block" | "link";
+      readonly occurrenceCount: number;
+    }
   | {
       readonly kind: "block";
       readonly sourceBlockId: BlockId;
@@ -104,6 +112,27 @@ const appendResolvedAssetReference = (
   });
 };
 
+const appendPageReference = (
+  references: BlockDocumentReference[],
+  input: Extract<BlockDocumentReference, { readonly kind: "page" }>,
+): void => {
+  const existingIndex = references.findIndex((reference) =>
+    reference.kind === "page"
+    && reference.sourceBlockId === input.sourceBlockId
+    && reference.targetPageId === input.targetPageId
+    && reference.presentation === input.presentation);
+  if (existingIndex === -1) {
+    references.push(input);
+    return;
+  }
+  const existing = references[existingIndex];
+  if (existing?.kind !== "page") return;
+  references[existingIndex] = {
+    ...existing,
+    occurrenceCount: existing.occurrenceCount + input.occurrenceCount,
+  };
+};
+
 const collectInlineReferences = (
   sourceBlockId: BlockId,
   inline: readonly NfmInlineContent[],
@@ -116,6 +145,29 @@ const collectInlineReferences = (
         kind: "thread",
         sourceBlockId,
         targetThreadId: item.uuid,
+      });
+      continue;
+    }
+    if (item.type === "pageMention") {
+      assertCanonicalReferenceId(item.targetPageId, "targetPageId");
+      appendPageReference(references, {
+        kind: "page",
+        sourceBlockId,
+        targetPageId: item.targetPageId,
+        presentation: "mention",
+        occurrenceCount: 1,
+      });
+      continue;
+    }
+    if (item.type === "link") {
+      const target = parsePageDeepLink(item.href);
+      if (!target) continue;
+      appendPageReference(references, {
+        kind: "page",
+        sourceBlockId,
+        targetPageId: target.pageId,
+        presentation: "link",
+        occurrenceCount: 1,
       });
       continue;
     }
@@ -203,10 +255,12 @@ const collectDerivedRecords = (
       );
     } else if (nfmBlock.type === "pageRef") {
       assertCanonicalReferenceId(nfmBlock.targetBlockId, "targetBlockId");
-      references.push({
-        kind: "block",
+      appendPageReference(references, {
+        kind: "page",
         sourceBlockId: block.id,
-        targetBlockId: nfmBlock.targetBlockId,
+        targetPageId: nfmBlock.targetBlockId,
+        presentation: "reference_block",
+        occurrenceCount: 1,
       });
     } else if (nfmBlock.type === "cardRef") {
       references.push({

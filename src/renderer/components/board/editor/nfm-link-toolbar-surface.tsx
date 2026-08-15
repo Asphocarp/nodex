@@ -164,6 +164,8 @@ export interface NfmCreateLinkDialogSurfaceProps {
   onUrlChange: (value: string) => void;
   onUrlKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   onSubmit: () => void;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
 }
 
 export const NfmLinkEditDialogSurface = forwardRef<
@@ -274,6 +276,8 @@ export const NfmCreateLinkDialogSurface = forwardRef<
     onUrlChange,
     onUrlKeyDown,
     onSubmit,
+    secondaryActionLabel,
+    onSecondaryAction,
   },
   ref,
 ) {
@@ -318,6 +322,15 @@ export const NfmCreateLinkDialogSurface = forwardRef<
         >
           {submitLabel}
         </NodexButton>
+        {secondaryActionLabel && onSecondaryAction ? (
+          <button
+            type="button"
+            onClick={onSecondaryAction}
+            className="mt-1.5 inline-flex h-7 w-full items-center justify-center rounded-md text-xs text-token-text-secondary outline-hidden hover:bg-token-foreground/5 hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border"
+          >
+            {secondaryActionLabel}
+          </button>
+        ) : null}
       </div>
     </div>
   );

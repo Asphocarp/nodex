@@ -63,7 +63,11 @@ function toPortableItem(item: NfmInlineContent): PortableRichTextItem {
   if (item.type === "text" || item.type === "link") {
     return { ...item, styles: portableStyles(item.styles) };
   }
-  if (item.type === "threadMention" || item.type === "dateMention") {
+  if (
+    item.type === "threadMention"
+    || item.type === "pageMention"
+    || item.type === "dateMention"
+  ) {
     return item;
   }
   if (item.type === "linebreak") {

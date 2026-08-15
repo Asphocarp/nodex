@@ -10,8 +10,9 @@ import type { BlockPropertyFieldMutationV2 } from "./block-property-mutations-v2
 import type { DatabaseApplyOperationV2 } from "./database-module-v2";
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
+import type { WorkflowStatus } from "./workflow-status";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 13 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 15 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -103,6 +104,30 @@ export interface LibraryCatalogEntry {
   readonly metadataRevision: number;
 }
 
+export interface LibraryPageReferenceCandidate {
+  readonly pageId: string;
+  readonly title: string;
+  readonly pageKey: string | null;
+  readonly status: WorkflowStatus | null;
+  readonly locationLabel: string;
+  readonly matchExcerpt: string | null;
+}
+
+export type LibraryPageReferencePresentation =
+  | "mention"
+  | "reference_block"
+  | "link";
+
+export interface LibraryPageBacklink {
+  readonly sourcePageId: string;
+  readonly sourceBlockId: string;
+  readonly sourceTitle: string;
+  readonly locationLabel: string;
+  readonly presentations: readonly LibraryPageReferencePresentation[];
+  readonly occurrenceCount: number;
+  readonly updatedAt: string;
+}
+
 export type LibraryMoveDestinationScope =
   | { readonly kind: "suggested" }
   | {
@@ -158,6 +183,17 @@ export type LibraryRead =
       readonly mode: "move_destinations";
       readonly target: LibraryResourceTarget;
       readonly scope: LibraryMoveDestinationScope;
+      readonly cursor?: string;
+      readonly limit?: number;
+    }
+  | {
+      readonly mode: "page_reference_candidates";
+      readonly query: string;
+      readonly limit?: number;
+    }
+  | {
+      readonly mode: "page_backlinks";
+      readonly targetPageId: string;
       readonly cursor?: string;
       readonly limit?: number;
     };
@@ -244,6 +280,19 @@ export type LibraryReadValue =
       readonly hasMore: boolean;
       readonly total: number;
       readonly rootIsCurrent: boolean;
+    }
+  | {
+      readonly kind: "page_reference_candidates";
+      readonly items: readonly LibraryPageReferenceCandidate[];
+    }
+  | {
+      readonly kind: "page_backlinks";
+      readonly targetPageId: string;
+      readonly items: readonly LibraryPageBacklink[];
+      readonly nextCursor: string | null;
+      readonly hasMore: boolean;
+      readonly total: number;
+      readonly sourcePageCount: number;
     };
 
 export interface LibraryModuleReadSnapshot {
@@ -300,6 +349,7 @@ export type LibraryWriteParent =
       readonly expectedDocumentGeneration: number;
       readonly expectedDocumentHeadSeq: number;
       readonly before?: LibraryPlacementAnchor;
+      readonly insertion?: LibraryPageInsertion;
     };
 
 export interface CreateLibraryPageOperation {

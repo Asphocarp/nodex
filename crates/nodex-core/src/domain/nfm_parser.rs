@@ -415,7 +415,7 @@ fn parse_self_closing_block(
         "page" | "card" => NfmBlock::Page {
             uuid: attrs.get("uuid").cloned().unwrap_or_default(),
         },
-        "page-ref" | "mention-card" => {
+        "page-ref" => {
             let url = attrs.get("url").cloned().unwrap_or_default();
             let target_block_id = parse_page_deep_link(&url)
                 .ok_or_else(|| syntax(line_index, "Page reference URL is invalid"))?;
@@ -968,30 +968,16 @@ fn materialize_parsed_block(
         NfmBlock::Page { .. } => ("page", BTreeMap::new(), None, &[]),
         NfmBlock::PageRef { target_block_id } => (
             "pageRef",
-            BTreeMap::from([
-                (
-                    "targetBlockId".to_owned(),
-                    Value::String(target_block_id.clone()),
-                ),
-                ("sourceProjectId".to_owned(), Value::String(String::new())),
-                ("cardId".to_owned(), Value::String(String::new())),
-            ]),
+            BTreeMap::from([(
+                "targetBlockId".to_owned(),
+                Value::String(target_block_id.clone()),
+            )]),
             None,
             &[],
         ),
-        NfmBlock::CardRef {
-            source_project_id,
-            page_id,
-        } => (
+        NfmBlock::CardRef { page_id, .. } => (
             "pageRef",
-            BTreeMap::from([
-                ("targetBlockId".to_owned(), Value::String(String::new())),
-                (
-                    "sourceProjectId".to_owned(),
-                    Value::String(source_project_id.clone()),
-                ),
-                ("cardId".to_owned(), Value::String(page_id.clone())),
-            ]),
+            BTreeMap::from([("targetBlockId".to_owned(), Value::String(page_id.clone()))]),
             None,
             &[],
         ),
@@ -1153,6 +1139,10 @@ fn inline_item_json(item: &NfmInlineContent) -> Value {
         NfmInlineContent::ThreadMention { uuid } => serde_json::json!({
             "type": "threadMention",
             "props": { "uuid": uuid },
+        }),
+        NfmInlineContent::PageMention { target_page_id } => serde_json::json!({
+            "type": "pageMention",
+            "props": { "targetPageId": target_page_id },
         }),
         NfmInlineContent::DateMention(date) => serde_json::json!({
             "type": "dateMention",

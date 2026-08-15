@@ -13,12 +13,14 @@ describe("Agent inline Markdown titles", () => {
       '<span color="blue">blue</span> ',
       "`code` [**docs**](https://example.com/a) ",
       '<mention-thread uuid="thread-1" /> ',
+      '<mention-page url="nodex://pages/page-1" /> ',
       '<mention-date start="2026-07-16" format="ll" />',
     ].join("");
     const parsed = parseInlineMarkdownTitle(markdown);
 
     expect(parsed.some((item) => item.type === "link" && item.styles.bold)).toBe(true);
     expect(parsed.some((item) => item.type === "threadMention")).toBe(true);
+    expect(parsed.some((item) => item.type === "pageMention")).toBe(true);
     expect(parsed.some((item) => item.type === "dateMention")).toBe(true);
     expect(parseInlineMarkdownTitle(serializeInlineMarkdownTitle(parsed))).toEqual(parsed);
   });

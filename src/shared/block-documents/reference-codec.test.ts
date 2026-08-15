@@ -181,7 +181,7 @@ describe("Block-first reference codec", () => {
     }
   });
 
-  test("materialization separates canonical references from legacy projections", () => {
+  test("materialization canonicalizes legacy Card references as Page edges", () => {
     const materialization = createPageDocumentGenesis({
       documentId: "reference-kinds",
       title: "References",
@@ -195,19 +195,19 @@ describe("Block-first reference codec", () => {
 
     expect(
       materialization.references.map((reference) => reference.kind).join(","),
-    ).toBe("block,database_view,legacy_card_projection,legacy_database_query");
+    ).toBe("page,database_view,page,legacy_database_query");
     expect(
       materialization.references
         .filter(isLegacyForeignBodyReference)
         .map((reference) => reference.kind)
         .join(","),
-    ).toBe("legacy_card_projection,legacy_database_query");
+    ).toBe("legacy_database_query");
     expect(
       materialization.references
         .filter((reference) => !isLegacyForeignBodyReference(reference))
         .map((reference) => reference.kind)
         .join(","),
-    ).toBe("block,database_view");
+    ).toBe("page,database_view,page");
   });
 
   test("the legacy foreign-body predicate does not reject canonical targets", () => {

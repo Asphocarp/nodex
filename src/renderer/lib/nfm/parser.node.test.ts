@@ -211,6 +211,35 @@ describe("NFM code fences", () => {
     expect(serializeNfm(blocks)).toBe("\\<mention-thread /\\> \\<mention-thread uuid=\"\" /\\>");
   });
 
+  test("Page mentions round-trip through canonical deeplinks", () => {
+    const nfm = 'before <mention-page url="nodex://pages/page%2Falpha" /> after';
+    const blocks = parseNfm(nfm);
+
+    expect(blocks[0]?.type).toBe("paragraph");
+    if (blocks[0]?.type !== "paragraph") return;
+    expect(blocks[0].content[1]).toEqual({
+      type: "pageMention",
+      targetPageId: "page/alpha",
+    });
+    expect(serializeNfm(blocks)).toBe(nfm);
+    expect(serializeClipboardText(blocks)).toBe(
+      "before [Page: page/alpha] after",
+    );
+  });
+
+  test("invalid Page mention tags remain plain text", () => {
+    const blocks = parseNfm([
+      '<mention-page url="https://example.com/page" />',
+      '<mention-page url="nodex://pages/page-1" title="stale" />',
+      "<mention-page />",
+    ].join(" "));
+
+    expect(blocks[0]?.type).toBe("paragraph");
+    if (blocks[0]?.type !== "paragraph") return;
+    expect(blocks[0].content).toHaveLength(1);
+    expect(blocks[0].content[0]?.type).toBe("text");
+  });
+
   test("date mentions round-trip inline and copy as deterministic labels", () => {
     const nfm = 'before <mention-date start="2026-06-28" format="relative" /> and <mention-date start="2026-06-28T14:30:00+08:00" tz="Asia/Shanghai" format="relative" time-format="12h" reminder="minute:0" /> after';
     const blocks = parseNfm(nfm);
