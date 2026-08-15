@@ -109,6 +109,7 @@ export function mergePendingWorktreesIntoSidebarSnapshot(
       preview: entry.prompt,
       cwd: entry.sourceWorkspaceRoot,
       updatedAt: entry.createdAt,
+      recencyAt: null,
       createdAt: entry.createdAt,
       pinned: entry.isPinned,
       pinnedOrder: null,
@@ -330,9 +331,8 @@ function resolveItemPinnedOrder(entry: SidebarThreadSortEntry): number {
   return entry.item.pinnedOrder ?? entry.session?.pinnedOrder ?? Number.MAX_SAFE_INTEGER;
 }
 
-function resolveItemUpdatedAt(entry: SidebarThreadSortEntry): number {
-  return finiteNumberOrNull(entry.item.updatedAt)
-    ?? parseDateMs(entry.session?.updatedAt)
+function resolveItemRecencyAt(entry: SidebarThreadSortEntry): number {
+  return finiteNumberOrNull(entry.item.recencyAt)
     ?? 0;
 }
 
@@ -365,8 +365,8 @@ function compareSidebarThreadSortEntries(left: SidebarThreadSortEntry, right: Si
     if (sessionOrderDelta !== 0) return sessionOrderDelta;
   }
 
-  const updatedAtDelta = resolveItemUpdatedAt(right) - resolveItemUpdatedAt(left);
-  if (updatedAtDelta !== 0) return updatedAtDelta;
+  const recencyAtDelta = resolveItemRecencyAt(right) - resolveItemRecencyAt(left);
+  if (recencyAtDelta !== 0) return recencyAtDelta;
 
   const createdAtDelta = resolveItemCreatedAt(right) - resolveItemCreatedAt(left);
   if (createdAtDelta !== 0) return createdAtDelta;

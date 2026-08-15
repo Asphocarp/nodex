@@ -21,6 +21,7 @@ describe("Codex Thread timestamp reconciliation", () => {
     })).toEqual({
       createdAt: 1_783_000_829_000,
       updatedAt: 1_783_000_989_000,
+      recencyAt: 1_783_000_989_000,
     });
   });
 
@@ -33,6 +34,7 @@ describe("Codex Thread timestamp reconciliation", () => {
     })).toEqual({
       createdAt: 1_784_744_658_000,
       updatedAt: 1_784_744_712_000,
+      recencyAt: 1_784_744_712_000,
     });
   });
 
@@ -44,10 +46,12 @@ describe("Codex Thread timestamp reconciliation", () => {
       existing: {
         createdAt: 10_000,
         updatedAt: 40_000,
+        recencyAt: 35_000,
       },
     })).toEqual({
       createdAt: 10_000,
       updatedAt: 40_000,
+      recencyAt: 35_000,
     });
   });
 
@@ -60,6 +64,25 @@ describe("Codex Thread timestamp reconciliation", () => {
     })).toEqual({
       createdAt: 10_000,
       updatedAt: 10_000,
+      recencyAt: 10_000,
+    });
+  });
+
+  test("advances recency only from the app-server recency clock", () => {
+    expect(reconcileCodexThreadTimestamps({
+      threadId: "thread-custom",
+      observedCreatedAt: undefined,
+      observedUpdatedAt: 50,
+      observedRecencyAt: 30,
+      existing: {
+        createdAt: 10_000,
+        updatedAt: 40_000,
+        recencyAt: 30_000,
+      },
+    })).toEqual({
+      createdAt: 10_000,
+      updatedAt: 50_000,
+      recencyAt: 30_000,
     });
   });
 });

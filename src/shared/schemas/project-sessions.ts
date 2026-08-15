@@ -170,4 +170,5 @@ export const ProjectSessionThreadLinkInputSchema = z.object({
   archived: z.boolean().optional(),
   createdAt: z.number().finite().optional(),
   updatedAt: z.number().finite().optional(),
+  recencyAt: z.number().finite().optional(),
 }) satisfies z.ZodType<ProjectSessionThreadLinkInput>;

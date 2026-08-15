@@ -2485,6 +2485,45 @@ fn validate_v125_default_draft_sessions(connection: &Connection) -> Result<(), S
     Ok(())
 }
 
+fn ensure_v126_thread_recency(connection: &Connection) -> Result<(), StoreError> {
+    let column_count: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('codex_threads') \
+         WHERE name = 'recency_at'",
+        [],
+        |row| row.get(0),
+    )?;
+    if column_count == 0 {
+        connection.execute_batch(
+            "ALTER TABLE codex_threads \
+             ADD COLUMN recency_at INTEGER NOT NULL DEFAULT 0 CHECK (recency_at >= 0); \
+             UPDATE codex_threads SET recency_at = updated_at;",
+        )?;
+    } else if column_count != 1 {
+        return Err(corrupt("Thread recency column is ambiguous"));
+    }
+    connection.execute_batch(
+        "DROP INDEX IF EXISTS idx_codex_threads_project_updated; \
+         CREATE INDEX IF NOT EXISTS idx_codex_threads_project_recency \
+           ON codex_threads(project_id, recency_at DESC);",
+    )?;
+    validate_v126_thread_recency(connection)
+}
+
+fn validate_v126_thread_recency(connection: &Connection) -> Result<(), StoreError> {
+    let invalid: i64 = connection.query_row(
+        "SELECT count(*) FROM codex_threads \
+         WHERE recency_at < created_at OR recency_at < 0",
+        [],
+        |row| row.get(0),
+    )?;
+    if invalid != 0 {
+        return Err(corrupt(
+            "v126 Store contains invalid Thread recency timestamps",
+        ));
+    }
+    Ok(())
+}
+
 pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
@@ -2519,6 +2558,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v120_document_block_tombstones(connection)?;
         validate_v124_thread_execution_hosts(connection)?;
         validate_v125_default_draft_sessions(connection)?;
+        validate_v126_thread_recency(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -2552,6 +2592,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v120_document_block_tombstones(connection)?;
         validate_v124_thread_execution_hosts(connection)?;
         validate_v125_default_draft_sessions(connection)?;
+        validate_v126_thread_recency(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -2614,6 +2655,7 @@ pub fn prepare_profile_store_with_observer(
     validate_v120_document_block_tombstones(connection)?;
     validate_v124_thread_execution_hosts(connection)?;
     validate_v125_default_draft_sessions(connection)?;
+    validate_v126_thread_recency(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2678,6 +2720,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_v120_document_block_tombstones(connection)?;
     validate_v124_thread_execution_hosts(connection)?;
     validate_v125_default_draft_sessions(connection)?;
+    validate_v126_thread_recency(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2771,6 +2814,7 @@ fn upgrade_owned_store(
         122 => validate_exact_v122_schema(connection)?,
         123 => validate_exact_v123_schema(connection)?,
         124 => validate_exact_v124_schema(connection)?,
+        125 => validate_exact_v125_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2919,6 +2963,7 @@ fn upgrade_owned_store(
         }
         ensure_v124_thread_execution_hosts(transaction)?;
         ensure_v125_default_draft_sessions(transaction)?;
+        ensure_v126_thread_recency(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -3395,6 +3440,7 @@ fn publish_current_store(
         ensure_v121_page_key_authority(transaction, now)?;
         ensure_v124_thread_execution_hosts(transaction)?;
         ensure_v125_default_draft_sessions(transaction)?;
+        ensure_v126_thread_recency(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -3450,6 +3496,7 @@ fn create_fresh_store(
         ensure_v121_page_key_authority(transaction, now)?;
         ensure_v124_thread_execution_hosts(transaction)?;
         ensure_v125_default_draft_sessions(transaction)?;
+        ensure_v126_thread_recency(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -7686,6 +7733,13 @@ fn validate_exact_v124_schema(connection: &Connection) -> Result<(), StoreError>
     validate_v124_thread_execution_hosts(connection)
 }
 
+fn validate_exact_v125_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 125)?;
+    validate_v121_page_key_invariants(connection)?;
+    validate_v124_thread_execution_hosts(connection)?;
+    validate_v125_default_draft_sessions(connection)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -7700,7 +7754,8 @@ fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreErr
     )?;
     validate_v121_page_key_invariants(connection)?;
     validate_v124_thread_execution_hosts(connection)?;
-    validate_v125_default_draft_sessions(connection)
+    validate_v125_default_draft_sessions(connection)?;
+    validate_v126_thread_recency(connection)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7877,6 +7932,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 125 {
         ensure_v125_default_draft_sessions(&expected)?;
     }
+    if schema_version >= 126 {
+        ensure_v126_thread_recency(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -8032,6 +8090,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     if version >= 125 {
         ensure_v125_default_draft_sessions(&expected)?;
     }
+    if version >= 126 {
+        ensure_v126_thread_recency(&expected)?;
+    }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
@@ -8168,6 +8229,17 @@ mod tests {
                 "DROP INDEX idx_project_sessions_default_draft_project; \
                  DROP INDEX idx_project_sessions_default_draft_projectless; \
                  ALTER TABLE project_sessions DROP COLUMN is_default_draft;",
+            )
+            .map_err(StoreError::from)
+    }
+
+    fn remove_v126_thread_recency_schema(connection: &Connection) -> Result<(), StoreError> {
+        connection
+            .execute_batch(
+                "DROP INDEX idx_codex_threads_project_recency; \
+                 ALTER TABLE codex_threads DROP COLUMN recency_at; \
+                 CREATE INDEX idx_codex_threads_project_updated \
+                   ON codex_threads(project_id, updated_at DESC);",
             )
             .map_err(StoreError::from)
     }
@@ -8843,6 +8915,63 @@ mod tests {
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current Store");
         assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
         assert!(!reopened.preparation().created_fresh);
+    }
+
+    #[test]
+    fn v126_thread_recency_backfills_from_the_source_thread_clock() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO codex_threads( \
+                           thread_id, thread_preview, model_provider, execution_host_id, \
+                           status_type, status_active_flags_json, archived, created_at, \
+                           updated_at, recency_at, linked_at \
+                         ) VALUES ('thread:v125', '', '', 'local', 'idle', '[]', 0, \
+                           100, 200, 200, '2026-08-16T00:00:00.000Z')",
+                        [],
+                    )?;
+                    remove_v126_thread_recency_schema(transaction)?;
+                    transaction.execute_batch(
+                        "UPDATE core_store_metadata SET store_format_version = 125 WHERE id = 1; \
+                         PRAGMA user_version = 125;",
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed owned v125 Store");
+        drop(kernel);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("migrate v125 Store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(125));
+        let migrated = upgraded
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT thread.recency_at, \
+                           (SELECT count(*) FROM sqlite_schema \
+                            WHERE type = 'index' AND name = 'idx_codex_threads_project_recency'), \
+                           (SELECT count(*) FROM sqlite_schema \
+                            WHERE type = 'index' AND name = 'idx_codex_threads_project_updated') \
+                         FROM codex_threads thread WHERE thread.thread_id = 'thread:v125'",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("read migrated Thread recency");
+        assert_eq!(migrated, (200, 1, 0));
     }
 
     #[test]

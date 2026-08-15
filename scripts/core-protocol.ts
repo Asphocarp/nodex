@@ -96,6 +96,16 @@ export function verifyProtocol(): void {
     assertSame(committedOpenApi, artifacts.openApi);
     assertSame(committedTypes, artifacts.types);
     assertSame(committedRequirements, artifacts.requirements);
+    run("cargo", [
+      "test",
+      "--quiet",
+      "-p",
+      "nodex-core",
+      "--lib",
+      "infrastructure::migration::tests::published_current_store_identity_matches_the_exact_schema",
+      "--",
+      "--exact",
+    ]);
   } finally {
     rmSync(staging, { recursive: true, force: true });
   }

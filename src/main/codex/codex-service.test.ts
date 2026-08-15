@@ -850,6 +850,7 @@ function makeDesktopWorkspaceThread(
     hasUnreadTurn: false,
     createdAt: 1,
     updatedAt: 2,
+    recencyAt: 2,
     linkedAt: "2026-07-20T00:00:00.000Z",
     ...overrides,
   };
@@ -1150,6 +1151,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
             archived: thread.archived,
             createdAt: thread.createdAt,
             updatedAt: thread.updatedAt,
+            recencyAt: thread.recencyAt,
             linkedAt: thread.linkedAt,
           },
           createdAt: thread.linkedAt,
@@ -1312,6 +1314,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         archived: input.archived,
         createdAt: input.createdAt,
         updatedAt: input.updatedAt,
+        recencyAt: input.recencyAt,
       });
       return {
         sessionId: input.sessionId,
@@ -1332,6 +1335,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         archived: thread.archived,
         createdAt: thread.createdAt,
         updatedAt: thread.updatedAt,
+        recencyAt: thread.recencyAt,
         linkedAt: thread.linkedAt,
       };
     },
@@ -2243,6 +2247,136 @@ test("returns after the first sidebar page and serializes a forced refresh at th
   } finally {
     releaseSecondWindow();
     await service.shutdown();
+  }
+});
+
+test("turn completion refreshes app-server recency into the sidebar snapshot", async () => {
+  vi.useFakeTimers();
+  const threadId = "thread:recency";
+  const sessionId = "session:recency";
+  const baseWorkspace = createTestProjectWorkspace();
+  await baseWorkspace.upsertThread(threadId, {
+    projectId: null,
+    threadName: "Recency",
+    threadPreview: "Recency",
+    modelProvider: "openai",
+    cwd: "/tmp/recency",
+    status: { statusType: "idle", activeFlags: [] },
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    recencyAt: 1_000,
+  });
+  await baseWorkspace.upsertProjectSessionThreadLink({
+    sessionId,
+    projectId: null,
+    threadId,
+    threadName: "Recency",
+    threadPreview: "Recency",
+    modelProvider: "openai",
+    cwd: "/tmp/recency",
+    statusType: "idle",
+    statusActiveFlags: [],
+    archived: false,
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    recencyAt: 1_000,
+  });
+  await baseWorkspace.setThreadPinned(threadId, true);
+  const projectWorkspace = {
+    ...baseWorkspace,
+    getProjectSession: async (candidateSessionId: string) =>
+      candidateSessionId === sessionId
+        ? { id: sessionId, projectId: null } as ProjectSession
+        : null,
+  } as DesktopProjectWorkspacePort;
+  const service = createService({ projectWorkspace });
+  const client = Reflect.get(service as object, "client") as {
+    start: () => Promise<void>;
+    request: (method: string, params: unknown) => Promise<unknown>;
+  };
+  const hostMessages: CodexHostMessage[] = [];
+  let threadListRequests = 0;
+  let markStaleRequestStarted!: () => void;
+  const staleRequestStarted = new Promise<void>((resolve) => {
+    markStaleRequestStarted = resolve;
+  });
+  let releaseStaleRequest!: () => void;
+  const staleRequestGate = new Promise<void>((resolve) => {
+    releaseStaleRequest = resolve;
+  });
+  client.start = async () => undefined;
+  client.request = async (method) => {
+    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
+    threadListRequests += 1;
+    const requestNumber = threadListRequests;
+    if (requestNumber === 1) {
+      markStaleRequestStarted();
+      await staleRequestGate;
+    }
+    const recencyAt = requestNumber === 1 ? 1 : 20;
+    return {
+      data: [{
+        ...makeProtocolThread(threadId, "/tmp/recency"),
+        createdAt: 1,
+        updatedAt: recencyAt,
+        recencyAt,
+        status: { type: "idle" },
+      }],
+      nextCursor: null,
+    };
+  };
+  service.on("hostMessage", (message) => {
+    hostMessages.push(message);
+  });
+  const internals = service as unknown as {
+    handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
+  };
+
+  try {
+    const staleSync = service.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "manual",
+    });
+    await staleRequestStarted;
+    expect(threadListRequests).toBe(1);
+
+    await internals.handleNotification({
+      method: "turn/completed",
+      params: {
+        threadId,
+        turn: completeLegacyProtocolTurnFixture({
+          id: "turn:recency",
+          status: "completed",
+        }),
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(threadListRequests).toBe(1);
+
+    releaseStaleRequest();
+    await staleSync;
+    for (let attempt = 0; attempt < 10 && threadListRequests < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+    const syncInFlight = Reflect.get(service as object, "sidebarSyncInFlight") as
+      | Promise<import("../../shared/types").CodexSidebarSyncResult>
+      | null;
+    await syncInFlight;
+
+    expect(threadListRequests).toBe(2);
+    expect((await projectWorkspace.getThread(threadId))?.recencyAt).toBe(20_000);
+    const syncMessage = hostMessages.findLast(
+      (message): message is Extract<CodexHostMessage, { type: "sidebarSyncUpdated" }> =>
+        message.type === "sidebarSyncUpdated",
+    );
+    expect(syncMessage?.result.snapshot.items.find(
+      (item) => item.threadId === threadId,
+    )?.recencyAt).toBe(20_000);
+  } finally {
+    releaseStaleRequest();
+    await service.shutdown();
+    vi.useRealTimers();
   }
 });
 

@@ -5,12 +5,20 @@ const MILLIS_TIMESTAMP_THRESHOLD = 10_000_000_000;
 export interface CodexThreadTimestampState {
   readonly createdAt: number;
   readonly updatedAt: number;
+  readonly recencyAt?: number;
+}
+
+export interface ReconciledCodexThreadTimestamps {
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly recencyAt: number;
 }
 
 export interface ReconcileCodexThreadTimestampsInput {
   readonly threadId: string;
   readonly observedCreatedAt: unknown;
   readonly observedUpdatedAt: unknown;
+  readonly observedRecencyAt?: unknown;
   readonly existing: CodexThreadTimestampState | null;
   readonly nowMs?: number;
 }
@@ -77,8 +85,10 @@ function resolveNewThreadCreatedAt(input: {
  */
 export function reconcileCodexThreadTimestamps(
   input: ReconcileCodexThreadTimestampsInput,
-): CodexThreadTimestampState {
+): ReconciledCodexThreadTimestamps {
   const observedUpdatedAt = normalizeObservedTimestamp(input.observedUpdatedAt);
+  const observedRecencyAt = normalizeObservedTimestamp(input.observedRecencyAt)
+    ?? observedUpdatedAt;
   if (input.existing) {
     return {
       createdAt: input.existing.createdAt,
@@ -86,6 +96,11 @@ export function reconcileCodexThreadTimestamps(
         input.existing.createdAt,
         input.existing.updatedAt,
         observedUpdatedAt ?? input.existing.updatedAt,
+      ),
+      recencyAt: Math.max(
+        input.existing.createdAt,
+        input.existing.recencyAt ?? input.existing.updatedAt,
+        observedRecencyAt ?? input.existing.recencyAt ?? input.existing.updatedAt,
       ),
     };
   }
@@ -101,5 +116,6 @@ export function reconcileCodexThreadTimestamps(
   return {
     createdAt,
     updatedAt: Math.max(createdAt, observedUpdatedAt ?? createdAt),
+    recencyAt: Math.max(createdAt, observedRecencyAt ?? createdAt),
   };
 }

@@ -35,6 +35,7 @@ function makeThread(input: {
   parentThreadId?: string | null;
   pinned?: boolean;
   updatedAt?: number;
+  recencyAt?: number | null;
 }): CodexSidebarThreadItem {
   return {
     key: `local:${input.threadId}`,
@@ -49,6 +50,7 @@ function makeThread(input: {
     preview: "",
     cwd: input.projectId ? `/work/${input.projectId}` : null,
     updatedAt: input.updatedAt ?? 0,
+    recencyAt: input.recencyAt === undefined ? input.updatedAt ?? 0 : input.recencyAt,
     createdAt: 0,
     pinned: input.pinned === true,
     pinnedOrder: input.pinned === true ? 0 : null,
@@ -439,6 +441,31 @@ describe("pending-aware pinned thread order", () => {
 });
 
 describe("sortSidebarThreadKeysForDisplay", () => {
+  test("orders attached Threads by conversation recency instead of metadata time", () => {
+    const metadataRecent = makeThread({
+      threadId: "thread-metadata",
+      projectId: "alpha",
+      updatedAt: 300,
+      recencyAt: 100,
+    });
+    const conversationRecent = makeThread({
+      threadId: "thread-conversation",
+      projectId: "alpha",
+      updatedAt: 200,
+      recencyAt: 200,
+    });
+    const itemsByKey = new Map([
+      [metadataRecent.key, metadataRecent],
+      [conversationRecent.key, conversationRecent],
+    ]);
+
+    expect(sortSidebarThreadKeysForDisplay({
+      threadKeys: [metadataRecent.key, conversationRecent.key],
+      itemsByKey,
+      sessionsById: new Map(),
+    })).toEqual([conversationRecent.key, metadataRecent.key]);
+  });
+
   test("sorts snapshot and fallback rows with one display comparator", () => {
     const olderSnapshotThread = makeThread({
       threadId: "thread-older",

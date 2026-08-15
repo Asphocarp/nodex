@@ -145,7 +145,7 @@ fn read_task_window_in_scope(
              substr(thread.thread_preview, 1, 1024), thread.execution_host_id, thread.cwd, \
              thread.managed_worktree_path, thread.status_type, \
              thread.status_active_flags_json, thread.archived, thread.created_at, \
-             thread.updated_at, thread.linked_at, \
+             thread.updated_at, thread.recency_at, thread.linked_at, \
              CASE WHEN session.pinned = 1 THEN 0 ELSE 1 END AS pin_bucket, \
              CASE WHEN session.pinned = 1 \
                THEN COALESCE(session.pinned_order, 9223372036854775807) \
@@ -154,10 +154,9 @@ fn read_task_window_in_scope(
                  WHERE lane_position.scope_key = lane.scope_key\
                ) THEN session.\"order\" \
                WHEN lane.order_mode = 'manual' \
-                 THEN COALESCE(position.rank_key, -COALESCE(thread.updated_at, session.\"order\")) \
+                 THEN COALESCE(position.rank_key, -COALESCE(thread.recency_at, session.\"order\")) \
                ELSE -COALESCE(\
-                 thread.updated_at, \
-                 CAST(unixepoch(session.updated_at, 'subsec') * 1000 AS INTEGER), \
+                 thread.recency_at, \
                  session.\"order\"\
                ) END AS lane_order \
            FROM project_sessions session \
@@ -253,7 +252,8 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
                     archived: row.get::<_, i64>(27)? == 1,
                     created_at: row.get(28)?,
                     updated_at: row.get(29)?,
-                    linked_at: row.get(30)?,
+                    recency_at: row.get(30)?,
+                    linked_at: row.get(31)?,
                 })
             },
         )
@@ -298,7 +298,7 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
         },
         thread,
     };
-    Ok((task, row.get(31)?, row.get(32)?))
+    Ok((task, row.get(32)?, row.get(33)?))
 }
 
 pub(crate) fn bounded_preview(value: &str) -> String {

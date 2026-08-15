@@ -937,6 +937,7 @@ export interface ProjectSessionThreadLink {
   archived: boolean;
   createdAt: number;
   updatedAt: number;
+  recencyAt?: number;
   linkedAt: string;
 }
 
@@ -961,6 +962,7 @@ export interface ProjectSessionThreadSummary {
   archived: boolean;
   createdAt: number;
   updatedAt: number;
+  recencyAt?: number;
   linkedAt: string;
 }
 
@@ -1200,6 +1202,7 @@ export interface ProjectSessionThreadLinkInput {
   archived?: boolean;
   createdAt?: number;
   updatedAt?: number;
+  recencyAt?: number;
 }
 
 export type CodexSidebarThreadKind = "local" | "remote" | "pending-worktree";
@@ -1240,6 +1243,7 @@ export interface CodexSidebarThreadItem {
   preview: string;
   cwd: string | null;
   updatedAt: number;
+  recencyAt?: number | null;
   createdAt: number;
   pinned: boolean;
   pinnedOrder: number | null;
@@ -1813,6 +1817,7 @@ export interface CodexThreadSummary {
   hasUnreadTurn?: boolean;
   createdAt: number;
   updatedAt: number;
+  recencyAt?: number;
   linkedAt: string;
 }
 
