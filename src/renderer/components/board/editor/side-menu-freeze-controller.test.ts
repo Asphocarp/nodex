@@ -42,6 +42,49 @@ describe("createSideMenuFreezeController", () => {
 
     expect(calls.join(",")).toBe("freeze,unfreeze");
   });
+
+  test("keeps the menu frozen until every independent lease is released", () => {
+    const calls: string[] = [];
+    const controller = createSideMenuFreezeController({
+      freezeMenu: () => {
+        calls.push("freeze");
+      },
+      unfreezeMenu: () => {
+        calls.push("unfreeze");
+      },
+    });
+
+    const releaseFirstGesture = controller.acquire();
+    const releaseSecondGesture = controller.acquire();
+    controller.handleMenuOpenChange(true);
+
+    releaseFirstGesture();
+    controller.release();
+    expect(calls.join(",")).toBe("freeze");
+
+    releaseSecondGesture();
+    releaseSecondGesture();
+    expect(calls.join(",")).toBe("freeze,unfreeze");
+  });
+
+  test("releases every outstanding owner during provider teardown", () => {
+    const calls: string[] = [];
+    const controller = createSideMenuFreezeController({
+      freezeMenu: () => {
+        calls.push("freeze");
+      },
+      unfreezeMenu: () => {
+        calls.push("unfreeze");
+      },
+    });
+
+    const releaseGesture = controller.acquire();
+    controller.handleMenuOpenChange(true);
+    controller.releaseAll();
+    releaseGesture();
+
+    expect(calls.join(",")).toBe("freeze,unfreeze");
+  });
 });
 
 describe("deleteSideMenuBlock", () => {

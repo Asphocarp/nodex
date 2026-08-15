@@ -251,6 +251,9 @@ work follows [Card Stage rich-editor performance](card-stage-rich-editor-perform
 - Keep app-owned icons in the shared icon modules. Choose icons by product
   meaning and normalize geometry at that boundary instead of scattering inline
   SVG paths or compensating classes through features.
+- Give visual roles an explicit semantic class or data attribute at their owning
+  module. Do not style controls through localized accessibility copy such as
+  `aria-label`, or through interaction mechanics such as `draggable`.
 - Let shared primitives own ordinary radius, padding, focus treatment,
   collision behavior, motion, and overlay chrome. A feature should provide
   content and semantic variants, not a second visual system.

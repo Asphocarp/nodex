@@ -8,33 +8,57 @@ interface SideMenuBlockRemovingEditor<Block> {
 }
 
 export interface SideMenuFreezeController {
+  /** Acquires one idempotently releasable interaction lease. */
+  acquire: () => () => void;
   handleMenuOpenChange: (open: boolean) => void;
   release: () => void;
+  releaseAll: () => void;
 }
 
 export function createSideMenuFreezeController(
   sideMenu: SideMenuFreezeRuntime,
 ): SideMenuFreezeController {
-  let frozen = false;
+  let menuOpen = false;
+  const leases = new Set<symbol>();
+  let runtimeFrozen = false;
 
-  const release = () => {
-    if (!frozen) return;
-    frozen = false;
+  const syncRuntime = () => {
+    const shouldFreeze = menuOpen || leases.size > 0;
+    if (shouldFreeze === runtimeFrozen) return;
+    runtimeFrozen = shouldFreeze;
+    if (shouldFreeze) {
+      sideMenu.freezeMenu();
+      return;
+    }
     sideMenu.unfreezeMenu();
   };
 
   return {
-    handleMenuOpenChange(open) {
-      if (open) {
-        if (frozen) return;
-        frozen = true;
-        sideMenu.freezeMenu();
-        return;
-      }
-
-      release();
+    acquire() {
+      const lease = Symbol("side-menu-freeze");
+      leases.add(lease);
+      syncRuntime();
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        leases.delete(lease);
+        syncRuntime();
+      };
     },
-    release,
+    handleMenuOpenChange(open) {
+      menuOpen = open;
+      syncRuntime();
+    },
+    release() {
+      menuOpen = false;
+      syncRuntime();
+    },
+    releaseAll() {
+      menuOpen = false;
+      leases.clear();
+      syncRuntime();
+    },
   };
 }
 

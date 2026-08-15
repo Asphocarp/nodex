@@ -15,8 +15,8 @@ import {
   CSSProperties,
   HTMLAttributes,
   ReactNode,
-  useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
 } from "react";
 
@@ -133,17 +133,12 @@ export const GenericPopover = (
   if (!portalRoot) {
     throw new Error("Portal element not found");
   }
-  const {
-    whileElementsMounted: _whileElementsMounted,
-    ...restFloatingOptions
-  } = props.useFloatingOptions ?? {};
-
   const { refs, floatingStyles, context } = useFloating<HTMLDivElement>({
+    ...props.useFloatingOptions,
     whileElementsMounted: mergeWhileElementsMounted(
       autoUpdate,
       props.useFloatingOptions?.whileElementsMounted,
     ),
-    ...restFloatingOptions,
   });
 
   const { isMounted, styles } = useTransitionStyles(
@@ -154,6 +149,12 @@ export const GenericPopover = (
     context,
     props.useTransitionStatusProps,
   );
+  // Floating UI reports `status: open` for one render after a controlled owner
+  // sets `open: false`. The owner state is authoritative for interactivity;
+  // `isMounted` only keeps the same surface alive long enough to animate out.
+  const isClosing = isMounted && (
+    props.useFloatingOptions?.open === false || status === "close"
+  );
 
   const dismiss = useDismiss(context, props.useDismissProps);
   const hover = useHover(context, { enabled: false, ...props.useHoverProps });
@@ -163,7 +164,13 @@ export const GenericPopover = (
   // possible both are needed.
   const { getFloatingProps } = useInteractions([dismiss, hover]);
 
-  const innerHTML = useRef<string>("");
+  // Keep the final committed React subtree mounted during the exit transition.
+  // Replacing it with an `innerHTML` copy loses every React-owned behavior while
+  // preserving native semantics such as `draggable`, links, and form controls.
+  const lastOpenChildren = useRef<ReactNode>(props.children);
+  const hasRenderedChildren = props.children !== null
+    && props.children !== undefined
+    && props.children !== false;
   // A live position reference can become invalid in the same transaction that
   // closes a popover (for example, deleting its selected text). Exit motion is
   // visual state, so it must use the final rendered geometry rather than
@@ -171,30 +178,31 @@ export const GenericPopover = (
   const lastOpenFloatingStyles = useRef<CSSProperties>({});
   const ref = useRef<HTMLDivElement>(null);
   const interactionRootCleanup = useRef<(() => void) | undefined>(undefined);
-  const setInteractionRoot = useCallback(
-    (element: HTMLDivElement | null) => {
-      interactionRootCleanup.current?.();
-      interactionRootCleanup.current = element
-        ? editor.registerInteractionRoot(element)
-        : undefined;
-    },
-    [editor],
-  );
-  const mergedRefs = useMergeRefs([ref, refs.setFloating, setInteractionRoot]);
+  const mergedRefs = useMergeRefs([ref, refs.setFloating]);
 
-  useEffect(
-    () => () => {
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || isClosing) {
       interactionRootCleanup.current?.();
       interactionRootCleanup.current = undefined;
-    },
-    [],
-  );
+      return undefined;
+    }
 
-  if (status === "initial" || status === "open") {
+    const unregister = editor.registerInteractionRoot(element);
+    interactionRootCleanup.current = unregister;
+    return () => {
+      unregister();
+      if (interactionRootCleanup.current === unregister) {
+        interactionRootCleanup.current = undefined;
+      }
+    };
+  }, [editor, isClosing, portalRoot]);
+
+  if (isMounted && !isClosing) {
     lastOpenFloatingStyles.current = { ...floatingStyles };
   }
 
-  const positionedStyles = status === "close"
+  const positionedStyles = isClosing
     ? lastOpenFloatingStyles.current
     : floatingStyles;
 
@@ -226,20 +234,15 @@ export const GenericPopover = (
     }
   }, [props.reference, refs, props.focusManagerProps?.disabled, editor]);
 
-  // Stores the last rendered `innerHTML` of the popover while it was open. The
-  // `innerHTML` is used while the popover is closing, as the React children
-  // may rerender during this time, causing unwanted behaviour.
-  useEffect(
+  // Layout effects run only for committed renders, so a close render observes the
+  // final subtree that was actually visible rather than speculative work.
+  useLayoutEffect(
     () => {
-      if (status === "initial" || status === "open") {
-        if (ref.current?.innerHTML) {
-          innerHTML.current = ref.current.innerHTML;
-        }
+      if (isMounted && !isClosing && hasRenderedChildren) {
+        lastOpenChildren.current = props.children;
       }
     },
-    // `props.children` is added to the deps, since it's ultimately the HTML of
-    // the children that we're storing.
-    [status, props.reference, props.children],
+    [hasRenderedChildren, isClosing, isMounted, props.children],
   );
 
   if (!isMounted) {
@@ -258,33 +261,25 @@ export const GenericPopover = (
     ...getFloatingProps(),
   };
 
-  if (status === "close") {
-    // While the popover is closing, shows its last rendered `innerHTML` while
-    // it was open, instead of the React children. This is because they may
-    // rerender during this time, causing unwanted behaviour.
-    //
-    // When we use the `GenericPopover` for BlockNote's internal UI elements
-    // this isn't a huge deal, as we only pass child components if the popover
-    // should be open. So without this fix, the popover just won't transition
-    // out and will instead appear to hide instantly.
-    return (
-      <FloatingPortal root={portalRoot}>
-        <div
-          ref={mergedRefs}
-          {...mergedProps}
-          dangerouslySetInnerHTML={{ __html: innerHTML.current }}
-        />
-      </FloatingPortal>
-    );
-  }
+  const floatingElement = (
+    <div
+      ref={mergedRefs}
+      {...mergedProps}
+      {...(isClosing ? { inert: true, "aria-hidden": true } : {})}
+    >
+      {isClosing ? lastOpenChildren.current : props.children}
+    </div>
+  );
 
   if (!props.focusManagerProps?.disabled) {
     return (
       <FloatingPortal root={portalRoot}>
-        <FloatingFocusManager {...props.focusManagerProps} context={context}>
-          <div ref={mergedRefs} {...mergedProps}>
-            {props.children}
-          </div>
+        <FloatingFocusManager
+          {...props.focusManagerProps}
+          context={context}
+          disabled={isClosing}
+        >
+          {floatingElement}
         </FloatingFocusManager>
       </FloatingPortal>
     );
@@ -292,9 +287,7 @@ export const GenericPopover = (
 
   return (
     <FloatingPortal root={portalRoot}>
-      <div ref={mergedRefs} {...mergedProps}>
-        {props.children}
-      </div>
+      {floatingElement}
     </FloatingPortal>
   );
 };
