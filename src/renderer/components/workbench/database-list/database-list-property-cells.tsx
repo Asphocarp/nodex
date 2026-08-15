@@ -1,7 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { DataSourcePropertyValueEditor } from "@/components/database/data-source-property-value-editor";
-import type { DataSourcePropertyOptionRegistryState } from "@/components/database/data-source-property-editor-binding";
+import type {
+  DataSourcePropertyEditorBinding,
+  DataSourcePropertyOptionRegistryState,
+} from "@/components/database/data-source-property-editor-binding";
 import {
   NodexPopover,
   NodexPopoverContent,
@@ -102,6 +105,44 @@ export interface DatabaseListPropertyRuntime {
   readonly onRelationValueStale: () => void;
 }
 
+/** Shared row authority adapter used by inline cells and the Page context menu. */
+export const createDatabaseListPropertyEditorBinding = (
+  property: DataSourcePropertyRecordV2,
+  authority: DataSourcePageRowV2,
+  runtime: DatabaseListPropertyRuntime,
+): DataSourcePropertyEditorBinding => {
+  const current = authority.values[property.propertyId];
+  const pageId = authority.page.pageId;
+  return {
+    property,
+    value: current?.value,
+    revision: current?.revision ?? 0,
+    disabled: runtime.disabled,
+    pending: runtime.isPending(pageId, property.propertyId),
+    error: runtime.errorFor(pageId, property.propertyId),
+    options: runtime.options[property.propertyId] ?? [],
+    optionRegistryState: runtime.optionStates[property.propertyId] ?? "ready",
+    optionRegistryHasMore: runtime.optionHasMore[property.propertyId] ?? false,
+    optionRegistryLoadingMore: runtime.optionLoadingMore[property.propertyId] ?? false,
+    onRequestOptions: () => runtime.onRequestOptions(property),
+    onRequestMoreOptions: () => runtime.onRequestMoreOptions(property),
+    relationCandidates: runtime.relationCandidates,
+    relationSourcePageId: pageId,
+    onChange: (value) => runtime.onSetValue(pageId, property.propertyId, value),
+    onPatchOptions: (delta) => runtime.onPatchOptions(pageId, property, delta),
+    onPatchRelation: (delta) => runtime.onPatchRelation(pageId, property.propertyId, delta),
+    onReplaceOneRelation: (targetPageId) =>
+      runtime.onReplaceOneRelation(pageId, property, targetPageId),
+    onCreateOption: (option) => runtime.onCreateOption(pageId, property, option),
+    onLoadRelationTargets: (after) => runtime.onLoadRelationTargets(pageId, property, after),
+    onSearchRelationCandidates: (query, after) =>
+      runtime.onSearchRelationCandidates(property, query, after),
+    onLoadRelationTargetDescriptor: () => runtime.onLoadRelationTargetDescriptor(property),
+    onOpenRelationPage: runtime.onOpenRelationPage,
+    onRelationValueStale: runtime.onRelationValueStale,
+  };
+};
+
 const propertyIcon = (
   property: DataSourcePropertyRecordV2,
   value: DatabaseJsonValue | undefined,
@@ -189,10 +230,10 @@ function PropertyEditor({
   readonly authority: DataSourcePageRowV2;
   readonly runtime: DatabaseListPropertyRuntime;
 }) {
+  const binding = createDatabaseListPropertyEditorBinding(property, authority, runtime);
   const current = authority.values[property.propertyId];
-  const pageId = authority.page.pageId;
-  const pending = runtime.isPending(pageId, property.propertyId);
-  const error = runtime.errorFor(pageId, property.propertyId);
+  const pending = binding.pending ?? false;
+  const error = binding.error;
   const role = resolveDataSourcePropertyPresentationRole(property);
   if (role.kind === "assignee" && typeof current?.value === "string") {
     return (
@@ -203,7 +244,7 @@ function PropertyEditor({
           revision={current.revision}
           disabled={runtime.disabled}
           pending={pending}
-          onChange={(value) => runtime.onSetValue(pageId, property.propertyId, value)}
+          onChange={(value) => binding.onChange(value)}
         />
         {error ? <span role="alert" className="sr-only">{error}</span> : null}
       </span>
@@ -216,46 +257,10 @@ function PropertyEditor({
       title={error ?? property.name}
     >
       <DataSourcePropertyValueEditor
-        property={property}
-        value={current?.value}
-        revision={current?.revision ?? 0}
-        disabled={runtime.disabled}
-        pending={pending}
+        {...binding}
         showLabel={false}
         presentation="list"
         listIcon={propertyIcon(property, current?.value)}
-        options={runtime.options[property.propertyId] ?? []}
-        optionRegistryState={runtime.optionStates[property.propertyId] ?? "ready"}
-        optionRegistryHasMore={runtime.optionHasMore[property.propertyId] ?? false}
-        optionRegistryLoadingMore={runtime.optionLoadingMore[property.propertyId] ?? false}
-        onRequestOptions={() => runtime.onRequestOptions(property)}
-        onRequestMoreOptions={() => runtime.onRequestMoreOptions(property)}
-        relationCandidates={runtime.relationCandidates}
-        relationSourcePageId={pageId}
-        onChange={(value) => runtime.onSetValue(pageId, property.propertyId, value)}
-        onPatchOptions={(delta) => runtime.onPatchOptions(pageId, property, delta)}
-        onPatchRelation={(delta) => runtime.onPatchRelation(
-          pageId,
-          property.propertyId,
-          delta,
-        )}
-        onReplaceOneRelation={(targetPageId) => runtime.onReplaceOneRelation(
-          pageId,
-          property,
-          targetPageId,
-        )}
-        onCreateOption={(option) => runtime.onCreateOption(pageId, property, option)}
-        onLoadRelationTargets={(after) => runtime.onLoadRelationTargets(
-          pageId,
-          property,
-          after,
-        )}
-        onSearchRelationCandidates={(query, after) =>
-          runtime.onSearchRelationCandidates(property, query, after)}
-        onLoadRelationTargetDescriptor={() =>
-          runtime.onLoadRelationTargetDescriptor(property)}
-        onOpenRelationPage={runtime.onOpenRelationPage}
-        onRelationValueStale={runtime.onRelationValueStale}
       />
       {error ? <span role="alert" className="sr-only">{error}</span> : null}
     </span>

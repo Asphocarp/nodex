@@ -1,6 +1,46 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef } from "react";
 import { CardContextMenu } from "./card-context-menu";
+import type { DataSourcePropertyEditorBinding } from "@/components/database/data-source-property-editor-binding";
+import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../../shared/database-identities";
+
+const statusProperty = {
+  propertyId: parseDataSourcePropertyId("status"),
+  dataSourceId: parseDataSourceId("source-story"),
+  name: "Status",
+  schema: { kind: "select" },
+  capabilities: {
+    filterOperators: ["equals", "not_equals", "is_empty", "is_not_empty"],
+    sortable: true,
+    groupable: true,
+  },
+  valueType: "select",
+  config: {},
+  optionCount: 3,
+  rankKey: "a",
+  lifecycle: "active",
+  revision: 1,
+  createdAt: "2026-03-21T14:20:00.000Z",
+  updatedAt: "2026-03-21T14:20:00.000Z",
+} satisfies DataSourcePropertyRecordV2;
+
+const propertyBindings: readonly DataSourcePropertyEditorBinding[] = [{
+  property: statusProperty,
+  value: "in_progress",
+  revision: 3,
+  disabled: false,
+  options: [
+    { id: "todo", name: "Todo", color: "gray" },
+    { id: "in_progress", name: "In progress", color: "blue" },
+    { id: "done", name: "Done", color: "green" },
+  ],
+  optionRegistryState: "ready",
+  onChange: () => undefined,
+}];
 
 function dispatchContextMenu(target: HTMLElement | null) {
   if (!target) {
@@ -43,6 +83,8 @@ function CardContextMenuStory() {
         onOpenPage={() => {}}
         onOpenPageInNewChat={() => {}}
         onSendPageToChat={() => Promise.resolve()}
+        propertyBindings={propertyBindings}
+        groupingPropertyId="status"
         showMockActions
       >
         <button

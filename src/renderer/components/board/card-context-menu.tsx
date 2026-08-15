@@ -12,8 +12,8 @@ import {
   NodexDropdownSearchInput,
   NodexDropdownSectionLabel,
   NodexDropdownSeparator,
-  NodexDropdownSurface,
 } from "@/components/ui/dropdown";
+import { NodexContextMenuContent } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import {
   NodexPopover,
@@ -28,6 +28,11 @@ import type {
   OpenPageInNewChatInput,
   SendPageToChatInput,
 } from "@/lib/page-chat-actions";
+import {
+  DataSourcePagePropertyContextMenuItems,
+  pagePropertyContextMenuHasMatches,
+} from "@/components/database/data-source-page-property-context-menu";
+import type { DataSourcePropertyEditorBinding } from "@/components/database/data-source-property-editor-binding";
 
 interface CardContextMenuProps {
   card: Pick<CardType, "id" | "created"> & Partial<Pick<CardType, "title" | "pageKey">>;
@@ -41,13 +46,12 @@ interface CardContextMenuProps {
   onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
   onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   onMenuOpen?: () => void;
+  propertyBindings: readonly DataSourcePropertyEditorBinding[];
+  groupingPropertyId: string | null;
   showMockActions?: boolean;
   children: ReactNode;
 }
 
-const CONTEXT_MENU_MOTION_CLASS_NAME = [
-  "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[0.985]",
-].join(" ");
 const CONTEXT_MENU_ITEM_CLASS_NAME = [
   "no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
   "focus:bg-token-list-hover-background data-highlighted:bg-token-list-hover-background",
@@ -106,6 +110,8 @@ export function CardContextMenu({
   onOpenPageInNewChat,
   onSendPageToChat,
   onMenuOpen,
+  propertyBindings,
+  groupingPropertyId,
   showMockActions = import.meta.env.DEV,
   children,
 }: CardContextMenuProps) {
@@ -123,6 +129,10 @@ export function CardContextMenu({
     showMockActions,
     hasPageKey: Boolean(card.pageKey),
   });
+  const hasVisibleProperties = pagePropertyContextMenuHasMatches(
+    propertyBindings,
+    actionQuery,
+  );
   const pageActionInput = {
     projectId: currentProjectId,
     pageId: card.id,
@@ -135,7 +145,10 @@ export function CardContextMenu({
 
   useEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => focusMenuInput(actionInputRef.current));
+    const frame = requestAnimationFrame(() => {
+      focusMenuInput(actionInputRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [isOpen]);
 
   useEffect(() => {
@@ -156,6 +169,7 @@ export function CardContextMenu({
 
   return (
     <ContextMenuPrimitive.Root
+      open={isOpen}
       onOpenChange={(nextOpen) => {
         setIsOpen(nextOpen);
         if (nextOpen) onMenuOpen?.();
@@ -168,9 +182,8 @@ export function CardContextMenu({
         {children}
       </ContextMenuPrimitive.Trigger>
       <ContextMenuPrimitive.Portal>
-        <ContextMenuPrimitive.Content
+        <NodexContextMenuContent
           ref={contentRef}
-          collisionPadding={8}
           onFocusCapture={(event) => {
             if (hasInitialFocusRedirectRef.current) return;
             if (event.target === actionInputRef.current) {
@@ -178,94 +191,108 @@ export function CardContextMenu({
               return;
             }
             hasInitialFocusRedirectRef.current = true;
-            requestAnimationFrame(() => focusMenuInput(actionInputRef.current));
+            requestAnimationFrame(() => {
+              focusMenuInput(actionInputRef.current);
+            });
           }}
-          className={cn(
-            "z-50 no-drag outline-hidden",
-            CONTEXT_MENU_MOTION_CLASS_NAME,
-          )}
+          className="w-[265px]"
         >
-          <NodexDropdownSurface className="w-[265px]">
-            <div className="flex flex-col">
-              <NodexDropdownSearchInput
-                ref={actionInputRef}
-                value={actionQuery}
-                onChange={(event) => setActionQuery(event.target.value)}
-                onKeyDown={handleActionInputKeyDown}
-                onPointerDown={(event) => event.stopPropagation()}
-                placeholder="Search actions…"
-              />
+          <div className="flex flex-col">
+            <NodexDropdownSearchInput
+              ref={actionInputRef}
+              value={actionQuery}
+              onChange={(event) => setActionQuery(event.target.value)}
+              onKeyDown={handleActionInputKeyDown}
+              onPointerDown={(event) => event.stopPropagation()}
+              placeholder="Search actions and properties…"
+            />
 
-              <NodexDropdownSectionLabel>Page</NodexDropdownSectionLabel>
-
-              {actions.length === 0 ? (
-                <NodexDropdownMessage compact>No actions found</NodexDropdownMessage>
-              ) : (
-                actions.map((entry) => {
-                  const isActionUnavailable =
-                    (entry.id === "open-page" && !onOpenPage)
-                    || (entry.id === "open-in-new-chat" && !onOpenPageInNewChat)
-                    || (entry.id === "send-to-chat" && !onSendPageToChat);
-                  return (
-                    <Fragment key={entry.id}>
-                      {entry.id === "copy-page-key" ? <NodexDropdownSeparator /> : null}
-                      <ContextMenuPrimitive.Item
-                        disabled={entry.disabled
-                          || isActionUnavailable
-                          || (entry.id === "copy-link" && !canCopyLink)}
-                        data-card-menu-item="true"
-                        onSelect={() => {
-                          if (entry.id === "copy-link") {
-                            void onCopyLink({
-                              pageId: card.id,
-                              projectId: currentProjectId,
-                            });
-                            return;
-                          }
-                          if (entry.id === "copy-page-key" && card.pageKey) {
-                            void onCopyPageKey({ pageKey: card.pageKey });
-                            return;
-                          }
-                          if (entry.id === "delete") {
-                            void onDelete({
-                              pageId: card.id,
-                              columnId: currentColumnId,
-                            });
-                            return;
-                          }
-                          if (entry.id === "open-page") {
-                            void onOpenPage?.(pageActionInput);
-                            return;
-                          }
-                          if (entry.id === "open-in-new-chat") {
-                            void onOpenPageInNewChat?.(pageActionInput);
-                            return;
-                          }
-                          if (entry.id !== "send-to-chat") return;
-                          const anchorRect = contentRef.current?.getBoundingClientRect();
-                          if (!anchorRect) return;
-                          setChatPicker({ anchorRect, open: false });
-                        }}
-                        className={cn(
-                          CONTEXT_MENU_ITEM_CLASS_NAME,
-                          "flex w-full items-center gap-2",
-                        )}
-                      >
-                        <CardContextMenuActionRowContent entry={entry} />
-                      </ContextMenuPrimitive.Item>
-                    </Fragment>
-                  );
-                })
-              )}
-
+            {hasVisibleProperties ? (
+              <>
+                <NodexDropdownSectionLabel>Properties</NodexDropdownSectionLabel>
+                <DataSourcePagePropertyContextMenuItems
+                  bindings={propertyBindings}
+                  groupingPropertyId={groupingPropertyId}
+                  query={actionQuery}
+                  itemDataAttribute="true"
+                  onContextMenuCommit={() => setIsOpen(false)}
+                />
+              </>
+            ) : null}
+            {hasVisibleProperties && actions.length > 0 ? (
               <NodexDropdownSeparator />
-              <CardContextMenuSectionFooter
-                currentProjectName={currentProjectName}
-                createdAt={card.created}
-              />
-            </div>
-          </NodexDropdownSurface>
-        </ContextMenuPrimitive.Content>
+            ) : null}
+            {actions.length > 0 ? (
+              <NodexDropdownSectionLabel>Page</NodexDropdownSectionLabel>
+            ) : null}
+
+            {actions.length === 0 && !hasVisibleProperties ? (
+              <NodexDropdownMessage compact>No actions found</NodexDropdownMessage>
+            ) : actions.length > 0 ? (
+              actions.map((entry) => {
+                const isActionUnavailable =
+                  (entry.id === "open-page" && !onOpenPage)
+                  || (entry.id === "open-in-new-chat" && !onOpenPageInNewChat)
+                  || (entry.id === "send-to-chat" && !onSendPageToChat);
+                return (
+                  <Fragment key={entry.id}>
+                    {entry.id === "copy-page-key" ? <NodexDropdownSeparator /> : null}
+                    <ContextMenuPrimitive.Item
+                      disabled={entry.disabled
+                        || isActionUnavailable
+                        || (entry.id === "copy-link" && !canCopyLink)}
+                      data-card-menu-item="true"
+                      onSelect={() => {
+                        if (entry.id === "copy-link") {
+                          void onCopyLink({
+                            pageId: card.id,
+                            projectId: currentProjectId,
+                          });
+                          return;
+                        }
+                        if (entry.id === "copy-page-key" && card.pageKey) {
+                          void onCopyPageKey({ pageKey: card.pageKey });
+                          return;
+                        }
+                        if (entry.id === "delete") {
+                          void onDelete({
+                            pageId: card.id,
+                            columnId: currentColumnId,
+                          });
+                          return;
+                        }
+                        if (entry.id === "open-page") {
+                          void onOpenPage?.(pageActionInput);
+                          return;
+                        }
+                        if (entry.id === "open-in-new-chat") {
+                          void onOpenPageInNewChat?.(pageActionInput);
+                          return;
+                        }
+                        if (entry.id !== "send-to-chat") return;
+                        const anchorRect = contentRef.current?.getBoundingClientRect();
+                        if (!anchorRect) return;
+                        setChatPicker({ anchorRect, open: false });
+                      }}
+                      className={cn(
+                        CONTEXT_MENU_ITEM_CLASS_NAME,
+                        "flex w-full items-center gap-2",
+                      )}
+                    >
+                      <CardContextMenuActionRowContent entry={entry} />
+                    </ContextMenuPrimitive.Item>
+                  </Fragment>
+                );
+              })
+            ) : null}
+
+            <NodexDropdownSeparator />
+            <CardContextMenuSectionFooter
+              currentProjectName={currentProjectName}
+              createdAt={card.created}
+            />
+          </div>
+        </NodexContextMenuContent>
       </ContextMenuPrimitive.Portal>
       <NodexPopover
         open={chatPicker?.open ?? false}

@@ -91,14 +91,18 @@ import {
 } from "@/lib/page-create-target-registry";
 import { requestPageCreate } from "@/lib/page-create-workflow";
 import { materializePageCreateTarget } from "@/lib/page-create-target";
-import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
 import { resolvePageCreatePropertyCapabilities } from "@/lib/page-create-capabilities";
+import { useBoardPagePropertyBindings } from "./use-board-page-property-bindings";
 import {
   markContextualKeyboardActionTargetActive,
 } from "@/lib/contextual-keyboard-actions";
 import { useContextualKeyboardActionTarget } from "@/lib/use-contextual-keyboard-action-target";
 import type { CommandId } from "../../../shared/command-keybindings";
-import type { DatabaseViewPresentationOverride } from "../../../shared/database-kernel";
+import type {
+  DatabaseJsonValue,
+  DatabaseViewPresentationOverride,
+} from "../../../shared/database-kernel";
+import type { DatabaseViewMutationReceipt } from "@/lib/database-view-row-mutations";
 import {
   findBoardKeyboardLocation,
   resolveBoardKeyboardActionPageIds,
@@ -274,26 +278,48 @@ export function Board({
     [databaseProperties],
   );
   const tagsProperty = propertyCapabilities.tagsProperty;
-  const requiredTagOptionIds = useMemo<Readonly<Record<string, readonly string[]>>>(() => {
-    if (!tagsProperty || !board) return {};
-    return {
-      [tagsProperty.propertyId]: [...new Set(
-        board.columns.flatMap((column) =>
-          column.cards.flatMap((card) => card.tags)
-        ),
-      )],
-    };
-  }, [board, tagsProperty]);
-  const propertyOptionRegistries = usePropertyOptionRegistries({
-    accessContext: { kind: "project", projectId },
-    properties: databaseProperties,
-    requiredOptionIds: requiredTagOptionIds,
+  const columnIdByPageId = useMemo(() => new Map(
+    (board?.columns ?? []).flatMap((column) =>
+      column.cards.map((card) => [card.id, column.id] as const)
+    ),
+  ), [board]);
+  const handleContextMenuGroupingChange = useCallback(async (
+    pageId: string,
+    fromColumnId: string,
+    value: DatabaseJsonValue,
+  ): Promise<boolean> => {
+    if (typeof value !== "string" || value === fromColumnId) {
+      return value === fromColumnId;
+    }
+    return await movePage({
+      pageId,
+      fromStatus: fromColumnId as WorkflowStatus,
+      toStatus: value as WorkflowStatus,
+    });
+  }, [movePage]);
+  const handleContextMenuPropertyCommitted = useCallback(async (
+    receipt: DatabaseViewMutationReceipt | null,
+  ): Promise<void> => {
+    await refresh(receipt
+      ? { storeEpoch: receipt.storeEpoch, commitSeq: receipt.commitSeq }
+      : 0);
+  }, [refresh]);
+  const handleOpenRelationPage = useCallback((pageId: string, title: string) => {
+    openPageStage(projectId, pageId, title);
+  }, [openPageStage, projectId]);
+  const propertyBindingRuntime = useBoardPagePropertyBindings({
+    model: databaseView,
+    projectId,
+    columnIdByPageId,
+    onMoveGroupingValue: handleContextMenuGroupingChange,
+    onCommitted: handleContextMenuPropertyCommitted,
+    onOpenRelationPage: handleOpenRelationPage,
   });
   const tagOptions = useMemo(
     () => tagsProperty
-      ? propertyOptionRegistries.options[tagsProperty.propertyId] ?? []
+      ? propertyBindingRuntime.optionsByPropertyId[tagsProperty.propertyId] ?? []
       : [],
-    [propertyOptionRegistries.options, tagsProperty],
+    [propertyBindingRuntime.optionsByPropertyId, tagsProperty],
   );
 
   const compiledSearchQuery = useMemo(
@@ -1066,7 +1092,10 @@ export function Board({
     const active = resolveHighlightedCard();
     if (!active) return false;
     if (property === "tags" && tagsProperty) {
-      propertyOptionRegistries.requestOptions(tagsProperty);
+      propertyBindingRuntime.bindingsByPageId
+        .get(active.card.id)
+        ?.find((binding) => binding.property.propertyId === tagsProperty.propertyId)
+        ?.onRequestOptions?.();
     }
     setKeyboardPropertyRequest((current) => ({
       requestId: (current?.requestId ?? 0) + 1,
@@ -1074,7 +1103,7 @@ export function Board({
       property,
     }));
     return true;
-  }, [propertyOptionRegistries, resolveHighlightedCard, tagsProperty]);
+  }, [propertyBindingRuntime.bindingsByPageId, resolveHighlightedCard, tagsProperty]);
 
   const handleBoardPeek = useCallback((phase: "keydown" | "keyup") => {
     const active = resolveHighlightedCard();
@@ -1397,6 +1426,10 @@ export function Board({
               highlightedPageId={highlightedPageId}
               keyboardPropertyRequest={keyboardPropertyRequest}
               tagOptions={tagOptions}
+              propertyBindingsByPageId={propertyBindingRuntime.bindingsByPageId}
+              groupingPropertyId={
+                databaseView?.query.view.config.presentation.group?.propertyId ?? null
+              }
               onCardHighlight={(pageId) => highlightCard(pageId)}
               onExternalBlockDragOver={handleExternalBlockDragOver}
               onExternalBlockDragLeave={handleExternalBlockDragLeave}

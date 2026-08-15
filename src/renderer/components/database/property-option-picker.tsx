@@ -1,3 +1,4 @@
+import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import {
   useEffect,
   useId,
@@ -19,6 +20,8 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "@/components/ui/control-chrome";
+import { NodexContextMenuSubContent } from "@/components/ui/context-menu";
+import { preserveInteractiveSubmenuRootFocus } from "@/lib/context-menu-submenu";
 import {
   canCreateDataSourcePropertyOption,
   filterDataSourcePropertyOptions,
@@ -39,6 +42,7 @@ import {
 } from "./property-list-chip";
 
 export type PropertyOptionPickerMode = "single" | "multiple";
+export type PropertyOptionPickerHost = "popover" | "context-menu";
 
 export interface PropertyOptionRenderContext {
   readonly selected: boolean;
@@ -47,6 +51,7 @@ export interface PropertyOptionRenderContext {
 }
 
 export interface PropertyOptionPickerProps {
+  readonly host?: PropertyOptionPickerHost;
   readonly label: string;
   readonly triggerAriaLabel?: string;
   readonly mode: PropertyOptionPickerMode;
@@ -69,6 +74,7 @@ export interface PropertyOptionPickerProps {
   readonly emptyOptionLabel?: string;
   readonly onOpen?: () => void;
   readonly onOpenChange?: (open: boolean) => void;
+  readonly onCommit?: () => void;
   readonly onLoadMore?: () => void;
   readonly onSelectedIdsChange: (selectedIds: readonly string[]) => void;
   readonly onCreateOption?: (name: string) => void | Promise<unknown>;
@@ -173,7 +179,66 @@ function PropertyListMultipleTrigger({
   );
 }
 
+function PropertyOptionPickerFrame({
+  host,
+  open,
+  disabled,
+  trigger,
+  contentClassName,
+  onOpenChange,
+  children,
+}: {
+  readonly host: PropertyOptionPickerHost;
+  readonly open: boolean;
+  readonly disabled: boolean;
+  readonly trigger: ReactElement;
+  readonly contentClassName?: string;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly children: ReactNode;
+}) {
+  if (host === "context-menu") {
+    return (
+      <ContextMenuPrimitive.Sub open={open} onOpenChange={onOpenChange}>
+        <ContextMenuPrimitive.SubTrigger asChild disabled={disabled}>
+          {trigger}
+        </ContextMenuPrimitive.SubTrigger>
+        <ContextMenuPrimitive.Portal>
+          <NodexContextMenuSubContent
+            onFocusOutside={preserveInteractiveSubmenuRootFocus}
+            className={cn(
+              "pointer-events-auto m-0 w-[min(320px,calc(100vw-16px))] overflow-hidden p-0",
+              contentClassName,
+            )}
+          >
+            {children}
+          </NodexContextMenuSubContent>
+        </ContextMenuPrimitive.Portal>
+      </ContextMenuPrimitive.Sub>
+    );
+  }
+
+  return (
+    <NodexPopover open={open} onOpenChange={onOpenChange}>
+      <NodexPopoverTrigger asChild disabled={disabled}>
+        {trigger}
+      </NodexPopoverTrigger>
+      <NodexPopoverContent
+        align="start"
+        className={cn(
+          "w-[min(320px,calc(100vw-16px))] overflow-hidden p-0",
+          contentClassName,
+        )}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.stopPropagation()}
+      >
+        {children}
+      </NodexPopoverContent>
+    </NodexPopover>
+  );
+}
+
 export function PropertyOptionPicker({
+  host = "popover",
   label,
   triggerAriaLabel,
   mode,
@@ -196,6 +261,7 @@ export function PropertyOptionPicker({
   emptyOptionLabel = PROPERTY_EMPTY_VALUE_LABEL,
   onOpen,
   onOpenChange,
+  onCommit,
   onLoadMore,
   onSelectedIdsChange,
   onCreateOption,
@@ -231,6 +297,14 @@ export function PropertyOptionPicker({
     setOpen(next);
     onOpenChange?.(next);
   };
+  const changeHostOpen = (next: boolean) => {
+    if (next && triggerDisabled) return;
+    if (next && !open) {
+      optionLoadRequestedRef.current = true;
+      onOpen?.();
+    }
+    changeOpen(next);
+  };
 
   useEffect(() => {
     if (!open) {
@@ -240,7 +314,8 @@ export function PropertyOptionPicker({
       setError(null);
       return;
     }
-    requestAnimationFrame(() => inputRef.current?.focus());
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   useEffect(() => {
@@ -272,10 +347,12 @@ export function PropertyOptionPicker({
     if (mode === "single") {
       if (selectedSet.has(optionId)) {
         changeOpen(false);
+        onCommit?.();
         return;
       }
       onSelectedIdsChange([optionId]);
       changeOpen(false);
+      onCommit?.();
       return;
     }
     onSelectedIdsChange(
@@ -293,7 +370,10 @@ export function PropertyOptionPicker({
     try {
       await onCreateOption(query.trim());
       setQuery("");
-      if (mode === "single") changeOpen(false);
+      if (mode === "single") {
+        changeOpen(false);
+        onCommit?.();
+      }
     } catch (cause) {
       console.error("[property-option:create]", cause);
       setError("Couldn’t create option. Try again.");
@@ -337,57 +417,46 @@ export function PropertyOptionPicker({
         </span>
       )
       : regularTriggerContent;
+  const defaultTrigger = (
+    <button
+      type="button"
+      aria-label={triggerAriaLabel ?? `Edit ${label}`}
+      className={cn(
+        "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
+        "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
+        presentation === "page"
+          ? "rounded-md px-1 text-sm"
+          : presentation === "chip"
+            ? cn(
+                "h-6 gap-1 rounded-full border-[0.5px] pl-1.5 pr-2 text-xs/4 font-medium [&_svg]:size-4 [&_svg]:shrink-0",
+                NODEX_RAISED_CONTROL_CHROME_CLASS_NAME,
+              )
+            : presentation === "list"
+              ? listMultipleTrigger
+                ? "h-6 gap-[3px] overflow-hidden rounded-[48px] border-0 bg-transparent p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
+                : DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+              : "rounded-md px-1 text-[11px]",
+      )}
+    >
+      {listMultipleTrigger ? null : triggerPrefix}
+      {triggerContent}
+      {presentation !== "chip" && presentation !== "list" && mode === "multiple" && presentedSelected.length > 0 ? (
+        <span className="ml-1 inline-flex shrink-0 items-center gap-0.5 text-token-description-foreground">
+          <PlusIcon className="icon-2xs" />
+        </span>
+      ) : null}
+    </button>
+  );
 
   return (
-    <NodexPopover open={open} onOpenChange={(next) => {
-      if (next && triggerDisabled) return;
-      if (next && !open) {
-        optionLoadRequestedRef.current = true;
-        onOpen?.();
-      }
-      changeOpen(next);
-    }}>
-      <NodexPopoverTrigger asChild disabled={triggerDisabled}>
-        {triggerButton ?? (
-          <button
-            type="button"
-            aria-label={triggerAriaLabel ?? `Edit ${label}`}
-            className={cn(
-              "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
-              "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
-              presentation === "page"
-                ? "rounded-md px-1 text-sm"
-                : presentation === "chip"
-                  ? cn(
-                      "h-6 gap-1 rounded-full border-[0.5px] pl-1.5 pr-2 text-xs/4 font-medium [&_svg]:size-4 [&_svg]:shrink-0",
-                      NODEX_RAISED_CONTROL_CHROME_CLASS_NAME,
-                    )
-                  : presentation === "list"
-                    ? listMultipleTrigger
-                      ? "h-6 gap-[3px] overflow-hidden rounded-[48px] border-0 bg-transparent p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
-                      : DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
-                  : "rounded-md px-1 text-[11px]",
-            )}
-          >
-            {listMultipleTrigger ? null : triggerPrefix}
-            {triggerContent}
-            {presentation !== "chip" && presentation !== "list" && mode === "multiple" && presentedSelected.length > 0 ? (
-              <span className="ml-1 inline-flex shrink-0 items-center gap-0.5 text-token-description-foreground">
-                <PlusIcon className="icon-2xs" />
-              </span>
-            ) : null}
-          </button>
-        )}
-      </NodexPopoverTrigger>
-      <NodexPopoverContent
-        align="start"
-        className={cn(
-          "w-[min(320px,calc(100vw-16px))] overflow-hidden p-0",
-          contentClassName,
-        )}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => event.stopPropagation()}
-      >
+    <PropertyOptionPickerFrame
+      host={host}
+      open={open}
+      disabled={triggerDisabled}
+      trigger={triggerButton ?? defaultTrigger}
+      contentClassName={contentClassName}
+      onOpenChange={changeHostOpen}
+    >
         {mode === "multiple" && presentedSelected.length > 0 ? (
           <div className="flex flex-wrap gap-1 px-2 pb-1 pt-2" aria-label={`Selected ${label}`}>
             {presentedSelected.map((option) => (
@@ -431,6 +500,7 @@ export function PropertyOptionPicker({
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 event.preventDefault();
+                if (host === "context-menu") event.stopPropagation();
                 changeOpen(false);
                 return;
               }
@@ -499,6 +569,7 @@ export function PropertyOptionPicker({
                 if (mutationDisabled) return;
                 onSelectedIdsChange([]);
                 changeOpen(false);
+                onCommit?.();
               }}
               className="flex min-h-7 w-full items-center rounded-lg px-2 text-left text-sm text-token-description-foreground hover:bg-token-list-hover-background"
             >
@@ -584,7 +655,6 @@ export function PropertyOptionPicker({
             {error}
           </p>
         ) : null}
-      </NodexPopoverContent>
-    </NodexPopover>
+    </PropertyOptionPickerFrame>
   );
 }

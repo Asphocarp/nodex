@@ -58,6 +58,34 @@ Board and List expose `Copy Page key` in the Page context menu whenever a
 current key exists. Both surfaces use the same success and failure
 feedback; `Copy deeplink` remains a distinct UUID-based action.
 
+The Page context menu also exposes a bounded, schema-driven Property section.
+The current writable Board grouping Property appears first, followed by exact
+built-in Status, Priority, Assignee, Due date, Tags, and Estimate roles, with
+duplicates removed and at most seven direct entries. Remaining active
+Properties appear under `More properties…`; root-menu search surfaces a matching
+custom Property directly instead of requiring that extra navigation step.
+Every Property entry remains a native context submenu. Select and multi-select
+submenus host the canonical `PropertyOptionPicker`, including the same search,
+rows, selected state, and Status, Priority, Estimate, and Tags presentation used
+by Page Stage. Menu entries use the same canonical Property icon resolver as
+Page Stage. A single-select choice commits and closes the action menu, while a
+multi-select submenu remains open for additional set edits. Tags carries the
+same option-creation capability through Board and List adapters; creating a Tag
+atomically adds the option and selects it for the target Page. Text and number
+Properties such as Assignee use a compact draft-and-save submenu editor; other
+Property types embed their canonical shared value editor in the submenu. The
+submenu is already the editor-opening action, so Date and Relation expose their
+input/calendar or search content immediately and never add a nested `Empty` or
+value trigger. Every root menu and Property submenu has one floating-surface
+owner for collision bounds, scrolling, ring, radius, and shadow; editor bodies
+do not add a second fixed-width shell or horizontal scrollbar.
+Changing the Board grouping Property uses the same semantic Page move that owns
+group membership and rank; other Board and List Properties use receipt-backed
+value mutations.
+Right-click edits only the Page under the pointer and never implicitly applies
+to the current multi-selection. Page title remains Document authority and is
+not presented as a Database Property.
+
 View-local search accepts a current canonical key, case normalization, one
 optional leading `#`, outer whitespace, and no-hyphen shorthand. Key matching
 is exact or prefix-oriented, never fuzzy within the key token; explicit `#`

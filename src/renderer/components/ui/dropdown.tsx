@@ -24,6 +24,7 @@ import {
   NodexFloatingLayerProvider,
   useNodexFloatingLayerIndex,
 } from "./floating-layer";
+import { nodexMenuSurfaceClassName } from "./menu-surface";
 import {
   NodexPopover,
   NodexPopoverContent,
@@ -158,8 +159,7 @@ const NodexDropdownSubmenuContent = forwardRef<
 });
 
 const dropdownContentSurfaceClassName = cn(
-  "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border m-px flex select-none flex-col overflow-x-hidden overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
-  APP_SHELL_FLOATING_UI_LAYER_CLASS,
+  nodexMenuSurfaceClassName,
   "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)] [will-change:opacity,transform]",
 );
 
