@@ -13,7 +13,6 @@ import {
   ThreadPlanImplementationBlock,
   ThreadReasoningBlock,
   ThreadStreamErrorBlock,
-  ThreadSteeredDividerBlock,
   ThreadSubagentActivityInlineGroupBlock,
   ThreadSystemErrorBlock,
   ThreadSystemBannerBlock,
@@ -57,6 +56,7 @@ interface ThreadBlockRendererProps {
   allowInProgressTurnDiff?: boolean;
   turnDiffHoverPreviewDisabled?: boolean;
   alwaysShowAssistantMessageActions?: boolean;
+  compactUserMessageActions?: boolean;
 }
 
 export function ThreadBlockRenderer({
@@ -83,6 +83,7 @@ export function ThreadBlockRenderer({
   allowInProgressTurnDiff = false,
   turnDiffHoverPreviewDisabled = false,
   alwaysShowAssistantMessageActions = false,
+  compactUserMessageActions = false,
 }: ThreadBlockRendererProps) {
   if (block.type === "agentActivityGroup") {
     return (
@@ -192,6 +193,7 @@ export function ThreadBlockRenderer({
         onForkFromTurn={onForkFromTurn}
         onOpenSideChat={onOpenSideChat}
         threadCwd={threadCwd}
+        compactUserMessageActions={compactUserMessageActions}
       />
     );
   }
@@ -225,15 +227,7 @@ export function ThreadBlockRenderer({
   }
 
   if (block.type === "steered") {
-    return (
-      <ThreadSteeredDividerBlock
-        block={block}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-        isSearchMatch={isSearchMatch}
-        isActiveSearchMatch={isActiveSearchMatch}
-      />
-    );
+    return null;
   }
 
   if (block.type === "assistantMessage") {

@@ -4,6 +4,7 @@ import {
   CODEX_THREAD_DIVIDER_ENTER_ANIMATE,
   CODEX_THREAD_DIVIDER_ENTER_INITIAL,
   CODEX_THREAD_DIVIDER_EXIT,
+  resolveCodexThreadWorkedForEnterMotion,
 } from "./thread-motion";
 
 describe("thread motion contract", () => {
@@ -19,5 +20,33 @@ describe("thread motion contract", () => {
     expect(CODEX_THREAD_DIVIDER_ENTER_ANIMATE.height).toBe("auto");
     expect(CODEX_THREAD_DIVIDER_EXIT.opacity).toBe(0);
     expect(CODEX_THREAD_DIVIDER_EXIT.height).toBe(0);
+  });
+
+  test("uses an enter-only historical agent-body motion contract", () => {
+    const motion = resolveCodexThreadWorkedForEnterMotion(false);
+
+    expect(motion).not.toHaveProperty("exit");
+    expect(motion.initial).toEqual({
+      opacity: 0,
+      transform: "translateY(-8px)",
+    });
+    expect(motion.animate).toEqual({
+      opacity: 1,
+      transform: "translateY(0)",
+    });
+    expect(motion.transition).toEqual({
+      duration: 0.22,
+      ease: [0.33, 1, 0.68, 1],
+    });
+  });
+
+  test("removes translation and shortens the enter under reduced motion", () => {
+    const motion = resolveCodexThreadWorkedForEnterMotion(true);
+
+    expect(motion.initial).toEqual({
+      opacity: 0,
+      transform: "translateY(0)",
+    });
+    expect(motion.transition.duration).toBe(0.12);
   });
 });

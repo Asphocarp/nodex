@@ -280,7 +280,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.queryByLabelText("Copy message") === null).toBe(true);
   });
 
-  test("renders pending and accepted steering surfaces separately", async () => {
+  test("renders pending and accepted steering bubbles without lifecycle labels", async () => {
     const stableRequests: [] = [];
     const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
     const turn: CodexConversationTurn = {
@@ -310,10 +310,10 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    expect(Boolean(view.container.textContent?.includes("Steering conversation"))).toBe(true);
     expect(Boolean(view.container.textContent?.includes("Try the compact path."))).toBe(true);
     expect(Boolean(view.container.textContent?.includes("Tighten the layout."))).toBe(true);
-    expect(view.getAllByText("Steered conversation").length).toBe(1);
+    expect(view.queryByText("Steering conversation")).toBeNull();
+    expect(view.queryByText("Steered conversation")).toBeNull();
   });
 
   test("renders assistant actions in Codex order and forks with an empty composer draft", async () => {
@@ -524,6 +524,152 @@ describe("LocalConversationTurnEntry", () => {
 
     const workedForShell = workedForButton.parentElement?.parentElement;
     expect(workedForShell?.contains(workedForButton)).toBe(true);
+  });
+
+  test("keeps steering messages visible when historical agent activity is collapsed", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const turnId = "turn_collapsed_steering";
+    const turn: CodexConversationTurn = {
+      ...buildTurn(turnId, "Initial request", "All set."),
+      durationMs: 125_000,
+      itemIds: [
+        `${turnId}_user`,
+        "exec_before_steer",
+        "steer_first",
+        "steered_first",
+        "exec_after_steer",
+        "steer_second",
+        "steered_second",
+        `${turnId}_assistant`,
+      ],
+      items: [
+        buildUserEntry(turnId, `${turnId}_user`, "Initial request"),
+        {
+          threadId: "thread_1",
+          turnId,
+          itemId: "exec_before_steer",
+          type: "command_execution",
+          kind: "commandExecution",
+          semanticKind: "exec",
+          createdAt: 2,
+          updatedAt: 2,
+          status: "completed",
+          commandActions: [{ type: "read", command: "", name: "src/app.ts", path: "src/app.ts" }],
+          toolCall: {
+            subtype: "command",
+            toolName: "exec_command",
+            args: {},
+          },
+        },
+        buildSteeringEntry(turnId, "steer_first", "Keep the existing API.", "accepted"),
+        buildSteeredEntry(turnId, "steered_first"),
+        {
+          threadId: "thread_1",
+          turnId,
+          itemId: "exec_after_steer",
+          type: "command_execution",
+          kind: "commandExecution",
+          semanticKind: "exec",
+          createdAt: 5,
+          updatedAt: 5,
+          status: "completed",
+          commandActions: [{ type: "read", command: "", name: "src/view.tsx", path: "src/view.tsx" }],
+          toolCall: {
+            subtype: "command",
+            toolName: "exec_command",
+            args: {},
+          },
+        },
+        buildSteeringEntry(turnId, "steer_second", "Also preserve the ordering.", "accepted"),
+        buildSteeredEntry(turnId, "steered_second"),
+        buildAssistantEntry(turnId, `${turnId}_assistant`, "All set.", {
+          assistantPhase: "final_answer",
+          status: "completed",
+        }),
+      ],
+    };
+    let requestedCollapsed: boolean | null = null;
+    const renderTurn = (persistedCollapsed: boolean) => createElement(
+      TooltipProvider,
+      null,
+      createElement(LocalConversationTurnEntry, {
+        conversationId: "thread_1",
+        entry: buildVisibleTurnEntry(turn, stableRequests, false),
+        cwd: "/tmp/project",
+        canEditTurnUserPrefix: false,
+        canForkTurn: true,
+        persistedCollapsed,
+        onSetCollapsed: (collapsed) => {
+          requestedCollapsed = collapsed;
+        },
+      }),
+    );
+    const view = render(renderTurn(true));
+
+    const workedForButton = view.getByRole("button", { name: /Worked for 2m 5s/ });
+    const firstSteeringMessage = view.getByText("Keep the existing API.");
+    const secondSteeringMessage = view.getByText("Also preserve the ordering.");
+    const finalAssistantMessage = view.getByText("All set.");
+    const firstCollapsedBubble = firstSteeringMessage.closest<HTMLElement>(
+      '[data-user-message-bubble="true"]',
+    );
+    const firstCompactRow = firstCollapsedBubble?.parentElement;
+    const firstCompactGroup = firstCompactRow?.parentElement;
+
+    expect(workedForButton.getAttribute("aria-expanded")).toBe("false");
+    expect(view.queryByText("Steered conversation")).toBeNull();
+    expect(view.container.textContent?.includes("src/app.ts") ?? false).toBe(false);
+    expect(view.container.textContent?.includes("src/view.tsx") ?? false).toBe(false);
+    expect(
+      workedForButton.compareDocumentPosition(firstSteeringMessage)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      firstSteeringMessage.compareDocumentPosition(secondSteeringMessage)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      secondSteeringMessage.compareDocumentPosition(finalAssistantMessage)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(firstCompactRow?.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
+    expect(firstCompactRow?.lastElementChild).toBe(firstCollapsedBubble);
+    expect(firstCompactGroup?.children).toHaveLength(1);
+
+    await act(async () => {
+      fireEvent.click(workedForButton);
+      view.rerender(renderTurn(false));
+      await settleAsyncRender();
+    });
+
+    expect(requestedCollapsed).toBe(false);
+    expect(workedForButton.getAttribute("aria-expanded")).toBe("true");
+    expect(view.queryByText("Steered conversation")).toBeNull();
+    expect(view.container.textContent?.includes("src/app.ts") ?? false).toBe(true);
+    expect(view.container.textContent?.includes("src/view.tsx") ?? false).toBe(true);
+    expect(view.getAllByText("Keep the existing API.")).toHaveLength(1);
+    expect(view.getAllByText("Also preserve the ordering.")).toHaveLength(1);
+    const firstExpandedBubble = view.getByText("Keep the existing API.").closest<HTMLElement>(
+      '[data-user-message-bubble="true"]',
+    );
+    const firstExpandedGroup = firstExpandedBubble?.parentElement;
+    expect(firstExpandedGroup?.children).toHaveLength(2);
+    expect(firstExpandedBubble?.nextElementSibling?.querySelector(
+      'button[aria-label="Copy message"]',
+    )).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(workedForButton);
+      view.rerender(renderTurn(true));
+    });
+
+    expect(requestedCollapsed).toBe(true);
+    expect(workedForButton.getAttribute("aria-expanded")).toBe("false");
+    expect(view.container.textContent?.includes("src/app.ts") ?? false).toBe(false);
+    expect(view.container.textContent?.includes("src/view.tsx") ?? false).toBe(false);
+    expect(view.getAllByText("Keep the existing API.")).toHaveLength(1);
+    expect(view.getAllByText("Also preserve the ordering.")).toHaveLength(1);
   });
 
   test("renders first-turn worktree initialization beneath worked time and before the assistant", async () => {
