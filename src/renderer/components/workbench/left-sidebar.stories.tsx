@@ -744,6 +744,7 @@ function makeStorySession(input: {
         archived: false,
         createdAt: 1_780_800_000_000,
         updatedAt: 1_780_800_000_000,
+        recencyAt: 1_780_800_000_000,
         linkedAt: "2026-06-07T00:00:00.000Z",
       }
       : null,
@@ -819,6 +820,7 @@ function makeSidebarThreadItem(input: {
   disabled?: boolean;
   cwd?: string | null;
   updatedAt?: number;
+  recencyAt?: number | null;
   statusType?: CodexSidebarThreadItem["statusType"];
 }): CodexSidebarThreadItem {
   const kind = input.kind ?? "local";
@@ -843,6 +845,9 @@ function makeSidebarThreadItem(input: {
     preview: "",
     cwd: input.cwd ?? null,
     updatedAt: input.updatedAt ?? 1_780_800_000_000,
+    recencyAt: input.recencyAt === undefined
+      ? kind === "pending-worktree" ? null : input.updatedAt ?? 1_780_800_000_000
+      : input.recencyAt,
     createdAt: 1_780_700_000_000,
     pinned: input.pinned ?? false,
     pinnedOrder: input.pinnedOrder ?? null,
@@ -1536,37 +1541,34 @@ function CodexSidebarThreadArchiveActionHarness() {
   );
 }
 
-function CodexSidebarThreadElapsedActionRailHarness() {
+function CodexSidebarThreadStatusActionRailHarness() {
   const items = [
     makeSidebarThreadItem({
-      key: "local:elapsed-long",
-      threadId: "thread-elapsed-long",
-      title: "Running CodexElectron sidebar parity investigation with enough text to test truncation",
+      key: "local:status-long",
+      threadId: "thread-status-long",
+      title: "Running sidebar investigation with enough text to test truncation",
       projectId: null,
       projectless: true,
       cwd: "/Users/asc/repo/nodex",
-      updatedAt: Date.now() - STORY_TWO_DAYS_MS - 60_000,
       statusType: "active",
     }),
     makeSidebarThreadItem({
-      key: "local:elapsed-pinned",
-      threadId: "thread-elapsed-pinned",
-      title: "Pinned thread with elapsed metadata",
+      key: "local:status-pinned",
+      threadId: "thread-status-pinned",
+      title: "Pinned thread with resting status",
       projectId: null,
       projectless: true,
       cwd: "/Users/asc/repo/nodex",
       pinned: true,
-      updatedAt: Date.now() - 3 * 60 * 60 * 1_000,
     }),
     makeSidebarThreadItem({
-      key: "local:elapsed-unread",
-      threadId: "thread-elapsed-unread",
+      key: "local:status-unread",
+      threadId: "thread-status-unread",
       title: "Unread thread keeps the indicator while actions reveal",
       projectId: null,
       projectless: true,
       cwd: "/Users/asc/repo/nodex",
       unread: true,
-      updatedAt: Date.now() - 8 * 60 * 1_000,
     }),
   ];
 
@@ -1576,8 +1578,8 @@ function CodexSidebarThreadElapsedActionRailHarness() {
         <ThreadRowsList
           label="Chats"
           items={items}
-          activeKey="local:elapsed-long"
-          openKey="local:elapsed-long"
+          activeKey="local:status-long"
+          openKey="local:status-long"
         />
       </CodexSidebarSection>
     </SidebarProjectsChrome>
@@ -2038,8 +2040,8 @@ export const CodexSidebarThreadArchiveAction: Story = {
   render: () => <CodexSidebarThreadArchiveActionHarness />,
 };
 
-export const CodexSidebarThreadElapsedActionRail: Story = {
-  render: () => <CodexSidebarThreadElapsedActionRailHarness />,
+export const CodexSidebarThreadStatusActionRail: Story = {
+  render: () => <CodexSidebarThreadStatusActionRailHarness />,
 };
 
 export const CodexSidebarThreadHoverCard: Story = {

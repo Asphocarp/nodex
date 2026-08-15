@@ -671,7 +671,7 @@ fn list_lane_thread_ids_in_display_order(
              WHERE session.project_id IS ?1
              ORDER BY COALESCE(
                position.rank_key,
-               -COALESCE(thread.updated_at, session.\"order\")
+               -COALESCE(thread.recency_at, session.\"order\")
              ), session.id",
         )?
         .query_map(params![project_id, scope_key], |row| {

@@ -96,6 +96,7 @@ export interface DesktopProjectWorkspaceThread {
   readonly hasUnreadTurn: boolean;
   readonly createdAt: number;
   readonly updatedAt: number;
+  readonly recencyAt: number;
   readonly linkedAt: string;
 }
 
@@ -124,6 +125,7 @@ export interface DesktopProjectWorkspaceThreadPatch {
   readonly archived?: boolean;
   readonly createdAt?: number;
   readonly updatedAt?: number;
+  readonly recencyAt?: number;
   readonly linkedAt?: string;
 }
 
@@ -468,6 +470,7 @@ const fromCoreThread = (
   archived: thread.archived,
   createdAt: thread.created_at,
   updatedAt: thread.updated_at,
+  recencyAt: thread.recency_at,
   linkedAt: thread.linked_at,
 });
 
@@ -496,6 +499,7 @@ const fromCoreTaskThread = (
   archived: thread.archived,
   createdAt: thread.created_at,
   updatedAt: thread.updated_at,
+  recencyAt: thread.recency_at,
   linkedAt: thread.linked_at,
 });
 
@@ -555,6 +559,7 @@ const fromCoreWorkspaceThread = (
   hasUnreadTurn: thread.has_unread_turn,
   createdAt: thread.created_at,
   updatedAt: thread.updated_at,
+  recencyAt: thread.recency_at,
   linkedAt: thread.linked_at,
 });
 
@@ -643,6 +648,7 @@ const toCoreThreadPatch = (
   ...(patch.archived === undefined ? {} : { archived: patch.archived }),
   ...(patch.createdAt === undefined ? {} : { created_at: patch.createdAt }),
   ...(patch.updatedAt === undefined ? {} : { updated_at: patch.updatedAt }),
+  ...(patch.recencyAt === undefined ? {} : { recency_at: patch.recencyAt }),
   ...(patch.linkedAt === undefined ? {} : { linked_at: patch.linkedAt }),
 });
 
@@ -1497,6 +1503,9 @@ export function createCoreProjectWorkspaceAdapter(
               : {}),
             ...(parsed.updatedAt !== undefined
               ? { updated_at: parsed.updatedAt }
+              : {}),
+            ...(parsed.recencyAt !== undefined
+              ? { recency_at: parsed.recencyAt }
               : {}),
           },
           ...(parsed.runtimeWorkspaceRoots === undefined

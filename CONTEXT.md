@@ -335,6 +335,15 @@ current implicit access after current lifecycle/revisions are checked; it never
 revives an expired approval or archived Session automatically. Project archive
 or deletion never deletes Library resources.
 
+### Conversation recency
+
+Conversation recency is the time of a Thread's latest meaningful conversation
+activity. It orders recent Threads and supplies relative-age presentation. It
+is distinct from Session metadata time and from Thread metadata changes such as
+opening, reading, renaming, pinning, archiving, status transitions, or execution
+location updates. A Session without an attached Thread has no conversation
+recency.
+
 ### Project resource grant
 
 A Project resource grant authorizes `read` or `read_write` access to one Page,

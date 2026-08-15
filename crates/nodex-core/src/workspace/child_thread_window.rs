@@ -72,8 +72,8 @@ pub(super) fn read_child_thread_window(
     let cursor_predicate = coordinate
         .map(|(order_key, stable_id)| {
             parameters.extend([SqlValue::Integer(order_key), SqlValue::Text(stable_id)]);
-            "AND (-thread.updated_at > ?4 \
-               OR (-thread.updated_at = ?4 AND thread.thread_id > ?5))"
+            "AND (-thread.recency_at > ?4 \
+               OR (-thread.recency_at = ?4 AND thread.thread_id > ?5))"
         })
         .unwrap_or_default();
     parameters.push(SqlValue::Integer(
@@ -91,7 +91,7 @@ pub(super) fn read_child_thread_window(
            thread.managed_worktree_path, thread.projectless_output_directory, \
            thread.projectless_workspace_browser_root, thread.status_type, \
            thread.status_active_flags_json, thread.archived, thread.created_at, \
-           thread.updated_at, thread.linked_at \
+           thread.updated_at, thread.recency_at, thread.linked_at \
          FROM codex_threads thread \
          LEFT JOIN project_session_threads link ON link.thread_id = thread.thread_id \
          LEFT JOIN projects project ON project.id = thread.project_id \
@@ -99,7 +99,7 @@ pub(super) fn read_child_thread_window(
            AND (thread.project_id IS NULL OR project.library_id = ?2) \
            AND (?3 = 1 OR thread.archived = 0) \
            {cursor_predicate} \
-         ORDER BY -thread.updated_at, thread.thread_id LIMIT ?{limit_parameter}"
+         ORDER BY -thread.recency_at, thread.thread_id LIMIT ?{limit_parameter}"
     );
     let rows = connection
         .prepare(&sql)?
@@ -109,7 +109,7 @@ pub(super) fn read_child_thread_window(
         .into_iter()
         .map(|item| {
             let order_key = item
-                .updated_at
+                .recency_at
                 .checked_neg()
                 .ok_or_else(|| corrupt("Child Thread timestamp is invalid"))?;
             Ok(WindowCandidate {
@@ -179,7 +179,8 @@ fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectWorkspaceThrea
         archived: row.get::<_, i64>(24)? == 1,
         created_at: row.get(25)?,
         updated_at: row.get(26)?,
-        linked_at: row.get(27)?,
+        recency_at: row.get(27)?,
+        linked_at: row.get(28)?,
     })
 }
 

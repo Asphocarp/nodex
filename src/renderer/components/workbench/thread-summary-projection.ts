@@ -23,6 +23,7 @@ export function projectSessionThreadLinkToSummary(
     archived: thread.archived,
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
+    recencyAt: thread.recencyAt,
     linkedAt: thread.linkedAt,
   };
 }

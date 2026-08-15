@@ -4677,6 +4677,7 @@
                 "archived",
                 "created_at",
                 "updated_at",
+                "recency_at",
                 "linked_at"
               ],
               "properties": {
@@ -4773,6 +4774,10 @@
                     "string",
                     "null"
                   ]
+                },
+                "recency_at": {
+                  "type": "integer",
+                  "format": "int64"
                 },
                 "service_name": {
                   "type": [
@@ -25177,6 +25182,7 @@
           "archived",
           "created_at",
           "updated_at",
+          "recency_at",
           "linked_at"
         ],
         "properties": {
@@ -25241,6 +25247,10 @@
               "null"
             ]
           },
+          "recency_at": {
+            "type": "integer",
+            "format": "int64"
+          },
           "service_name": {
             "type": [
               "string",
@@ -25294,6 +25304,7 @@
           "writable_roots",
           "created_at",
           "updated_at",
+          "recency_at",
           "linked_at"
         ],
         "properties": {
@@ -25406,6 +25417,10 @@
               "string",
               "null"
             ]
+          },
+          "recency_at": {
+            "type": "integer",
+            "format": "int64"
           },
           "service_name": {
             "type": [
@@ -25701,6 +25716,13 @@
               "string",
               "null"
             ]
+          },
+          "recency_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "service_name": {
             "type": [

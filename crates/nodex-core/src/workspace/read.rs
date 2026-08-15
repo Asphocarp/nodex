@@ -604,19 +604,19 @@ mod tests {
                          INSERT INTO codex_threads( \
                            thread_id, project_id, thread_name, thread_preview, model_provider, \
                            managed_worktree_path, status_type, status_active_flags_json, archived, \
-                           created_at, updated_at, linked_at \
+                           created_at, updated_at, recency_at, linked_at \
                          ) VALUES \
                            ('thread-1', 'project-1', '', 'Thread preview', 'openai', \
-                            '/worktrees/shared', 'idle', '[]', 0, 1, 2, \
+                            '/worktrees/shared', 'idle', '[]', 0, 1, 2, 2, \
                             '2026-07-19T03:33:00.000Z'), \
                            ('thread-2', 'project-1', 'Other', '', 'openai', \
-                            '/worktrees/shared', 'idle', '[]', 0, 1, 2, \
+                            '/worktrees/shared', 'idle', '[]', 0, 1, 2, 2, \
                             '2026-07-19T03:33:00.000Z'), \
                            ('thread-3', 'project-1', 'Third', '', 'openai', \
-                            '/worktrees/zeta', 'idle', '[]', 0, 1, 2, \
+                            '/worktrees/zeta', 'idle', '[]', 0, 1, 2, 2, \
                             '2026-07-19T03:33:00.000Z'), \
                            ('thread-foreign', 'project-foreign', 'Foreign', '', 'openai', \
-                            '/worktrees/foreign', 'idle', '[]', 0, 1, 2, \
+                            '/worktrees/foreign', 'idle', '[]', 0, 1, 2, 2, \
                             '2026-07-19T03:33:00.000Z'); \
                          INSERT INTO project_session_threads(session_id, thread_id, linked_at) \
                            VALUES ('session-project', 'thread-1', \

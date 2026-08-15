@@ -210,6 +210,11 @@ Document identity, owner shells, relocation, history, and Canvas decisions are r
 
 The pinned Codex-compatible app-server is the raw wire-contract authority. Main validates generated JSON-RPC envelopes and owns process lifecycle, request/response plumbing, external execution, and routing. Core Workspace owns Nodex's durable Project, Session, Thread metadata, execution context, sidebar order, links, and the atomic Project/projectless default-draft Session slots defined by [ADR 0044](docs/adr/0044-durable-default-draft-chats.md); it does not store a second full transcript or transcript search index.
 
+Core also persists the app-server Thread recency clock separately from metadata update clocks.
+Main may advance that clock only from an observed app-server `recencyAt`, falling back to the observed source `updatedAt` when the protocol omits recency.
+Opening or reading a Session and changing Thread title, status, pin, archive, order, or execution location preserve conversation recency.
+Core uses that durable clock for recent ordering, while a Threadless Session has no conversation recency.
+
 One renderer client is the active visible owner of a live conversation. It reduces canonical protocol items, requests, streaming deltas, and Nodex sidecars into one conversation document, then publishes serialized snapshots or patches to Main through a content-addressed compare-and-swap checkpoint. Main validates and retains that document as a relay/recovery replica but does not mutate it into a second visible transcript while the owner exists.
 
 A follower first acknowledges an exact owner snapshot barrier. It then accepts only contiguous patches from the same owner epoch and requests a fresh snapshot after a gap, hash mismatch, owner replacement, or transport reset. Follower actions route to the current owner; a client with no role must resume or adopt before acting.

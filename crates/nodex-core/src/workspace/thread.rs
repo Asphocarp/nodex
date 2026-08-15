@@ -61,6 +61,7 @@ const THREAD_COLUMNS: &str = "
   CASE WHEN unread.thread_id IS NULL THEN 0 ELSE 1 END,
   thread.created_at,
   thread.updated_at,
+  thread.recency_at,
   thread.linked_at
 ";
 
@@ -94,6 +95,7 @@ struct ThreadRow {
     has_unread_turn: i64,
     created_at: i64,
     updated_at: i64,
+    recency_at: i64,
     linked_at: String,
 }
 
@@ -152,7 +154,7 @@ pub(super) fn read_threads(
            AND ((?3 IS NULL AND thread.parent_thread_id IS NULL) \
              OR thread.parent_thread_id = ?3) \
            AND (?4 = 1 OR thread.archived = 0) \
-         ORDER BY thread.updated_at DESC, thread.thread_id \
+         ORDER BY thread.recency_at DESC, thread.thread_id \
          LIMIT ?6"
     );
     let rows = connection
@@ -576,11 +578,26 @@ pub(super) fn upsert_thread_records(
     } else {
         patch.created_at.unwrap_or(now_ms)
     };
-    let updated_at = patch.updated_at.unwrap_or(now_ms);
+    let updated_at = match (&existing, patch.updated_at) {
+        (Some(existing), Some(observed)) => existing.updated_at.max(observed),
+        (Some(existing), None) => existing.updated_at,
+        (None, Some(observed)) => observed,
+        (None, None) => now_ms,
+    };
+    let recency_at = match (&existing, patch.recency_at) {
+        (Some(existing), Some(observed)) => existing.recency_at.max(observed),
+        (Some(existing), None) => existing.recency_at,
+        (None, Some(observed)) => observed,
+        (None, None) => updated_at,
+    };
     validate_timestamp("created_at", created_at)?;
     validate_timestamp("updated_at", updated_at)?;
+    validate_timestamp("recency_at", recency_at)?;
     if updated_at < created_at {
         return Err(invalid("updated_at must not precede created_at"));
+    }
+    if recency_at < created_at {
+        return Err(invalid("recency_at must not precede created_at"));
     }
     let linked_at = if let Some(existing) = &existing {
         if patch
@@ -612,10 +629,10 @@ pub(super) fn upsert_thread_records(
            harness_id, reasoning_effort, service_tier, execution_host_id, cwd, \
            managed_worktree_path, projectless_output_directory, \
            projectless_workspace_browser_root, status_type, status_active_flags_json, archived, \
-           created_at, updated_at, linked_at, forked_from_id\
+           created_at, updated_at, recency_at, linked_at, forked_from_id\
          ) VALUES (\
            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-           ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27\
+           ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28\
          ) ON CONFLICT(thread_id) DO UPDATE SET \
            project_id = excluded.project_id, parent_thread_id = excluded.parent_thread_id, \
            thread_name = excluded.thread_name, thread_source = excluded.thread_source, \
@@ -632,6 +649,7 @@ pub(super) fn upsert_thread_records(
            status_type = excluded.status_type, \
            status_active_flags_json = excluded.status_active_flags_json, \
            archived = excluded.archived, updated_at = excluded.updated_at, \
+           recency_at = excluded.recency_at, \
            forked_from_id = excluded.forked_from_id",
         params![
             thread_id,
@@ -659,6 +677,7 @@ pub(super) fn upsert_thread_records(
             i64::from(archived),
             created_at,
             updated_at,
+            recency_at,
             linked_at,
             forked_from_id,
         ],
@@ -935,8 +954,8 @@ pub(super) fn set_thread_archived(
     )?;
     let now = sqlite_now(connection)?;
     let changed = connection.execute(
-        "UPDATE codex_threads SET archived = ?1, updated_at = ?2 WHERE thread_id = ?3",
-        params![i64::from(archived), unix_time_millis()?, thread_id],
+        "UPDATE codex_threads SET archived = ?1 WHERE thread_id = ?2",
+        params![i64::from(archived), thread_id],
     )?;
     if changed != 1 {
         return Err(corrupt("Codex Thread disappeared during lifecycle update"));
@@ -1475,6 +1494,7 @@ fn project_workspace_thread(
         writable_roots,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        recency_at: row.recency_at,
         linked_at: row.linked_at,
     })
 }
@@ -1509,7 +1529,8 @@ fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
         has_unread_turn: row.get(25)?,
         created_at: row.get(26)?,
         updated_at: row.get(27)?,
-        linked_at: row.get(28)?,
+        recency_at: row.get(28)?,
+        linked_at: row.get(29)?,
     })
 }
 
@@ -1839,8 +1860,12 @@ fn validate_stored_thread(row: &ThreadRow) -> Result<(), StoreError> {
     }
     validate_stored_timestamp("created_at", row.created_at)?;
     validate_stored_timestamp("updated_at", row.updated_at)?;
+    validate_stored_timestamp("recency_at", row.recency_at)?;
     if row.updated_at < row.created_at {
         return Err(corrupt("Codex Thread update time precedes creation"));
+    }
+    if row.recency_at < row.created_at {
+        return Err(corrupt("Codex Thread recency precedes creation"));
     }
     if row.linked_at.trim().is_empty() || row.linked_at.len() > 128 {
         return Err(corrupt("Codex Thread link time is invalid"));
@@ -2845,6 +2870,16 @@ mod tests {
                 ),
             )
             .expect("update existing Thread metadata");
+        let ProjectWorkspaceReadValue::Thread { thread } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread-root".to_owned(),
+            },
+        ) else {
+            panic!("Thread read");
+        };
+        assert_eq!(thread.updated_at, 300);
+        assert_eq!(thread.recency_at, 200);
         let missing_update = module
             .apply(
                 &context(),
@@ -3473,6 +3508,7 @@ mod tests {
         assert!(archived_thread.archived);
         assert_eq!(archived_thread.pinned_order, None);
         assert!(!archived_thread.has_unread_turn);
+        assert_eq!(archived_thread.recency_at, 100);
         let archived_session_id = session_id.clone();
         let archived_session_state = kernel
             .writer()
@@ -3515,6 +3551,7 @@ mod tests {
             panic!("restored Thread read");
         };
         assert!(!restored_thread.archived);
+        assert_eq!(restored_thread.recency_at, 100);
 
         let ProjectWorkspaceReadValue::ChildThreadWindow { threads } = read(
             &module,

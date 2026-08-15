@@ -841,7 +841,7 @@ import {
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const SIDEBAR_THREAD_SYNC_STALE_MS = 60_000;
-const SIDEBAR_THREAD_SYNC_REPAIR_DEBOUNCE_MS = 300;
+const SIDEBAR_NOTIFICATION_SYNC_DEBOUNCE_MS = 300;
 const MANAGED_WORKTREE_RETENTION_DEBOUNCE_MS = 300;
 const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
@@ -1101,7 +1101,7 @@ function hasSidebarThreadSummaryChanged(
     || previous.hasUnreadTurn !== next.hasUnreadTurn
     || previous.archived !== next.archived
     || previous.createdAt !== next.createdAt
-    || previous.updatedAt !== next.updatedAt;
+    || previous.recencyAt !== next.recencyAt;
 }
 
 interface PendingApproval {
@@ -3232,6 +3232,8 @@ export class CodexService extends EventEmitter {
   private threadSettingsUpdateSupport: "unknown" | "supported" | "unsupported" = "unknown";
   private mcpServerStatusesInFlight: Promise<ListMcpServerStatusResponse> | null = null;
   private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
+  private sidebarSyncGeneration = 0;
+  private sidebarLastSuccessfulSyncGeneration = 0;
   private sidebarSweepTimer: ReturnType<typeof setTimeout> | null = null;
   private sidebarSweepWindowInFlight: Promise<void> | null = null;
   private sidebarSweepGeneration = 0;
@@ -3251,7 +3253,7 @@ export class CodexService extends EventEmitter {
   private sidebarLastSuccessfulRefreshAt = 0;
   private sidebarFailureBackoffUntil = 0;
   private sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
-  private sidebarThreadListRepairTimer: ReturnType<typeof setTimeout> | null = null;
+  private sidebarNotificationSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private sidebarUseStateDbOnlyThreadList = true;
   private sidebarSnapshotRevision = 0;
   private agentProviderCatalog: AgentProviderCatalog | null = null;
@@ -8170,9 +8172,9 @@ export class CodexService extends EventEmitter {
     this.readyDeferredThreadStartThreadIds.clear();
     this.threadStartNotificationDeferralDepth = 0;
     this.stopRateLimitsPolling();
-    if (this.sidebarThreadListRepairTimer !== null) {
-      clearTimeout(this.sidebarThreadListRepairTimer);
-      this.sidebarThreadListRepairTimer = null;
+    if (this.sidebarNotificationSyncTimer !== null) {
+      clearTimeout(this.sidebarNotificationSyncTimer);
+      this.sidebarNotificationSyncTimer = null;
     }
     this.sidebarSyncInFlight = null;
     this.sidebarSyncInFlightIncludeArchived = null;
@@ -8715,6 +8717,7 @@ export class CodexService extends EventEmitter {
           hasUnreadTurn: session.unread,
           createdAt: thread.createdAt,
           updatedAt: thread.updatedAt,
+          recencyAt: thread.recencyAt,
           linkedAt: thread.linkedAt,
         }];
       }),
@@ -8805,20 +8808,29 @@ export class CodexService extends EventEmitter {
       return logResult("join-in-flight", await this.sidebarSyncInFlight);
     }
 
+    const generation = ++this.sidebarSyncGeneration;
+    const syncInFlight = this.runSidebarSyncFromAppServer({
+      includeArchived,
+      reason,
+      generation,
+    });
     this.sidebarSyncInFlightIncludeArchived = includeArchived;
-    this.sidebarSyncInFlight = this.runSidebarSyncFromAppServer({ includeArchived, reason });
+    this.sidebarSyncInFlight = syncInFlight;
 
     try {
-      return logResult("refresh", await this.sidebarSyncInFlight);
+      return logResult("refresh", await syncInFlight);
     } finally {
-      this.sidebarSyncInFlight = null;
-      this.sidebarSyncInFlightIncludeArchived = null;
+      if (this.sidebarSyncInFlight === syncInFlight) {
+        this.sidebarSyncInFlight = null;
+        this.sidebarSyncInFlightIncludeArchived = null;
+      }
     }
   }
 
   private async runSidebarSyncFromAppServer(input: {
     includeArchived: boolean;
     reason: CodexSidebarRefreshReason;
+    generation: number;
   }): Promise<CodexSidebarSyncResult> {
     const startedAt = getDevRuntimeMetricStart();
     try {
@@ -8834,6 +8846,10 @@ export class CodexService extends EventEmitter {
         refreshedAt,
         metadata,
       });
+      this.sidebarLastSuccessfulSyncGeneration = Math.max(
+        this.sidebarLastSuccessfulSyncGeneration,
+        input.generation,
+      );
       this.emitSidebarSyncUpdated(result, input.reason);
       logDevRuntimeMetric("codex.sidebar.refresh", {
         outcome: "success",
@@ -8996,6 +9012,7 @@ export class CodexService extends EventEmitter {
         preview: thread.threadPreview,
         cwd: thread.cwd ?? null,
         updatedAt: thread.updatedAt,
+        recencyAt: thread.recencyAt ?? null,
         createdAt: thread.createdAt,
         pinned: task.pinned,
         pinnedOrder: task.pinnedOrder,
@@ -9189,6 +9206,7 @@ export class CodexService extends EventEmitter {
       archived: thread.archived,
       createdAt: thread.createdAt,
       updatedAt: thread.updatedAt,
+      recencyAt: thread.recencyAt,
     });
     if (thread.pinnedOrder !== null) {
       await this.projectWorkspace.setProjectSessionPinned(created.id, {
@@ -10150,6 +10168,7 @@ export class CodexService extends EventEmitter {
         archived: summary.archived,
         createdAt: summary.createdAt,
         updatedAt: summary.updatedAt,
+        recencyAt: summary.recencyAt,
       });
       if (summary.pinned) {
         await this.projectWorkspace.setProjectSessionPinned(session.id, {
@@ -10290,6 +10309,7 @@ export class CodexService extends EventEmitter {
       hasUnreadTurn: overrides.hasUnreadTurn ?? thread.hasUnreadTurn,
       createdAt: thread.createdAt,
       updatedAt: thread.updatedAt,
+      recencyAt: thread.recencyAt,
       linkedAt: thread.linkedAt,
     };
   }
@@ -10371,7 +10391,7 @@ export class CodexService extends EventEmitter {
           statusType: thread.statusType,
           statusActiveFlags: [...thread.statusActiveFlags],
           createdAt: thread.createdAt,
-          updatedAt: thread.updatedAt,
+          updatedAt: thread.recencyAt ?? thread.updatedAt,
         });
       }
     };
@@ -16191,6 +16211,7 @@ export class CodexService extends EventEmitter {
       threadId: forkedThreadId,
       observedCreatedAt: thread.createdAt,
       observedUpdatedAt: thread.updatedAt,
+      observedRecencyAt: thread.recencyAt,
       existing: null,
     });
 
@@ -16221,6 +16242,7 @@ export class CodexService extends EventEmitter {
       hasUnreadTurn: false,
       createdAt: timestamps.createdAt,
       updatedAt: timestamps.updatedAt,
+      recencyAt: timestamps.recencyAt,
       linkedAt: new Date().toISOString(),
       latestCollaborationMode: input.latestCollaborationMode,
       latestThreadSettings: {
@@ -16417,6 +16439,7 @@ export class CodexService extends EventEmitter {
       threadId: candidate.id as string,
       observedCreatedAt: candidate.createdAt,
       observedUpdatedAt: candidate.updatedAt,
+      observedRecencyAt: candidate.recencyAt,
       existing,
     });
     const patch: DesktopProjectWorkspaceThreadPatch = {
@@ -16444,6 +16467,7 @@ export class CodexService extends EventEmitter {
         ? { createdAt: timestamps.createdAt }
         : {}),
       updatedAt: timestamps.updatedAt,
+      recencyAt: timestamps.recencyAt,
       ...(subagentMetadata.hasAgentNickname
         ? { agentNickname: subagentMetadata.agentNickname }
         : {}),
@@ -16575,6 +16599,7 @@ export class CodexService extends EventEmitter {
       archived: existing?.archived ?? false,
       ...(patch.createdAt === undefined ? {} : { createdAt: patch.createdAt }),
       updatedAt: patch.updatedAt,
+      recencyAt: patch.recencyAt,
     });
     const persisted = await this.readWorkspaceThread(candidate.id);
     if (!persisted) {
@@ -20340,7 +20365,6 @@ export class CodexService extends EventEmitter {
     try {
       const summary = await this.updateWorkspaceThreadSummary(threadId, {
         threadName: name,
-        updatedAt: Date.now(),
       });
       if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
       await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
@@ -26813,27 +26837,52 @@ export class CodexService extends EventEmitter {
     return requests;
   }
 
-  private scheduleSidebarThreadListRepair(notificationMethod: string, threadId: string): void {
-    this.logger.debug("Scheduling sidebar thread-list repair for unknown notification thread", {
+  private scheduleSidebarNotificationSync(notificationMethod: string, threadId: string): void {
+    const minimumSyncGeneration = this.sidebarSyncGeneration + 1;
+    this.logger.debug("Scheduling sidebar thread-list sync from app-server notification", {
       notificationMethod,
       threadId,
+      minimumSyncGeneration,
     });
-    if (this.sidebarThreadListRepairTimer !== null) {
-      clearTimeout(this.sidebarThreadListRepairTimer);
+    if (this.sidebarNotificationSyncTimer !== null) {
+      clearTimeout(this.sidebarNotificationSyncTimer);
     }
-    this.sidebarThreadListRepairTimer = setTimeout(() => {
-      this.sidebarThreadListRepairTimer = null;
-      void this.syncSidebarThreadsDetailed({
-        policy: "force",
-        reason: "host-message",
-      }).catch((error) => {
-        this.logger.debug("Sidebar thread-list repair failed", {
+    this.sidebarNotificationSyncTimer = setTimeout(() => {
+      this.sidebarNotificationSyncTimer = null;
+      void this.syncSidebarThreadsAfterNotification(minimumSyncGeneration).catch((error) => {
+        this.logger.debug("Sidebar notification sync failed", {
           notificationMethod,
           threadId,
           error: error instanceof Error ? error.message : String(error),
         });
       });
-    }, SIDEBAR_THREAD_SYNC_REPAIR_DEBOUNCE_MS);
+    }, SIDEBAR_NOTIFICATION_SYNC_DEBOUNCE_MS);
+  }
+
+  /**
+   * A completion can arrive while an older thread/list request is still in flight.
+   * Wait for that stale request, then require a sync that started after the notification.
+   */
+  private async syncSidebarThreadsAfterNotification(
+    minimumSyncGeneration: number,
+  ): Promise<void> {
+    if (this.sidebarLastSuccessfulSyncGeneration >= minimumSyncGeneration) return;
+
+    const inFlight = this.sidebarSyncInFlight;
+    if (inFlight) {
+      try {
+        await inFlight;
+      } catch {
+        // A failed older request must not prevent the notification repair pass.
+      }
+    }
+
+    if (this.sidebarLastSuccessfulSyncGeneration >= minimumSyncGeneration) return;
+
+    await this.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "host-message",
+    });
   }
 
   private async handleNotification(
@@ -26972,7 +27021,7 @@ export class CodexService extends EventEmitter {
           );
         }
       } else {
-        this.scheduleSidebarThreadListRepair(method, payload.threadId);
+        this.scheduleSidebarNotificationSync(method, payload.threadId);
       }
       if (!ownerRouted) {
         this.syncAcceptedConversationSummary(payload.threadId, { syncCapabilityFlags: true });
@@ -27020,7 +27069,7 @@ export class CodexService extends EventEmitter {
         ? this.buildWorkspaceThreadSummary(persisted)
         : null;
       if (!previous) {
-        if (!archived) this.scheduleSidebarThreadListRepair(method, payload.threadId);
+        if (!archived) this.scheduleSidebarNotificationSync(method, payload.threadId);
       }
       const metadata = createSidebarThreadSyncMetadata();
       if (previous) markSidebarSyncScopeChanged(metadata, previous.projectId);
@@ -27119,7 +27168,7 @@ export class CodexService extends EventEmitter {
           "host-message",
         );
       } else {
-        this.scheduleSidebarThreadListRepair(method, payload.threadId);
+        this.scheduleSidebarNotificationSync(method, payload.threadId);
       }
       if (!ownerRouted) {
         this.syncAcceptedConversationSummary(payload.threadId, { syncCapabilityFlags: true });
@@ -27138,7 +27187,7 @@ export class CodexService extends EventEmitter {
         ? this.buildWorkspaceThreadSummary(workspaceThread)
         : null;
       if (!known && !this.getMaybeConversationRecord(payload.threadId)) {
-        this.scheduleSidebarThreadListRepair(method, payload.threadId);
+        this.scheduleSidebarNotificationSync(method, payload.threadId);
         return;
       }
 
@@ -27197,7 +27246,7 @@ export class CodexService extends EventEmitter {
         : null;
       if (!known) {
         if (!ownerRouted) {
-          this.scheduleSidebarThreadListRepair(method, payload.threadId);
+          this.scheduleSidebarNotificationSync(method, payload.threadId);
         }
         return;
       }
@@ -27237,6 +27286,9 @@ export class CodexService extends EventEmitter {
     if (method === "turn/started" || method === "turn/completed") {
       const payload = params;
       const { threadId, turn: turnRecord } = payload;
+      if (method === "turn/completed") {
+        this.scheduleSidebarNotificationSync(method, threadId);
+      }
 
       const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       if (method !== "turn/started" && !ownerRouted) {
