@@ -14077,6 +14077,46 @@
           }
         ]
       },
+      "LibraryPageBacklink": {
+        "type": "object",
+        "required": [
+          "source_page_id",
+          "source_block_id",
+          "source_title",
+          "location_label",
+          "presentations",
+          "occurrence_count",
+          "updated_at"
+        ],
+        "properties": {
+          "location_label": {
+            "type": "string"
+          },
+          "occurrence_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "presentations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageReferencePresentation"
+            }
+          },
+          "source_block_id": {
+            "type": "string"
+          },
+          "source_page_id": {
+            "type": "string"
+          },
+          "source_title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
       "LibraryPageContent": {
         "type": "object",
         "required": [
@@ -16431,6 +16471,55 @@
           }
         ]
       },
+      "LibraryPageReferenceCandidate": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "title",
+          "location_label"
+        ],
+        "properties": {
+          "location_label": {
+            "type": "string"
+          },
+          "match_excerpt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryPageReferencePresentation": {
+        "type": "string",
+        "enum": [
+          "mention",
+          "reference_block",
+          "link"
+        ]
+      },
       "LibraryPageTarget": {
         "oneOf": [
           {
@@ -17434,6 +17523,16 @@
               "expected_document_head_seq": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "insertion": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPageInsertion"
+                  }
+                ]
               },
               "kind": {
                 "type": "string",
@@ -22790,6 +22889,64 @@
                     }
                   },
                   "query": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "query",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_reference_candidates"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "query": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target_page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "cursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_backlinks"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "target_page_id": {
                     "type": "string"
                   }
                 }
@@ -29962,6 +30119,74 @@
                             "enum": [
                               "project_page_search"
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryPageReferenceCandidate"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_reference_candidates"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "target_page_id",
+                          "items",
+                          "has_more",
+                          "total",
+                          "source_page_count",
+                          "kind"
+                        ],
+                        "properties": {
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryPageBacklink"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_backlinks"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "source_page_count": {
+                            "type": "integer",
+                            "format": "int64",
+                            "minimum": 0
+                          },
+                          "target_page_id": {
+                            "type": "string"
+                          },
+                          "total": {
+                            "type": "integer",
+                            "format": "int64",
+                            "minimum": 0
                           }
                         }
                       },

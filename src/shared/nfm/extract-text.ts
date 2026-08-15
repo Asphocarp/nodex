@@ -91,6 +91,11 @@ function collectInlineText(items: NfmInlineContent[], parts: string[]): void {
       continue;
     }
 
+    if (item.type === "pageMention") {
+      parts.push(buildPageDeepLink({ pageId: item.targetPageId }));
+      continue;
+    }
+
     if (item.type === "dateMention") {
       parts.push(formatDateMentionPlainText(item));
       continue;

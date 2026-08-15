@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, useState } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -288,5 +288,28 @@ describe("nfm link edit dialog surface", () => {
     });
 
     expect(submitted).toBe(1);
+  });
+
+  test("opens the Page picker through the explicit secondary action", async () => {
+    const openPagePicker = vi.fn();
+    const view = render(
+      <NfmCreateLinkDialogSurface
+        urlLabel="Page or URL"
+        urlPlaceholder="Paste or type a link"
+        urlValue=""
+        submitLabel="Add link"
+        secondaryActionLabel="Page…"
+        onUrlChange={() => undefined}
+        onUrlKeyDown={() => undefined}
+        onSubmit={() => undefined}
+        onSecondaryAction={openPagePicker}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Page…" }));
+      await settleAsyncRender();
+    });
+    expect(openPagePicker).toHaveBeenCalledOnce();
   });
 });

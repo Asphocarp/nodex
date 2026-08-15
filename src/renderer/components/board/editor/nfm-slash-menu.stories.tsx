@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DefaultReactSuggestionItem, SuggestionMenuProps } from "@blocknote/react";
 import {
+  Ellipsis,
   Heading1,
   Link2,
-  ListTree,
   SendHorizontal,
   Settings2,
 } from "@/components/shared/icons/generic-icons";
@@ -16,8 +16,9 @@ import {
   PageIcon,
 } from "@/components/shared/icons";
 import { NfmSuggestionMenuSurface, type NfmSuggestionItem } from "./nfm-slash-menu";
+import { StatusIcon } from "@/lib/status-presentation";
 
-const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
+const SLASH_ITEMS: NfmSuggestionItem[] = [
   {
     title: "Paragraph",
     subtext: "Plain text block",
@@ -37,38 +38,38 @@ const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
     onItemClick: () => undefined,
   },
   {
-    title: "Toggle List Inline View",
-    subtext: "Embed a project's toggle-list section",
-    aliases: [],
+    title: "Embed page",
+    subtext: "Show a live reference to another Page",
+    aliases: ["embed", "page reference"],
     group: "Others",
-    badge: "/toggle-list",
-    icon: <ListTree size={16} />,
+    hint: null,
+    icon: <Link2 size={16} />,
     onItemClick: () => undefined,
   },
   {
-    title: "Page Mention",
-    subtext: "Embed a single card with inline editing",
-    aliases: [],
+    title: "Mention a page",
+    subtext: "Start the normal @ mention flow",
+    aliases: ["mention", "@"],
     group: "Others",
-    badge: "/page",
-    icon: <Link2 size={16} />,
+    hint: null,
+    icon: <PageIcon />,
     onItemClick: () => undefined,
   },
   {
     title: "Thread Section",
     subtext: "Insert a runnable notebook-style prompt boundary",
-    aliases: [],
+    aliases: ["thread"],
     group: "Others",
-    badge: "/thread",
+    hint: null,
     icon: <SendHorizontal size={16} />,
     onItemClick: () => undefined,
   },
   {
     title: "Agent Config",
     subtext: "Insert a one-send plan-mode config chip",
-    aliases: [],
+    aliases: ["agent-config"],
     group: "Others",
-    badge: "/agent-config",
+    hint: null,
     icon: <Settings2 size={16} />,
     onItemClick: () => undefined,
   },
@@ -76,43 +77,91 @@ const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
 
 const MENTION_ITEMS: NfmSuggestionItem[] = [
   {
+    key: "page:mention-ranking",
     title: "Prioritize mention picker results",
-    subtext: "Nodex / Running / current-project snippet match",
-    tooltipContent: "Nodex / Running / current-project snippet match",
+    detail: null,
+    titleSegments: [
+      { text: "Prioritize mention", highlight: true },
+      { text: " picker results", highlight: false },
+    ],
+    tooltipContent: "Prioritize mention picker results · NDX-42 · Build · Product / Editor",
     aliases: [],
-    group: "Current project",
+    group: "Mention a page",
     hint: null,
-    icon: <ThreadIcon className="size-4" />,
+    mentionRank: {
+      family: "page",
+      match: "exact_title",
+      activeContext: true,
+      sourceOrder: 0,
+    },
+    icon: <StatusIcon statusId="build" className="size-4" />,
     onItemClick: () => undefined,
   },
   {
+    key: "page:bounded-projection",
     title: "Refine slash menu polish",
-    subtext: "Nodex / In progress / card description match",
-    tooltipContent: "Nodex / In progress / card description match",
+    detail: "…affected projection window stays bounded while results update…",
+    detailSegments: [
+      { text: "…affected ", highlight: false },
+      { text: "projection", highlight: true },
+      { text: " window stays bounded while results update…", highlight: false },
+    ],
+    tooltipContent: "Refine slash menu polish · Product / Editor · The affected projection window stays bounded while results update without replacing the active query.",
     aliases: [],
-    group: "Current project",
+    group: "Mention a page",
     hint: null,
-    icon: <PageIcon className="size-4" aria-hidden="true" />,
+    mentionRank: {
+      family: "page",
+      match: "content",
+      activeContext: true,
+      sourceOrder: 1,
+    },
+    icon: <PageIcon className="icon-xs shrink-0" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   {
-    title: "Codex image input thread-section coverage",
-    subtext: "Desktop",
-    tooltipContent: "Desktop / Transcript search hit",
+    key: "mention-expand:page",
+    title: "5 more results",
     aliases: [],
-    group: "Chats",
+    group: "Mention a page",
     hint: null,
+    tooltipContent: null,
+    mentionUtility: { kind: "expand_section", family: "page" },
+    icon: <Ellipsis className="icon-xs shrink-0" aria-hidden="true" />,
+    onItemClick: () => undefined,
+  },
+  {
+    key: "chat:image-input",
+    title: "Codex image input thread-section coverage",
+    detail: null,
+    tooltipContent: "Codex image input thread-section coverage · Nodex / Running",
+    aliases: [],
+    group: "Mention a chat",
+    hint: null,
+    mentionRank: {
+      family: "chat",
+      match: "prefix_title",
+      activeContext: true,
+      sourceOrder: 0,
+    },
     icon: <ThreadIcon className="size-4" />,
     onItemClick: () => undefined,
   },
   {
-    title: "Workspace restoration edge cases",
-    subtext: "Desktop / Backlog",
-    tooltipContent: "Desktop / Backlog / description search hit",
+    key: "chat:workspace-restoration",
+    title: "Weekly planning",
+    detail: "Desktop",
+    tooltipContent: "Weekly planning · Desktop",
     aliases: [],
-    group: "Pages",
+    group: "Mention a chat",
     hint: null,
-    icon: <PageIcon className="size-4" aria-hidden="true" />,
+    mentionRank: {
+      family: "chat",
+      match: "title",
+      activeContext: false,
+      sourceOrder: 1,
+    },
+    icon: <ThreadIcon className="size-4" />,
     onItemClick: () => undefined,
   },
 ];
@@ -120,45 +169,60 @@ const MENTION_ITEMS: NfmSuggestionItem[] = [
 const DATE_MENTION_ITEMS: NfmSuggestionItem[] = [
   {
     title: "Today",
-    subtext: "@Jun 29, 2026",
-    tooltipContent: "@Jun 29, 2026",
+    tooltipContent: "Today · Aug 16, 2026",
     aliases: ["today"],
-    group: "Dates",
+    group: "Date",
     hint: "@today",
+    mentionRank: {
+      family: "temporal",
+      match: "temporal_intent",
+      activeContext: true,
+      sourceOrder: 0,
+    },
     icon: <CalendarIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   {
     title: "Now",
-    subtext: "@Jun 29, 2026 2:30 PM",
-    tooltipContent: "@Jun 29, 2026 2:30 PM",
+    tooltipContent: "Now · Aug 16, 2026 4:30 PM",
     aliases: ["now"],
-    group: "Dates",
+    group: "Date",
     hint: "@now",
+    mentionRank: {
+      family: "temporal",
+      match: "temporal_intent",
+      activeContext: true,
+      sourceOrder: 1,
+    },
     icon: <ClockIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   {
     title: "Remind today",
-    subtext: "Inline date reminder at 9:00 AM",
-    tooltipContent: "Inline date reminder at 9:00 AM",
+    tooltipContent: "Remind today · Aug 16, 2026 9:00 AM",
     aliases: ["remind today"],
-    group: "Reminders",
+    group: "Date",
     hint: "@remind today",
+    mentionRank: {
+      family: "temporal",
+      match: "temporal_intent",
+      activeContext: true,
+      sourceOrder: 2,
+    },
     icon: <BellIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   ...MENTION_ITEMS.slice(0, 2),
 ];
 
-const LONG_ITEMS: DefaultReactSuggestionItem[] = [
+const LONG_ITEMS: NfmSuggestionItem[] = [
   {
     title: "GPT configuration command with a very long display label",
     subtext: "Insert a one-send configuration chip with model, reasoning, and plan-mode overrides",
-    aliases: [],
+    aliases: ["agent-config"],
     group: "Others",
     icon: <Settings2 size={16} />,
-    badge: "/agent-config",
+    hint: null,
     onItemClick: () => undefined,
   },
 ];
@@ -210,7 +274,7 @@ export const FilteredCustomCommands: Story = {
   },
 };
 
-export const PageMentionMenu: Story = {
+export const UnifiedMentionMenu: Story = {
   args: {
     items: MENTION_ITEMS,
     loadingState: "loaded",

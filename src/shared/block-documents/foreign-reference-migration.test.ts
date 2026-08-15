@@ -29,7 +29,7 @@ const legacyDocument = () => {
 };
 
 describe("foreign reference Document migration", () => {
-  test("replaces legacy projections with childless canonical references and preserves source IDs", () => {
+  test("keeps decode-canonical Page references and migrates remaining legacy projections", () => {
     const source = legacyDocument();
     const before = materializePageDocument(source.document);
     const pageReferenceId = before.blockTree[0]?.id ?? "";
@@ -40,11 +40,6 @@ describe("foreign reference Document migration", () => {
     ) ?? [];
 
     const migration = migrateForeignReferences(source.document, [
-      {
-        kind: "page",
-        sourceBlockId: pageReferenceId,
-        targetBlockId: "card-a",
-      },
       {
         kind: "page",
         sourceBlockId: cardToggleId,
@@ -61,7 +56,7 @@ describe("foreign reference Document migration", () => {
     expect(materializePageDocument(source.document).nfm).toBe(before.nfm);
     expect(migration.materialization.references.some(isLegacyForeignBodyReference)).toBe(false);
     expect(migration.migratedBlockIds.join(",")).toBe(
-      [pageReferenceId, cardToggleId, queryId].join(","),
+      [cardToggleId, queryId].join(","),
     );
     expect(migration.removedDescendantBlockIds.join(",")).toBe(
       removedToggleChildIds.join(","),

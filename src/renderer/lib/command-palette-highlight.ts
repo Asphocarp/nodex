@@ -192,14 +192,120 @@ export function buildCommandPaletteHighlightedSegments(
   return buildCommandPaletteHighlightSegments(normalizedText, buildCommandPaletteHighlightRegex(terms));
 }
 
+export interface SearchHighlightPreviewOptions {
+  readonly maxCharacters?: number;
+  readonly leadingContextCharacters?: number;
+}
+
+function cropSearchHighlightPreview(
+  text: string,
+  firstMatch: { readonly index: number; readonly length: number } | null,
+  options: SearchHighlightPreviewOptions,
+): string {
+  const maxCharacters = options.maxCharacters === undefined
+    ? null
+    : Math.max(16, Math.floor(options.maxCharacters));
+  if (!maxCharacters) return text;
+
+  const characters = Array.from(text);
+  const leadingContext = Math.max(
+    0,
+    Math.min(
+      options.leadingContextCharacters ?? Math.floor(maxCharacters / 3),
+      maxCharacters - 1,
+    ),
+  );
+  const matchIndex = firstMatch?.index ?? 0;
+  // Reposition even a short source when its match would land beyond the
+  // rendered row's ellipsis. The character budget is an upper bound, not a
+  // promise that CSS can display every character in a proportional font.
+  const rawStart = matchIndex > leadingContext
+    ? matchIndex - leadingContext
+    : 0;
+  const nextBoundary = rawStart > 0
+    ? characters.findIndex((character, index) => (
+        index >= rawStart
+        && index < matchIndex
+        && /\s/u.test(character)
+      ))
+    : -1;
+  const start = nextBoundary >= rawStart
+    ? nextBoundary + 1
+    : rawStart;
+  const minimumEnd = firstMatch
+    ? matchIndex + Math.max(firstMatch.length, 1)
+    : 0;
+  const end = Math.min(
+    characters.length,
+    Math.max(start + maxCharacters, minimumEnd),
+  );
+  if (start === 0 && end === characters.length) return text;
+  return `${start > 0 ? "…" : ""}${characters.slice(start, end).join("")}${end < characters.length ? "…" : ""}`;
+}
+
+/** Builds one bounded preview from the actual terms reported by a search index. */
+export function buildSearchTermHighlightPreview(
+  excerpt: string,
+  terms: readonly string[],
+  options: SearchHighlightPreviewOptions = {},
+): { excerpt: string; segments: CommandPaletteHighlightSegment[] } | null {
+  const normalizedText = normalizeCommandPalettePreviewText(excerpt);
+  if (!normalizedText) return null;
+
+  const regex = buildCommandPaletteHighlightRegex([...terms]);
+  if (regex) regex.lastIndex = 0;
+  const match = regex?.exec(normalizedText) ?? null;
+  const normalizedExcerpt = cropSearchHighlightPreview(
+    normalizedText,
+    match
+      ? {
+          index: Array.from(normalizedText.slice(0, match.index)).length,
+          length: Array.from(match[0]).length,
+        }
+      : null,
+    options,
+  );
+  return {
+    excerpt: normalizedExcerpt,
+    segments: buildCommandPaletteHighlightSegments(
+      normalizedExcerpt,
+      buildCommandPaletteHighlightRegex([...terms]),
+    ),
+  };
+}
+
 export function buildCommandPaletteQueryHighlightPreview(
   excerpt: string,
   query: string,
+  options: SearchHighlightPreviewOptions = {},
 ): { excerpt: string; segments: CommandPaletteHighlightSegment[] } | null {
-  const normalizedExcerpt = normalizeCommandPalettePreviewText(excerpt);
-  if (!normalizedExcerpt) {
+  const normalizedText = normalizeCommandPalettePreviewText(excerpt);
+  if (!normalizedText) {
     return null;
   }
+
+  const characters = Array.from(normalizedText);
+  const queryCharacters = Array.from(query.trim());
+  const queryTokens = query.trim().split(/\s+/).filter(Boolean);
+  const phraseStart = findCodePointSubstring(characters, queryCharacters);
+  const tokenMatches = queryTokens
+    .map((token) => ({
+      index: findCodePointSubstring(characters, Array.from(token)),
+      length: Array.from(token).length,
+    }))
+    .filter(({ index }) => index >= 0);
+  const firstMatch = phraseStart >= 0
+    ? { index: phraseStart, length: queryCharacters.length }
+    : tokenMatches.length > 0
+      ? tokenMatches.reduce((earliest, current) => (
+          current.index < earliest.index ? current : earliest
+        ))
+      : null;
+  const normalizedExcerpt = cropSearchHighlightPreview(
+    normalizedText,
+    firstMatch,
+    options,
+  );
 
   if (!query.trim()) {
     return {

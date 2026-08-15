@@ -568,6 +568,13 @@ fn persist_yjs_commit_inner(
         owner_projection_impact,
         nested_page_projection_impact,
     )?;
+    let projection_impact = local_commit::merge_projection_impact(
+        projection_impact,
+        page_reference_target_impact(&[
+            &input.base_materialization.references,
+            &input.materialization.references,
+        ]),
+    )?;
     let projection_impact = if input.base_materialization.title != input.materialization.title
         || input.base_materialization.rich_title != input.materialization.rich_title
         || nested_page_placement_changed
@@ -807,6 +814,10 @@ fn persist_yjs_genesis_inner(
         let projection_impact = impact_for_page_document(
             page_impact.as_ref(),
             Some((&input.authority.head.id, input.authority.head.generation, 1)),
+        )?;
+        let projection_impact = local_commit::merge_projection_impact(
+            projection_impact,
+            page_reference_target_impact(&[&input.materialization.references]),
         )?;
         let database_ids = page_impact
             .as_ref()
@@ -1507,7 +1518,85 @@ fn persist_materialization(
             now,
         ],
     )?;
+    replace_page_reference_projection(connection, document_id, &materialization.references, now)?;
     Ok(())
+}
+
+fn replace_page_reference_projection(
+    connection: &Connection,
+    document_id: &str,
+    references: &[crate::domain::derived_records::BlockDocumentReference],
+    now: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "DELETE FROM document_page_references WHERE document_id = ?1",
+        [document_id],
+    )?;
+    let source_owner_block_id = connection
+        .query_row(
+            "SELECT block_id FROM block_documents WHERE document_id = ?1",
+            [document_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Document Page references have no owning Block"))?;
+    for reference in references {
+        let crate::domain::derived_records::BlockDocumentReference::Page {
+            source_block_id,
+            target_page_id,
+            presentation,
+            occurrence_count,
+        } = reference
+        else {
+            continue;
+        };
+        let presentation = match presentation {
+            crate::domain::derived_records::PageReferencePresentation::Mention => "mention",
+            crate::domain::derived_records::PageReferencePresentation::ReferenceBlock => {
+                "reference_block"
+            }
+            crate::domain::derived_records::PageReferencePresentation::Link => "link",
+        };
+        connection.execute(
+            "INSERT INTO document_page_references( \
+               document_id, source_owner_block_id, source_block_id, target_page_id, \
+               presentation, occurrence_count, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                document_id,
+                source_owner_block_id,
+                source_block_id,
+                target_page_id,
+                presentation,
+                occurrence_count,
+                now,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn page_reference_target_impact(reference_sets: &[&[BlockDocumentReference]]) -> ProjectionImpact {
+    let mut page_ids = reference_sets
+        .iter()
+        .flat_map(|references| references.iter())
+        .filter_map(|reference| match reference {
+            BlockDocumentReference::Page { target_page_id, .. } => Some(target_page_id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    page_ids.sort();
+    page_ids.dedup();
+    if page_ids.is_empty() {
+        return ProjectionImpact::None;
+    }
+    ProjectionImpact::Resources {
+        page_ids,
+        database_ids: Vec::new(),
+        data_source_ids: Vec::new(),
+        view_ids: Vec::new(),
+        document_heads: Vec::new(),
+    }
 }
 
 pub(super) fn replace_secondary_projections(
@@ -1906,6 +1995,7 @@ fn validate_legacy_document_references(
 ) -> Result<(), StoreError> {
     for reference in &materialization.references {
         let valid = match reference {
+            BlockDocumentReference::Page { .. } => true,
             BlockDocumentReference::Block {
                 target_block_id, ..
             } => legacy_block_reference_is_readable(
@@ -1958,6 +2048,7 @@ fn validate_document_references(
 ) -> Result<(), StoreError> {
     for reference in &materialization.references {
         let valid = match reference {
+            BlockDocumentReference::Page { .. } => true,
             BlockDocumentReference::Block {
                 target_block_id, ..
             } => block_reference_is_readable(
@@ -2007,6 +2098,14 @@ fn validate_document_references(
 
 fn reference_description(reference: &BlockDocumentReference) -> String {
     match reference {
+        BlockDocumentReference::Page {
+            source_block_id,
+            target_page_id,
+            presentation,
+            ..
+        } => format!(
+            "unreadable {presentation:?} Page reference from `{source_block_id}` to `{target_page_id}`"
+        ),
         BlockDocumentReference::Block {
             source_block_id,
             target_block_id,

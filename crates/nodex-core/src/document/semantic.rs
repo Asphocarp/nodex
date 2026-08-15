@@ -559,6 +559,9 @@ fn rich_text_item(item: &NfmInlineContent) -> Result<RichTextItem, SemanticMutat
         NfmInlineContent::ThreadMention { uuid } => {
             Ok(RichTextItem::ThreadMention { uuid: uuid.clone() })
         }
+        NfmInlineContent::PageMention { target_page_id } => Ok(RichTextItem::PageMention {
+            target_page_id: target_page_id.clone(),
+        }),
         NfmInlineContent::DateMention(date) => Ok(RichTextItem::DateMention {
             start: date.start.clone(),
             end: date.end.clone(),

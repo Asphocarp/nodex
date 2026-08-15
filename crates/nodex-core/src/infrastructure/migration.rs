@@ -2524,6 +2524,101 @@ fn validate_v126_thread_recency(connection: &Connection) -> Result<(), StoreErro
     Ok(())
 }
 
+fn ensure_v127_document_page_references(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS document_page_references ( \
+           document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, \
+           source_owner_block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE, \
+           source_block_id TEXT NOT NULL, \
+           target_page_id TEXT NOT NULL CHECK (length(target_page_id) BETWEEN 1 AND 512), \
+           presentation TEXT NOT NULL CHECK (presentation IN ('mention', 'reference_block', 'link')), \
+           occurrence_count INTEGER NOT NULL CHECK (occurrence_count >= 1), \
+           updated_at TEXT NOT NULL CHECK (length(updated_at) > 0), \
+           PRIMARY KEY (document_id, source_block_id, target_page_id, presentation) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE INDEX IF NOT EXISTS idx_document_page_references_target \
+           ON document_page_references(target_page_id, updated_at DESC, source_owner_block_id, source_block_id); \
+         DELETE FROM document_page_references;",
+    )?;
+    let materials = connection
+        .prepare(
+            "SELECT materialization.document_id, ownership.block_id, \
+                    materialization.references_json, materialization.updated_at \
+             FROM document_materializations materialization \
+             JOIN block_documents ownership ON ownership.document_id = materialization.document_id \
+             ORDER BY materialization.document_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (document_id, source_owner_block_id, references_json, updated_at) in materials {
+        let references = serde_json::from_str::<
+            Vec<crate::domain::derived_records::BlockDocumentReference>,
+        >(&references_json)
+        .map_err(|_| corrupt("v127 Page reference backfill found invalid derived records"))?;
+        for reference in references {
+            let crate::domain::derived_records::BlockDocumentReference::Page {
+                source_block_id,
+                target_page_id,
+                presentation,
+                occurrence_count,
+            } = reference
+            else {
+                continue;
+            };
+            let presentation = match presentation {
+                crate::domain::derived_records::PageReferencePresentation::Mention => "mention",
+                crate::domain::derived_records::PageReferencePresentation::ReferenceBlock => {
+                    "reference_block"
+                }
+                crate::domain::derived_records::PageReferencePresentation::Link => "link",
+            };
+            connection.execute(
+                "INSERT INTO document_page_references( \
+                   document_id, source_owner_block_id, source_block_id, target_page_id, \
+                   presentation, occurrence_count, updated_at \
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    document_id,
+                    source_owner_block_id,
+                    source_block_id,
+                    target_page_id,
+                    presentation,
+                    occurrence_count,
+                    updated_at,
+                ],
+            )?;
+        }
+    }
+    validate_v127_document_page_references(connection)
+}
+
+fn validate_v127_document_page_references(connection: &Connection) -> Result<(), StoreError> {
+    let invalid: i64 = connection.query_row(
+        "SELECT count(*) FROM document_page_references reference \
+         LEFT JOIN block_documents ownership \
+           ON ownership.document_id = reference.document_id \
+          AND ownership.block_id = reference.source_owner_block_id \
+         LEFT JOIN blocks target ON target.id = reference.target_page_id \
+         WHERE ownership.block_id IS NULL \
+            OR (target.id IS NOT NULL AND target.type <> 'page')",
+        [],
+        |row| row.get(0),
+    )?;
+    if invalid != 0 {
+        return Err(corrupt(format!(
+            "v127 Store contains {invalid} invalid normalized Page references"
+        )));
+    }
+    Ok(())
+}
+
 pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
@@ -2559,6 +2654,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v124_thread_execution_hosts(connection)?;
         validate_v125_default_draft_sessions(connection)?;
         validate_v126_thread_recency(connection)?;
+        validate_v127_document_page_references(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -2593,6 +2689,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v124_thread_execution_hosts(connection)?;
         validate_v125_default_draft_sessions(connection)?;
         validate_v126_thread_recency(connection)?;
+        validate_v127_document_page_references(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -2656,6 +2753,7 @@ pub fn prepare_profile_store_with_observer(
     validate_v124_thread_execution_hosts(connection)?;
     validate_v125_default_draft_sessions(connection)?;
     validate_v126_thread_recency(connection)?;
+    validate_v127_document_page_references(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2721,6 +2819,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_v124_thread_execution_hosts(connection)?;
     validate_v125_default_draft_sessions(connection)?;
     validate_v126_thread_recency(connection)?;
+    validate_v127_document_page_references(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2815,6 +2914,7 @@ fn upgrade_owned_store(
         123 => validate_exact_v123_schema(connection)?,
         124 => validate_exact_v124_schema(connection)?,
         125 => validate_exact_v125_schema(connection)?,
+        126 => validate_exact_v126_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2964,6 +3064,7 @@ fn upgrade_owned_store(
         ensure_v124_thread_execution_hosts(transaction)?;
         ensure_v125_default_draft_sessions(transaction)?;
         ensure_v126_thread_recency(transaction)?;
+        ensure_v127_document_page_references(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -3442,7 +3543,8 @@ fn publish_current_store(
         ensure_v125_default_draft_sessions(transaction)?;
         ensure_v126_thread_recency(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
-        import_automation_jitter_salt(transaction, profile_home, now)
+        import_automation_jitter_salt(transaction, profile_home, now)?;
+        ensure_v127_document_page_references(transaction)
     })
 }
 
@@ -3498,7 +3600,8 @@ fn create_fresh_store(
         ensure_v125_default_draft_sessions(transaction)?;
         ensure_v126_thread_recency(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
-        import_automation_jitter_salt(transaction, profile_home, now)
+        import_automation_jitter_salt(transaction, profile_home, now)?;
+        ensure_v127_document_page_references(transaction)
     })
 }
 
@@ -7740,6 +7843,14 @@ fn validate_exact_v125_schema(connection: &Connection) -> Result<(), StoreError>
     validate_v125_default_draft_sessions(connection)
 }
 
+fn validate_exact_v126_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 126)?;
+    validate_v121_page_key_invariants(connection)?;
+    validate_v124_thread_execution_hosts(connection)?;
+    validate_v125_default_draft_sessions(connection)?;
+    validate_v126_thread_recency(connection)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -7755,7 +7866,8 @@ fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreErr
     validate_v121_page_key_invariants(connection)?;
     validate_v124_thread_execution_hosts(connection)?;
     validate_v125_default_draft_sessions(connection)?;
-    validate_v126_thread_recency(connection)
+    validate_v126_thread_recency(connection)?;
+    validate_v127_document_page_references(connection)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7935,6 +8047,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 126 {
         ensure_v126_thread_recency(&expected)?;
     }
+    if schema_version >= 127 {
+        ensure_v127_document_page_references(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -8093,6 +8208,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     if version >= 126 {
         ensure_v126_thread_recency(&expected)?;
     }
+    if version >= 127 {
+        ensure_v127_document_page_references(&expected)?;
+    }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
@@ -8217,13 +8335,26 @@ mod tests {
 
     const DOCUMENT_ID: &str = "document:migration-page";
 
+    fn remove_v127_document_page_reference_schema(
+        connection: &Connection,
+    ) -> Result<(), StoreError> {
+        connection
+            .execute_batch(
+                "DROP INDEX idx_document_page_references_target; \
+                 DROP TABLE document_page_references;",
+            )
+            .map_err(StoreError::from)
+    }
+
     fn remove_v124_thread_execution_host_schema(connection: &Connection) -> Result<(), StoreError> {
+        remove_v125_default_draft_schema(connection)?;
         connection
             .execute_batch("ALTER TABLE codex_threads DROP COLUMN execution_host_id;")
             .map_err(StoreError::from)
     }
 
     fn remove_v125_default_draft_schema(connection: &Connection) -> Result<(), StoreError> {
+        remove_v126_thread_recency_schema(connection)?;
         connection
             .execute_batch(
                 "DROP INDEX idx_project_sessions_default_draft_project; \
@@ -8234,6 +8365,7 @@ mod tests {
     }
 
     fn remove_v126_thread_recency_schema(connection: &Connection) -> Result<(), StoreError> {
+        remove_v127_document_page_reference_schema(connection)?;
         connection
             .execute_batch(
                 "DROP INDEX idx_codex_threads_project_recency; \
@@ -10668,6 +10800,177 @@ mod tests {
     }
 
     #[test]
+    fn v127_page_reference_projection_backfills_once_from_materializations() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    let now = "2026-08-16T00:00:00.000Z";
+                    crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                        transaction,
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) \
+                         VALUES ('profile:v127', ?1, ?1)",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library:v127', 'profile:v127', ?1, ?1)",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project:v127', 'library:v127', 'Migration', ?1, ?1)",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch:v127', ?1, ?1)",
+                        [now],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed v127 authority");
+        let module = crate::library::LibraryModule::new("profile:v127", "library:v127", &kernel);
+        let context = nodex_core_contracts::BoundModuleContext {
+            profile_id: nodex_core_contracts::ProfileId("profile:v127".to_owned()),
+            library_id: nodex_core_contracts::LibraryId("library:v127".to_owned()),
+            project_id: Some(nodex_core_contracts::ProjectId("project:v127".to_owned())),
+            connection_id: "connection:v127".to_owned(),
+            adapter: nodex_core_contracts::AdapterKind::Test,
+        };
+        for (operation_id, page_id, document_id, title) in [
+            (
+                "create-v127-source",
+                "page:v127-source",
+                "document:v127-source",
+                "Source",
+            ),
+            (
+                "create-v127-target",
+                "page:v127-target",
+                "document:v127-target",
+                "Target",
+            ),
+        ] {
+            module
+                .apply(
+                    &context,
+                    nodex_core_contracts::ModuleApplyRequest {
+                        contract_version: nodex_core_contracts::LIBRARY_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: nodex_core_contracts::StoreEpoch("epoch:v127".to_owned()),
+                        intent: nodex_core_contracts::library::LibraryIntent::CreatePage {
+                            page_id: page_id.to_owned(),
+                            document_id: document_id.to_owned(),
+                            title: title.to_owned(),
+                            parent: nodex_core_contracts::library::LibraryWriteParent::Library {
+                                before: None,
+                            },
+                        },
+                    },
+                )
+                .expect("create v127 migration Page");
+        }
+        let documents =
+            crate::document::OwnedDocumentModule::new("profile:v127", "library:v127", &kernel);
+        documents
+            .apply(
+                &context,
+                nodex_core_contracts::ModuleApplyRequest {
+                    contract_version: nodex_core_contracts::OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "replace-v127-source".to_owned(),
+                    store_epoch: nodex_core_contracts::StoreEpoch("epoch:v127".to_owned()),
+                    intent: nodex_core_contracts::document::OwnedDocumentIntent::ReplaceFromNfm {
+                        document_id: "document:v127-source".to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        nfm: "<mention-page url=\"nodex://pages/page%3Av127-target\" /> and <mention-page url=\"nodex://pages/page%3Av127-target\" />".to_owned(),
+                        rich_title: None,
+                        actor: serde_json::json!({
+                            "kind": "electron_renderer",
+                            "clientId": "migration:v127",
+                        }),
+                    },
+                },
+            )
+            .expect("materialize v126 Page references");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    remove_v127_document_page_reference_schema(transaction)?;
+                    transaction.execute_batch(
+                        "UPDATE core_store_metadata SET store_format_version = 126 WHERE id = 1; \
+                         PRAGMA user_version = 126;",
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("reconstruct v126 Page references");
+        drop(documents);
+        drop(module);
+        drop(kernel);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v126 Page references");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(126));
+        let projection = upgraded
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT source_owner_block_id, source_block_id, target_page_id, \
+                                presentation, occurrence_count, updated_at \
+                         FROM document_page_references",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, String>(3)?,
+                                row.get::<_, u32>(4)?,
+                                row.get::<_, String>(5)?,
+                            ))
+                        },
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read v127 Page reference projection");
+        assert_eq!(
+            (
+                projection.0.as_str(),
+                projection.2.as_str(),
+                projection.3.as_str(),
+                projection.4,
+            ),
+            ("page:v127-source", "page:v127-target", "mention", 2),
+        );
+        assert!(!projection.1.is_empty());
+        assert!(!projection.5.is_empty());
+        drop(upgraded);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v127 Store");
+        let count = reopened
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row("SELECT count(*) FROM document_page_references", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .map_err(StoreError::from)
+            })
+            .expect("count stable v127 Page reference projection");
+        assert_eq!(count, 1);
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+    }
+
+    #[test]
     fn v118_upgrade_removes_the_duplicate_block_document_index_once() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -12097,7 +12400,7 @@ mod tests {
 
         let error = open_error(&home);
         assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
-        assert!(error.message.contains("update time precedes creation"));
+        assert!(error.message.contains("invalid Thread recency timestamps"));
     }
 
     #[test]

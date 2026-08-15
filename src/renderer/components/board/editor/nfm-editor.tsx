@@ -7,6 +7,7 @@ import {
   useState,
   type RefObject,
   type Ref,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
   SideMenuController,
@@ -32,6 +33,7 @@ import {
   NFM_DISABLED_EXTENSIONS,
 } from "./nfm-editor-extensions";
 import { createNfmLinkExtension } from "./nfm-link-extension";
+import { readNfmLinkHrefAtElement } from "./nfm-link-element";
 import { NOTION_BLOCKS_MIME, NOTION_MULTI_TEXT_MIME } from "./notion-paste";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
 import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
@@ -40,6 +42,9 @@ import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { toast } from "@/components/ui/toast";
 import { createUuidV7 } from "../../../../shared/uuid-v7";
+import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../../../shared/library-module";
+import { applyLibraryModule } from "@/lib/api";
+import { resolveNfmLinkAction } from "@/lib/nfm-link-actions";
 import {
   projectIdFromContentAccessContext,
   type ContentCanvasNavigationTarget,
@@ -172,6 +177,7 @@ import {
 import { useSpellcheck } from "@/lib/use-spellcheck";
 import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
+import { resolvePageDeepLinkPasteIntent } from "@/lib/page-reference-paste";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import type { BlockDocumentMutationBarrier } from "@/lib/block-document-surface-runtime";
@@ -262,6 +268,7 @@ interface NfmEditorCommonProps {
     navigationRef: Ref<NfmEditorBoundaryHandle>;
     onBoundaryArrow: (direction: VerticalArrowDirection) => boolean;
   };
+  navigationRef?: Ref<NfmEditorBoundaryHandle>;
   /** Optional PageTab-owned model whose lifetime exceeds this React view. */
   editorSession?: EditorSurfaceLease;
 }
@@ -280,6 +287,7 @@ interface TypedOwnerSelectionBlock {
 
 export interface NfmEditorBoundaryHandle {
   focus(): boolean;
+  focusBlock(blockId: string): boolean;
   focusBoundary(direction: VerticalArrowDirection): boolean;
 }
 
@@ -438,6 +446,7 @@ function NfmEditorInstance({
   className,
   surfaceMutationBarrier,
   embeddedBoundary,
+  navigationRef,
   editorSession,
 }: NfmEditorInstanceProps) {
   const executionProjectId = projectIdFromContentAccessContext(
@@ -1333,6 +1342,45 @@ function NfmEditorInstance({
         return;
       }
 
+      const currentBlock = editor.getTextCursorPosition().block;
+      const pagePasteIntent = resolvePageDeepLinkPasteIntent({
+        plainText: event.clipboardData.getData("text/plain"),
+        hasStructuredClipboard: clipboardTypes.some((type) =>
+          ["text/html", "text/markdown", "blocknote/html"].includes(type),
+        ),
+        hasFiles: (event.clipboardData.files?.length ?? 0) > 0,
+        hasTextSelection: editor.getSelectedText().length > 0,
+        currentBlockType: currentBlock.type,
+        currentBlockIsEmpty:
+          Array.isArray(currentBlock.content) && currentBlock.content.length === 0,
+      });
+      if (pagePasteIntent) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (pagePasteIntent.kind === "link") {
+          editor.createLink(pagePasteIntent.href);
+          return;
+        }
+        if (pagePasteIntent.kind === "mention") {
+          editor.insertInlineContent(
+            [
+              {
+                type: "pageMention",
+                props: { targetPageId: pagePasteIntent.pageId },
+              },
+              " ",
+            ],
+            { updateSelection: true },
+          );
+          return;
+        }
+        editor.updateBlock(currentBlock, {
+          type: "pageRef",
+          props: { targetBlockId: pagePasteIntent.pageId },
+        });
+        return;
+      }
+
       const plainText = event.clipboardData.getData("text/plain");
       const clipboardFiles = Array.from(event.clipboardData.files ?? []);
       const nonImageFiles = clipboardFiles.filter(
@@ -1454,12 +1502,27 @@ function NfmEditorInstance({
   ]);
 
   useImperativeHandle(
-    embeddedBoundary?.navigationRef,
+    navigationRef ?? embeddedBoundary?.navigationRef,
     () => ({
       focus: () => {
         if (!editor.domElement) return false;
         editor.focus();
         return true;
+      },
+      focusBlock: (blockId) => {
+        if (!editor.getBlock(blockId)) return false;
+        try {
+          editor.setTextCursorPosition(blockId, "start");
+          const cssEscape = globalThis.CSS?.escape
+            ?? ((value: string) => value.replace(/["\\]/g, "\\$&"));
+          editor.prosemirrorView?.dom
+            .querySelector<HTMLElement>(`.bn-block[data-id="${cssEscape(blockId)}"]`)
+            ?.scrollIntoView({ block: "center" });
+          editor.focus();
+          return true;
+        } catch {
+          return false;
+        }
       },
       focusBoundary: (direction) =>
         focusEmbeddedEditorBoundary(
@@ -2244,6 +2307,88 @@ function NfmEditorInstance({
     [contentAccessContext, sourcePageContext, surfaceMutationBarrier],
   );
 
+  const createSubpageAtEmptyParagraph = useCallback(
+    async ({ blockId, title }: { readonly blockId: string; readonly title: string }) => {
+      if (!sourcePageContext) {
+        throw new Error("A Subpage can only be created inside a Page.");
+      }
+      if (!surfaceMutationBarrier) {
+        throw new Error("The Page Document is not ready to create a Subpage.");
+      }
+      const container = containerRef.current;
+      if (!container) {
+        throw new Error("The Page editor is not ready to create a Subpage.");
+      }
+      await prepareNfmEditorForMutation(
+        editor as unknown as NfmEditorMutationRuntime,
+        container,
+      );
+      const hostHead = await surfaceMutationBarrier.flushAndFence();
+      if (
+        hostHead.storeEpoch !== source.storeEpoch
+        || hostHead.documentId !== source.documentId
+        || hostHead.generation !== source.generation
+      ) {
+        throw new Error(
+          "The host Page changed; reopen it before creating the Subpage.",
+        );
+      }
+      const pageId = createUuidV7();
+      const result = await applyLibraryModule(contentAccessContext, {
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: createUuidV7(),
+        storeEpoch: source.storeEpoch,
+        operation: {
+          kind: "create_page",
+          pageId,
+          documentId: createUuidV7(),
+          title: title.trim() || "Untitled",
+          parent: {
+            kind: "page",
+            pageId: sourcePageContext.pageId,
+            expectedDocumentGeneration: hostHead.generation,
+            expectedDocumentHeadSeq: hostHead.expectedHeadSeq,
+            insertion: { kind: "replace_empty_paragraph", blockId },
+          },
+        },
+      });
+      if (!result.ok) throw new Error(result.error.message);
+      if (
+        result.value.createdTarget?.kind !== "page"
+        || result.value.createdTarget.pageId !== pageId
+      ) {
+        throw new Error("Core did not return the created Subpage.");
+      }
+      return { pageId };
+    },
+    [
+      contentAccessContext,
+      editor,
+      source.documentId,
+      source.generation,
+      source.storeEpoch,
+      sourcePageContext,
+      surfaceMutationBarrier,
+    ],
+  );
+
+  const handleEditorClickCapture = useCallback((event: ReactMouseEvent) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest("a");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    const href = readNfmLinkHrefAtElement(editor, anchor);
+    const action = resolveNfmLinkAction(href);
+    if (action?.kind !== "page") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!onOpenPage) return;
+    void onOpenPage({
+      accessContext: contentAccessContext,
+      pageId: action.pageId,
+    });
+  }, [contentAccessContext, editor, onOpenPage]);
+
   const requireCanvasHostRuntime = useCallback(() => {
     if (!sourcePageContext) {
       throw new Error("Canvas can only be changed inside a Page.");
@@ -2522,6 +2667,9 @@ function NfmEditorInstance({
               renameCanvas,
             }
           : {}),
+        ...(sourcePageContext && surfaceMutationBarrier
+          ? { createSubpageAtEmptyParagraph }
+          : {}),
       };
     },
     [
@@ -2539,6 +2687,7 @@ function NfmEditorInstance({
       source.clientSessionId,
       surfaceMutationBarrier,
       createCanvasAtEmptyParagraph,
+      createSubpageAtEmptyParagraph,
       deleteCanvas,
       duplicateCanvasAfter,
       renameCanvas,
@@ -2555,6 +2704,7 @@ function NfmEditorInstance({
       ref={containerRef}
       className={cn("nfm-editor relative", className)}
       spellCheck={spellcheck}
+      onClickCapture={handleEditorClickCapture}
       onFocusCapture={(event) => {
         if (!editorSession) return;
         const target = event.target;

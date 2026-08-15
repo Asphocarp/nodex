@@ -23,6 +23,8 @@ const richTitle: PortableRichText = [
   { type: "linebreak" },
   { type: "threadMention", uuid: "thread-123" },
   { type: "text", text: " by ", styles: {} },
+  { type: "pageMention", targetPageId: "page-123" },
+  { type: "text", text: " on ", styles: {} },
   { type: "dateMention", start: "2026-07-14", format: "ll" },
 ];
 
@@ -35,7 +37,7 @@ describe("PortableRichText", () => {
 
     expect(readPortableRichTextFromYText(title)).toEqual(richTitle);
     expect(portableRichTextPlainText(richTitle)).toBe(
-      "Build Nodex\n@thread:thread-123 by @date:2026-07-14",
+      "Build Nodex\n@thread:thread-123 by @page:page-123 on @date:2026-07-14",
     );
   });
 

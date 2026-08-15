@@ -3610,6 +3610,16 @@ export interface components {
             /** @enum {string} */
             readonly kind: "library";
         };
+        readonly LibraryPageBacklink: {
+            readonly location_label: string;
+            /** Format: int32 */
+            readonly occurrence_count: number;
+            readonly presentations: readonly components["schemas"]["LibraryPageReferencePresentation"][];
+            readonly source_block_id: string;
+            readonly source_page_id: string;
+            readonly source_title: string;
+            readonly updated_at: string;
+        };
         readonly LibraryPageContent: {
             readonly access_context: components["schemas"]["LibraryPageAccessContext"];
             readonly asset_refs: readonly components["schemas"]["LibraryContentAssetReference"][];
@@ -4169,6 +4179,16 @@ export interface components {
                 readonly view_id?: string | null;
             };
         };
+        readonly LibraryPageReferenceCandidate: {
+            readonly location_label: string;
+            readonly match_excerpt?: string | null;
+            readonly page_id: string;
+            readonly page_key?: string | null;
+            readonly status?: null | components["schemas"]["LibraryPageWorkflowStatus"];
+            readonly title: string;
+        };
+        /** @enum {string} */
+        readonly LibraryPageReferencePresentation: "mention" | "reference_block" | "link";
         readonly LibraryPageTarget: {
             /** @enum {string} */
             readonly status: "missing";
@@ -4406,6 +4426,7 @@ export interface components {
             readonly expected_document_generation: number;
             /** Format: int64 */
             readonly expected_document_head_seq: number;
+            readonly insertion?: null | components["schemas"]["LibraryPageInsertion"];
             /** @enum {string} */
             readonly kind: "page";
             readonly page_id: string;
@@ -5645,6 +5666,19 @@ export interface components {
                 readonly limit?: number | null;
                 readonly project_ids: readonly string[];
                 readonly query: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "page_reference_candidates";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly query: string;
+            } | {
+                readonly cursor?: string | null;
+                /** @enum {string} */
+                readonly kind: "page_backlinks";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly target_page_id: string;
             } | {
                 readonly before?: null | components["schemas"]["LibraryPageHistoryCursor"];
                 /** @enum {string} */
@@ -7222,6 +7256,21 @@ export interface components {
                     readonly items: readonly components["schemas"]["LibraryProjectPageSearchHit"][];
                     /** @enum {string} */
                     readonly kind: "project_page_search";
+                } | {
+                    readonly items: readonly components["schemas"]["LibraryPageReferenceCandidate"][];
+                    /** @enum {string} */
+                    readonly kind: "page_reference_candidates";
+                } | {
+                    readonly has_more: boolean;
+                    readonly items: readonly components["schemas"]["LibraryPageBacklink"][];
+                    /** @enum {string} */
+                    readonly kind: "page_backlinks";
+                    readonly next_cursor?: string | null;
+                    /** Format: int64 */
+                    readonly source_page_count: number;
+                    readonly target_page_id: string;
+                    /** Format: int64 */
+                    readonly total: number;
                 } | {
                     /** @enum {string} */
                     readonly kind: "page_history";

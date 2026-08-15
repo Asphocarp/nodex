@@ -34,6 +34,7 @@ import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
 import { formatAttachmentBytes } from "./attachment-chip-format";
 import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-inline-content-spec";
+import { createReadonlyPageMentionInlineContentSpec } from "./page-mention-inline-content";
 import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
 import { createCalloutBlock } from "./callout-block";
 import { createPageToggleBlockSpec } from "./card-toggle-block";
@@ -46,7 +47,9 @@ import {
 import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import { openFileReferenceContextMenu } from "@/components/shared/file-link-anchor";
 import { useTheme } from "@/lib/use-theme";
+import { readNfmLinkHrefAtElement } from "./nfm-link-element";
 import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
+import { useBlockReferenceHostRuntime } from "../../block-documents/block-reference-runtime-context";
 import {
   agentConfigInlineContentConfig,
   attachmentInlineContentConfig,
@@ -119,13 +122,12 @@ const createReadonlyPageRefBlockSpec = createReactBlockSpec(
   pageRefBlockConfig,
   {
     render: ({ block }) => {
-      const sourceProjectId = String(block.props.sourceProjectId || "default");
-      const targetBlockId = String(block.props.targetBlockId || block.props.cardId || "").trim();
+      const targetBlockId = String(block.props.targetBlockId || "").trim();
       return (
         <InertEmbedPlaceholder
           icon={Link2}
-          label="Page mention"
-          detail={targetBlockId || sourceProjectId}
+          label="Page reference"
+          detail={targetBlockId}
         />
       );
     },
@@ -346,6 +348,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     attachment: createReadonlyAttachmentInlineContentSpec(),
     agentConfig: createReadonlyAgentConfigInlineContentSpec(),
     dateMention: createReadonlyDateMentionInlineContentSpec(),
+    pageMention: createReadonlyPageMentionInlineContentSpec(),
     threadMention: createReadonlyThreadMentionInlineContentSpec(),
   },
   styleSpecs: defaultStyleSpecs,
@@ -393,6 +396,7 @@ export function ReadonlyNfmBlockNotePreview({
   className,
 }: ReadonlyNfmBlockNotePreviewProps) {
   const fileReferenceRouter = useFileReferenceRouter();
+  const hostRuntime = useBlockReferenceHostRuntime();
   const { resolved: themeMode } = useTheme();
   const toggleBlockIdsRef = useRef<string[]>([]);
 
@@ -443,15 +447,18 @@ export function ReadonlyNfmBlockNotePreview({
     const target = event.target;
     if (!(target instanceof Element)) return null;
 
-    const anchor = target.closest("a[href]");
+    const anchor = target.closest("a");
     if (!(anchor instanceof HTMLAnchorElement)) return null;
     if (!event.currentTarget.contains(anchor)) return null;
 
     return {
-      action: resolveNfmLinkAction(anchor.getAttribute("href") ?? "", projectWorkspacePath),
+      action: resolveNfmLinkAction(
+        readNfmLinkHrefAtElement(editor, anchor),
+        projectWorkspacePath,
+      ),
       anchor,
     };
-  }, [projectWorkspacePath]);
+  }, [editor, projectWorkspacePath]);
 
   const handleClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const resolved = findAnchorAction(event);
@@ -470,8 +477,21 @@ export function ReadonlyNfmBlockNotePreview({
       });
       return;
     }
-    void openNfmResolvedLinkAction(resolved.action);
-  }, [findAnchorAction, openLocalReference]);
+    void openNfmResolvedLinkAction(
+      resolved.action,
+      undefined,
+      undefined,
+      undefined,
+      hostRuntime?.openPage
+        ? {
+            openPage: (targetPageId) => hostRuntime.openPage?.({
+              accessContext: hostRuntime.contentAccessContext,
+              pageId: targetPageId,
+            }),
+          }
+        : undefined,
+    );
+  }, [findAnchorAction, hostRuntime, openLocalReference]);
 
   const handleDoubleClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const resolved = findAnchorAction(event);

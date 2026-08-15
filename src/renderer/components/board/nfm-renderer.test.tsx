@@ -167,6 +167,17 @@ describe("NfmRenderer", () => {
     expect(textContent(container).includes("@Yesterday")).toBe(true);
   });
 
+  test("renders Page mentions as lightweight inline references", () => {
+    const { container } = render(
+      <NfmRenderer
+        content={'See <mention-page url="nodex://pages/page-1" /> now.'}
+      />,
+    );
+
+    expect(textContent(container).includes("page-1")).toBe(true);
+    expect(container.querySelector('[href="nodex://pages/page-1"]')).toBeNull();
+  });
+
   test("renders consecutive numbered list items in one ordered list with preserved numbering", async () => {
     const { container } = render(
       <NfmRenderer content={"1. first\n2. second\n3. third"} />,

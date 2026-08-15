@@ -188,6 +188,23 @@ const toCoreWriteParent = (parent: LibraryWriteParent) => {
     expected_document_generation: parent.expectedDocumentGeneration,
     expected_document_head_seq: parent.expectedDocumentHeadSeq,
     before,
+    insertion: parent.insertion
+      ? parent.insertion.kind === "append"
+        ? {
+            kind: parent.insertion.kind,
+            parent_block_id: parent.insertion.parentBlockId ?? null,
+          }
+        : parent.insertion.kind === "before"
+          ? {
+              kind: parent.insertion.kind,
+              parent_block_id: parent.insertion.parentBlockId ?? null,
+              anchor_block_id: parent.insertion.anchorBlockId,
+            }
+          : {
+              kind: parent.insertion.kind,
+              block_id: parent.insertion.blockId,
+            }
+      : null,
   } as const;
 };
 
@@ -281,6 +298,19 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
         scope: toCoreMoveDestinationScope(read.scope),
         cursor: read.cursor ?? null,
         limit: read.limit,
+      };
+    case "page_reference_candidates":
+      return {
+        kind: "page_reference_candidates",
+        query: read.query,
+        limit: read.limit ?? null,
+      };
+    case "page_backlinks":
+      return {
+        kind: "page_backlinks",
+        target_page_id: read.targetPageId,
+        cursor: read.cursor ?? null,
+        limit: read.limit ?? null,
       };
   }
 };
@@ -824,6 +854,36 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
         hasMore: value.has_more,
         total: value.total,
         rootIsCurrent: value.root_is_current,
+      } as const;
+    case "page_reference_candidates":
+      return {
+        kind: value.kind,
+        items: value.items.map((item) => ({
+          pageId: item.page_id,
+          title: item.title,
+          pageKey: item.page_key ?? null,
+          status: item.status ?? null,
+          locationLabel: item.location_label,
+          matchExcerpt: item.match_excerpt ?? null,
+        })),
+      } as const;
+    case "page_backlinks":
+      return {
+        kind: value.kind,
+        targetPageId: value.target_page_id,
+        items: value.items.map((item) => ({
+          sourcePageId: item.source_page_id,
+          sourceBlockId: item.source_block_id,
+          sourceTitle: item.source_title,
+          locationLabel: item.location_label,
+          presentations: item.presentations,
+          occurrenceCount: item.occurrence_count,
+          updatedAt: item.updated_at,
+        })),
+        nextCursor: value.next_cursor ?? null,
+        hasMore: value.has_more,
+        total: value.total,
+        sourcePageCount: value.source_page_count,
       } as const;
     default:
       throw new Error(`Core Library read ${value.kind} cannot satisfy the catalog Adapter`);

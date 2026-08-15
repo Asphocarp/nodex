@@ -297,7 +297,7 @@ const parseWriteParent = (
         "expectedDocumentGeneration",
         "expectedDocumentHeadSeq",
       ],
-      ["before"],
+      ["before", "insertion"],
     );
     const expectedDocumentGeneration = revision(
       parent.expectedDocumentGeneration,
@@ -315,10 +315,52 @@ const parseWriteParent = (
         `${label}.expectedDocumentHeadSeq`,
       ),
       ...(before ? { before } : {}),
+      ...(parent.insertion === undefined
+        ? {}
+        : {
+            insertion: parsePageInsertion(
+              parent.insertion,
+              `${label}.insertion`,
+            ),
+          }),
     };
   }
   throw new TypeError(`${label}.kind is unsupported`);
 };
+
+function parsePageInsertion(
+  value: unknown,
+  label: string,
+): import("./library-module").LibraryPageInsertion {
+  const insertion = record(value, label);
+  if (insertion.kind === "append") {
+    exactKeys(insertion, label, ["kind"], ["parentBlockId"]);
+    return {
+      kind: "append",
+      ...(insertion.parentBlockId === undefined
+        ? {}
+        : { parentBlockId: uuidV7(insertion.parentBlockId, `${label}.parentBlockId`) }),
+    };
+  }
+  if (insertion.kind === "before") {
+    exactKeys(insertion, label, ["kind", "anchorBlockId"], ["parentBlockId"]);
+    return {
+      kind: "before",
+      anchorBlockId: uuidV7(insertion.anchorBlockId, `${label}.anchorBlockId`),
+      ...(insertion.parentBlockId === undefined
+        ? {}
+        : { parentBlockId: uuidV7(insertion.parentBlockId, `${label}.parentBlockId`) }),
+    };
+  }
+  if (insertion.kind === "replace_empty_paragraph") {
+    exactKeys(insertion, label, ["kind", "blockId"]);
+    return {
+      kind: "replace_empty_paragraph",
+      blockId: uuidV7(insertion.blockId, `${label}.blockId`),
+    };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+}
 
 const parseCanvasDestination = (
   value: unknown,
@@ -342,57 +384,10 @@ const parseCanvasDestination = (
     "expectedDocumentHeadSeq",
     "insertion",
   ]);
-  const insertion = record(destination.insertion, `${label}.insertion`);
-  const parsedInsertion = (() => {
-    if (insertion.kind === "append") {
-      exactKeys(insertion, `${label}.insertion`, ["kind"], ["parentBlockId"]);
-      return {
-        kind: "append" as const,
-        ...(insertion.parentBlockId === undefined
-          ? {}
-          : {
-              parentBlockId: uuidV7(
-                insertion.parentBlockId,
-                `${label}.insertion.parentBlockId`,
-              ),
-            }),
-      };
-    }
-    if (insertion.kind === "before") {
-      exactKeys(
-        insertion,
-        `${label}.insertion`,
-        ["kind", "anchorBlockId"],
-        ["parentBlockId"],
-      );
-      return {
-        kind: "before" as const,
-        anchorBlockId: uuidV7(
-          insertion.anchorBlockId,
-          `${label}.insertion.anchorBlockId`,
-        ),
-        ...(insertion.parentBlockId === undefined
-          ? {}
-          : {
-              parentBlockId: uuidV7(
-                insertion.parentBlockId,
-                `${label}.insertion.parentBlockId`,
-              ),
-            }),
-      };
-    }
-    if (insertion.kind === "replace_empty_paragraph") {
-      exactKeys(insertion, `${label}.insertion`, ["kind", "blockId"]);
-      return {
-        kind: "replace_empty_paragraph" as const,
-        blockId: uuidV7(
-          insertion.blockId,
-          `${label}.insertion.blockId`,
-        ),
-      };
-    }
-    throw new TypeError(`${label}.insertion.kind is unsupported`);
-  })();
+  const parsedInsertion = parsePageInsertion(
+    destination.insertion,
+    `${label}.insertion`,
+  );
   const expectedDocumentGeneration = revision(
     destination.expectedDocumentGeneration,
     `${label}.expectedDocumentGeneration`,
@@ -1032,6 +1027,59 @@ export const bindLibraryModuleRead = (
         scope: parseMoveDestinationScope(
           read.scope,
           "libraryModuleRead.read.scope",
+        ),
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(limit === undefined ? {} : { limit }),
+      },
+    };
+  }
+  if (read.mode === "page_reference_candidates") {
+    exactKeys(
+      read,
+      "libraryModuleRead.read",
+      ["mode", "query"],
+      ["limit"],
+    );
+    const query = string(
+      read.query,
+      "libraryModuleRead.read.query",
+      MAX_LIBRARY_QUERY_LENGTH,
+      true,
+    );
+    const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
+    if (limit !== undefined && limit > 60) {
+      throw new TypeError("libraryModuleRead.read.limit must be at most 60");
+    }
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "page_reference_candidates",
+        query,
+        ...(limit === undefined ? {} : { limit }),
+      },
+    };
+  }
+  if (read.mode === "page_backlinks") {
+    exactKeys(
+      read,
+      "libraryModuleRead.read",
+      ["mode", "targetPageId"],
+      ["cursor", "limit"],
+    );
+    const cursor = optionalString(
+      read.cursor,
+      "libraryModuleRead.read.cursor",
+      MAX_LIBRARY_CURSOR_LENGTH,
+    );
+    const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "page_backlinks",
+        targetPageId: string(
+          read.targetPageId,
+          "libraryModuleRead.read.targetPageId",
+          MAX_ID_LENGTH,
         ),
         ...(cursor === undefined ? {} : { cursor }),
         ...(limit === undefined ? {} : { limit }),

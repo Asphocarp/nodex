@@ -412,9 +412,7 @@
       "id": "matrix-page-ref",
       "type": "pageRef",
       "props": {
-        "targetBlockId": "page-target",
-        "sourceProjectId": "",
-        "cardId": ""
+        "targetBlockId": "page-target"
       },
       "children": []
     },
@@ -466,9 +464,11 @@
       "projectHint": "project-1"
     },
     {
-      "kind": "block",
+      "kind": "page",
       "sourceBlockId": "matrix-page-ref",
-      "targetBlockId": "page-target"
+      "targetPageId": "page-target",
+      "presentation": "reference_block",
+      "occurrenceCount": 1
     },
     {
       "kind": "database_view",

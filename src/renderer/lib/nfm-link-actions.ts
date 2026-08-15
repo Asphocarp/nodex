@@ -9,6 +9,7 @@ import {
   DEFAULT_NFM_AUTOLINK_SETTINGS,
   shouldAutoLinkValue,
 } from "./nfm-autolink-settings";
+import { parsePageDeepLink } from "../../shared/nodex-deeplink";
 
 const LIKELY_RELATIVE_FILE_SUFFIXES = new Set([
   "avif", "bmp", "c", "cc", "cpp", "css", "csv", "doc", "docx", "gif", "go",
@@ -18,6 +19,7 @@ const LIKELY_RELATIVE_FILE_SUFFIXES = new Set([
 ]);
 
 export type NfmResolvedLinkAction =
+  | { kind: "page"; href: string; pageId: string }
   | { kind: "local-file" | "workspace-file"; href: string; target: FileLinkTarget }
   | { kind: "web-url"; href: string; url: string }
   | { kind: "literal-anchor"; href: string }
@@ -27,6 +29,10 @@ export type NfmResolvedLinkAction =
 export interface NfmLinkNavigation {
   assign: (href: string) => void;
   open: (url: string, target: string, features: string) => void;
+}
+
+export interface NfmPageLinkNavigation {
+  readonly openPage: (pageId: string) => void | Promise<void>;
 }
 
 function hasExplicitProtocol(value: string): boolean {
@@ -186,6 +192,11 @@ export function resolveNfmLinkAction(
   const trimmed = href.trim();
   if (!trimmed) return null;
 
+  const pageTarget = parsePageDeepLink(trimmed);
+  if (pageTarget) {
+    return { kind: "page", href: trimmed, pageId: pageTarget.pageId };
+  }
+
   const localFileTarget = parseLocalFileLinkHref(trimmed);
   if (localFileTarget) {
     return { kind: "local-file", href: trimmed, target: localFileTarget };
@@ -269,6 +280,7 @@ export async function openNfmResolvedLinkAction(
       window.open(url, target, features);
     },
   },
+  pageNavigation?: NfmPageLinkNavigation,
 ): Promise<boolean> {
   if (action.kind === "blocked" || action.kind === "unresolved-file-like") {
     return false;
@@ -276,6 +288,12 @@ export async function openNfmResolvedLinkAction(
 
   if (action.kind === "web-url") {
     navigation.open(action.url, "_blank", "noopener,noreferrer");
+    return true;
+  }
+
+  if (action.kind === "page") {
+    if (!pageNavigation) return false;
+    await pageNavigation.openPage(action.pageId);
     return true;
   }
 

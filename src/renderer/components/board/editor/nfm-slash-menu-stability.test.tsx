@@ -1,87 +1,53 @@
-import { beforeEach, describe, expect, test } from "vitest";
 import { act } from "react";
-import { render, settleAsyncRender } from "@/test/dom";
+import { beforeEach, describe, expect, test } from "vitest";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
-import type { CommandPalettePage, CommandPaletteThread } from "@/lib/command-palette";
-import type { CommandPalettePageSearchIndex } from "@/lib/command-palette-page-search";
-import type { NfmMentionGetItemsLoaders } from "./nfm-slash-menu";
-import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";
-import { DEFAULT_PROJECT_APPEARANCE } from "../../../../shared/project-appearance";
-import { useNfmMentionGetItems } from "./nfm-slash-menu";
+
+import type { CommandPaletteThread } from "@/lib/command-palette";
+import { render, settleAsyncRender } from "@/test/dom";
+import {
+  type NfmMentionGetItemsLoaders,
+  useNfmMentionGetItems,
+} from "./nfm-slash-menu";
 
 type GetItems = (query: string) => Promise<DefaultReactSuggestionItem[]>;
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T) => void;
 };
+type ThreadSearchResults = Awaited<
+  ReturnType<NfmMentionGetItemsLoaders["searchThreads"]>
+>;
 
-let pageDescriptionSearchCalls = 0;
 let threadListCalls = 0;
 
 const fakeEditor = {
   insertInlineContent: () => undefined,
 };
 
-function makePalettePage(): CommandPalettePage {
-  const descriptionPreview = "Mention search page.";
-  return {
-    kind: "page",
-    id: "project-1:page-1",
-    projectId: "project-1",
-    projectName: "Project",
-    projectAppearance: DEFAULT_PROJECT_APPEARANCE,
-    columnName: "Doing",
-    page: {
-      id: "page-1",
-      pageKey: null,
-      title: "Mention page",
-      richTitle: plainTextToPortableRichText("Mention page"),
-      descriptionPreview,
-      descriptionLength: descriptionPreview.length,
-      hasDescription: true,
-      status: "build",
-      archived: false,
-      tags: [],
-      reminders: [],
-      isAllDay: false,
-      runInTarget: "localProject",
-      revision: 1,
-      created: new Date("2026-06-24T00:00:00.000Z"),
-      order: 0,
-    },
-    tagLabels: [],
-    inActiveProject: true,
-    recentIndex: null,
-    boardIndex: 0,
-  };
-}
-
-function makeThread(): CommandPaletteThread {
+function makeThread(
+  overrides: Partial<CommandPaletteThread> = {},
+): CommandPaletteThread {
   return {
     kind: "thread",
-    id: "thread:thr-1",
-    threadId: "thr-1",
-    sessionId: "session-1",
-    projectId: "project-1",
-    projectName: "Project",
-    title: "Mention thread",
-    preview: "Mention thread preview.",
-    cwd: "/tmp/project",
-    gitBranch: null,
-    projectless: false,
-    pinned: false,
-    pinnedOrder: null,
-    statusType: "notLoaded",
-    statusActiveFlags: [],
-    createdAt: 1,
-    updatedAt: 2,
-    inActiveProject: true,
-  };
-}
-
-function createSearchIndex(): CommandPalettePageSearchIndex {
-  return {
-    search: () => [],
+    id: overrides.id ?? "thread:thr-1",
+    threadId: overrides.threadId ?? "thr-1",
+    sessionId: overrides.sessionId === undefined ? "session-1" : overrides.sessionId,
+    projectId: overrides.projectId === undefined ? "project-1" : overrides.projectId,
+    projectName: overrides.projectName === undefined ? "Project" : overrides.projectName,
+    title: overrides.title ?? "Mention thread",
+    preview: overrides.preview ?? "Mention thread preview.",
+    cwd: overrides.cwd ?? "/tmp/project",
+    gitBranch: overrides.gitBranch ?? null,
+    projectless: overrides.projectless ?? false,
+    pinned: overrides.pinned ?? false,
+    pinnedOrder: overrides.pinnedOrder ?? null,
+    statusType: overrides.statusType ?? "notLoaded",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    createdAt: overrides.createdAt ?? 1,
+    updatedAt: overrides.updatedAt ?? 2,
+    inActiveProject: overrides.inActiveProject ?? true,
+    searchPreview: overrides.searchPreview,
+    searchDecorations: overrides.searchDecorations,
   };
 }
 
@@ -94,47 +60,30 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 function makeLoaders(
-  options: {
-    listThreadItems?: NfmMentionGetItemsLoaders["listThreadItems"];
-    searchPageDescriptions?: NfmMentionGetItemsLoaders["searchPageDescriptions"];
-    searchThreads?: NfmMentionGetItemsLoaders["searchThreads"];
-    selectPageResults?: NfmMentionGetItemsLoaders["selectPageResults"];
-    selectChatResults?: NfmMentionGetItemsLoaders["selectChatResults"];
-  } = {},
+  options: Partial<NfmMentionGetItemsLoaders> = {},
 ): NfmMentionGetItemsLoaders {
   return {
-    searchPageDescriptions: options.searchPageDescriptions ?? (async () => {
-      pageDescriptionSearchCalls += 1;
-      return [];
-    }),
     listThreadItems: options.listThreadItems ?? (async () => {
       threadListCalls += 1;
       return [makeThread()];
     }),
     searchThreads: options.searchThreads ?? (async () => []),
-    selectPageResults: options.selectPageResults ?? (({ pages }) => pages),
     selectChatResults: options.selectChatResults ?? (({ threads }) => threads),
-    createThreadSearchIndex: () => ({ search: () => [] }),
+    createThreadSearchIndex: options.createThreadSearchIndex
+      ?? (() => ({ search: () => [] })),
   };
 }
 
 function MentionGetItemsHarness({
-  pages,
-  pageSearchIndex,
   getItemsSnapshots,
   loaders,
 }: {
-  pages: CommandPalettePage[];
-  pageSearchIndex: CommandPalettePageSearchIndex;
   getItemsSnapshots: GetItems[];
   loaders: NfmMentionGetItemsLoaders;
 }) {
   const getItems = useNfmMentionGetItems({
     editor: fakeEditor,
     activeProjectId: "project-1",
-    pageItems: pages,
-    pageSearchIndex,
-    projectIdsForPageSearch: ["project-1"],
     loaders,
   });
   getItemsSnapshots.push(getItems);
@@ -143,12 +92,11 @@ function MentionGetItemsHarness({
 }
 
 beforeEach(() => {
-  pageDescriptionSearchCalls = 0;
   threadListCalls = 0;
 });
 
 describe("useNfmMentionGetItems", () => {
-  test("keeps getItems stable across volatile page arrays until an async refresh lands", async () => {
+  test("keeps getItems stable until the async chat refresh lands", async () => {
     const getItemsSnapshots: GetItems[] = [];
     const threadList = createDeferred<CommandPaletteThread[]>();
     const loaders = makeLoaders({
@@ -159,8 +107,6 @@ describe("useNfmMentionGetItems", () => {
     });
     const view = render(
       <MentionGetItemsHarness
-        pages={[makePalettePage()]}
-        pageSearchIndex={createSearchIndex()}
         getItemsSnapshots={getItemsSnapshots}
         loaders={loaders}
       />,
@@ -172,8 +118,6 @@ describe("useNfmMentionGetItems", () => {
 
     view.rerender(
       <MentionGetItemsHarness
-        pages={[makePalettePage()]}
-        pageSearchIndex={createSearchIndex()}
         getItemsSnapshots={getItemsSnapshots}
         loaders={loaders}
       />,
@@ -187,12 +131,8 @@ describe("useNfmMentionGetItems", () => {
     const firstItems = await secondGetItems("");
     const secondItems = await secondGetItems("");
 
-    expect(firstItems.length).toBe(3);
-    expect(secondItems.length).toBe(3);
-    expect(firstItems[0]?.group).toBe("Current project");
-    expect(firstItems[1]?.title).toBe("Today");
-    expect(firstItems[2]?.title).toBe("Now");
-    expect(pageDescriptionSearchCalls).toBe(0);
+    expect(firstItems.map((item) => item.title)).toEqual(["Today", "Now"]);
+    expect(secondItems.map((item) => item.title)).toEqual(["Today", "Now"]);
     expect(threadListCalls).toBe(1);
 
     await act(async () => {
@@ -205,28 +145,24 @@ describe("useNfmMentionGetItems", () => {
     expect(typeof refreshedGetItems).toBe("function");
     if (!refreshedGetItems) return;
     const refreshedItems = await refreshedGetItems("");
-    expect(refreshedItems.length).toBe(4);
-    expect(refreshedItems[0]?.title).toBe("Mention thread");
-    expect(refreshedItems[1]?.title).toBe("Mention page");
-    expect(refreshedItems[2]?.title).toBe("Today");
-    expect(refreshedItems[3]?.title).toBe("Now");
+    expect(refreshedItems.map((item) => item.title)).toEqual([
+      "Mention thread",
+      "Today",
+      "Now",
+    ]);
   });
 
-  test("@now returns the date mention before slow full-text searches resolve", async () => {
+  test("@now returns the date affordance before a slow chat search resolves", async () => {
     const getItemsSnapshots: GetItems[] = [];
     const threadList = createDeferred<CommandPaletteThread[]>();
-    const pageDescriptionSearch = createDeferred<[]>();
-    const threadSearch = createDeferred<[]>();
+    const threadSearch = createDeferred<ThreadSearchResults>();
     const loaders = makeLoaders({
       listThreadItems: async () => threadList.promise,
-      searchPageDescriptions: async () => pageDescriptionSearch.promise,
       searchThreads: async () => threadSearch.promise,
     });
 
     render(
       <MentionGetItemsHarness
-        pages={[makePalettePage()]}
-        pageSearchIndex={createSearchIndex()}
         getItemsSnapshots={getItemsSnapshots}
         loaders={loaders}
       />,
@@ -238,38 +174,28 @@ describe("useNfmMentionGetItems", () => {
 
     const items = await getItems("now");
 
-    expect(items.length > 0).toBe(true);
-    expect(items[0]?.title).toBe("Now");
-    expect(items[0]?.group).toBe("Dates");
+    expect(items.map((item) => item.title)).toEqual(["Now"]);
+    expect(items[0]?.group).toBe("Date");
   });
 
-  test("slow search results only supplement the latest query", async () => {
+  test("slow chat search results only supplement the latest query", async () => {
     const getItemsSnapshots: GetItems[] = [];
-    const oldPageSearch = createDeferred<Awaited<ReturnType<NfmMentionGetItemsLoaders["searchPageDescriptions"]>>>();
-    const nowPageSearch = createDeferred<Awaited<ReturnType<NfmMentionGetItemsLoaders["searchPageDescriptions"]>>>();
+    const oldThreadSearch = createDeferred<ThreadSearchResults>();
+    const nowThreadSearch = createDeferred<ThreadSearchResults>();
     const loaders = makeLoaders({
       listThreadItems: async () => new Promise<CommandPaletteThread[]>(() => undefined),
-      searchPageDescriptions: async ({ query }) => (
-        query === "old" ? oldPageSearch.promise : nowPageSearch.promise
+      searchThreads: async ({ query }) => (
+        query === "old" ? oldThreadSearch.promise : nowThreadSearch.promise
       ),
-      searchThreads: async () => new Promise<[]>(() => undefined),
-      selectPageResults: ({ pageDescriptionSearchBatch }) => (
-        (pageDescriptionSearchBatch?.results.length ?? 0) > 0
-          ? [{
-            ...makePalettePage(),
-            page: {
-              ...makePalettePage().page,
-              title: "Async search page",
-            },
-          }]
+      selectChatResults: ({ threadSearchBatch }) => (
+        threadSearchBatch
+          ? [makeThread({ title: "Async search thread" })]
           : []
       ),
     });
 
     render(
       <MentionGetItemsHarness
-        pages={[]}
-        pageSearchIndex={createSearchIndex()}
         getItemsSnapshots={getItemsSnapshots}
         loaders={loaders}
       />,
@@ -280,42 +206,18 @@ describe("useNfmMentionGetItems", () => {
     if (!getItems) return;
 
     await getItems("old");
-    const nowItemsBeforeSearch = await getItems("now");
-    expect(nowItemsBeforeSearch[0]?.title).toBe("Now");
-    expect(nowItemsBeforeSearch.length).toBe(1);
+    expect((await getItems("now")).map((item) => item.title)).toEqual(["Now"]);
 
     await act(async () => {
-      oldPageSearch.resolve([{
-        projectId: "project-1",
-        pageId: "page-1",
-        pageKey: null,
-        matchedPageKey: null,
-        matchedPageKeyIsCurrent: null,
-        title: "Old result",
-        status: "build",
-        score: 1,
-        excerpt: "old async result",
-      }]);
+      oldThreadSearch.resolve([]);
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    const afterOldSearch = await getItems("now");
-    expect(afterOldSearch[0]?.title).toBe("Now");
-    expect(afterOldSearch.length).toBe(1);
+    expect((await getItems("now")).map((item) => item.title)).toEqual(["Now"]);
 
     await act(async () => {
-      nowPageSearch.resolve([{
-        projectId: "project-1",
-        pageId: "page-1",
-        pageKey: null,
-        matchedPageKey: null,
-        matchedPageKeyIsCurrent: null,
-        title: "Now result",
-        status: "build",
-        score: 1,
-        excerpt: "now async result",
-      }]);
+      nowThreadSearch.resolve([]);
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -323,8 +225,9 @@ describe("useNfmMentionGetItems", () => {
     const refreshedGetItems = getItemsSnapshots.at(-1);
     expect(typeof refreshedGetItems).toBe("function");
     if (!refreshedGetItems) return;
-    const afterNowSearch = await refreshedGetItems("now");
-    expect(afterNowSearch[0]?.title).toBe("Now");
-    expect(afterNowSearch[1]?.title).toBe("Async search page");
+    expect((await refreshedGetItems("now")).map((item) => item.title)).toEqual([
+      "Async search thread",
+      "Now",
+    ]);
   });
 });

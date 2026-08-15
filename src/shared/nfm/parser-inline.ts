@@ -2,6 +2,7 @@ import type { NfmInlineContent, NfmStyleSet, NfmColor } from "./types";
 import { NFM_COLORS } from "./types";
 import { parseDateMentionAttrs } from "./date-mention";
 import { getXmlAttr, parseXmlAttrs } from "./xml-attributes";
+import { parsePageDeepLink } from "../nodex-deeplink";
 
 const AGENT_CONFIG_ATTRS = new Set(["mode", "model", "reasoning"]);
 
@@ -62,6 +63,15 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
         if (threadMention) {
           flushText();
           items.push(threadMention);
+          continue;
+        }
+      }
+
+      if (input.startsWith("<mention-page", i)) {
+        const pageMention = tryParsePageMention();
+        if (pageMention) {
+          flushText();
+          items.push(pageMention);
           continue;
         }
       }
@@ -298,6 +308,32 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
     return {
       type: "threadMention",
       uuid,
+    };
+  }
+
+  function tryParsePageMention(): NfmInlineContent | null {
+    const match = input.slice(i).match(/^<mention-page(?:\s+([^>]*))?\s*\/>/);
+    if (!match) return null;
+
+    const rawAttributes = match[1] ?? "";
+    const attributes = parseXmlAttrs(rawAttributes);
+    const unmatchedAttributes = rawAttributes
+      .replace(/[A-Za-z][A-Za-z0-9_-]*="[^"]*"/g, "")
+      .trim();
+    if (
+      unmatchedAttributes
+      || Object.keys(attributes).length !== 1
+      || typeof attributes.url !== "string"
+    ) {
+      return null;
+    }
+    const target = parsePageDeepLink(attributes.url);
+    if (!target) return null;
+
+    i += match[0].length;
+    return {
+      type: "pageMention",
+      targetPageId: target.pageId,
     };
   }
 

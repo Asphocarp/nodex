@@ -30,6 +30,7 @@
 | nfm-editor-autolink-behavior.md | Active | 2026-03-10 | Detailed autolink behavior for typing and paste in the NFM editor, including settings, strict bare-domain rules, and separator-aware path protection |
 | nfm-editor-attachment-chip-behavior.md | Active | 2026-03-11 | Detailed oversized-text and native file/folder paste behavior for inline attachment chips, including prompting, NFM syntax, previews, and clipboard/plain-text rules |
 | nfm-editor-thread-mention-behavior.md | Active | 2026-06-20 | Detailed inline Codex thread mention contract for NFM syntax, minimal rendering, resolution, navigation, insertion, and prompt serialization |
+| nfm-editor-page-reference-behavior.md | Active | 2026-08-16 | Canonical Page Mention, Reference Block, Link, Subpage ownership, paste, navigation, and authorized backlinks |
 | nfm-editor-date-mention-behavior.md | Active | 2026-06-29 | Detailed inline date mention contract for NFM syntax, text-level chip rendering, date picker editing, insertion, and clipboard serialization |
 | nfm-editor-table-block-behavior.md | Active | 2026-06-24 | Detailed simple table block contract for NFM syntax, editor behavior, Notion paste, layout, and clipboard serialization |
 | nfm-editor-child-group-keyboard-behavior.md | Active | 2026-04-13 | Detailed `Enter` and `Backspace` behavior for nested child groups in the NFM editor, including precedence, schema gating, ProseMirror mutations, and caret placement |

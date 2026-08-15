@@ -21,14 +21,22 @@ const renderItem = (item: PortableRichTextItem, index: number): ReactNode => {
   if (item.type === "linebreak") {
     return <br key={`linebreak:${index}`} />;
   }
-  if (item.type === "threadMention" || item.type === "dateMention") {
+  if (
+    item.type === "threadMention"
+    || item.type === "pageMention"
+    || item.type === "dateMention"
+  ) {
     const label = portableRichTitleAtomLabel(item);
     return (
       <span
         key={`${item.type}:${index}`}
         data-portable-rich-title-atom={item.type}
         className="mx-0.5 inline-flex max-w-[18rem] rounded-md bg-token-foreground/5 px-1.5 align-baseline text-[0.82em] font-medium text-token-text-secondary"
-        title={item.type === "threadMention" ? item.uuid : label}
+        title={item.type === "threadMention"
+          ? item.uuid
+          : item.type === "pageMention"
+            ? item.targetPageId
+            : label}
       >
         {label}
       </span>

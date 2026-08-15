@@ -233,15 +233,7 @@ export function parseNfm(input: string): NfmBlock[] {
       }
     }
 
-    // Decode-only historical Page spellings.
-    if (content.trimStart().startsWith("<mention-card")) {
-      const pageRef = parseLegacyMentionCard(content.trim());
-      if (pageRef) {
-        addBlock(pageRef, indent);
-        i++;
-        continue;
-      }
-    }
+    // Decode-only historical owning Page spelling.
     if (content.trimStart().startsWith("<card")) {
       const page = parseLegacyCard(content.trim());
       if (page) {
@@ -686,21 +678,6 @@ function parseLegacyCard(line: string): NfmPage | null {
   return {
     type: "page",
     ...(uuid === undefined ? {} : { uuid }),
-    children: [],
-  };
-}
-
-function parseLegacyMentionCard(line: string): NfmPageRef | null {
-  const match = line.match(/^<mention-card(?:\s+([^>]*))?\s*\/>$/);
-  if (!match) return null;
-  const url = getXmlAttr(match[1] ?? "", "url") ?? "";
-  const target = parsePageDeepLink(url);
-  if (!target) {
-    throw new TypeError("Historical Page mention URL is invalid");
-  }
-  return {
-    type: "pageRef",
-    targetBlockId: target.pageId,
     children: [],
   };
 }

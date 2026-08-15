@@ -125,11 +125,13 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         | LibraryRead::MoveDestinations { .. }
         | LibraryRead::AgentSearch { .. }
         | LibraryRead::Search { .. }
-        | LibraryRead::PageHistory { .. } => ReadBudgetPolicy::CollectionWindow,
+        | LibraryRead::PageHistory { .. }
+        | LibraryRead::PageBacklinks { .. } => ReadBudgetPolicy::CollectionWindow,
         LibraryRead::Path { .. } | LibraryRead::PageOwnershipPath { .. } => {
             ReadBudgetPolicy::FixedDomain
         }
         LibraryRead::ProjectPageSearch { .. }
+        | LibraryRead::PageReferenceCandidates { .. }
         | LibraryRead::PlanAgentResourceAccess { .. }
         | LibraryRead::PrepareAgentPageCopy { .. }
         | LibraryRead::PrepareAgentCreatePages { .. }

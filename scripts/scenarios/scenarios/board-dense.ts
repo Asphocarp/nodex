@@ -10,7 +10,7 @@ import {
 } from "../contracts";
 
 export const BOARD_DENSE_SCENARIO_ID = "board/dense" as const;
-export const BOARD_DENSE_SCENARIO_REVISION = 1 as const;
+export const BOARD_DENSE_SCENARIO_REVISION = 2 as const;
 export const BOARD_DENSE_PRIMARY_PAGE_KEY = "primaryBuildPage" as const;
 
 export interface BoardDenseScenarioFacts extends ScenarioFacts {
@@ -163,13 +163,25 @@ const materializeBoardDense = async (
   if (!primary || !primaryDefinition?.replaceAfterCreate) {
     throw new Error("board/dense primary Page definition is missing");
   }
+  const referenceTargetPageId = pageIdsByKey.boundedProjection;
+  if (!referenceTargetPageId) {
+    throw new Error("board/dense reference target Page is missing");
+  }
   const replacementIntent = {
     mutationId: createUuidV7(),
     operationId: createUuidV7(),
     clientSessionId: `scenario:${BOARD_DENSE_SCENARIO_ID}`,
     projectId: project.id,
     pageId: primary.pageId,
-    nfm: primaryDefinition.replaceAfterCreate,
+    nfm: [
+      primaryDefinition.replaceAfterCreate,
+      "",
+      `Related Page: <mention-page url="nodex://pages/${referenceTargetPageId}" />`,
+      "",
+      `[Open projection notes](nodex://pages/${referenceTargetPageId})`,
+      "",
+      `<page-ref url="nodex://pages/${referenceTargetPageId}" />`,
+    ].join("\n"),
   } as const;
   const replacement = await retryIdempotentOperation(
     () => port.replaceOwnedDocument(replacementIntent),

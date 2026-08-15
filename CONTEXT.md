@@ -87,6 +87,14 @@ Nesting moves the Page shell and does not copy its title/body into the parent
 Document. A `pageRef`, View, relation, mention, backlink, or link may present a
 Page elsewhere without changing its parent.
 
+A Page Mention is an inline atom identified only by its target Page ID.
+A Page Reference Block is a non-owning `pageRef` shell with its own Block ID.
+A Page Link is an ordinary link to a canonical Page deeplink.
+An Owning Page Shell is a childless `page` Block created by Core and is the only
+one of these occurrences that establishes Page containment.
+Mention, Reference Block, and Link edges never change parentage, membership,
+grants, or copy closure.
+
 Page Stage resolves the owned Document with exact `(libraryId, pageId)`
 identity after Project access has been evaluated. It never derives a Document
 ID from Page ID, treats a query row as content authority, or initializes an
@@ -146,6 +154,13 @@ A Canvas Document stores normalized Excalidraw elements, bounded durable app
 state, order, and managed-file metadata. Application Page references retain
 only `targetBlockId` plus a disposable title hint. Asset data is uploaded first
 and scene authority stores a `nodex://assets/*` URI.
+
+Page Documents derive Page Mention, Page Reference Block, and Page Link
+occurrences into one normalized Page-reference projection in the same durable
+transaction as materialization. The projection stores canonical target Page
+identity, source Page and Block identity, presentation, and occurrence count;
+candidate and backlink reads apply the caller's existing content-access
+authority before exposing rows or counts. Owning `page` shells are excluded.
 
 A Canvas Block has one exclusive Library or Page placement and one row in
 `canvas_owners`. Its stable Canvas ID is its Block ID; clients resolve the

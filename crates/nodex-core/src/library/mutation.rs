@@ -6,8 +6,9 @@ use nodex_core_contracts::LIBRARY_CONTRACT_VERSION;
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryBlockPropertyMutationReceipt, LibraryBlockTransferDocumentCommit,
     LibraryBlockTransferResult, LibraryCanvasMutationResult, LibraryCommitValue, LibraryIntent,
-    LibraryPageCopyResult, LibraryPageCreateResult, LibraryPageLifecycleMutationReceipt,
-    LibraryProjectAccessChange, LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
+    LibraryPageCopyResult, LibraryPageCreateResult, LibraryPageInsertion,
+    LibraryPageLifecycleMutationReceipt, LibraryProjectAccessChange, LibraryReceipt,
+    LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
@@ -1718,6 +1719,7 @@ fn resolve_write_parent_with_access(
         expected_document_generation,
         expected_document_head_seq,
         before,
+        insertion,
     } = parent
     else {
         let LibraryWriteParent::Library { before } = parent else {
@@ -1738,6 +1740,11 @@ fn resolve_write_parent_with_access(
             before_block_id: before.as_ref().map(|anchor| anchor.block_id.clone()),
         });
     };
+    if before.is_some() && insertion.is_some() {
+        return Err(invalid(
+            "Page parent cannot combine a placement anchor with an insertion intent",
+        ));
+    }
     let parent_row = connection
         .query_row(
             "SELECT page.document_id, block.lifecycle \
@@ -1899,6 +1906,26 @@ pub(super) fn persist_parent_insert(
             parent_block_id: None,
             before_block_id,
         }],
+        ParentDocumentPlacement::Genesis(&placement_genesis_block_ids),
+    )
+}
+
+pub(super) fn persist_parent_insert_with_insertion(
+    connection: &Connection,
+    write: ParentDocumentWriteContext<'_>,
+    parent: &ResolvedParentDocument,
+    insertion: &LibraryPageInsertion,
+    block: MaterializedBlockNode,
+) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
+    let placement_genesis_block_ids = vec![block.id.clone()];
+    let operations =
+        super::canvas_mutation::page_shell_insertion_operations(parent, insertion, block)?;
+    persist_parent_operations_detailed_with_local_commit(
+        connection,
+        write,
+        "insert",
+        parent,
+        &operations,
         ParentDocumentPlacement::Genesis(&placement_genesis_block_ids),
     )
 }
@@ -2096,6 +2123,17 @@ fn create_database(
     if name.is_empty() || name.chars().count() > 256 {
         return Err(invalid(
             "Database name must contain between 1 and 256 characters",
+        ));
+    }
+    if matches!(
+        parent,
+        LibraryWriteParent::Page {
+            insertion: Some(_),
+            ..
+        }
+    ) {
+        return Err(invalid(
+            "Database creation does not accept a Page insertion intent",
         ));
     }
     let resolved_parent =
@@ -2432,18 +2470,32 @@ fn create_page(
             ensure_default_page_intrinsic_properties(connection, page_id, &now)?;
             refresh_page_intrinsic_projection(connection, page_id, &now)?;
 
+            let parent_insertion = match parent {
+                LibraryWriteParent::Page { insertion, .. } => insertion.as_ref(),
+                LibraryWriteParent::Library { .. } => None,
+            };
             let parent_head_seq = resolved_parent
                 .document
                 .as_ref()
                 .map(|parent| {
+                    let write = ParentDocumentWriteContext {
+                        actor_project_id: &project_id,
+                        store_epoch,
+                        operation_id,
+                        commit: scope.evidence(),
+                    };
+                    if let Some(insertion) = parent_insertion {
+                        return persist_parent_insert_with_insertion(
+                            connection,
+                            write,
+                            parent,
+                            insertion,
+                            embedded_resource_block(page_id, "page"),
+                        );
+                    }
                     persist_parent_insert(
                         connection,
-                        ParentDocumentWriteContext {
-                            actor_project_id: &project_id,
-                            store_epoch,
-                            operation_id,
-                            commit: scope.evidence(),
-                        },
+                        write,
                         parent,
                         embedded_resource_block(page_id, "page"),
                         resolved_parent.before_block_id.clone(),
@@ -4115,6 +4167,21 @@ mod tests {
             })
             .expect("durable Database evidence");
 
+        let empty_paragraph_block_id = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = 'document:created' \
+                         ORDER BY ordinal LIMIT 1",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("initial empty paragraph");
+
         let nested_page = module
             .apply(
                 &context(),
@@ -4131,6 +4198,9 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
+                            insertion: Some(LibraryPageInsertion::ReplaceEmptyParagraph {
+                                block_id: empty_paragraph_block_id.clone(),
+                            }),
                         },
                     },
                 },
@@ -4157,6 +4227,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 2,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -4212,6 +4283,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 2,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -4321,6 +4393,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 3,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -4906,6 +4979,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 5,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -4931,6 +5005,7 @@ mod tests {
                                 block_id: "018f0000-0000-7000-8000-000000000011".to_owned(),
                                 expected_location_revision: 1,
                             }),
+                            insertion: None,
                         },
                     },
                 },
@@ -4969,6 +5044,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -4999,6 +5075,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },
@@ -7103,6 +7180,7 @@ mod tests {
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
+                            insertion: None,
                         },
                     },
                 },

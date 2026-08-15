@@ -1,6 +1,7 @@
 import type { NfmInlineContent, NfmStyleSet } from "./types";
 import { serializeDateMentionAttrs } from "./date-mention";
 import { escapeXmlAttr } from "./xml-attributes";
+import { buildPageDeepLink } from "../nodex-deeplink";
 
 const ESCAPABLE = /[\\*~`$\[\]<>{}|^]/g;
 
@@ -43,6 +44,10 @@ function serializeItem(item: NfmInlineContent): string {
 
   if (item.type === "threadMention") {
     return `<mention-thread uuid="${escapeXmlAttr(item.uuid)}" />`;
+  }
+
+  if (item.type === "pageMention") {
+    return `<mention-page url="${escapeXmlAttr(buildPageDeepLink({ pageId: item.targetPageId }))}" />`;
   }
 
   if (item.type === "dateMention") {

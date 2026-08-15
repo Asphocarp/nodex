@@ -108,6 +108,11 @@ export interface NfmThreadMentionInlineContent {
   uuid: string;
 }
 
+export interface NfmPageMentionInlineContent {
+  type: "pageMention";
+  targetPageId: string;
+}
+
 export interface NfmDateMentionInlineContent {
   type: "dateMention";
   start: string;
@@ -125,6 +130,7 @@ export type NfmInlineContent =
   | NfmAttachmentInlineContent
   | NfmAgentConfigInlineContent
   | NfmThreadMentionInlineContent
+  | NfmPageMentionInlineContent
   | NfmDateMentionInlineContent;
 
 export type NfmBlockType =

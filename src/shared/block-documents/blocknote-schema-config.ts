@@ -35,8 +35,6 @@ export const pageRefBlockConfig = {
   type: "pageRef",
   propSchema: {
     targetBlockId: { default: "" },
-    sourceProjectId: { default: "" },
-    cardId: { default: "" },
   },
   content: "none",
 } as const satisfies CustomBlockConfig;
@@ -156,6 +154,14 @@ export const threadMentionInlineContentConfig = {
   content: "none",
 } as const satisfies CustomInlineContentConfig;
 
+export const pageMentionInlineContentConfig = {
+  type: "pageMention",
+  propSchema: {
+    targetPageId: { default: "" },
+  },
+  content: "none",
+} as const satisfies CustomInlineContentConfig;
+
 export const blockDocumentCustomBlockConfigs = {
   callout: calloutBlockConfig,
   threadSection: threadSectionBlockConfig,
@@ -182,5 +188,6 @@ export const blockDocumentCustomInlineContentConfigs = {
   agentConfig: agentConfigInlineContentConfig,
   attachment: attachmentInlineContentConfig,
   dateMention: dateMentionInlineContentConfig,
+  pageMention: pageMentionInlineContentConfig,
   threadMention: threadMentionInlineContentConfig,
 } as const;

@@ -17,7 +17,6 @@ import type { PageStageProps } from "./page-stage/types";
 import {
   renderWithMaitai as render,
   settleAsyncRender,
-  textContentIncludingShadowRoots,
 } from "@/test/dom";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
@@ -29,6 +28,7 @@ import { projectContentAccess } from "../../../shared/content-access-context";
 import { buildPageDetailStoryResult } from "./page-stage/page-stage-story-page-detail";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
+let lastRawContent: string | null = null;
 let publishCollaborativeTitle: ((title: string) => void) | null = null;
 let surfaceDocument = createPageDocument({
   documentId: "document:page-1",
@@ -42,8 +42,27 @@ vi.mock("./editor/nfm-editor", () => ({
   },
 }));
 
+vi.mock("./page-stage/raw-content", () => ({
+  PageStageRawContent: ({ content }: { content: string }) => {
+    lastRawContent = content;
+    return <div aria-label="Raw page source">{content}</div>;
+  },
+}));
+
 vi.mock("@/components/block-documents/block-document-sync-status", () => ({
   BlockDocumentSyncStatus: () => null,
+}));
+
+vi.mock("@/lib/use-page-backlinks", () => ({
+  usePageBacklinks: () => ({
+    items: [],
+    sourcePageCount: 0,
+    loading: false,
+    loadingMore: false,
+    hasMore: false,
+    error: null,
+    loadMore: async () => undefined,
+  }),
 }));
 
 vi.mock("@/components/block-documents/collaborative-page-title", () => ({
@@ -186,6 +205,7 @@ describe("page stage", () => {
   beforeEach(async () => {
     localStorage.clear();
     lastNfmEditorProps = null;
+    lastRawContent = null;
     publishCollaborativeTitle = null;
     surfaceDocument.document.destroy();
     surfaceDocument = createPageDocument({
@@ -216,6 +236,10 @@ describe("page stage", () => {
     expect(source.documentId).toBe("document:page-1");
     expect(Object.hasOwn(source, "content")).toBe(false);
     expect(Object.hasOwn(source, "onChange")).toBe(false);
+    expect(
+      container.querySelector('[data-page-stage-surface="true"]')
+        ?.getAttribute("data-page-stage-page-id"),
+    ).toBe("page-1");
     expect(container.querySelector('[data-page-stage-heading-navigation-portal-target="true"]')).not.toBeNull();
   });
 
@@ -302,14 +326,13 @@ describe("page stage", () => {
 
   test("raw mode reads the live Y.Doc projection, not the Page row projection", async () => {
     writePageStageShowRawContentPreference(true);
-    const { findByLabelText, getByText, queryByText } = renderStage();
+    const { getByLabelText, queryByText } = renderStage();
 
-    expect(getByText("Raw format").textContent).toBe("Raw format");
     expect(queryByText("Mock collaborative editor")).toBe(null);
-    const rawContent = await findByLabelText("Raw page source");
+    expect(getByLabelText("Raw page source")).not.toBeNull();
     await waitFor(() => {
-      expect(textContentIncludingShadowRoots(rawContent).includes("Live collaborative body")).toBe(true);
-      expect(textContentIncludingShadowRoots(rawContent).includes("Stale projected body")).toBe(false);
+      expect(lastRawContent?.includes("Live collaborative body")).toBe(true);
+      expect(lastRawContent?.includes("Stale projected body")).toBe(false);
     });
   });
 
