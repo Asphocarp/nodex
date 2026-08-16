@@ -60,6 +60,50 @@ describe("Library Module transport", () => {
     ).toThrow("libraryId is not supported");
   });
 
+  test("binds contextual Page reference reads and preserves Core match provenance", () => {
+    expect(bindLibraryModuleRead({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "page_reference_candidates",
+        query: "projection",
+        limit: 24,
+        sourcePageId: "page:host",
+      },
+    })).toEqual({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "page_reference_candidates",
+        query: "projection",
+        limit: 24,
+        sourcePageId: "page:host",
+      },
+    });
+
+    expect(parseLibraryModuleReadResult(readResult({
+      kind: "page_reference_candidates",
+      items: [{
+        pageId: "page:target",
+        title: "Projection notes",
+        pageKey: "NDX-42",
+        status: "build",
+        locationLabel: "Product / Editor",
+        matchExcerpt: "The projection stays bounded.",
+        matchSource: "content",
+      }],
+    }))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_reference_candidates",
+          items: [{
+            pageId: "page:target",
+            matchSource: "content",
+          }],
+        },
+      },
+    });
+  });
+
   test("binds and parses the authoritative Project access matrix", () => {
     expect(bindLibraryModuleRead({
       version: LIBRARY_MODULE_CONTRACT_VERSION,

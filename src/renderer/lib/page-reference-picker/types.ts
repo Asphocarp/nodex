@@ -1,4 +1,5 @@
 import type { ContentAccessContext } from "../../../shared/content-access-context";
+import type { LibraryPageReferenceMatchSource } from "../../../shared/library-module";
 import type { WorkflowStatus } from "../../../shared/workflow-status";
 
 export type PageReferenceIntent = "mention" | "reference_block" | "link";
@@ -20,6 +21,7 @@ export interface PageReferenceCandidate {
   readonly locationLabel: string;
   readonly lifecycle: "active" | "archived";
   readonly matchExcerpt: string | null;
+  readonly matchSource: LibraryPageReferenceMatchSource;
   readonly disabledReason: "self" | "ancestor_cycle" | null;
 }
 

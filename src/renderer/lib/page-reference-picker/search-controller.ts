@@ -12,15 +12,26 @@ import type {
   PageReferencePickerRequest,
 } from "./types";
 
+export function resolvePageReferenceSourcePageId(
+  request: PageReferencePickerRequest,
+): string | undefined {
+  if (request.intent === "reference_block") return undefined;
+  return request.hostPageId ?? undefined;
+}
+
 export async function loadPageReferenceCandidates(
   request: PageReferencePickerRequest,
 ): Promise<PageReferenceCandidate[]> {
+  const sourcePageId = resolvePageReferenceSourcePageId(request);
   const result = await readLibraryModule(request.accessContext, {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: {
       mode: "page_reference_candidates",
       query: request.query,
       limit: Math.max(1, Math.min(60, Math.floor(request.limit))),
+      ...(sourcePageId === undefined
+        ? {}
+        : { sourcePageId }),
     },
   });
   if (!result.ok) throw new Error(result.error.message);

@@ -160,6 +160,25 @@ const projectPageSearchSnapshot = () => ({
   },
 });
 
+const pageReferenceCandidatesSnapshot = () => ({
+  contract_version: 2 as const,
+  store_epoch: identity.storeEpoch,
+  commit_head: 14,
+  authorization: null,
+  value: {
+    kind: "page_reference_candidates" as const,
+    items: [{
+      page_id: "page:target",
+      title: "Projection notes",
+      page_key: "NDX-42",
+      status: "build" as const,
+      location_label: "Product / Editor",
+      match_excerpt: "The projection stays bounded.",
+      match_source: "content" as const,
+    }],
+  },
+});
+
 const pageTargetSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
@@ -1202,6 +1221,39 @@ describe("Core Library Module Adapter", () => {
       project_ids: ["project:test", "project:other"],
       query: "page evidence",
       limit: 25,
+    }]);
+  });
+
+  test("maps contextual Page reference provenance and source identity", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead(pageReferenceCandidatesSnapshot());
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "page_reference_candidates",
+        query: "projection",
+        limit: 24,
+        sourcePageId: "page:host",
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_reference_candidates",
+          items: [{
+            pageId: "page:target",
+            matchSource: "content",
+          }],
+        },
+      },
+    });
+    expect(client.reads).toEqual([{
+      kind: "page_reference_candidates",
+      query: "projection",
+      limit: 24,
+      source_page_id: "page:host",
     }]);
   });
 

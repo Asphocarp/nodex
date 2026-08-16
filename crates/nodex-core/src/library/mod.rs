@@ -954,8 +954,8 @@ mod tests {
         LibraryDocumentHead, LibraryMoveDestinationScope, LibraryNavigationParent,
         LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
         LibraryPageLifecycleTagOption, LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind,
-        LibraryPageWorkflowStatus, LibraryPageWriteDestination, LibraryProjectAccessChange,
-        LibraryWriteParent,
+        LibraryPageReferenceMatchSource, LibraryPageWorkflowStatus, LibraryPageWriteDestination,
+        LibraryProjectAccessChange, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -2802,6 +2802,7 @@ mod tests {
                     read: LibraryRead::PageReferenceCandidates {
                         query: "say hi".to_owned(),
                         limit: Some(10),
+                        source_page_id: None,
                     },
                 },
             )
@@ -2813,6 +2814,10 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].page_id, ROW_PAGE);
         assert_eq!(items[0].status, Some(LibraryPageWorkflowStatus::Triage));
+        assert_eq!(
+            items[0].match_source,
+            LibraryPageReferenceMatchSource::Title,
+        );
         let LibraryReadValue::ProjectPageSearch { items } = module
             .read(
                 &root_context,
@@ -6781,6 +6786,69 @@ mod tests {
             )
             .expect("create nested Page candidate");
 
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE document_materializations SET preview = ?1 WHERE document_id = ?2",
+                    params!["The self-only projection note", "document:local"],
+                )?;
+                connection.execute(
+                    "UPDATE document_materializations SET preview = ?1 WHERE document_id = ?2",
+                    params!["Another self-only projection note", "document:target"],
+                )?;
+                Ok(())
+            })
+            .expect("seed Page description preview");
+
+        let content_only_self = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageReferenceCandidates {
+                        query: "self-only".to_owned(),
+                        limit: Some(1),
+                        source_page_id: Some("page:local".to_owned()),
+                    },
+                },
+            )
+            .expect("read content-only self candidate");
+        let LibraryReadValue::PageReferenceCandidates { items } = content_only_self.value else {
+            panic!("content-only self candidate snapshot");
+        };
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].page_id, "page:target");
+        assert_eq!(
+            items[0].match_source,
+            LibraryPageReferenceMatchSource::Content,
+        );
+
+        let title_self = module
+            .read(
+                &local_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageReferenceCandidates {
+                        query: "local source".to_owned(),
+                        limit: Some(20),
+                        source_page_id: Some("page:local".to_owned()),
+                    },
+                },
+            )
+            .expect("read title self candidate");
+        let LibraryReadValue::PageReferenceCandidates { items } = title_self.value else {
+            panic!("title self candidate snapshot");
+        };
+        assert_eq!(
+            items.first().map(|item| item.page_id.as_str()),
+            Some("page:local")
+        );
+        assert_eq!(
+            items.first().map(|item| item.match_source),
+            Some(LibraryPageReferenceMatchSource::Title),
+        );
+
         let candidates = module
             .read(
                 &local_context,
@@ -6789,6 +6857,7 @@ mod tests {
                     read: LibraryRead::PageReferenceCandidates {
                         query: String::new(),
                         limit: Some(20),
+                        source_page_id: None,
                     },
                 },
             )
@@ -6798,6 +6867,11 @@ mod tests {
         };
         assert!(items.iter().any(|item| item.page_id == "page:target"));
         assert!(items.iter().any(|item| item.page_id == "page:local"));
+        assert!(
+            items
+                .iter()
+                .all(|item| item.match_source == LibraryPageReferenceMatchSource::Recent)
+        );
         assert!(!items.iter().any(|item| item.page_id == "page:foreign"));
         assert_eq!(
             items
@@ -6815,6 +6889,7 @@ mod tests {
                     read: LibraryRead::PageReferenceCandidates {
                         query: "nesed".to_owned(),
                         limit: Some(20),
+                        source_page_id: None,
                     },
                 },
             )
