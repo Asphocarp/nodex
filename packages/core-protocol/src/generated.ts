@@ -4182,11 +4182,14 @@ export interface components {
         readonly LibraryPageReferenceCandidate: {
             readonly location_label: string;
             readonly match_excerpt?: string | null;
+            readonly match_source: components["schemas"]["LibraryPageReferenceMatchSource"];
             readonly page_id: string;
             readonly page_key?: string | null;
             readonly status?: null | components["schemas"]["LibraryPageWorkflowStatus"];
             readonly title: string;
         };
+        /** @enum {string} */
+        readonly LibraryPageReferenceMatchSource: "recent" | "page_key" | "title" | "content";
         /** @enum {string} */
         readonly LibraryPageReferencePresentation: "mention" | "reference_block" | "link";
         readonly LibraryPageTarget: {
@@ -5672,6 +5675,7 @@ export interface components {
                 /** Format: int32 */
                 readonly limit?: number | null;
                 readonly query: string;
+                readonly source_page_id?: string | null;
             } | {
                 readonly cursor?: string | null;
                 /** @enum {string} */

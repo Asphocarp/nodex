@@ -12,7 +12,7 @@ import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import type { WorkflowStatus } from "./workflow-status";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 15 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 16 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -111,7 +111,14 @@ export interface LibraryPageReferenceCandidate {
   readonly status: WorkflowStatus | null;
   readonly locationLabel: string;
   readonly matchExcerpt: string | null;
+  readonly matchSource: LibraryPageReferenceMatchSource;
 }
+
+export type LibraryPageReferenceMatchSource =
+  | "recent"
+  | "page_key"
+  | "title"
+  | "content";
 
 export type LibraryPageReferencePresentation =
   | "mention"
@@ -190,6 +197,7 @@ export type LibraryRead =
       readonly mode: "page_reference_candidates";
       readonly query: string;
       readonly limit?: number;
+      readonly sourcePageId?: string;
     }
   | {
       readonly mode: "page_backlinks";
