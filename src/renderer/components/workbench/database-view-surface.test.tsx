@@ -216,6 +216,32 @@ const boardModel = (): DatabaseViewRenderModel => {
   };
 };
 
+const describedBoardModel = (): DatabaseViewRenderModel => {
+  const next = boardModel();
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      rows: next.query.rows.map((row) => ({
+        ...row,
+        page: {
+          ...row.page,
+          preview: "A body preview",
+          plainText: "A body preview",
+        },
+      })),
+    },
+    columns: next.columns.map((column) => ({
+      ...column,
+      rows: column.rows.map((row) => ({
+        ...row,
+        preview: "A body preview",
+        plainText: "A body preview",
+      })),
+    })),
+  };
+};
+
 const keyedBoardModel = (): DatabaseViewRenderModel => {
   const next = boardModel();
   return {
@@ -510,6 +536,59 @@ describe("DatabaseViewSurface", () => {
       />,
     );
     expect(screen.getAllByRole("article")).toHaveLength(1);
+  });
+
+  test("toggles the Page description preview independently of Board fields", () => {
+    const described = describedBoardModel();
+    const effectivePresentation = {
+      layout: "board" as const,
+      presentation: {
+        ...described.query.view.config.presentation,
+        layouts: {
+          ...described.query.view.config.presentation.layouts,
+          board: {
+            ...described.query.view.config.presentation.layouts.board,
+            showDescription: false,
+          },
+        },
+      },
+    };
+    const screen = render(
+      <DatabaseViewSurface
+        model={described}
+        effectivePresentation={effectivePresentation}
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    expect(screen.container.querySelector('[data-board-page-description="true"]'))
+      .toBeNull();
+    screen.rerender(
+      <DatabaseViewSurface
+        model={described}
+        effectivePresentation={{
+          ...effectivePresentation,
+          presentation: {
+            ...effectivePresentation.presentation,
+            layouts: {
+              ...effectivePresentation.presentation.layouts,
+              board: {
+                ...effectivePresentation.presentation.layouts.board,
+                showDescription: true,
+              },
+            },
+          },
+        }}
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+    const description = screen.container.querySelector(
+      '[data-board-page-description="true"]',
+    );
+    expect(description).not.toBeNull();
+    expect(description?.textContent).toContain("A body preview");
   });
 
   test("projects an open Page editor title into the List row immediately", async () => {

@@ -8877,6 +8877,9 @@
               "$ref": "#/components/schemas/DatabaseViewField"
             }
           },
+          "showDescription": {
+            "type": "boolean"
+          },
           "showEmptyGroups": {
             "type": "boolean"
           }
@@ -8894,6 +8897,12 @@
             "items": {
               "$ref": "#/components/schemas/DatabaseViewFieldInput"
             }
+          },
+          "show_description": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "show_empty_groups": {
             "type": [

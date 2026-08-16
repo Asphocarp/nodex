@@ -471,6 +471,26 @@ export function DatabaseViewDisplayOptions({
                     </NodexButton>
                   );
                 })}
+                {groupIndex === 0 && layout === "board" ? (
+                  <NodexButton
+                    size="xs"
+                    variant="secondary"
+                    aria-pressed={layoutConfig.showDescription !== false}
+                    disabled={busy}
+                    onClick={() => dispatch({
+                      kind: "set_show_description",
+                      enabled: layoutConfig.showDescription === false,
+                    })}
+                    className={cn(
+                      "h-6 rounded-full border px-2 text-xs font-normal",
+                      layoutConfig.showDescription !== false
+                        ? "border-transparent bg-token-foreground/9 text-token-text-primary"
+                        : "border-token-border/70 bg-transparent text-token-description-foreground hover:bg-token-foreground/5",
+                    )}
+                  >
+                    Description
+                  </NodexButton>
+                ) : null}
               </div>
             </div>
           ))}

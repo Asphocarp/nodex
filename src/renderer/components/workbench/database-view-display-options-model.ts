@@ -18,6 +18,7 @@ export type DatabaseViewDisplayOptionAction =
   | { readonly kind: "set_show_sub_pages"; readonly enabled: boolean }
   | { readonly kind: "set_nested_sub_pages"; readonly enabled: boolean }
   | { readonly kind: "set_show_empty_groups"; readonly enabled: boolean }
+  | { readonly kind: "set_show_description"; readonly enabled: boolean }
   | { readonly kind: "toggle_field"; readonly field: DatabaseViewField };
 
 export interface DatabaseViewDisplayOptionCapabilities {
@@ -185,6 +186,18 @@ export const reduceDisplayOptionChange = (
         layouts: {
           ...presentation.layouts,
           [layout]: { ...layoutConfig, showEmptyGroups: action.enabled },
+        },
+      },
+    };
+  }
+  if (action.kind === "set_show_description") {
+    return {
+      ...effective,
+      presentation: {
+        ...presentation,
+        layouts: {
+          ...presentation.layouts,
+          [layout]: { ...layoutConfig, showDescription: action.enabled },
         },
       },
     };

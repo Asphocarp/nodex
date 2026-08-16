@@ -6133,12 +6133,14 @@ mod tests {
                 board: Some(DatabaseViewLayoutDisplayOverrideInput {
                     fields: None,
                     show_empty_groups: Some(true),
+                    show_description: None,
                 }),
                 list: Some(DatabaseViewLayoutDisplayOverrideInput {
                     fields: Some(vec![DatabaseViewFieldInput::Intrinsic {
                         field: DatabaseViewIntrinsicField::PageKey,
                     }]),
                     show_empty_groups: None,
+                    show_description: None,
                 }),
             }),
         };
@@ -6269,6 +6271,7 @@ mod tests {
                 board: Some(DatabaseViewLayoutDisplayOverrideInput {
                     fields: None,
                     show_empty_groups: Some(true),
+                    show_description: None,
                 }),
                 list: None,
             }),

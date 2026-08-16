@@ -152,6 +152,8 @@ export interface DatabaseViewConfigV2
 export interface DatabaseViewLayoutDisplayConfig {
   readonly fields: readonly DatabaseViewField[];
   readonly showEmptyGroups: boolean;
+  /** Board-only Page body preview visibility; omitted legacy configs default to visible. */
+  readonly showDescription?: boolean;
 }
 
 export interface DatabaseViewPresentationConfig {
@@ -1119,7 +1121,7 @@ const parseViewLayoutDisplay = (
   label: string,
 ): DatabaseViewLayoutDisplayConfig => {
   const display = readRecord(value, label);
-  assertExactKeys(display, label, ["fields", "showEmptyGroups"]);
+  assertExactKeys(display, label, ["fields", "showEmptyGroups"], ["showDescription"]);
   if (!Array.isArray(display.fields) || display.fields.length > 64) {
     throw new DatabaseMutationContractError(
       `${label}.fields must contain at most 64 fields`,
@@ -1166,6 +1168,9 @@ const parseViewLayoutDisplay = (
   return {
     fields,
     showEmptyGroups: readBoolean(display, "showEmptyGroups", label),
+    showDescription: display.showDescription === undefined
+      ? true
+      : readBoolean(display, "showDescription", label),
   };
 };
 
@@ -1367,7 +1372,7 @@ const parseViewLayoutDisplayOverride = (
   label: string,
 ): Partial<DatabaseViewLayoutDisplayConfig> => {
   const display = readRecord(value, label);
-  assertExactKeys(display, label, [], ["fields", "showEmptyGroups"]);
+  assertExactKeys(display, label, [], ["fields", "showEmptyGroups", "showDescription"]);
   return {
     ...(display.fields === undefined
       ? {}
@@ -1381,6 +1386,15 @@ const parseViewLayoutDisplayOverride = (
           showEmptyGroups: readBoolean(
             display,
             "showEmptyGroups",
+            label,
+          ),
+        }),
+    ...(display.showDescription === undefined
+      ? {}
+      : {
+          showDescription: readBoolean(
+            display,
+            "showDescription",
             label,
           ),
         }),

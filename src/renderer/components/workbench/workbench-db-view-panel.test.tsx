@@ -46,7 +46,7 @@ describe("classicBoardPresentation", () => {
       },
     }));
 
-    expect(adapted?.identity).toEqual({ showPageKey: true });
+    expect(adapted?.identity).toEqual({ showPageKey: true, showDescription: true });
     expect(adapted?.prefs.display.propertyOrder).toEqual(["tags", "priority"]);
     expect(adapted?.prefs.display.hiddenProperties).toEqual([
       "estimate",
@@ -61,6 +61,7 @@ describe("classicBoardPresentation", () => {
   test("keeps the canonical presenter when Page key is hidden", () => {
     expect(classicBoardPresentation(boardPresentation())?.identity).toEqual({
       showPageKey: false,
+      showDescription: true,
     });
   });
 

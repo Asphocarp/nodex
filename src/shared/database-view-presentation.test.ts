@@ -98,6 +98,31 @@ describe("Database View presentation", () => {
     })).toThrow(DatabaseMutationContractError);
   });
 
+  test("defaults legacy description visibility and accepts a personal hide override", () => {
+    const parsed = parseDatabaseViewConfigV4({
+      schemaKey: "nodex.database-view",
+      schemaVersion: 4,
+      filter: { kind: "group", operator: "and", children: [] },
+      presentation: {
+        ...presentation,
+        layouts: {
+          board: {
+            fields: presentation.layouts.board.fields,
+            showEmptyGroups: false,
+          },
+          list: presentation.layouts.list,
+        },
+      },
+    });
+
+    expect(parsed.presentation.layouts.board.showDescription).toBe(true);
+    expect(parseDatabaseViewPresentationOverride({
+      layouts: { board: { showDescription: false } },
+    })).toEqual({
+      layouts: { board: { showDescription: false } },
+    });
+  });
+
   test("upgrades v2 without preserving title visibility as a presentation option", () => {
     const config: DatabaseViewConfigV2 = {
       schemaKey: "nodex.database-view",
@@ -128,6 +153,7 @@ describe("Database View presentation", () => {
               { kind: "property", propertyId: "estimate" },
             ],
             showEmptyGroups: false,
+            showDescription: true,
           },
           list: {
             fields: [
@@ -135,6 +161,7 @@ describe("Database View presentation", () => {
               { kind: "property", propertyId: "estimate" },
             ],
             showEmptyGroups: false,
+            showDescription: true,
           },
         },
       },
