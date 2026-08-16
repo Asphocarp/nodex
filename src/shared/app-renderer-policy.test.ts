@@ -24,9 +24,33 @@ describe("top-level renderer CSP", () => {
 
   test("limits development connections to the Vite origin", () => {
     const csp = buildTopLevelRendererCsp({ mode: "development" });
-    expect(csp).toContain("ws://localhost:51284");
+    expect(csp).toContain("http://localhost:*");
+    expect(csp).toContain("ws://localhost:*");
+    expect(csp).toContain("http://127.0.0.1:*");
     expect(csp).toContain("sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk=");
     expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).not.toContain("connect-src *");
+  });
+
+  test("narrows development connections to the resolved local Vite origin", () => {
+    const csp = buildTopLevelRendererCsp({
+      mode: "development",
+      developmentOrigin: "http://localhost:51285/",
+    });
+
+    expect(csp).toContain("http://localhost:51285");
+    expect(csp).toContain("ws://localhost:51285");
+    expect(csp).not.toContain("51284");
+    expect(csp).not.toContain("localhost:*");
+  });
+
+  test("does not trust a non-local development origin", () => {
+    const csp = buildTopLevelRendererCsp({
+      mode: "development",
+      developmentOrigin: "https://example.com:51285/",
+    });
+
+    expect(csp).not.toContain("example.com");
+    expect(csp).toContain("http://localhost:*");
   });
 });

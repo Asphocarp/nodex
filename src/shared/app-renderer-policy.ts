@@ -5,6 +5,45 @@ export const APP_RENDERER_URL = `${APP_RENDERER_ORIGIN}/index.html`;
 export const VITE_REACT_REFRESH_PREAMBLE_SHA256 =
   "'sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk='";
 
+const DEVELOPMENT_RENDERER_CONNECTION_FALLBACKS = [
+  "http://localhost:*",
+  "ws://localhost:*",
+  "http://127.0.0.1:*",
+  "ws://127.0.0.1:*",
+] as const;
+
+const LOCAL_DEVELOPMENT_RENDERER_HOSTNAMES = new Set([
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+]);
+
+function buildDevelopmentRendererConnections(
+  developmentOrigin: string | null | undefined,
+): readonly string[] {
+  if (!developmentOrigin) return DEVELOPMENT_RENDERER_CONNECTION_FALLBACKS;
+
+  try {
+    const origin = new URL(developmentOrigin);
+    const isLocalOrigin = (
+      (origin.protocol === "http:" || origin.protocol === "https:")
+      && LOCAL_DEVELOPMENT_RENDERER_HOSTNAMES.has(origin.hostname)
+      && Boolean(origin.port)
+      && !origin.username
+      && !origin.password
+    );
+    if (!isLocalOrigin) return DEVELOPMENT_RENDERER_CONNECTION_FALLBACKS;
+
+    const websocketProtocol = origin.protocol === "https:" ? "wss:" : "ws:";
+    return [
+      origin.origin,
+      `${websocketProtocol}//${origin.host}`,
+    ];
+  } catch {
+    return DEVELOPMENT_RENDERER_CONNECTION_FALLBACKS;
+  }
+}
+
 const STATSIG_CONNECT_ORIGINS = [
   "https://api.statsig.com",
   "https://featuregates.org",
@@ -20,14 +59,10 @@ const STATSIG_CONNECT_ORIGINS = [
 
 export function buildTopLevelRendererCsp(input: {
   mode: "development" | "production";
+  developmentOrigin?: string | null;
 }): string {
   const developmentConnections = input.mode === "development"
-    ? [
-        "http://localhost:51284",
-        "ws://localhost:51284",
-        "http://127.0.0.1:51284",
-        "ws://127.0.0.1:51284",
-      ]
+    ? buildDevelopmentRendererConnections(input.developmentOrigin)
     : [];
   const developmentScriptSources = input.mode === "development"
     ? [VITE_REACT_REFRESH_PREAMBLE_SHA256]
