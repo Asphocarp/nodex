@@ -67,6 +67,30 @@ function enforceSelfContainedSandboxedPreloads(): Plugin {
   };
 }
 
+function createRendererDevelopmentCspPlugin(): Plugin {
+  return {
+    name: "nodex:renderer-development-csp",
+    configureServer(server) {
+      server.httpServer?.once("listening", () => {
+        const developmentOrigin = (
+          server.resolvedUrls?.local[0]
+          ?? server.resolvedUrls?.network[0]
+          ?? null
+        );
+        if (!developmentOrigin) return;
+
+        server.config.server.headers = {
+          ...(server.config.server.headers ?? {}),
+          "Content-Security-Policy": buildTopLevelRendererCsp({
+            mode: "development",
+            developmentOrigin,
+          }),
+        };
+      });
+    },
+  };
+}
+
 function isKnownYProsemirrorAwarenessTypeImportWarning(
   warning: Rollup.RollupLog,
 ): boolean {
@@ -130,7 +154,7 @@ export default defineConfig({
   renderer: {
     server: {
       port: 51284,
-      strictPort: true,
+      strictPort: false,
       headers: {
         "Content-Security-Policy": buildTopLevelRendererCsp({
           mode: "development",
@@ -153,6 +177,7 @@ export default defineConfig({
     },
     resolve: rendererViteResolve,
     plugins: [
+      createRendererDevelopmentCspPlugin(),
       ...createExcalidrawFontAssetPlugins(),
       ...createRendererVitePlugins(),
       ...createSentryPlugins(),

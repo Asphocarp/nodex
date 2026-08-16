@@ -29,6 +29,11 @@ Protocol endpoint on `127.0.0.1:9333` for local debugging. Both commands first
 build the development `target/debug/nodex-core` executable so Electron cannot
 start a stale native authority after a branch switch or rebase.
 
+Development mode prefers renderer Vite port `51284`, then automatically uses
+the next available local port when another development instance is already
+running. Electron receives the resolved renderer URL, and the development CSP
+is narrowed to that actual local origin.
+
 `scripts/run.sh` sets `NODEX_REMOTE_DEBUGGING_PORT=0` when no port is supplied.
 Electron then asks the operating system for an available port, so multiple
 isolated instances can start concurrently. The actual endpoint is reported by
