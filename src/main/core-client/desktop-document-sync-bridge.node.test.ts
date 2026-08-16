@@ -1663,6 +1663,7 @@ describe("Desktop Document sync bridge", () => {
       causalDependencies: [],
       source: { kind: "page", pageId: "page:source" },
       target: { kind: "page", pageId: "page:target" },
+      promotionPolicy: "literal",
     };
     const transferResult = {
       mode: "move" as const,

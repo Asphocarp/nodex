@@ -32,6 +32,7 @@ import {
 import { createEmptyThreadSectionBlock } from "./thread-section";
 import { canvasCreatePendingExtension } from "./canvas-create-pending-extension";
 import { mentionChipKeyboardNavigationExtension } from "./mention-chip-keyboard-navigation";
+import { nfmTaskShorthandPreviewExtension } from "./nfm-task-shorthand-preview-extension";
 
 const toggleInputRule = createExtension({
   key: "toggle-input-rule",
@@ -359,6 +360,7 @@ export function createNfmEditorExtensions(
   return [
     nfmSearchExtension(),
     canvasCreatePendingExtension(),
+    nfmTaskShorthandPreviewExtension(),
     structuredPlainTextCopyExt(options),
     headingToggleAware,
     toggleInputRule,

@@ -98,7 +98,7 @@ describe("Board Card Block transfer drop", () => {
             observed: { store_epoch: "epoch-a", commit_head: 1 },
           },
           value: {
-            version: 2 as const,
+            version: 3 as const,
             operationId: "operation-a",
             projectId: "project-a",
             storeEpoch: "epoch-a",
@@ -119,6 +119,7 @@ describe("Board Card Block transfer drop", () => {
             affectedDatabaseBlockIds: ["database-a"],
             commitSeq: 1,
             committedAt: "2026-07-13T00:00:00.000Z",
+            undoToken: null,
           },
         };
       });
@@ -178,7 +179,7 @@ describe("Board Card Block transfer drop", () => {
           observed: { store_epoch: "epoch-a", commit_head: 2 },
         },
         value: {
-          version: 2 as const,
+          version: 3 as const,
           operationId: "operation-editor",
           projectId: "project-a",
           storeEpoch: "epoch-a",
@@ -199,6 +200,7 @@ describe("Board Card Block transfer drop", () => {
           affectedDatabaseBlockIds: [],
           commitSeq: 2,
           committedAt: "2026-07-13T00:00:00.000Z",
+          undoToken: null,
         },
       };
     });

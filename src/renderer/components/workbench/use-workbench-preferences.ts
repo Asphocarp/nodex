@@ -12,11 +12,9 @@ import {
   useScopedAtom,
 } from "../../lib/maitai";
 import {
-  readSmartPrefixParsingEnabled,
-  readStripSmartPrefixFromTitleEnabled,
-  writeSmartPrefixParsingEnabled,
-  writeStripSmartPrefixFromTitleEnabled,
-} from "../../lib/smart-prefix-parsing";
+  readTaskShorthandPagePromotionEnabled,
+  writeTaskShorthandPagePromotionEnabled,
+} from "../../lib/page-promotion-preference";
 import {
   readThreadQueueFollowUpsEnabled,
   writeThreadQueueFollowUpsEnabled,
@@ -76,15 +74,10 @@ const worktreeAutoBranchPrefixAtom = scopedAtomWithInitializer(
   readWorktreeAutoBranchPrefix,
   { debugLabel: "worktree-auto-branch-prefix" },
 );
-const smartPrefixParsingEnabledAtom = scopedAtomWithInitializer(
+const taskShorthandPagePromotionEnabledAtom = scopedAtomWithInitializer(
   appScope,
-  readSmartPrefixParsingEnabled,
-  { debugLabel: "smart-prefix-parsing-enabled" },
-);
-const stripSmartPrefixFromTitleEnabledAtom = scopedAtomWithInitializer(
-  appScope,
-  readStripSmartPrefixFromTitleEnabled,
-  { debugLabel: "strip-smart-prefix-from-title-enabled" },
+  readTaskShorthandPagePromotionEnabled,
+  { debugLabel: "task-shorthand-page-promotion-enabled" },
 );
 
 export function useWorkbenchPreferences() {
@@ -101,11 +94,8 @@ export function useWorkbenchPreferences() {
   const [worktreeAutoBranchPrefix, setWorktreeAutoBranchPrefix] = useScopedAtom(
     worktreeAutoBranchPrefixAtom,
   );
-  const [smartPrefixParsingEnabled, setSmartPrefixParsingEnabled] = useScopedAtom(
-    smartPrefixParsingEnabledAtom,
-  );
-  const [stripSmartPrefixFromTitleEnabled, setStripSmartPrefixFromTitleEnabled] = useScopedAtom(
-    stripSmartPrefixFromTitleEnabledAtom,
+  const [taskShorthandPagePromotionEnabled, setTaskShorthandPagePromotionEnabled] = useScopedAtom(
+    taskShorthandPagePromotionEnabledAtom,
   );
 
   useEffect(() => {
@@ -142,13 +132,9 @@ export function useWorkbenchPreferences() {
     setWorktreeAutoBranchPrefix(writeWorktreeAutoBranchPrefix(value));
   }, [setWorktreeAutoBranchPrefix]);
 
-  const handleSmartPrefixParsingEnabledChange = useCallback((value: boolean) => {
-    setSmartPrefixParsingEnabled(writeSmartPrefixParsingEnabled(value));
-  }, [setSmartPrefixParsingEnabled]);
-
-  const handleStripSmartPrefixFromTitleEnabledChange = useCallback((value: boolean) => {
-    setStripSmartPrefixFromTitleEnabled(writeStripSmartPrefixFromTitleEnabled(value));
-  }, [setStripSmartPrefixFromTitleEnabled]);
+  const handleTaskShorthandPagePromotionEnabledChange = useCallback((value: boolean) => {
+    setTaskShorthandPagePromotionEnabled(writeTaskShorthandPagePromotionEnabled(value));
+  }, [setTaskShorthandPagePromotionEnabled]);
 
   return {
     threadSummaryPanelPinnedOpen,
@@ -161,10 +147,8 @@ export function useWorkbenchPreferences() {
     handleWorktreeStartModeChange,
     worktreeAutoBranchPrefix,
     handleWorktreeAutoBranchPrefixChange,
-    smartPrefixParsingEnabled,
-    handleSmartPrefixParsingEnabledChange,
-    stripSmartPrefixFromTitleEnabled,
-    handleStripSmartPrefixFromTitleEnabledChange,
+    taskShorthandPagePromotionEnabled,
+    handleTaskShorthandPagePromotionEnabledChange,
   };
 }
 

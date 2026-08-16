@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import type { DatabaseListMoveUndoRecipeV2 } from "../../../shared/database-module-v2";
+import type { BlockTransferUndoToken } from "../../../shared/block-transfer";
 import {
   createDatabaseViewMutationHistory,
   handleDatabaseViewMutationHistoryKeyDown,
@@ -14,6 +15,11 @@ const recipe = (pageId: string): DatabaseListMoveUndoRecipeV2 => ({
   postBeforePageId: null,
   postOrderGuard: true,
   restoreRuns: [{ pageIds: [pageId], parentPageId: null, beforePageId: null }],
+});
+const token = (operationId: string): BlockTransferUndoToken => ({
+  transferOperationId: operationId,
+  recipeHash: "a".repeat(64),
+  storeEpoch: "epoch-1",
 });
 
 describe("Database View mutation history", () => {
@@ -49,6 +55,31 @@ describe("Database View mutation history", () => {
     }
 
     expect(undonePageIds).toEqual(["page-c", "page-b", "page-a"]);
+    expect(history.size()).toBe(0);
+  });
+
+  test("undoes List moves and Block promotions in their real gesture order", async () => {
+    const history = createDatabaseViewMutationHistory("epoch-1:view-1");
+    history.registerListMove(recipe("page-a"));
+    history.registerBlockTransfer(token("promotion-a"));
+    history.registerListMove(recipe("page-b"));
+    const order: string[] = [];
+    const handlers = {
+      listMove: async (entry: DatabaseListMoveUndoRecipeV2) => {
+        order.push(entry.postParentGuards[0]?.pageId ?? "missing");
+        return true;
+      },
+      blockTransfer: async (entry: BlockTransferUndoToken) => {
+        order.push(entry.transferOperationId);
+        return true;
+      },
+    };
+
+    await history.undoLast(handlers);
+    await history.undoLast(handlers);
+    await history.undoLast(handlers);
+
+    expect(order).toEqual(["page-b", "promotion-a", "page-a"]);
     expect(history.size()).toBe(0);
   });
 

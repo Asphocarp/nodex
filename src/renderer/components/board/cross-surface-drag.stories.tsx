@@ -36,3 +36,35 @@ export const MoveAndOptionCopyCues: Story = {
     </div>
   ),
 };
+
+export const TaskShorthandPromotionCues: Story = {
+  render: () => {
+    const cues = [
+      ["Single parsed", "Move as Page · P1 · XL · 2 tags"],
+      ["Batch mixed", "Move 3 as Pages · 2 shorthand"],
+      ["Shift override", "Move as Page · Literal"],
+      ["Target conflict", "Move as Page · shorthand kept"],
+    ] as const;
+    return (
+      <div
+        className="grid w-[520px] gap-5 bg-(--background) p-8 text-(--foreground)"
+        style={{ "--column-accent": "#4f7cac" } as CSSProperties}
+      >
+        <div>
+          <h2 className="text-sm font-medium">Block → Page drag feedback</h2>
+          <p className="mt-1 text-xs text-(--foreground-secondary)">
+            Local preview only; Core decides the committed result.
+          </p>
+        </div>
+        {cues.map(([name, label]) => (
+          <section key={name} className="grid grid-cols-[112px_1fr] items-center gap-4">
+            <p className="text-xs text-(--foreground-secondary)">{name}</p>
+            <div className="relative h-9 bg-(--background-secondary) px-3 pt-3">
+              <DropIndicator className="absolute inset-x-3 top-3" label={label} />
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  },
+};

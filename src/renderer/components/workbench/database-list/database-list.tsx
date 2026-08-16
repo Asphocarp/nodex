@@ -137,6 +137,7 @@ import {
 } from "../database-view-mutation-history";
 import { databaseListNestingContinuations } from "./database-list-nesting-lines";
 import { DATABASE_LIST_THEME_CLASS_NAME } from "./database-list-theme";
+import { undoDatabaseViewBlockTransfer } from "../database-view-block-transfer-undo";
 
 const INITIAL_OVERSCAN = 100;
 const EMPTY_DATABASE_LIST_PAGE_IDENTITY: DatabaseListPageIdentity = {
@@ -1381,12 +1382,23 @@ export function DatabaseList({
     collapsed: !collapsedOccurrenceKeys.has(key),
   }]);
 
+  const mutationHistoryProjectId = model.accessContext.kind === "project"
+    ? model.accessContext.projectId
+    : null;
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.defaultPrevented || dndActive) return;
     if (handleDatabaseViewMutationHistoryKeyDown({
       event,
       history: mutationHistory,
       undoListMove,
+      undoBlockTransfer: mutationHistoryProjectId
+        ? async (token) => await undoDatabaseViewBlockTransfer({
+            projectId: mutationHistoryProjectId,
+            storeEpoch: model.storeEpoch,
+            token,
+            onCommitted,
+          })
+        : undefined,
     })) return;
     if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {

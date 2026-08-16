@@ -11,3 +11,4 @@ pub(crate) mod page_key;
 pub(crate) mod project_appearance;
 pub mod rich_text;
 pub mod subtree;
+pub(crate) mod task_shorthand;

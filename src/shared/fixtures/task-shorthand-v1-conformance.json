@@ -1,0 +1,15 @@
+[
+  { "title": "1XL(ui, unclear) Fix import", "match": true, "priority": 1, "estimate": "XL", "tags": ["ui", "unclear"], "rewrittenTitle": "Fix import" },
+  { "title": "2S Tighten tests", "match": true, "priority": 2, "estimate": "S", "tags": [], "rewrittenTitle": "Tighten tests" },
+  { "title": "1(ui) Fix import", "match": true, "priority": 1, "estimate": null, "tags": ["ui"], "rewrittenTitle": "Fix import" },
+  { "title": "1 Investigate", "match": true, "priority": 1, "estimate": null, "tags": [], "rewrittenTitle": "Investigate" },
+  { "title": "0 Production outage", "match": true, "priority": 0, "estimate": null, "tags": [], "rewrittenTitle": "Production outage" },
+  { "title": "1XL(ui, unclear): Fix import", "match": false },
+  { "title": "2S: Tighten tests", "match": false },
+  { "title": "0: Production outage", "match": false },
+  { "title": "4XL Later", "match": false },
+  { "title": "1XL(ui,,unclear) Empty tag", "match": false },
+  { "title": "1XL(ui)", "match": false },
+  { "title": " 1XL Leading whitespace", "match": false },
+  { "title": "1xl(café, café, 数据) Unicode", "match": true, "priority": 1, "estimate": "XL", "tags": ["café", "数据"], "rewrittenTitle": "Unicode" }
+]

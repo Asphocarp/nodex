@@ -14,9 +14,12 @@ import {
 } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { NFM_EDITOR_FLOATING_SURFACE_CHROME_CLASS } from "./nfm-editor-floating-surface";
 
-const NFM_LINK_TOOLBAR_CLASS =
-  "m-0 flex h-9 w-fit min-w-0 shrink items-center overflow-hidden rounded-xl bg-token-dropdown-background px-1 py-1 shadow-[0_8px_12px_0_rgba(25,25,25,0.027),0_2px_6px_0_rgba(25,25,25,0.027),0_0_0_1px_rgba(42,28,0,0.07)] dark:shadow-[0_0_0_1px_rgba(56,56,54,1),0_4px_12px_-2px_rgba(25,25,25,0.079)]";
+const NFM_LINK_TOOLBAR_CLASS = cn(
+  "m-0 flex h-9 w-fit min-w-0 shrink items-center overflow-hidden rounded-xl px-1 py-1",
+  NFM_EDITOR_FLOATING_SURFACE_CHROME_CLASS,
+);
 const NFM_LINK_TOOLBAR_BUTTON_CLASS =
   "flex h-full items-center gap-2 rounded-lg px-2 outline-hidden hover:bg-black/5 dark:hover:bg-token-interactive-bg-secondary-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent";
 

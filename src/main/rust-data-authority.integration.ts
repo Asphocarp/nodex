@@ -666,6 +666,7 @@ describe("Electron native data authority", () => {
           documentId: nativeTargetDocumentId,
           beforeBlockId: nativeTargetAnchorBlockId,
         },
+        promotionPolicy: "literal" as const,
       };
       const transferred = await transferAdapter.commit(transferIntent);
       if (!transferred.ok) {

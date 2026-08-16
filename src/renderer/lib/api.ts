@@ -93,8 +93,14 @@ import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
 import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
-import type { BlockTransferCommandResult } from "../../shared/block-transfer";
-import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
+import type {
+  BlockTransferCommandResult,
+  BlockTransferUndoCommandResult,
+} from "../../shared/block-transfer";
+import type {
+  PublicBlockTransferIntent,
+  PublicBlockTransferUndoIntent,
+} from "../../shared/block-transfer-transport";
 import type {
   CreatePastedTextAttachmentInput,
   CreatePastedTextAttachmentResult,
@@ -249,6 +255,15 @@ export async function transferBlocks(
   intent: PublicBlockTransferIntent,
 ): Promise<BlockTransferCommandResult> {
   const result = await resolveRendererTransport().transferBlocks(projectId, intent);
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
+}
+
+export async function undoBlockTransfer(
+  projectId: string,
+  intent: PublicBlockTransferUndoIntent,
+): Promise<BlockTransferUndoCommandResult> {
+  const result = await resolveRendererTransport().undoBlockTransfer(projectId, intent);
   if (result.ok) await admitLocalCommitApply(result.localCommit);
   return result;
 }

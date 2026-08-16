@@ -99,10 +99,8 @@ async function renderOverlay(path = buildSettingsPath("backups")) {
         onWorktreeStartModeChange={() => {}}
         worktreeAutoBranchPrefix="codex/"
         onWorktreeAutoBranchPrefixChange={() => {}}
-        smartPrefixParsingEnabled={true}
-        onSmartPrefixParsingEnabledChange={() => {}}
-        stripSmartPrefixFromTitleEnabled={true}
-        onStripSmartPrefixFromTitleEnabledChange={() => {}}
+        taskShorthandPagePromotionEnabled={true}
+        onTaskShorthandPagePromotionEnabledChange={() => {}}
       />
     </AppProviders>,
   );

@@ -535,10 +535,8 @@ function SettingsRouteShellStory({
         onWorktreeStartModeChange={() => {}}
         worktreeAutoBranchPrefix="codex/"
         onWorktreeAutoBranchPrefixChange={() => {}}
-        smartPrefixParsingEnabled={true}
-        onSmartPrefixParsingEnabledChange={() => {}}
-        stripSmartPrefixFromTitleEnabled={true}
-        onStripSmartPrefixFromTitleEnabledChange={() => {}}
+        taskShorthandPagePromotionEnabled={true}
+        onTaskShorthandPagePromotionEnabledChange={() => {}}
       />
     </div>
   );

@@ -2,10 +2,12 @@ import {
   BLOCK_TRANSFER_CONTRACT_VERSION,
   BlockTransferContractError,
   parseBlockTransferIntent,
+  parseBlockTransferUndoIntent,
   type BlockTransferCommandError,
   type BlockTransferCommandResult,
   type BlockTransferIntent,
   type BlockTransferReceipt,
+  type BlockTransferUndoIntent,
 } from "./block-transfer";
 import type { DatabaseJsonValue } from "./database-kernel";
 import {
@@ -39,6 +41,7 @@ export type PublicBlockTransferIntent = Omit<
   BlockTransferIntent,
   "clientSessionId" | "actor"
 >;
+export type PublicBlockTransferUndoIntent = BlockTransferUndoIntent;
 
 export interface TrustedBlockTransferIdentity {
   readonly clientSessionId: string;
@@ -47,6 +50,9 @@ export interface TrustedBlockTransferIdentity {
 
 export type BoundBlockTransferIntent =
   | { readonly ok: true; readonly value: BlockTransferIntent }
+  | { readonly ok: false; readonly error: BlockTransferCommandError };
+export type BoundBlockTransferUndoIntent =
+  | { readonly ok: true; readonly value: BlockTransferUndoIntent }
   | { readonly ok: false; readonly error: BlockTransferCommandError };
 
 export const blockTransferFailure = (
@@ -87,6 +93,7 @@ const parsePublicIntent = (
     "causalDependencies",
     "source",
     "target",
+    "promotionPolicy",
   ]);
   for (const key of Object.keys(value)) {
     if (allowed.has(key)) continue;
@@ -151,6 +158,55 @@ export const bindBlockTransferIntent = (
     };
   }
   return { ok: true, value: intent };
+};
+
+export const bindBlockTransferUndoIntent = (
+  rawIntent: unknown,
+  rawProjectId: unknown,
+): BoundBlockTransferUndoIntent => {
+  const projectId =
+    typeof rawProjectId === "string" &&
+    rawProjectId.length > 0 &&
+    rawProjectId.length <= MAX_ID_LENGTH &&
+    rawProjectId === rawProjectId.trim()
+      ? rawProjectId
+      : null;
+  const operationId = readIdentityHint(rawIntent, "operationId");
+  if (!projectId) {
+    return {
+      ok: false,
+      error: blockTransferFailure(
+        "invalid_transfer_request",
+        "Block transfer Undo Project scope is invalid",
+        { operationId },
+      ),
+    };
+  }
+  try {
+    const intent = parseBlockTransferUndoIntent(rawIntent);
+    if (intent.projectId !== projectId) {
+      return {
+        ok: false,
+        error: blockTransferFailure(
+          "invalid_transfer_request",
+          "Block transfer Undo does not match its Project route scope",
+          { operationId: intent.operationId },
+        ),
+      };
+    }
+    return { ok: true, value: intent };
+  } catch (error) {
+    return {
+      ok: false,
+      error: blockTransferFailure(
+        "invalid_transfer_request",
+        error instanceof BlockTransferContractError
+          ? error.message
+          : "Block transfer Undo intent is invalid",
+        { operationId },
+      ),
+    };
+  }
 };
 
 export const blockTransferTransportFailure = (

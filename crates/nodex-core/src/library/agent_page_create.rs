@@ -419,6 +419,7 @@ pub(super) fn execute_create_pages(
                         page_copy: None,
                         canvas_mutation: None,
                         block_transfer: None,
+                        block_transfer_undo: None,
                         page_lifecycle: None,
                         block_property_mutation: None,
                         agent_page_copy: None,
