@@ -39,6 +39,7 @@ import {
   Eye as LucideEye,
   EyeOff as LucideEyeOff,
   Filter as LucideFilter,
+  FileImage as LucideFileImage,
   FolderGit2 as LucideFolderGit2,
   Gauge as LucideGauge,
   GitBranch as LucideGitBranch,
@@ -51,6 +52,8 @@ import {
   History as LucideHistory,
   Image as LucideImage,
   ImageIcon as LucideImageIcon,
+  ImagePlus as LucideImagePlus,
+  ImageUp as LucideImageUp,
   ImagesIcon as LucideImagesIcon,
   Info as LucideInfo,
   KeyRound as LucideKeyRound,
@@ -217,6 +220,7 @@ export const ExternalLink: LucideIconType = /* @__PURE__ */ createGenericIcon(Lu
 export const Eye: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideEye, "Eye");
 export const EyeOff: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideEyeOff, "EyeOff");
 export const Filter: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideFilter, "Filter");
+export const FileImage: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideFileImage, "FileImage");
 export const FolderGit2: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideFolderGit2, "FolderGit2");
 export const Gauge: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideGauge, "Gauge");
 export const GitBranch: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideGitBranch, "GitBranch");
@@ -229,6 +233,8 @@ export const Heading1: LucideIconType = /* @__PURE__ */ createGenericIcon(Lucide
 export const History: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideHistory, "History");
 export const Image: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImage, "Image");
 export const ImageIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImageIcon, "ImageIcon");
+export const ImagePlus: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImagePlus, "ImagePlus");
+export const ImageUp: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImageUp, "ImageUp");
 export const ImagesIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImagesIcon, "ImagesIcon");
 export const Info: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideInfo, "Info");
 export const KeyRound: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideKeyRound, "KeyRound");

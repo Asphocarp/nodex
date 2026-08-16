@@ -2041,6 +2041,49 @@ export function LinkToolbarCopyIcon({ className }: IconProps) {
   );
 }
 
+export function NfmLinkToolbarEditIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" className={cn("shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M11.626 3.304c1.426-1.423 3.694-1.394 5.054-.009 1.403 1.355 1.45 3.633.01 5.073l-7 7h-.002a5.2 5.2 0 0 1-2.572 1.47v.002l-3.868.888-.001-.002c-.167.04-.505.073-.774-.196-.271-.27-.237-.61-.197-.777h-.002l.89-3.857A5.25 5.25 0 0 1 4.6 10.327zm-6.084 7.965c-.54.539-.917 1.19-1.081 1.922l-.001.003-.704 3.052 3.061-.703a3.88 3.88 0 0 0 1.92-1.102l5.657-5.66-3.182-3.183zm10.2-7.033c-.838-.863-2.266-.9-3.177.01l-.413.411 3.183 3.184.414-.413c.917-.917.874-2.34.009-3.176z" />
+    </svg>
+  );
+}
+
+export function NfmLinkToolbarClearIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" className={cn("shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M14.006 16.022a.666.666 0 0 1 .807.484l.416 1.667a.665.665 0 0 1-1.29.322l-.417-1.667a.666.666 0 0 1 .484-.806M4.707 7.742a.666.666 0 0 1 .94.94l-1.13 1.13c-1.47 1.47-1.498 3.878.148 5.524s4.053 1.617 5.524.147l1.13-1.13a.665.665 0 0 1 .94.94l-1.13 1.13c-2.018 2.018-5.268 1.99-7.405-.146-2.137-2.138-2.165-5.388-.147-7.406zM16.828 13.522l1.667.417a.666.666 0 0 1-.322 1.29l-1.667-.416a.666.666 0 0 1 .322-1.291" />
+      <path d="M8.164 10.896a.666.666 0 0 1 .94.941l-1.133 1.134a.666.666 0 0 1-.941-.94zM8.871 3.577c2.018-2.017 5.268-1.99 7.405.147s2.165 5.387.147 7.405l-1.13 1.13a.666.666 0 0 1-.94-.94l1.13-1.13c1.47-1.47 1.499-3.878-.147-5.524s-4.054-1.618-5.524-.147l-1.13 1.13a.666.666 0 0 1-.94-.94z" />
+      <path d="M12.03 7.03a.666.666 0 0 1 .94.941l-1.133 1.134a.666.666 0 0 1-.941-.94zM1.828 4.772l1.667.417a.666.666 0 0 1-.322 1.29l-1.667-.416a.666.666 0 0 1 .322-1.291M5.256 1.022a.666.666 0 0 1 .807.484l.416 1.667a.665.665 0 0 1-1.29.322l-.417-1.667a.666.666 0 0 1 .484-.806" />
+    </svg>
+  );
+}
+
+export function NfmLinkToolbarCopyIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" className={cn("shrink-0", className)} fill="currentColor" fillRule="evenodd" clipRule="evenodd" aria-hidden="true">
+      <path d="M15.1 1.785a3.065 3.065 0 0 1 3.065 3.066v6.033a3.065 3.065 0 0 1-3.064 3.064h-1.103v1.103a3.065 3.065 0 0 1-3.064 3.064H4.9a3.066 3.066 0 0 1-3.065-3.064V9.018A3.066 3.066 0 0 1 4.9 5.952h1.102V4.851a3.066 3.066 0 0 1 3.065-3.066zM4.9 7.282c-.958 0-1.735.777-1.735 1.736v6.033c0 .958.777 1.734 1.735 1.734h6.034c.957 0 1.734-.776 1.734-1.734V9.018c0-.959-.776-1.736-1.734-1.736zm4.167-4.167c-.958 0-1.735.777-1.735 1.736v1.101h3.602a3.065 3.065 0 0 1 3.064 3.066v3.6h1.103c.957 0 1.734-.776 1.734-1.734V4.85c0-.958-.777-1.735-1.734-1.736z" />
+    </svg>
+  );
+}
+
+export function NfmLinkToolbarOpenIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" className={cn("shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M8.333 3.334a.665.665 0 0 1 0 1.33H6.667a2.003 2.003 0 0 0-2.002 2.003v6.666c0 1.105.896 2.002 2.002 2.002h6.666a2 2 0 0 0 2.002-2.003v-1.666a.665.665 0 0 1 1.33 0v1.666a3.33 3.33 0 0 1-3.332 3.333H6.667a3.33 3.33 0 0 1-3.332-3.332V6.666a3.333 3.333 0 0 1 3.332-3.333z" />
+      <path d="M16.578 2.505c.505 0 .915.41.915.915l.001 4.044a.666.666 0 0 1-1.33 0v-2.68l-4.885 4.884a.665.665 0 0 1-.94-.94l4.891-4.893-2.695.001a.666.666 0 0 1 0-1.33z" />
+    </svg>
+  );
+}
+
+export function NfmLinkToolbarApplyIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" className={cn("shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M15.894 3.762a.666.666 0 0 1 1.095.756L9.007 16.085a.79.79 0 0 1-1.208.112l-4.73-4.692a.665.665 0 0 1 .937-.944L8.278 14.8z" />
+    </svg>
+  );
+}
+
 export function LinkToolbarDeleteIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" className={cn("shrink-0", className)} fill="currentColor" aria-hidden="true">

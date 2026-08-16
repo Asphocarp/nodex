@@ -127,9 +127,9 @@ export function NfmLinkToolbarController(props: {
 
           setToolbarOpen(open);
         },
-        placement: "top-start",
+        placement: "bottom-start",
         strategy: "fixed",
-        middleware: [offset(8), shift({ padding: 8 }), flip({ padding: 8 })],
+        middleware: [offset(6), shift({ padding: 8 }), flip({ padding: 8 })],
         ...props.floatingUIOptions?.useFloatingOptions,
       },
       useHoverProps: {

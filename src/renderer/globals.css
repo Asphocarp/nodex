@@ -186,19 +186,42 @@
   position: relative;
 }
 
-/* Notion-style link */
-.nfm-editor a {
-  color: var(--foreground) !important;
-  text-decoration: underline !important;
-  text-decoration-thickness: 0.05em !important;
-  text-decoration-color: var(--link-decoration-color) !important;
-  text-underline-offset: 10% !important;
-  opacity: 0.7 !important;
+/* Interactive editor links use the same compact link treatment as message links. */
+.nfm-editor a:not([data-page-mention-inline-anchor="true"]) {
+  color: color-mix(
+    in srgb,
+    var(--color-token-text-link-foreground) 80%,
+    var(--color-token-foreground) 20%
+  ) !important;
+  font-weight: var(--font-weight-medium);
+  text-decoration: none !important;
   cursor: pointer;
 }
-.nfm-editor a:hover {
-  opacity: 1;
+
+@media (hover: hover) {
+  .nfm-editor a:not([data-page-mention-inline-anchor="true"]):hover {
+    text-underline-offset: 2px;
+    text-decoration: underline dashed !important;
+    text-decoration-thickness: 0.5px !important;
+  }
 }
+
+.nfm-editor a[data-page-mention-inline-anchor="true"] {
+  color: inherit !important;
+  text-decoration: none;
+  opacity: 1;
+  cursor: pointer;
+}
+
+.nfm-editor :is(
+  [data-mention-inline-chip="true"]
+):is(
+  :focus-visible,
+  [data-mention-token-selected="true"]
+) > [data-mention-inline-label="true"] {
+  text-decoration-color: currentColor !important;
+}
+
 .nfm-render-link {
   color: var(--color-token-text-link-foreground) !important;
   text-decoration: none !important;

@@ -109,3 +109,8 @@ export async function readManagedImageDataUrl(source: string): Promise<string> {
     new Blob([new Uint8Array(result.bytes)], { type: result.mimeType }),
   );
 }
+
+export async function readManagedImageByteLength(source: string): Promise<number> {
+  const result = await invoke("asset:image:read", source);
+  return result.bytes.byteLength;
+}

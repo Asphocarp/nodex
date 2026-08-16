@@ -14,7 +14,7 @@ import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import {
   NfmCompactLinkToolbar,
   NfmCreateLinkDialogSurface,
-  NfmLinkEditDialogSurface,
+  NfmLinkEditToolbarSurface,
 } from "./nfm-link-toolbar-surface";
 import type { LinkToolbarProps } from "@blocknote/react";
 import type { NfmResolvedLinkAction } from "@/lib/nfm-link-actions";
@@ -22,7 +22,7 @@ import type { NfmResolvedLinkAction } from "@/lib/nfm-link-actions";
 export {
   NfmCompactLinkToolbar,
   NfmCreateLinkDialogSurface,
-  NfmLinkEditDialogSurface,
+  NfmLinkEditToolbarSurface,
   openNfmResolvedLinkAction,
   resolveNfmLinkAction,
   resolveNfmLinkTooltipLabel,

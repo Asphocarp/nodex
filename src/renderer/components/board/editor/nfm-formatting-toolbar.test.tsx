@@ -57,6 +57,22 @@ describe("nfm formatting toolbar", () => {
     expect(presentation.open).toBe(false);
   });
 
+  test("keeps the toolbar closed when legacy eligibility is stale for a collapsed selection", () => {
+    const presentation = resolveNfmFormattingToolbarPresentation({
+      show: true,
+      selectionRange: { from: 6, to: 6 },
+      suppressionRange: null,
+      textActionEligibility: makeTextActionEligibility({
+        selectedTextLength: 0,
+        selectionFrom: 6,
+        selectionTo: 6,
+      }),
+      legacyEligibility: true,
+    });
+
+    expect(presentation.open).toBe(false);
+  });
+
   test("opens the legacy toolbar only for non-text node action selections", () => {
     const presentation = resolveNfmFormattingToolbarPresentation({
       show: true,
@@ -152,7 +168,8 @@ describe("nfm formatting toolbar", () => {
     })).toBe(false);
   });
 
-  test("omits non-persisted text alignment buttons from the legacy image/file toolbar", () => {
+  test("omits unsupported actions from the legacy image/file toolbar", () => {
+    expect(shouldRenderNfmLegacyFormattingToolbarItem("fileRenameButton")).toBe(false);
     expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignLeftButton")).toBe(false);
     expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignCenterButton")).toBe(false);
     expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignRightButton")).toBe(false);

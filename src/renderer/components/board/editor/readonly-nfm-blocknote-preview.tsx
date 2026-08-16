@@ -330,7 +330,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     table: defaultBlockSpecs.table,
     quote: defaultBlockSpecs.quote,
     divider: defaultBlockSpecs.divider,
-    image: imageBlockSpec,
+    image: imageBlockSpec(),
     callout: createCalloutBlock(),
     cardToggle: createPageToggleBlockSpec(),
     page: createReadonlyPageBlockSpec(),
