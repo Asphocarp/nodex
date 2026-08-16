@@ -78,6 +78,12 @@ export interface RendererTransport {
   ) => Promise<
     import("../../shared/block-transfer").BlockTransferCommandResult
   >;
+  undoBlockTransfer: (
+    projectId: string,
+    intent: import("../../shared/block-transfer-transport").PublicBlockTransferUndoIntent,
+  ) => Promise<
+    import("../../shared/block-transfer").BlockTransferUndoCommandResult
+  >;
   createDocumentVersionCheckpoint: (
     projectId: string,
     documentId: string,

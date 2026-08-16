@@ -402,6 +402,7 @@ pub(super) fn execute_move_pages(
                         page_copy: None,
                         canvas_mutation: None,
                         block_transfer: None,
+                        block_transfer_undo: None,
                         page_lifecycle: None,
                         block_property_mutation: None,
                         agent_page_copy: None,
@@ -1086,6 +1087,7 @@ fn transfer_intent(
         causal_dependencies: Vec::new(),
         source: source.clone(),
         target,
+        promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
     })
 }
 

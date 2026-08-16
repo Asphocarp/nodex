@@ -921,6 +921,15 @@ vi.mock("@/lib/api", () => {
       reloadRequired: false,
     },
   }),
+  undoBlockTransfer: async () => ({
+    ok: false,
+    error: {
+      code: "undo_unavailable",
+      message: "Not configured in this test.",
+      retryable: false,
+      reloadRequired: false,
+    },
+  }),
   };
 });
 

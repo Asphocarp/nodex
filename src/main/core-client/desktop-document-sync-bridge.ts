@@ -28,6 +28,8 @@ import type {
 import type {
   BlockTransferCommandResult,
   BlockTransferIntent,
+  BlockTransferUndoCommandResult,
+  BlockTransferUndoIntent,
 } from "../../shared/block-transfer";
 import { documentMutationFailure } from "../../shared/block-documents/document-operation-transport";
 import type {
@@ -226,6 +228,9 @@ export interface DesktopDocumentSyncPort {
   transferBlocks(
     intent: BlockTransferIntent,
   ): Promise<BlockTransferCommandResult>;
+  undoBlockTransfer(
+    intent: BlockTransferUndoIntent,
+  ): Promise<BlockTransferUndoCommandResult>;
   executeNodexAgentMutation<
     Result extends NativeNodexAgentMutationResult,
   >(options: NativeNodexAgentMutationExecution<Result>): Promise<Result>;
@@ -1372,6 +1377,27 @@ export function createDesktopDocumentSyncBridge(
     return result;
   };
 
+  const undoBlockTransfer = async (
+    intent: BlockTransferUndoIntent,
+  ): Promise<BlockTransferUndoCommandResult> => {
+    let runtime: DesktopDataAuthorityRuntime;
+    try {
+      runtime = await input.authority;
+    } catch (error) {
+      return {
+        ok: false,
+        error: {
+          code: "unknown",
+          message: error instanceof Error ? error.message : String(error),
+          retryable: true,
+          reloadRequired: false,
+          operationId: intent.operationId,
+        },
+      };
+    }
+    return blockTransferAdapterFor(runtime, intent.projectId).undo(intent);
+  };
+
   const executeNodexAgentMutation = async <
     Result extends NativeNodexAgentMutationResult,
   >(
@@ -1792,6 +1818,7 @@ export function createDesktopDocumentSyncBridge(
     },
     applyDocumentMutation,
     transferBlocks,
+    undoBlockTransfer,
     executeNodexAgentMutation,
     restoreVersion: async (request) => await applyDocumentMutation(request),
   };

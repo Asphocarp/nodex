@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+  BLOCK_TRANSFER_CONTRACT_VERSION,
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
 import { createCoreBlockTransferAdapter } from "./block-transfer-adapter";
@@ -31,6 +32,7 @@ const intent: BlockTransferIntent = {
     parentBlockId: "block:parent",
     beforeBlockId: "block:before",
   },
+  promotionPolicy: "literal",
 };
 
 const coreResult = () => ({
@@ -65,6 +67,11 @@ const coreResult = () => ({
   page_etags: {},
   move_etags: {},
   page_view_placements: {},
+  undo_token: {
+    transfer_operation_id: "transfer:test",
+    recipe_hash: "a".repeat(64),
+    store_epoch: identity.storeEpoch,
+  },
 });
 
 const committedApply = (
@@ -154,6 +161,7 @@ describe("Core Block Transfer Adapter", () => {
         wrapperReason: "type_requires_wrapper" as const,
         bodyRootBlockIds: ["block:copy"],
         sourceToResultBlockIds: { "block:root": "block:copy" },
+        promotion: { kind: "not_requested" as const },
       }],
       final_locations: {
         "page:wrapper": {
@@ -227,6 +235,59 @@ describe("Core Block Transfer Adapter", () => {
     });
     expect(client.reads).toHaveLength(0);
     expect(client.applies).toHaveLength(1);
+  });
+
+  test("submits an opaque Undo token and maps the authoritative inverse receipt", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    client.enqueueApply({
+      ...committedApply(),
+      outcome: {
+        affected_resource_ids: ["block:root", "page:promoted"],
+        page_copy: null,
+        block_transfer: null,
+        block_transfer_undo: {
+          transfer_operation_id: "transfer:test",
+          restored_source_root_ids: ["block:root"],
+          removed_page_ids: ["page:promoted"],
+          document_commits: [],
+        },
+      },
+      receipt: {
+        ...committedApply().receipt,
+        operation_id: "undo:test",
+        operation_kind: "undo_block_transfer",
+      },
+    });
+
+    const result = await adapter.undo({
+      version: BLOCK_TRANSFER_CONTRACT_VERSION,
+      operationId: "undo:test",
+      projectId: identity.projectId,
+      storeEpoch: identity.storeEpoch,
+      token: {
+        transferOperationId: "transfer:test",
+        recipeHash: "a".repeat(64),
+        storeEpoch: identity.storeEpoch,
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        transferOperationId: "transfer:test",
+        restoredSourceRootIds: ["block:root"],
+        removedPageIds: ["page:promoted"],
+      },
+    });
+    expect(client.applies[0]?.intent).toEqual({
+      kind: "undo_block_transfer",
+      token: {
+        transfer_operation_id: "transfer:test",
+        recipe_hash: "a".repeat(64),
+        store_epoch: identity.storeEpoch,
+      },
+    });
   });
 
   test("rejects a cross-project intent before contacting Core", async () => {

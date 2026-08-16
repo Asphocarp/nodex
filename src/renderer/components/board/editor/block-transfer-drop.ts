@@ -324,7 +324,7 @@ export const setupBlockTransferDocumentDrop = (
       clear();
       void prepareStructuralMutation()
         .then((tokens) => boundary.transfer({
-          version: 2,
+          version: 3,
           operationId: boundary.createOperationId(),
           projectId: boundary.projectId,
           storeEpoch: boundary.storeEpoch,
@@ -342,6 +342,7 @@ export const setupBlockTransferDocumentDrop = (
                 documentId: boundary.documentId,
                 ...target,
               },
+          promotionPolicy: "literal",
         }))
         .then((result) => {
           if (!result.ok) boundary.reportError(result.error.message);
@@ -524,7 +525,7 @@ export const setupBlockTransferDocumentDrop = (
     }
     void prepareStructuralMutation(session.sourceSurfaceId)
       .then((tokens) => boundary.transfer({
-        version: 2,
+        version: 3,
         operationId: boundary.createOperationId(),
         projectId: boundary.projectId,
         storeEpoch: boundary.storeEpoch,
@@ -539,6 +540,7 @@ export const setupBlockTransferDocumentDrop = (
               documentId: boundary.documentId,
               ...target,
             },
+        promotionPolicy: "literal",
       }))
       .then((result) => {
         if (!result.ok) boundary.reportError(result.error.message);

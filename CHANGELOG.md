@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed NFM Block promotion so task shorthand such as `1XL(ui, unclear)` atomically becomes Page Priority, Estimate, and Tags; unsafe interpretations preserve the complete title, and the whole promotion can be safely undone.
 - Fixed Project New Chat Terminals failing before the first message; they now open in the Project workspace and remain the same Terminal when the Chat gains its Thread.
 - Fixed the NFM `Move to` picker so Page and Database-status destinations commit real atomic Block moves, stay inside the source Project's write authority, and show specific retryable errors instead of a generic failure.
 - Fixed sustained Page editing causing repeated Board/List projection reads and excessive renderer CPU and memory growth; editing updates, recovery deltas, and canonical repairs now converge through bounded single-flight work.

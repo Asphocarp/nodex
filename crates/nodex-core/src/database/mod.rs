@@ -22,10 +22,13 @@ pub(crate) use genesis::create_legacy_v2_database_authority_records;
 pub(crate) use mutation::apply_as_collaborator as apply_intents_as_collaborator;
 pub(crate) use mutation::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
-    PageCopyValueDraft, PageCopyViewPlacement, StagedPagePlacementRevisions, active_property,
+    PageCopyValueDraft, PageCopyViewPlacement, PageTaskShorthandBatchPlan,
+    PageTaskShorthandCandidate, PageTaskShorthandPreservedReason, StagedPagePlacementRevisions,
+    active_property, apply_page_task_shorthand_schema,
     finalize_agent_moved_pages_in_data_source_prevalidated, normalize_value,
     place_copied_page_in_data_source, place_copied_page_in_data_source_prevalidated,
     place_staged_page_in_data_source, place_staged_page_in_data_source_prevalidated,
+    plan_page_task_shorthand,
     refresh_transferred_page_projection as refresh_copied_page_projection,
     resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,

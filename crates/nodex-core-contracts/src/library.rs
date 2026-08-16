@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 23;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 24;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -336,6 +336,13 @@ pub enum LibraryBlockTransferMode {
     Copy,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPagePromotionPolicy {
+    Literal,
+    TaskShorthandV1,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryBlockTransferSource {
@@ -378,6 +385,7 @@ pub struct LibraryBlockTransferLogicalIntent {
     pub causal_dependencies: Vec<LibraryBlockTransferDocumentHead>,
     pub source: LibraryBlockTransferSource,
     pub target: LibraryBlockTransferTarget,
+    pub promotion_policy: LibraryPagePromotionPolicy,
 }
 
 /// Exact durable coordinates for a Document mutation fence.
@@ -422,10 +430,64 @@ pub struct LibraryBlockTransferDocumentCommit {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferUndoToken {
+    pub transfer_operation_id: String,
+    pub recipe_hash: String,
+    pub store_epoch: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageViewPlacementResult {
     pub view_id: String,
     pub group_key: Option<String>,
     pub position_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryTaskShorthandPreservedReason {
+    MalformedShorthand,
+    NonemptyTitleRequired,
+    RichTextBoundary,
+    TargetPropertyConflict,
+    TargetSchemaIncompatible,
+    TagSchemaPermissionRequired,
+    TagOptionLimit,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryBlockTransferPromotionEvidence {
+    NotRequested,
+    NotApplicable,
+    NoMatch,
+    Applied {
+        grammar_version: u32,
+        priority_option_id: String,
+        estimate_option_id: Option<String>,
+        tag_option_ids: Vec<String>,
+        tag_names: Vec<String>,
+        created_tag_option_ids: Vec<String>,
+    },
+    Preserved {
+        grammar_version: u32,
+        reason: LibraryTaskShorthandPreservedReason,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryBlockTransferTransformationEvidence {
+    pub source_block_id: String,
+    pub result_page_id: String,
+    pub kind: String,
+    pub source_block_type: String,
+    pub semantic_title_hash: String,
+    pub consumed_property_keys: Vec<String>,
+    pub wrapper_reason: Option<String>,
+    pub body_root_block_ids: Vec<String>,
+    pub source_to_result_block_ids: std::collections::BTreeMap<String, String>,
+    pub promotion: LibraryBlockTransferPromotionEvidence,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -434,7 +496,7 @@ pub struct LibraryBlockTransferResult {
     pub source_root_block_ids: Vec<String>,
     pub result_root_block_ids: Vec<String>,
     pub copied_block_ids: std::collections::BTreeMap<String, String>,
-    pub transformation_evidence: Vec<Value>,
+    pub transformation_evidence: Vec<LibraryBlockTransferTransformationEvidence>,
     pub final_locations: std::collections::BTreeMap<String, LibraryBlockLocation>,
     pub final_location_revisions: std::collections::BTreeMap<String, i64>,
     pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
@@ -446,6 +508,16 @@ pub struct LibraryBlockTransferResult {
     pub page_etags: std::collections::BTreeMap<String, String>,
     pub move_etags: std::collections::BTreeMap<String, String>,
     pub page_view_placements: std::collections::BTreeMap<String, LibraryPageViewPlacementResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undo_token: Option<LibraryBlockTransferUndoToken>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferUndoResult {
+    pub transfer_operation_id: String,
+    pub restored_source_root_ids: Vec<String>,
+    pub removed_page_ids: Vec<String>,
+    pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -2042,6 +2114,9 @@ pub enum LibraryIntent {
     TransferBlocks {
         intent: LibraryBlockTransferLogicalIntent,
     },
+    UndoBlockTransfer {
+        token: LibraryBlockTransferUndoToken,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -2124,6 +2199,7 @@ pub struct LibraryCommitValue {
     pub page_copy: Option<LibraryPageCopyResult>,
     pub canvas_mutation: Option<LibraryCanvasMutationResult>,
     pub block_transfer: Option<LibraryBlockTransferResult>,
+    pub block_transfer_undo: Option<LibraryBlockTransferUndoResult>,
     pub page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
     pub agent_page_copy: Option<LibraryAgentPageCopyResult>,

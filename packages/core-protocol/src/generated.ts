@@ -500,6 +500,7 @@ export interface components {
                 readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                 readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                 readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                readonly block_transfer_undo?: null | components["schemas"]["LibraryBlockTransferUndoResult"];
                 readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
                 readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                 readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
@@ -531,6 +532,7 @@ export interface components {
                 readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                 readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                 readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                readonly block_transfer_undo?: null | components["schemas"]["LibraryBlockTransferUndoResult"];
                 readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
                 readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                 readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
@@ -3269,12 +3271,39 @@ export interface components {
             readonly actor: unknown;
             readonly causal_dependencies: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][];
             readonly mode: components["schemas"]["LibraryBlockTransferMode"];
+            readonly promotion_policy: components["schemas"]["LibraryPagePromotionPolicy"];
             readonly root_block_ids: readonly string[];
             readonly source: components["schemas"]["LibraryBlockTransferSource"];
             readonly target: components["schemas"]["LibraryBlockTransferTarget"];
         };
         /** @enum {string} */
         readonly LibraryBlockTransferMode: "move" | "copy";
+        readonly LibraryBlockTransferPromotionEvidence: {
+            /** @enum {string} */
+            readonly kind: "not_requested";
+        } | {
+            /** @enum {string} */
+            readonly kind: "not_applicable";
+        } | {
+            /** @enum {string} */
+            readonly kind: "no_match";
+        } | {
+            readonly created_tag_option_ids: readonly string[];
+            readonly estimate_option_id?: string | null;
+            /** Format: int32 */
+            readonly grammar_version: number;
+            /** @enum {string} */
+            readonly kind: "applied";
+            readonly priority_option_id: string;
+            readonly tag_names: readonly string[];
+            readonly tag_option_ids: readonly string[];
+        } | {
+            /** Format: int32 */
+            readonly grammar_version: number;
+            /** @enum {string} */
+            readonly kind: "preserved";
+            readonly reason: components["schemas"]["LibraryTaskShorthandPreservedReason"];
+        };
         readonly LibraryBlockTransferResult: {
             readonly affected_database_ids: readonly string[];
             readonly copied_block_ids: {
@@ -3307,7 +3336,8 @@ export interface components {
             };
             readonly result_root_block_ids: readonly string[];
             readonly source_root_block_ids: readonly string[];
-            readonly transformation_evidence: readonly unknown[];
+            readonly transformation_evidence: readonly components["schemas"]["LibraryBlockTransferTransformationEvidence"][];
+            readonly undo_token?: null | components["schemas"]["LibraryBlockTransferUndoToken"];
         };
         readonly LibraryBlockTransferSource: {
             /** @enum {string} */
@@ -3350,6 +3380,31 @@ export interface components {
             /** @enum {string} */
             readonly kind: "data_source";
             readonly view_id: string;
+        };
+        readonly LibraryBlockTransferTransformationEvidence: {
+            readonly bodyRootBlockIds: readonly string[];
+            readonly consumedPropertyKeys: readonly string[];
+            readonly kind: string;
+            readonly promotion: components["schemas"]["LibraryBlockTransferPromotionEvidence"];
+            readonly resultPageId: string;
+            readonly semanticTitleHash: string;
+            readonly sourceBlockId: string;
+            readonly sourceBlockType: string;
+            readonly sourceToResultBlockIds: {
+                readonly [key: string]: string;
+            };
+            readonly wrapperReason?: string | null;
+        };
+        readonly LibraryBlockTransferUndoResult: {
+            readonly document_commits: readonly components["schemas"]["LibraryBlockTransferDocumentCommit"][];
+            readonly removed_page_ids: readonly string[];
+            readonly restored_source_root_ids: readonly string[];
+            readonly transfer_operation_id: string;
+        };
+        readonly LibraryBlockTransferUndoToken: {
+            readonly recipe_hash: string;
+            readonly store_epoch: string;
+            readonly transfer_operation_id: string;
         };
         readonly LibraryCanvasDestination: {
             readonly before?: null | components["schemas"]["LibraryPlacementAnchor"];
@@ -4181,6 +4236,8 @@ export interface components {
                 readonly view_id?: string | null;
             };
         };
+        /** @enum {string} */
+        readonly LibraryPagePromotionPolicy: "literal" | "task_shorthand_v1";
         readonly LibraryPageReferenceCandidate: {
             readonly location_label: string;
             readonly match_excerpt?: string | null;
@@ -4415,6 +4472,8 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibrarySearchSourceKind: "document_title" | "document_block";
+        /** @enum {string} */
+        readonly LibraryTaskShorthandPreservedReason: "malformed_shorthand" | "nonempty_title_required" | "rich_text_boundary" | "target_property_conflict" | "target_schema_incompatible" | "tag_schema_permission_required" | "tag_option_limit";
         readonly LibraryViewLocation: {
             readonly access_project_id: string;
             readonly data_source_id: string;
@@ -4885,6 +4944,10 @@ export interface components {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
                 /** @enum {string} */
                 readonly kind: "transfer_blocks";
+            } | {
+                /** @enum {string} */
+                readonly kind: "undo_block_transfer";
+                readonly token: components["schemas"]["LibraryBlockTransferUndoToken"];
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -6744,6 +6807,7 @@ export interface components {
                     readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                     readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                     readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                    readonly block_transfer_undo?: null | components["schemas"]["LibraryBlockTransferUndoResult"];
                     readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
                     readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                     readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
@@ -6775,6 +6839,7 @@ export interface components {
                     readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                     readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                     readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                    readonly block_transfer_undo?: null | components["schemas"]["LibraryBlockTransferUndoResult"];
                     readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
                     readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                     readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];

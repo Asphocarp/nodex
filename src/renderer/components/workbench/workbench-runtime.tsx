@@ -841,10 +841,8 @@ export function WorkbenchRuntime({
     handleWorktreeStartModeChange,
     worktreeAutoBranchPrefix,
     handleWorktreeAutoBranchPrefixChange,
-    smartPrefixParsingEnabled,
-    handleSmartPrefixParsingEnabledChange,
-    stripSmartPrefixFromTitleEnabled,
-    handleStripSmartPrefixFromTitleEnabledChange,
+    taskShorthandPagePromotionEnabled,
+    handleTaskShorthandPagePromotionEnabledChange,
   } = useWorkbenchPreferences();
   useEffect(() => () => {
     panelTabPresentationRegistry.dispose();
@@ -3012,12 +3010,9 @@ export function WorkbenchRuntime({
         worktreeAutoBranchPrefix,
         onWorktreeAutoBranchPrefixChange:
           handleWorktreeAutoBranchPrefixChange,
-        smartPrefixParsingEnabled,
-        onSmartPrefixParsingEnabledChange:
-          handleSmartPrefixParsingEnabledChange,
-        stripSmartPrefixFromTitleEnabled,
-        onStripSmartPrefixFromTitleEnabledChange:
-          handleStripSmartPrefixFromTitleEnabledChange,
+        taskShorthandPagePromotionEnabled,
+        onTaskShorthandPagePromotionEnabledChange:
+          handleTaskShorthandPagePromotionEnabledChange,
       },
     },
     automations: {

@@ -25,6 +25,7 @@ use crate::document::{read_store_epoch, sha256};
 use crate::domain::fractional_rank::{
     FractionalRankError, FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
+use crate::domain::identity::stable_uuid_v7;
 use crate::domain::ordered_position::{
     LogicalPositionItem, PositionPlanError, SiblingRankWriteKind, plan_position_run,
 };
@@ -1872,6 +1873,359 @@ pub(crate) struct PageCopyDataSourceDestination {
     pub(crate) expected_data_source_revision: i64,
     pub(crate) values: Vec<PageCopyValueDraft>,
     pub(crate) view: Option<PageCopyViewPlacement>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PageTaskShorthandCandidate {
+    pub(crate) root_id: String,
+    pub(crate) priority: u8,
+    pub(crate) estimate: Option<String>,
+    pub(crate) tag_names: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PageTaskShorthandRootPlan {
+    pub(crate) root_id: String,
+    pub(crate) values: Vec<PageCopyValueDraft>,
+    pub(crate) priority_option_id: String,
+    pub(crate) estimate_option_id: Option<String>,
+    pub(crate) tag_option_ids: Vec<String>,
+    pub(crate) tag_names: Vec<String>,
+    pub(crate) created_tag_option_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PageTaskShorthandBatchPlan {
+    pub(crate) roots: Vec<PageTaskShorthandRootPlan>,
+    pub(crate) preserved_reasons: BTreeMap<String, PageTaskShorthandPreservedReason>,
+    pub(crate) new_tag_options: Vec<super::property_semantics::PropertyOption>,
+    pub(crate) expected_tags_property_revision: Option<i64>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PageTaskShorthandPreservedReason {
+    TargetPropertyConflict,
+    TargetSchemaIncompatible,
+    TagSchemaPermissionRequired,
+    TagOptionLimit,
+}
+
+pub(crate) struct AppliedPageTaskShorthandSchema {
+    pub(crate) source_revision: i64,
+    pub(crate) committed_revisions: BTreeMap<String, i64>,
+}
+
+pub(crate) fn plan_page_task_shorthand(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    operation_id: &str,
+    destination: &PageCopyDataSourceDestination,
+    candidates: &[PageTaskShorthandCandidate],
+) -> Result<PageTaskShorthandBatchPlan, StoreError> {
+    let source = require_source(connection, library_id, &destination.data_source_id)?;
+    let priority = active_property(
+        connection,
+        &source.id,
+        super::property_semantics::PRIORITY_PROPERTY_ID,
+    )
+    .ok();
+    let estimate = active_property(connection, &source.id, "estimate").ok();
+    let tags = active_property(connection, &source.id, "tags").ok();
+    let tags_config = tags
+        .as_ref()
+        .and_then(|property| option_config(property).ok());
+    let can_manage_schema = authorize_write(
+        connection,
+        project_id,
+        &source.database_id,
+        DatabaseWriteAction::ManageSchema,
+        false,
+    )
+    .is_ok();
+
+    let mut option_by_name = tags_config
+        .as_ref()
+        .map(|config| {
+            config
+                .options
+                .iter()
+                .map(|option| (option.name.clone(), option.id.clone()))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let mut used_option_ids = tags_config
+        .as_ref()
+        .map(|config| {
+            config
+                .options
+                .iter()
+                .map(|option| option.id.clone())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut new_tag_options = Vec::new();
+    let mut roots = Vec::new();
+    let mut preserved_reasons = BTreeMap::new();
+
+    for candidate in candidates {
+        let Some(priority_property) = priority
+            .as_ref()
+            .filter(|property| property.value_type == "select")
+        else {
+            preserved_reasons.insert(
+                candidate.root_id.clone(),
+                PageTaskShorthandPreservedReason::TargetSchemaIncompatible,
+            );
+            continue;
+        };
+        let Some(priority_option_id) =
+            super::property_semantics::priority_option_id(candidate.priority)
+        else {
+            preserved_reasons.insert(
+                candidate.root_id.clone(),
+                PageTaskShorthandPreservedReason::TargetSchemaIncompatible,
+            );
+            continue;
+        };
+        if !option_config(priority_property)?
+            .options
+            .iter()
+            .any(|option| option.id == priority_option_id)
+        {
+            preserved_reasons.insert(
+                candidate.root_id.clone(),
+                PageTaskShorthandPreservedReason::TargetSchemaIncompatible,
+            );
+            continue;
+        }
+        let estimate_option_id = candidate
+            .estimate
+            .as_ref()
+            .map(|value| value.to_ascii_lowercase());
+        if let Some(option_id) = estimate_option_id.as_deref() {
+            let Some(property) = estimate
+                .as_ref()
+                .filter(|property| property.value_type == "select")
+            else {
+                preserved_reasons.insert(
+                    candidate.root_id.clone(),
+                    PageTaskShorthandPreservedReason::TargetSchemaIncompatible,
+                );
+                continue;
+            };
+            if !super::property_semantics::is_estimate_option_id(option_id)
+                || !option_config(property)?
+                    .options
+                    .iter()
+                    .any(|option| option.id == option_id)
+            {
+                preserved_reasons.insert(
+                    candidate.root_id.clone(),
+                    PageTaskShorthandPreservedReason::TargetSchemaIncompatible,
+                );
+                continue;
+            }
+        }
+        if !candidate.tag_names.is_empty()
+            && tags
+                .as_ref()
+                .is_none_or(|property| property.value_type != "multi_select")
+        {
+            preserved_reasons.insert(
+                candidate.root_id.clone(),
+                PageTaskShorthandPreservedReason::TargetSchemaIncompatible,
+            );
+            continue;
+        }
+
+        let mut values = destination.values.clone();
+        if merge_scalar_promotion_value(
+            &mut values,
+            super::property_semantics::PRIORITY_PROPERTY_ID,
+            priority_option_id,
+        )
+        .is_err()
+        {
+            preserved_reasons.insert(
+                candidate.root_id.clone(),
+                PageTaskShorthandPreservedReason::TargetPropertyConflict,
+            );
+            continue;
+        }
+        if let Some(option_id) = estimate_option_id.as_deref()
+            && merge_scalar_promotion_value(&mut values, "estimate", option_id).is_err()
+        {
+            preserved_reasons.insert(
+                candidate.root_id.clone(),
+                PageTaskShorthandPreservedReason::TargetPropertyConflict,
+            );
+            continue;
+        }
+
+        let missing = candidate
+            .tag_names
+            .iter()
+            .filter(|name| !option_by_name.contains_key(*name))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() && !can_manage_schema {
+            preserved_reasons.insert(
+                candidate.root_id.clone(),
+                PageTaskShorthandPreservedReason::TagSchemaPermissionRequired,
+            );
+            continue;
+        }
+        if used_option_ids.len() + missing.len() > super::MAX_PROPERTY_OPTIONS {
+            preserved_reasons.insert(
+                candidate.root_id.clone(),
+                PageTaskShorthandPreservedReason::TagOptionLimit,
+            );
+            continue;
+        }
+        let mut created_tag_option_ids = Vec::new();
+        for name in missing {
+            let option_id =
+                allocate_task_tag_option_id(operation_id, &source.id, &name, &used_option_ids);
+            used_option_ids.insert(option_id.clone());
+            option_by_name.insert(name.clone(), option_id.clone());
+            created_tag_option_ids.push(option_id.clone());
+            new_tag_options.push(super::property_semantics::PropertyOption {
+                id: option_id,
+                name,
+                color: None,
+            });
+        }
+        let tag_option_ids = candidate
+            .tag_names
+            .iter()
+            .filter_map(|name| option_by_name.get(name).cloned())
+            .collect::<Vec<_>>();
+        if !tag_option_ids.is_empty() {
+            merge_tag_promotion_value(&mut values, &tag_option_ids)?;
+        }
+        roots.push(PageTaskShorthandRootPlan {
+            root_id: candidate.root_id.clone(),
+            values,
+            priority_option_id: priority_option_id.to_owned(),
+            estimate_option_id,
+            tag_option_ids,
+            tag_names: candidate.tag_names.clone(),
+            created_tag_option_ids,
+        });
+    }
+
+    Ok(PageTaskShorthandBatchPlan {
+        roots,
+        preserved_reasons,
+        expected_tags_property_revision: tags
+            .as_ref()
+            .map(|property| property.revision)
+            .filter(|_| !new_tag_options.is_empty()),
+        new_tag_options,
+    })
+}
+
+pub(crate) fn apply_page_task_shorthand_schema(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    data_source_id: &str,
+    options: &[super::property_semantics::PropertyOption],
+    expected_property_revision: Option<i64>,
+    now: &str,
+) -> Result<AppliedPageTaskShorthandSchema, StoreError> {
+    let mut effects = MutationEffects::default();
+    for (revision, option) in (expected_property_revision.unwrap_or(0)..).zip(options) {
+        put_option(
+            connection,
+            library_id,
+            project_id,
+            data_source_id,
+            "tags",
+            &option.id,
+            &option.name,
+            option.color.as_deref(),
+            revision,
+            now,
+            &mut effects,
+            false,
+        )?;
+    }
+    let source_revision = require_source(connection, library_id, data_source_id)?.revision;
+    Ok(AppliedPageTaskShorthandSchema {
+        source_revision,
+        committed_revisions: effects.revisions,
+    })
+}
+
+fn merge_scalar_promotion_value(
+    values: &mut Vec<PageCopyValueDraft>,
+    property_id: &str,
+    option_id: &str,
+) -> Result<(), ()> {
+    if let Some(existing) = values.iter().find(|value| value.property_id == property_id) {
+        return if existing.value == Value::String(option_id.to_owned()) {
+            Ok(())
+        } else {
+            Err(())
+        };
+    }
+    values.push(PageCopyValueDraft {
+        property_id: property_id.to_owned(),
+        value: Value::String(option_id.to_owned()),
+    });
+    Ok(())
+}
+
+fn merge_tag_promotion_value(
+    values: &mut Vec<PageCopyValueDraft>,
+    option_ids: &[String],
+) -> Result<(), StoreError> {
+    let existing = values.iter_mut().find(|value| value.property_id == "tags");
+    let Some(existing) = existing else {
+        values.push(PageCopyValueDraft {
+            property_id: "tags".to_owned(),
+            value: Value::Array(option_ids.iter().cloned().map(Value::String).collect()),
+        });
+        return Ok(());
+    };
+    let Some(array) = existing.value.as_array_mut() else {
+        return Err(invalid("Tags group value is not a multi-select set"));
+    };
+    let mut seen = array
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    for option_id in option_ids {
+        if seen.insert(option_id.clone()) {
+            array.push(Value::String(option_id.clone()));
+        }
+    }
+    Ok(())
+}
+
+fn allocate_task_tag_option_id(
+    operation_id: &str,
+    data_source_id: &str,
+    name: &str,
+    used: &BTreeSet<String>,
+) -> String {
+    for ordinal in 0_u32.. {
+        let seed = format!("{data_source_id}:{name}:{ordinal}");
+        let uuid = stable_uuid_v7(operation_id, "task_shorthand_tag", &seed);
+        let compact = uuid
+            .chars()
+            .filter(|ch| *ch != '-')
+            .take(8)
+            .collect::<String>();
+        let candidate = format!("o_{compact}");
+        if !used.contains(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("compact option identity space exhausted")
 }
 
 pub(crate) struct PageCopyDataSourcePlacement {

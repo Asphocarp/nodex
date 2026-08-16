@@ -1,7 +1,9 @@
 import type {
+  BlockTransferReceipt,
   BlockTransferDocumentHead,
   BlockTransferIntentSource,
   BlockTransferMode,
+  PagePromotionPolicy,
 } from "../../../shared/block-transfer";
 import type { PublicBlockTransferIntent } from "../../../shared/block-transfer-transport";
 
@@ -147,6 +149,13 @@ export const resolveCrossSurfaceTransferMode = (
   event: { readonly altKey: boolean },
 ): BlockTransferMode => (event.altKey ? "copy" : "move");
 
+export const resolvePagePromotionPolicy = (input: {
+  readonly preferenceEnabled: boolean;
+  readonly shiftKey: boolean;
+}): PagePromotionPolicy => input.preferenceEnabled && !input.shiftKey
+  ? "task_shorthand_v1"
+  : "literal";
+
 export const blockTransferDropLabel = (
   mode: BlockTransferMode,
   target: "page" | "data_source",
@@ -169,9 +178,10 @@ export const buildBlockToDataSourceTransferIntent = (input: {
   readonly groupKey: string;
   readonly beforePageId?: string;
   readonly altKey: boolean;
+  readonly promotionPolicy: PagePromotionPolicy;
   readonly causalDependencies?: readonly BlockTransferDocumentHead[];
 }): PublicBlockTransferIntent => ({
-  version: 2,
+  version: 3,
   operationId: input.operationId,
   projectId: input.projectId,
   storeEpoch: input.storeEpoch,
@@ -188,6 +198,7 @@ export const buildBlockToDataSourceTransferIntent = (input: {
       ? { beforePageId: input.beforePageId }
       : {}),
   },
+  promotionPolicy: input.promotionPolicy,
 });
 
 export const hasDragType = (
@@ -199,7 +210,58 @@ export interface LocalBlockDragSession {
   readonly sessionId: string;
   readonly sourceSurfaceId: string;
   readonly payload: CrossSurfaceBlockTransferPayload;
+  readonly taskShorthandPreviewHints?: readonly TaskShorthandPreviewHint[];
 }
+
+export interface TaskShorthandPreviewHint {
+  readonly rootBlockId: string;
+  readonly priority: 0 | 1 | 2 | 3;
+  readonly estimate: "XS" | "S" | "M" | "L" | "XL" | null;
+  readonly tagCount: number;
+}
+
+export const summarizeBlockPagePromotionPreview = (input: {
+  readonly mode: BlockTransferMode;
+  readonly rootCount: number;
+  readonly hints: readonly TaskShorthandPreviewHint[];
+  readonly literal: boolean;
+}): string => {
+  const verb = input.mode === "copy" ? "Copy" : "Move";
+  const object = input.rootCount === 1 ? "as Page" : `${input.rootCount} as Pages`;
+  if (input.literal) return `${verb} ${object} · Literal`;
+  if (input.rootCount > 1) {
+    return `${verb} ${object} · ${input.hints.length} shorthand`;
+  }
+  const hint = input.hints[0];
+  if (!hint) return `${verb} ${object}`;
+  const details = [
+    `P${hint.priority}`,
+    hint.estimate,
+    hint.tagCount > 0 ? `${hint.tagCount} ${hint.tagCount === 1 ? "tag" : "tags"}` : null,
+  ].filter(Boolean);
+  return `${verb} ${object} · ${details.join(" · ")}`;
+};
+
+export const summarizeBlockPagePromotionReceipt = (
+  receipt: BlockTransferReceipt,
+): { readonly tone: "success" | "info"; readonly message: string } | null => {
+  const promotions = receipt.transformationEvidence.map((evidence) => evidence.promotion);
+  const applied = promotions.filter((promotion) => promotion.kind === "applied").length;
+  const preserved = promotions.filter((promotion) => promotion.kind === "preserved").length;
+  if (preserved > 0) {
+    return {
+      tone: "info",
+      message: `${preserved} of ${promotions.length} shorthand ${preserved === 1 ? "prefix wasn't" : "prefixes weren't"} applied; titles were kept.`,
+    };
+  }
+  if (applied > 0) {
+    return {
+      tone: "success",
+      message: `${applied === 1 ? "Task shorthand" : `${applied} task shorthands`} applied.`,
+    };
+  }
+  return null;
+};
 
 export interface RegisterLocalBlockDragDropTarget {
   readonly surfaceId: string;
@@ -231,7 +293,10 @@ export class BlockDragSessionCoordinator {
     input: Omit<
       CrossSurfaceBlockTransferPayload,
       "version" | "kind" | "sessionId" | "sourceSurfaceId"
-    > & { readonly sourceSurfaceId: string },
+    > & {
+      readonly sourceSurfaceId: string;
+      readonly taskShorthandPreviewHints?: readonly TaskShorthandPreviewHint[];
+    },
     dataTransfer: DataTransfer,
   ): LocalBlockDragSession {
     this.setActiveDropTarget(null);
@@ -251,6 +316,7 @@ export class BlockDragSessionCoordinator {
       sessionId,
       sourceSurfaceId: input.sourceSurfaceId,
       payload,
+      taskShorthandPreviewHints: [...(input.taskShorthandPreviewHints ?? [])],
     } satisfies LocalBlockDragSession;
 
     dataTransfer.setData(

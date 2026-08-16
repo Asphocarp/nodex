@@ -1,11 +1,15 @@
 import {
   BLOCK_TRANSFER_CONTRACT_VERSION,
   parseBlockTransferIntent,
+  parseBlockTransferUndoIntent,
   type BlockTransferCommandError,
   type BlockTransferCommandResult,
   type BlockTransferIntent,
   type BlockTransferReceipt,
   type BlockTransferTransformationEvidence,
+  type BlockTransferUndoCommandResult,
+  type BlockTransferUndoIntent,
+  type BlockTransferUndoReceipt,
 } from "../../shared/block-transfer";
 import { blockTransferFailure } from "../../shared/block-transfer-transport";
 import type { BlockLocation } from "../../shared/block-documents/contracts";
@@ -28,10 +32,14 @@ export interface CoreBlockTransferAdapter {
   commit(
     intent: BlockTransferIntent,
   ): Promise<BlockTransferCommandResult>;
+  undo(intent: BlockTransferUndoIntent): Promise<BlockTransferUndoCommandResult>;
 }
 
 type CoreTransferResult = NonNullable<LibraryApplyResult["outcome"]["block_transfer"]>;
 type CoreTransferIntent = Extract<LibraryIntent, { kind: "transfer_blocks" }>["intent"];
+type CoreUndoTransferResult = NonNullable<
+  LibraryApplyResult["outcome"]["block_transfer_undo"]
+>;
 const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
   actor: intent.actor,
   mode: intent.mode,
@@ -85,6 +93,7 @@ const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
         };
     }
   })(),
+  promotion_policy: intent.promotionPolicy,
 });
 
 const assertIntentScope = (
@@ -139,80 +148,50 @@ const fromCoreLocation = (
   }
 };
 
-const requireRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return value as Readonly<Record<string, unknown>>;
-  }
-  throw new Error(`${label} is not an object`);
-};
-
-const requireString = (
-  value: unknown,
-  label: string,
-): string => {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new Error(`${label} is not a non-empty string`);
-};
-
-const requireStringArray = (
-  value: unknown,
-  label: string,
-): readonly string[] => {
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
-    return value;
-  }
-  throw new Error(`${label} is not a string array`);
-};
-
 const fromCoreTransformation = (
-  value: unknown,
+  evidence: CoreTransferResult["transformation_evidence"][number],
 ): BlockTransferTransformationEvidence => {
-  const evidence = requireRecord(value, "Core Block transformation evidence");
-  const kind = evidence.kind;
-  if (kind !== "promote" && kind !== "wrap") {
-    throw new Error("Core Block transformation kind is invalid");
+  if (evidence.kind !== "promote" && evidence.kind !== "wrap") {
+    throw new Error("Core returned an unsupported Block transformation kind");
   }
-  const sourceToResult = requireRecord(
-    evidence.sourceToResultBlockIds,
-    "Core Block transformation identity map",
-  );
-  const sourceToResultBlockIds = Object.fromEntries(
-    Object.entries(sourceToResult).map(([sourceId, resultId]) => [
-      sourceId,
-      requireString(resultId, `Core Block transformation identity ${sourceId}`),
-    ]),
-  );
-  const wrapperReason = evidence.wrapperReason;
-  if (
-    wrapperReason != null &&
-    wrapperReason !== "type_requires_wrapper" &&
-    wrapperReason !== "unsupported_primary_content" &&
-    wrapperReason !== "unmapped_type_state"
-  ) {
-    throw new Error("Core Block transformation wrapper reason is invalid");
-  }
+  const promotion = (() => {
+    if (
+      evidence.promotion.kind === "not_requested"
+      || evidence.promotion.kind === "not_applicable"
+      || evidence.promotion.kind === "no_match"
+    ) {
+      return evidence.promotion;
+    }
+    if (evidence.promotion.kind === "preserved") {
+      return {
+        kind: "preserved" as const,
+        grammarVersion: 1 as const,
+        reason: evidence.promotion.reason,
+      };
+    }
+    return {
+      kind: "applied" as const,
+      grammarVersion: 1 as const,
+      priorityOptionId: evidence.promotion.priority_option_id,
+      estimateOptionId: evidence.promotion.estimate_option_id ?? null,
+      tagOptionIds: evidence.promotion.tag_option_ids,
+      tagNames: evidence.promotion.tag_names,
+      createdTagOptionIds: evidence.promotion.created_tag_option_ids,
+    };
+  })();
   return {
-    sourceBlockId: requireString(evidence.sourceBlockId, "Core transformation source"),
-    resultPageId: requireString(evidence.resultPageId, "Core transformation Page"),
-    kind,
-    sourceBlockType: requireString(evidence.sourceBlockType, "Core transformation type"),
-    semanticTitleHash: requireString(
-      evidence.semanticTitleHash,
-      "Core transformation title hash",
-    ),
-    consumedPropertyKeys: requireStringArray(
-      evidence.consumedPropertyKeys,
-      "Core transformation consumed properties",
-    ),
-    ...(wrapperReason == null ? {} : { wrapperReason }),
-    bodyRootBlockIds: requireStringArray(
-      evidence.bodyRootBlockIds,
-      "Core transformation body roots",
-    ),
-    sourceToResultBlockIds,
+    sourceBlockId: evidence.sourceBlockId,
+    resultPageId: evidence.resultPageId,
+    kind: evidence.kind,
+    sourceBlockType: evidence.sourceBlockType,
+    semanticTitleHash: evidence.semanticTitleHash,
+    consumedPropertyKeys: evidence.consumedPropertyKeys,
+    ...(evidence.wrapperReason == null
+      ? {}
+      : { wrapperReason: evidence.wrapperReason as BlockTransferTransformationEvidence["wrapperReason"] }),
+    bodyRootBlockIds: evidence.bodyRootBlockIds,
+    sourceToResultBlockIds: evidence.sourceToResultBlockIds,
+    promotion,
   };
 };
 
@@ -253,11 +232,46 @@ const fromCoreResult = (
     affectedDatabaseBlockIds: result.affected_database_ids,
     commitSeq,
     committedAt,
+    undoToken: result.undo_token
+      ? {
+          transferOperationId: result.undo_token.transfer_operation_id,
+          recipeHash: result.undo_token.recipe_hash,
+          storeEpoch: result.undo_token.store_epoch,
+        }
+      : null,
   };
 };
 
+const fromCoreUndoResult = (
+  intent: BlockTransferUndoIntent,
+  result: CoreUndoTransferResult,
+  duplicate: boolean,
+  commitSeq: number,
+  committedAt: string,
+): BlockTransferUndoReceipt => ({
+  version: BLOCK_TRANSFER_CONTRACT_VERSION,
+  operationId: intent.operationId,
+  projectId: intent.projectId,
+  storeEpoch: intent.storeEpoch,
+  transferOperationId: result.transfer_operation_id,
+  duplicate,
+  restoredSourceRootIds: result.restored_source_root_ids,
+  removedPageIds: result.removed_page_ids,
+  documentCommits: result.document_commits.map((commit) => ({
+    documentId: commit.document_id,
+    generation: commit.generation,
+    baseHeadSeq: commit.base_head_seq,
+    headSeq: commit.head_seq,
+    updateId: commit.update_id,
+    update: Uint8Array.from(commit.update),
+    stateVector: Uint8Array.from(commit.state_vector),
+  })),
+  commitSeq,
+  committedAt,
+});
+
 const coreFailure = (
-  intent: Pick<BlockTransferIntent, "operationId">,
+  intent: Pick<BlockTransferIntent, "operationId"> & { readonly token?: unknown },
   error: unknown,
 ): BlockTransferCommandError => {
   if (!(error instanceof CoreModuleResponseError)) {
@@ -277,7 +291,11 @@ const coreFailure = (
     case "unauthorized":
       return blockTransferFailure("invalid_transfer_request", error.message, options);
     case "not_found":
-      return blockTransferFailure("block_not_found", error.message, options);
+      return blockTransferFailure(
+        intent.token === undefined ? "block_not_found" : "undo_unavailable",
+        error.message,
+        options,
+      );
     case "stale_store_epoch":
       return blockTransferFailure("store_epoch_mismatch", error.message, {
         ...options,
@@ -288,10 +306,14 @@ const coreFailure = (
     case "revision_conflict":
     case "head_conflict":
     case "generation_conflict":
-      return blockTransferFailure("source_head_mismatch", error.message, {
+      return blockTransferFailure(
+        intent.token === undefined ? "source_head_mismatch" : "undo_conflict",
+        error.message,
+        {
         ...options,
-        reloadRequired: true,
-      });
+        reloadRequired: intent.token === undefined,
+      },
+      );
     case "store_corrupt":
       return blockTransferFailure("recovery_required", error.message, {
         ...options,
@@ -331,6 +353,56 @@ export const createCoreBlockTransferAdapter = (
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
           value: fromCoreResult(
+            intent,
+            result,
+            committed.receipt.duplicate,
+            applyResultCursor(committed),
+            committed.receipt.committed_at,
+          ),
+        };
+      } catch (error) {
+        return { ok: false, error: coreFailure(intent, error) };
+      }
+    },
+    undo: async (rawIntent) => {
+      let intent: BlockTransferUndoIntent;
+      try {
+        intent = parseBlockTransferUndoIntent(rawIntent);
+      } catch (error) {
+        return { ok: false, error: coreFailure(rawIntent, error) };
+      }
+      if (intent.projectId !== input.projectId || intent.storeEpoch !== input.storeEpoch) {
+        return {
+          ok: false,
+          error: blockTransferFailure(
+            intent.storeEpoch === input.storeEpoch
+              ? "invalid_transfer_request"
+              : "store_epoch_mismatch",
+            "Block transfer Undo belongs to another Project or store epoch",
+            { operationId: intent.operationId },
+          ),
+        };
+      }
+      try {
+        const committed = await input.client.libraryApply({
+          operationId: intent.operationId,
+          intent: {
+            kind: "undo_block_transfer",
+            token: {
+              transfer_operation_id: intent.token.transferOperationId,
+              recipe_hash: intent.token.recipeHash,
+              store_epoch: intent.token.storeEpoch,
+            },
+          },
+        });
+        const result = committed.outcome.block_transfer_undo;
+        if (!result || committed.receipt.operation_kind !== "undo_block_transfer") {
+          throw new Error("Core returned the wrong Library commit for Block transfer Undo");
+        }
+        return {
+          ok: true,
+          localCommit: rendererLocalCommitApply(committed),
+          value: fromCoreUndoResult(
             intent,
             result,
             committed.receipt.duplicate,

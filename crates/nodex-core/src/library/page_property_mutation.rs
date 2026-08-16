@@ -357,6 +357,7 @@ pub(super) fn apply(
                     page_copy: None,
                     canvas_mutation: None,
                     block_transfer: None,
+                    block_transfer_undo: None,
                     page_lifecycle: None,
                     block_property_mutation: Some(outcome_receipt),
                     agent_page_copy: None,
@@ -1336,6 +1337,7 @@ fn finish_rejection(
             page_copy: None,
             canvas_mutation: None,
             block_transfer: None,
+            block_transfer_undo: None,
             page_lifecycle: None,
             block_property_mutation: Some(LibraryBlockPropertyMutationReceipt {
                 outcome: LibraryBlockPropertyMutationOutcome::Rejected { error },

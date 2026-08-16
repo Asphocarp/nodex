@@ -45,9 +45,8 @@ import {
   ReducedMotionSettingControl,
   SansFontSizeSettingControl,
   ServiceTierSettingControl,
-  SmartPrefixParsingSettingControl,
+  TaskShorthandPagePromotionSettingControl,
   SpellcheckSettingControl,
-  StripSmartPrefixFromTitleSettingControl,
   ThemeSettingControl,
   ThreadDetailLevelSettingControl,
   ThreadNotificationSettingControl,
@@ -434,10 +433,8 @@ export function AgentSettingsPage({
 }
 
 export function PageSettingsPage({
-  onSmartPrefixParsingEnabledChange,
-  onStripSmartPrefixFromTitleEnabledChange,
-  smartPrefixParsingEnabled,
-  stripSmartPrefixFromTitleEnabled,
+  onTaskShorthandPagePromotionEnabledChange,
+  taskShorthandPagePromotionEnabled,
 }: SettingsSectionPageProps) {
   return (
     <SettingsPageSurface
@@ -460,22 +457,12 @@ export function PageSettingsPage({
       </SectionBlock>
       <SectionBlock id="block-import" title="Block import">
         <SettingRow
-          label="Smart parse block prefixes"
-          description="Interpret shorthand like 1XL(tag) during block-to-card import."
+          label="Task shorthand on Block → Page"
+          description="Interpret task metadata when a Block is promoted into a Page. 1XL(ui, unclear) Fix import → Fix import · P1 · XL · ui · unclear"
         >
-          <SmartPrefixParsingSettingControl
-            value={smartPrefixParsingEnabled}
-            onChange={onSmartPrefixParsingEnabledChange}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Strip parsed prefix from title"
-          description="Remove matched shorthand from imported Page titles after parsing."
-        >
-          <StripSmartPrefixFromTitleSettingControl
-            value={stripSmartPrefixFromTitleEnabled}
-            onChange={onStripSmartPrefixFromTitleEnabledChange}
-            disabled={!smartPrefixParsingEnabled}
+          <TaskShorthandPagePromotionSettingControl
+            value={taskShorthandPagePromotionEnabled}
+            onChange={onTaskShorthandPagePromotionEnabledChange}
           />
         </SettingRow>
       </SectionBlock>

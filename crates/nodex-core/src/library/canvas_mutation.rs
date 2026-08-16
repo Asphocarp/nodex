@@ -1153,6 +1153,7 @@ fn seal_canvas_mutation(
             page_copy: None,
             canvas_mutation: Some(canvas_mutation),
             block_transfer: None,
+            block_transfer_undo: None,
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,

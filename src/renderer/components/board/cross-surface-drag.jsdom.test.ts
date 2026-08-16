@@ -82,9 +82,10 @@ describe("cross-surface Block transfer drag", () => {
         groupKey: "in-progress",
         beforePageId: "card-b",
         altKey: true,
+        promotionPolicy: "task_shorthand_v1",
       }),
     ).toEqual({
-      version: 2,
+      version: 3,
       operationId: "operation-a",
       projectId: "project-a",
       storeEpoch: "epoch-a",
@@ -99,6 +100,7 @@ describe("cross-surface Block transfer drag", () => {
         groupKey: "in-progress",
         beforePageId: "card-b",
       },
+      promotionPolicy: "task_shorthand_v1",
     });
   });
 
