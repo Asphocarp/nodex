@@ -12,6 +12,10 @@ import {
   acquireIsolatedRunLease,
   type IsolatedRunLease,
 } from "../../../src/main/core-client/isolated-run-ownership";
+import {
+  developmentFeatureEnvironment,
+  resolveDevelopmentFeatureOverrides,
+} from "../../../src/shared/development-features";
 import { cleanupIsolatedCore } from "../../isolated-core-cleanup";
 import type {
   ScenarioFacts,
@@ -81,7 +85,6 @@ export async function launchNodexElectronApplication(
       NODEX_INITIAL_PROJECTS_DIR: input.initialProjectsDirectory,
       ...(input.runId ? { NODEX_INTERNAL_ISOLATED_RUN_ID: input.runId } : {}),
       NODE_ENV: "test",
-      NODEX_LIBRARY_WORKSPACE_ENABLED: "1",
     },
   });
 }
@@ -164,6 +167,7 @@ export interface ElectronHarnessInput {
   readonly sourceCodexHome?: string;
   readonly cwd?: string;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly enabledFeatures?: readonly string[];
   readonly prepareAgentRuntime?: boolean;
 }
 
@@ -208,7 +212,12 @@ export class ElectronScenarioHarness {
       return new ElectronScenarioHarness(
         profile,
         cwd,
-        input.environment ?? {},
+        {
+          ...input.environment,
+          ...developmentFeatureEnvironment(
+            resolveDevelopmentFeatureOverrides(input.enabledFeatures ?? []),
+          ),
+        },
         lease,
       );
     } catch (error) {

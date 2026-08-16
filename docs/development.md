@@ -24,140 +24,92 @@ Start the desktop app in development mode:
 pnpm run dev
 ```
 
-Both `pnpm run dev` and `pnpm run build:run` expose the renderer Chrome DevTools
-Protocol endpoint on `127.0.0.1:9333` for local debugging. Both commands first
-build the development `target/debug/nodex-core` executable so Electron cannot
-start a stale native authority after a branch switch or rebase.
-
-Development mode prefers renderer Vite port `51284`, then automatically uses
-the next available local port when another development instance is already
-running. Electron receives the resolved renderer URL, and the development CSP
-is narrowed to that actual local origin.
-
-`scripts/run.sh` sets `NODEX_REMOTE_DEBUGGING_PORT=0` when no port is supplied.
-Electron then asks the operating system for an available port, so multiple
-isolated instances can start concurrently. The actual endpoint is reported by
-Electron when the DevTools HTTP handler starts. Set
-`NODEX_REMOTE_DEBUGGING_PORT` explicitly when a stable port is needed.
-
-After one successful `pnpm run build` or ordinary isolated run, subsequent
-production-mode `scripts/run.sh` launches automatically reuse the prepared
-Electron bundle when it still verifies. To require reuse and fail instead of
-falling back to a full rebuild, use:
+`pnpm run dev` is the single manual real-app launcher. It starts the HMR app by
+default and accepts options directly, without an intermediate `--`:
 
 ```bash
-scripts/run.sh -ck -r /tmp/nodex-library --reuse-build
+pnpm run dev --home runs.local/perf
+pnpm run dev --seed board/dense
+pnpm run dev --home runs.local/perf --build
+pnpm run dev --home runs.local/ephemeral --delete
+pnpm run dev --auth-json /path/to/auth.json
+pnpm run dev --agent-config-toml /path/to/config.toml
+pnpm run dev --enable runtime-metrics
 ```
 
-Prepared reuse is fail-closed. It hashes the complete Electron input closure,
-the production build context, dynamically read development resources, and the
-exact `out/` inventory. A changed, missing, added, or symlinked input/output
-requires one normal build. The build wrapper fingerprints inputs before and
-after `electron-vite` and again after recording outputs, so an edit made during
-the build cannot produce a reusable stamp. The path still runs Cargo's
-incremental Core build on every launch; the native authority is never reused
-from a source-blind build stamp. Use `--dev` instead when actively editing and
-needing Vite HMR; `--dev` and `--reuse-build` are mutually exclusive.
+The default environment root is `<worktree>/runs.local/default`. Relative
+`--home` paths resolve from the worktree root. Each environment has this layout:
 
-Development startup also reuses the staged agent runtime only after its target,
-release-lock-bound metadata, exact artifact closure, modes, sizes, and SHA-256
-digests validate. A miss performs the normal archive-backed atomic restage.
-Packaging always performs a full target-specific native runtime stage.
+```text
+<home>/
+├── dev-home.json
+├── .nodex/                 # NODEX_HOME
+│   └── agent/              # CODEX_HOME
+├── workspace/              # NODEX_INITIAL_PROJECTS_DIR
+└── artifacts/
+```
 
-Run Nodex against disposable Codex and Nodex state when checking first-run or
-profile-scoped behavior:
+The manifest binds the environment to this repository with a canonical UUID.
+The launcher rejects a directory without that ownership manifest, another
+repository's environment, a symlinked root, a concurrent launcher lease, or a
+Core socket path that exceeds the macOS Unix-domain socket budget.
+
+`--auth-json` atomically installs only the named authentication file with mode
+`0600`. `--agent-config-toml` passes the named file through the portable agent
+config sanitizer and also installs it with mode `0600`. Omitted flags preserve
+the environment's existing files.
+
+`--enable` is repeatable and applies a Nodex feature only to the current
+invocation. Unknown slugs fail and list the catalog. Currently
+`runtime-metrics` enables structured development runtime metrics. Agent/app-server
+features remain owned by `config.toml`. The former Library workspace and
+Calendar presentation gates were retired with those product surfaces, so they
+are intentionally not accepted as launcher aliases.
+
+`--build` builds Core and Electron before launching the built app without HMR.
+Without it, the launcher prepares Core and generated resources, then starts
+electron-vite with HMR. Both modes default to an operating-system assigned
+DevTools port so different homes can run concurrently. Set
+`NODEX_REMOTE_DEBUGGING_PORT` to an integer from `0` through `65535` when a
+stable endpoint is needed.
+
+The production build remains fail-closed. It hashes the Electron input closure,
+build context, generated resources, and exact `out/` inventory. Packaging and
+installation verify the prepared build through the same internal module;
+prepared-build reuse is not a manual launcher option.
+
+Desktop process isolation is keyed by `.nodex`. Different homes get independent
+Electron storage, process locks, Core sockets and capabilities, databases,
+assets, backups, and logs. The launcher holds an exclusive environment lease,
+keeps the application under a dedicated process group, and gracefully stops the
+authenticated Core generation before releasing the lease. Interrupts use
+bounded process-group termination; the detached Core is selected by identity,
+not killed by a broad signal.
+
+`--delete` removes the whole environment only after the process group exits,
+the exact Core generation stops, the lease is released, and runtime evidence is
+absent. Unsafe cleanup preserves the environment and exits nonzero.
+
+### Seeded development environments
+
+Authoritative scenario recipes create current-schema product data through public
+Core operations. `--seed <id>` applies a recipe only while initializing a new
+environment and before Electron starts. `board/dense` creates a Project with
+five workflow columns, ten Pages, and structured NFM content:
 
 ```bash
-pnpm run build:run:isolated
-# or
-scripts/run.sh
+pnpm run dev --home runs.local/board-dense --seed board/dense
 ```
 
-The isolated runner creates temporary `CODEX_HOME` and `NODEX_HOME` roots and
-removes them when the app exits. It starts with an empty Codex home by
-default. Copy snapshots of the current Codex authentication or configuration
-when they are needed:
+The manifest records the seed id and revision. Reopening the same home with the
+same seed is a no-op and prints its provenance. A different seed, or a seed for
+a home already initialized without one, fails. Later manual edits belong to the
+environment and are not reset or compared with the original recipe.
 
-```bash
-scripts/run.sh -ac
-scripts/run.sh -da
-scripts/run.sh -ack -r /tmp/nodex-library
-```
-
-Run `scripts/run.sh --help` for options that use either global home.
-Use `--keep` to preserve the generated run root for inspection, or
-`--root DIR` to choose its path explicitly. An existing root can be reused only
-when `--keep` is also set. Reuse preserves its existing schema and data; choose
-a new root when checking first-run behavior or when the retained profile predates
-the currently supported Core import boundary.
-
-Desktop process isolation is keyed by the resolved `NODEX_HOME`. A development
-run and a packaged app may run concurrently when their homes differ; each gets
-its own Electron storage, process lock, Core socket/capability, database,
-assets, backups, and logs. Nodex no longer starts a Desktop TCP API or reads
-`NODEX_PORT` / `[server].port`. To verify that boundary with disposable data:
-
-```bash
-scripts/run.sh -ck -r ../tmp/no/oi --dev
-lsof -nP -iTCP:51283 -sTCP:LISTEN
-```
-
-The listener check should show no Nodex desktop process. The Browser sidebar is
-still supported, but it is a separate webview partition and cannot resolve the
-default-session-only `nodex-asset:` protocol.
-
-When `NODEX_HOME` is isolated, the runner holds an exclusive Profile lease,
-keeps the selected package script under a dedicated application process group,
-and gracefully stops the authenticated Core generation before it releases the
-lease or removes the run root. Terminal interrupts are forwarded to the whole
-application group with a bounded termination escalation so Electron/Vite
-descendants cannot be orphaned; the detached Core is never selected or stopped
-by a process signal. `--keep` therefore preserves Profile state, not background
-processes. A shutdown that cannot be proven preserves both the lease and run
-root and prints a diagnostic; verify that the recorded supervisor and exact
-Core generation have stopped before manually removing that validated lease.
-`--global-nodex` retains the normal detached Core lifetime because the runner
-does not own that Profile.
-
-`scripts/run.sh --dev` still runs the unchanged `pnpm run dev` command beneath
-the lifecycle supervisor. electron-vite continues to own its renderer dev
-server and Electron child, so CSS HMR and React Fast Refresh remain active
-until the app or launching terminal exits.
-
-### Isolated scenarios and UI Lab
-
-Authoritative scenarios create current-schema product data through public Nodex operations and can be shared by Core integration tests, Electron E2E, and UI Lab.
-The first scenario is `board/dense`: a Project with five workflow columns, ten Pages, and one Page with structured NFM content.
-
-Use UI Lab for integrated Board/Page development against a retained, disposable Profile:
-
-```bash
-pnpm ui:lab -- --seed board/dense --dev
-```
-
-UI Lab creates a short owned Profile under the system temporary directory, starts the ordinary development app through `scripts/run.sh`, seeds only after the renderer is ready, and opens the scenario's canonical Page.
-`--dev` keeps Vite HMR active.
-Interrupting the command stops the owned process group and Core generation but retains the Profile.
-The ready output prints an independent session ID; after creation the Profile is a mutable playground, and the scenario ID remains provenance rather than ongoing validity.
-Resume that exact session without replaying seed operations or checking the current data against the original recipe:
-
-```bash
-pnpm ui:lab -- --resume <session-id> --dev
-```
-
-Resume validates the repository, session/Profile ownership manifest, and lease state, but it deliberately does not require the seed recipe to remain registered or the current data to match its initial facts.
-A missing root, invalid ownership manifest, mismatched session record, or live conflicting lease fails closed.
-The session store under `.cache/scenarios/` contains only non-secret discovery metadata; the scenario catalog is consulted only while creating a seeded session and while running deterministic verification.
-Profile auth, capabilities, databases, and logs stay inside the retained temporary root.
-
-Run the focused built-app verification with:
-
-```bash
-pnpm ui:verify -- board/dense
-```
-
-The Playwright result retains failure trace, screenshots, normalized scenario facts, and bounded runtime diagnostics in its ordinary test artifact directory.
-Do not treat the retained Profile as durable user data; remove it only after the runner has reported safe Core shutdown and its ownership manifest still matches.
+The catalog is shared by Core integration and Electron E2E tests. Deterministic
+UI behavior belongs in a dedicated Playwright spec such as
+`tests/e2e/board-dense.spec.ts`; `pnpm run dev --seed ...` never starts
+Playwright, focuses a Page, or performs assertions.
 
 Build the app:
 
@@ -224,7 +176,7 @@ The test commands follow production boundaries:
 Seeded fixtures have four distinct evidence classes:
 
 - An authoritative scenario recipe uses public Core operations and proves the normal create, mutate, and read path.
-  Use it for UI Lab, product-path Electron E2E, and Core integration correctness.
+  Use it for seeded development homes, product-path Electron E2E, and Core integration correctness.
 - A materialized current-schema snapshot, when profiling justifies one, is an immutable cache generated from an authoritative recipe and copied into a fresh writable Profile per test.
   It proves read/startup behavior, not creation.
 - A historical or corrupt storage fixture deliberately represents an old or invalid Store for migration, repair, rollback, or corruption tests.

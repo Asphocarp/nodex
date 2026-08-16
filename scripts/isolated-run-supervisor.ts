@@ -4,7 +4,6 @@ import {
   type SpawnOptions,
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import {
@@ -28,12 +27,19 @@ const FOREGROUND_INTERRUPT_GRACE_MS = 1_500;
 const FOREGROUND_TERMINATE_GRACE_MS = 1_500;
 const FOREGROUND_KILL_GRACE_MS = 1_000;
 const FOREGROUND_POLL_INTERVAL_MS = 25;
+const DUPLICATE_SIGNAL_WINDOW_MS = 250;
 const MAX_DIAGNOSTIC_CHARS = 512;
 
-export type IsolatedRunScript =
-  | "dev"
-  | "build:run"
-  | "build:run:prepared";
+export interface SupervisedCommandPlan {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+export interface SupervisedRunPreparationContext {
+  readonly environment: NodeJS.ProcessEnv;
+  readonly runId: string;
+}
+
 export interface SupervisedRunResult {
   readonly childExitCode: number;
   readonly cleanupStatus: IsolatedCoreCleanupStatus;
@@ -71,10 +77,13 @@ export interface IsolatedRunSupervisorDependencies {
 }
 
 export interface SuperviseIsolatedRunInput {
+  readonly command: SupervisedCommandPlan;
   readonly environment: NodeJS.ProcessEnv;
   readonly nodexHome: string;
   readonly repositoryRoot: string;
-  readonly runScript: IsolatedRunScript;
+  readonly prepare?: (
+    context: SupervisedRunPreparationContext,
+  ) => Promise<void>;
   readonly dependencies?: Partial<IsolatedRunSupervisorDependencies>;
 }
 
@@ -101,24 +110,6 @@ const boundedReason = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   return message.replaceAll(/\s+/gu, " ").slice(0, MAX_DIAGNOSTIC_CHARS);
 };
-
-export function parseIsolatedRunSupervisorArguments(
-  args: readonly string[],
-): IsolatedRunScript {
-  const normalizedArgs = args[0] === "--" ? args.slice(1) : args;
-  if (normalizedArgs.length !== 1) {
-    throw new Error(
-      "Usage: isolated-run-supervisor.ts -- <dev|build:run|build:run:prepared>",
-    );
-  }
-  const runScript = normalizedArgs[0];
-  if (runScript === "dev" ||
-      runScript === "build:run" ||
-      runScript === "build:run:prepared") {
-    return runScript;
-  }
-  throw new Error(`Unsupported isolated run script: ${runScript ?? "<missing>"}`);
-}
 
 const waitForChild = (child: ChildProcess): Promise<ChildOutcome> =>
   new Promise((resolve) => {
@@ -253,6 +244,7 @@ export async function superviseIsolatedRun(
   let childClosed = false;
   let requestedSignal: SupervisorSignal | null = null;
   let signalCount = 0;
+  let lastSignalAt: number | null = null;
   let foregroundTermination: Promise<void> | null = null;
   let foregroundTerminationError: Error | null = null;
 
@@ -271,6 +263,14 @@ export async function superviseIsolatedRun(
   };
 
   const handleSignal = (signal: SupervisorSignal): void => {
+    const observedAt = dependencies.now();
+    if (
+      lastSignalAt !== null
+      && observedAt - lastSignalAt <= DUPLICATE_SIGNAL_WINDOW_MS
+    ) {
+      return;
+    }
+    lastSignalAt = observedAt;
     signalCount += 1;
     if (signalCount > 1) {
       if (child?.pid && (!childClosed || foregroundTermination)) {
@@ -292,9 +292,10 @@ export async function superviseIsolatedRun(
   dependencies.signalSource.on("SIGTERM", handleSigterm);
   let outcome: ChildOutcome;
   try {
+    await input.prepare?.({ environment, runId });
     child = dependencies.spawnChild(
-      "pnpm",
-      ["--silent", "run", input.runScript],
+      input.command.command,
+      input.command.args,
       {
         cwd: repositoryRoot,
         detached: true,
@@ -369,28 +370,4 @@ export async function superviseIsolatedRun(
     dependencies.signalSource.off("SIGINT", handleSigint);
     dependencies.signalSource.off("SIGTERM", handleSigterm);
   }
-}
-
-const scriptPath = fileURLToPath(import.meta.url);
-
-async function main(): Promise<void> {
-  const runScript = parseIsolatedRunSupervisorArguments(process.argv.slice(2));
-  const nodexHome = process.env.NODEX_HOME;
-  if (!nodexHome) {
-    throw new Error("Isolated run supervisor requires NODEX_HOME");
-  }
-  const result = await superviseIsolatedRun({
-    environment: process.env,
-    nodexHome,
-    repositoryRoot: path.resolve(path.dirname(scriptPath), ".."),
-    runScript,
-  });
-  process.exitCode = result.childExitCode;
-}
-
-if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
-  void main().catch((error: unknown) => {
-    console.error(`Error: ${boundedReason(error)}`);
-    process.exitCode = 1;
-  });
 }

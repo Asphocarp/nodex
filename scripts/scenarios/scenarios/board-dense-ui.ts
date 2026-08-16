@@ -20,7 +20,7 @@ export const focusBoardDenseProjectHome = async (
   const primaryCard = page.locator(`[data-board-uuid-v7="${primaryPageId}"]`);
   if (await primaryCard.isVisible().catch(() => false)) return;
   await page.getByRole("button", {
-    name: "Open UI Lab · Dense Board",
+    name: "Open Dense Board",
     exact: true,
   }).evaluate((element) => (element as HTMLElement).click());
   await page.getByRole("tab", { name: "Project Home" }).waitFor();

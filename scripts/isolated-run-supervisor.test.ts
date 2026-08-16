@@ -15,7 +15,6 @@ import {
 } from "../src/main/core-client/isolated-run-ownership";
 import {
   cleanupIsolatedCore,
-  parseIsolatedRunSupervisorArguments,
   superviseIsolatedRun,
   type IsolatedCoreCleanupDependencies,
   type SupervisorSignalSource,
@@ -86,24 +85,6 @@ afterEach(() => {
 });
 
 describe("isolated run supervisor", () => {
-  test("accepts only the package scripts selected by run.sh", () => {
-    expect(parseIsolatedRunSupervisorArguments(["dev"])).toBe("dev");
-    expect(parseIsolatedRunSupervisorArguments(["--", "dev"])).toBe("dev");
-    expect(parseIsolatedRunSupervisorArguments(["build:run"])).toBe(
-      "build:run",
-    );
-    expect(
-      parseIsolatedRunSupervisorArguments(["build:run:prepared"]),
-    ).toBe("build:run:prepared");
-    expect(() => parseIsolatedRunSupervisorArguments([])).toThrow("Usage");
-    expect(() =>
-      parseIsolatedRunSupervisorArguments(["--", "dev", "extra"]),
-    ).toThrow("Usage");
-    expect(() =>
-      parseIsolatedRunSupervisorArguments(["arbitrary"]),
-    ).toThrow("Unsupported");
-  });
-
   test("releases the lease when no Core runtime was started", async () => {
     const nodexHome = createNodexHome();
     const lease = acquireLease(nodexHome);
@@ -310,6 +291,14 @@ describe("isolated run supervisor", () => {
     const child = new FakeChild();
     const signalSource = new EventEmitter() as unknown as SupervisorSignalSource;
     let observedOptions: SpawnOptions | undefined;
+    const prepare = vi.fn(async (context: {
+      readonly environment: NodeJS.ProcessEnv;
+      readonly runId: string;
+    }) => {
+      expect(readIsolatedRunLeaseOwner(nodexHome)?.runId).toBe(RUN_A);
+      expect(context.runId).toBe(RUN_A);
+      expect(context.environment.NODEX_INTERNAL_ISOLATED_RUN_ID).toBe(RUN_A);
+    });
     const spawnChild = vi.fn((
       _command: string,
       _args: readonly string[],
@@ -330,7 +319,8 @@ describe("isolated run supervisor", () => {
         },
         nodexHome,
         repositoryRoot: path.resolve("."),
-        runScript: "dev",
+        command: { command: "pnpm", args: ["exec", "electron-vite", "dev"] },
+        prepare,
         dependencies: {
           cleanupDependencies: cleanupDependencies({
             readClaim: vi.fn(() => null),
@@ -352,7 +342,7 @@ describe("isolated run supervisor", () => {
     });
     expect(spawnChild).toHaveBeenCalledWith(
       "pnpm",
-      ["--silent", "run", "dev"],
+      ["exec", "electron-vite", "dev"],
       expect.objectContaining({
         detached: true,
         shell: false,
@@ -364,6 +354,7 @@ describe("isolated run supervisor", () => {
       NODEX_CORE_IDLE_TIMEOUT_MS: "65432",
       NODEX_INTERNAL_ISOLATED_RUN_ID: RUN_A,
     });
+    expect(prepare).toHaveBeenCalledOnce();
     expect(readIsolatedRunLeaseOwner(nodexHome)).toBeNull();
   });
 
@@ -377,7 +368,7 @@ describe("isolated run supervisor", () => {
       environment: { NODEX_HOME: nodexHome },
       nodexHome,
       repositoryRoot: path.resolve("."),
-      runScript: "dev",
+      command: { command: "pnpm", args: ["exec", "electron-vite", "dev"] },
       dependencies: {
         cleanupDependencies: cleanupDependencies({
           readClaim: vi.fn(() => null),
@@ -391,6 +382,8 @@ describe("isolated run supervisor", () => {
         signalProcessGroup,
         spawnChild: () => {
           queueMicrotask(() => {
+            (signalSource as unknown as EventEmitter).emit("SIGINT");
+            // pnpm and terminal process groups can forward the same interrupt.
             (signalSource as unknown as EventEmitter).emit("SIGINT");
             child.close(0);
           });
@@ -421,7 +414,7 @@ describe("isolated run supervisor", () => {
         environment: { NODEX_HOME: nodexHome },
         nodexHome,
         repositoryRoot: path.resolve("."),
-        runScript: "dev",
+        command: { command: "pnpm", args: ["exec", "electron-vite", "dev"] },
         dependencies: {
           cleanupDependencies: cleanupDependencies({
             readClaim: vi.fn(() => null),
@@ -459,7 +452,7 @@ describe("isolated run supervisor", () => {
       environment: { NODEX_HOME: nodexHome },
       nodexHome,
       repositoryRoot: path.resolve("."),
-      runScript: "dev",
+      command: { command: "pnpm", args: ["exec", "electron-vite", "dev"] },
       dependencies: {
         cleanupDependencies: cleanupDependencies({
           readClaim: vi.fn(() => null),
@@ -508,7 +501,7 @@ describe("isolated run supervisor", () => {
         environment: { NODEX_HOME: nodexHome },
         nodexHome,
         repositoryRoot: path.resolve("."),
-        runScript: "build:run",
+        command: { command: "pnpm", args: ["exec", "electron", "."] },
         dependencies: {
           cleanupDependencies: cleanupDependencies({
             readClaim: vi.fn(() => null),
