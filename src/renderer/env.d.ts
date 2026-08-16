@@ -21,7 +21,6 @@ declare global {
     readonly DEV: boolean;
     readonly PROD: boolean;
     readonly SSR: boolean;
-    readonly VITE_NODEX_CALENDAR_PRESENTATION?: string;
   }
 
   interface ImportMeta {

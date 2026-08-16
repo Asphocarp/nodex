@@ -153,7 +153,7 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Choose the isolated-scenario consumer by the boundary under test:
   - Use `withCoreScenario` for current-schema Project/Page/Database correctness that does not need Electron.
   - Use `withElectronScenario` or `ElectronScenarioHarness` for production Electron/preload/Main/Core workflows, window lifecycle, restart, and native gestures.
-  - Use `pnpm ui:lab -- --seed <scenario-id> --dev` to create a retained integrated UI session with HMR, then resume the mutable Profile with `pnpm ui:lab -- --resume <session-id> --dev`. Use `pnpm ui:verify -- <scenario-id>` for the deterministic focused built-app gate.
+  - Use `pnpm run dev --home <dir> --seed <scenario-id>` for a persistent integrated UI environment with HMR. Reopen the same home with `pnpm run dev --home <dir>`; run the scenario's dedicated Electron E2E spec for deterministic UI verification.
   - Use Storybook for reusable primitives and transient or intentionally synthetic component states, not as the primary proof of integrated product scenes.
   - Keep historical/corrupt storage and pressure fixtures visibly separate from authoritative public-operation scenarios. Direct SQL is allowed only when storage shape or scale is the explicit subject, and pressure evidence must retain a smaller authoritative path test.
 - Every scenario-backed correctness test gets a fresh writable Profile. A generated current-schema snapshot may be copied as an immutable source only after measured seed cost justifies it; never share a live writable Store across tests.

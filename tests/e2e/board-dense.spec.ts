@@ -32,7 +32,7 @@ const focusEditableBlockEnd = async (block: Locator): Promise<void> => {
   });
 };
 
-test("materializes and opens the authoritative board/dense UI scenario", async ({}, testInfo) => {
+test("materializes and opens the authoritative board/dense environment", async ({}, testInfo) => {
   test.setTimeout(120_000);
   await withElectronScenario({
     label: "board-dense-ui",

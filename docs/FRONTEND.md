@@ -353,9 +353,12 @@ evidence at the seam that owns the behavior:
   than parallel fake view models or live Electron fallbacks.
 - Prefer an authoritative isolated scenario when the behavior depends on an integrated Project, Database projection, Page lifecycle, document authority, preload/Main transport, or Window Session.
   The same domain recipe should serve Core integration and Electron/UI consumers through runtime-specific adapters; keep DOM navigation and observation in the optional UI projection.
-- Use `pnpm ui:lab -- --seed <scenario-id> --dev` to create a retained, mutable real-app session and resume it by the printed identity with `pnpm ui:lab -- --resume <session-id> --dev`.
-  The scenario catalog initializes the session but does not constrain later manual edits; use `pnpm ui:verify -- <scenario-id>` when deterministic facts are the contract.
-  Scenario manifests map stable logical keys to canonical IDs, so UI tests must not find authority by title when an identity is available.
+- Use `pnpm run dev --home <dir> --seed <scenario-id>` for a persistent,
+  mutable real-app environment with HMR. The catalog initializes a new home but
+  does not constrain later manual edits. Deterministic UI facts and navigation
+  belong in the scenario's dedicated Electron E2E spec.
+  Scenario manifests map stable logical keys to canonical IDs, so UI tests must
+  not find authority by title when an identity is available.
 - Keep stories canvas-first. Use variants, args, and focused harnesses; render
   menu-driven states open by default and split unrelated feature families into
   separate stories.

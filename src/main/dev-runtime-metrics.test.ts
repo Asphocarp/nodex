@@ -4,27 +4,27 @@ import {
   isDevRuntimeMetricsEnabled,
   logDevRuntimeMetric,
 } from "./dev-runtime-metrics";
+import { NODEX_DEVELOPMENT_FEATURES_ENV } from
+  "../shared/development-features";
 
-const ORIGINAL_NODEX_DEV_METRICS = process.env.NODEX_DEV_METRICS;
+const ORIGINAL_DEVELOPMENT_FEATURES =
+  process.env[NODEX_DEVELOPMENT_FEATURES_ENV];
 
 afterEach(() => {
-  if (ORIGINAL_NODEX_DEV_METRICS === undefined) {
-    delete process.env.NODEX_DEV_METRICS;
+  if (ORIGINAL_DEVELOPMENT_FEATURES === undefined) {
+    delete process.env[NODEX_DEVELOPMENT_FEATURES_ENV];
     return;
   }
-  process.env.NODEX_DEV_METRICS = ORIGINAL_NODEX_DEV_METRICS;
+  process.env[NODEX_DEVELOPMENT_FEATURES_ENV] = ORIGINAL_DEVELOPMENT_FEATURES;
 });
 
 describe("dev runtime metrics", () => {
-  test("is disabled by default and honors explicit boolean configuration", () => {
-    delete process.env.NODEX_DEV_METRICS;
+  test("is disabled by default and honors the canonical development gate", () => {
+    delete process.env[NODEX_DEVELOPMENT_FEATURES_ENV];
     expect(isDevRuntimeMetricsEnabled()).toBe(false);
 
-    process.env.NODEX_DEV_METRICS = "true";
+    process.env[NODEX_DEVELOPMENT_FEATURES_ENV] = "runtime-metrics";
     expect(isDevRuntimeMetricsEnabled()).toBe(true);
-
-    process.env.NODEX_DEV_METRICS = "0";
-    expect(isDevRuntimeMetricsEnabled()).toBe(false);
   });
 
   test("emits a structured info record only when explicitly enabled", () => {
@@ -35,10 +35,10 @@ describe("dev runtime metrics", () => {
     );
 
     try {
-      delete process.env.NODEX_DEV_METRICS;
+      delete process.env[NODEX_DEVELOPMENT_FEATURES_ENV];
       logDevRuntimeMetric("disabled.metric");
 
-      process.env.NODEX_DEV_METRICS = "1";
+      process.env[NODEX_DEVELOPMENT_FEATURES_ENV] = "runtime-metrics";
       logDevRuntimeMetric("enabled.metric", { durationMs: 12 });
 
       expect(records).toHaveLength(1);

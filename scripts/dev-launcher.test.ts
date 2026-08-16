@@ -1,0 +1,157 @@
+import path from "node:path";
+import { describe, expect, test } from "vitest";
+
+import type { DevelopmentEnvironmentHome } from
+  "./development-environment-home";
+import {
+  createDevLaunchPlan,
+  parseDevLauncherArguments,
+  resolveDevelopmentSeedInitialization,
+} from "./dev-launcher";
+
+const HOME: DevelopmentEnvironmentHome = {
+  root: "/tmp/nodex-dev",
+  nodexHome: "/tmp/nodex-dev/.nodex",
+  codexHome: "/tmp/nodex-dev/.nodex/agent",
+  workspace: "/tmp/nodex-dev/workspace",
+  artifacts: "/tmp/nodex-dev/artifacts",
+  manifestPath: "/tmp/nodex-dev/dev-home.json",
+  repositoryRealpath: path.resolve("."),
+  wasCreated: true,
+  manifest: {
+    version: 1,
+    environmentId: "11111111-1111-4111-8111-111111111111",
+    repositoryRealpath: path.resolve("."),
+    createdAt: "2026-08-16T00:00:00.000Z",
+  },
+};
+
+describe("dev launcher", () => {
+  test("parses the public command contract without requiring a separator", () => {
+    expect(parseDevLauncherArguments([
+      "--home",
+      "runs.local/perf",
+      "--seed",
+      "board/dense",
+      "--build",
+      "--auth-json",
+      "/tmp/auth.json",
+      "--agent-config-toml",
+      "/tmp/config.toml",
+      "--enable",
+      "runtime-metrics",
+      "--enable",
+      "runtime-metrics",
+      "--delete",
+    ])).toEqual({
+      home: "runs.local/perf",
+      seed: "board/dense",
+      build: true,
+      authJson: "/tmp/auth.json",
+      agentConfigToml: "/tmp/config.toml",
+      enabledFeatures: ["runtime-metrics", "runtime-metrics"],
+      deleteHome: true,
+      help: false,
+    });
+  });
+
+  test("rejects missing values and unknown options", () => {
+    expect(() => parseDevLauncherArguments(["--home"]))
+      .toThrow("--home requires a value");
+    expect(() => parseDevLauncherArguments(["--resume", "old-session"]))
+      .toThrow("Unknown dev option");
+  });
+
+  test("selects HMR by default and applies one invocation feature override", () => {
+    const parsed = parseDevLauncherArguments([
+      "--enable",
+      "runtime-metrics",
+      "--enable",
+      "runtime-metrics",
+    ]);
+    const plan = createDevLaunchPlan({
+      arguments: parsed,
+      environment: {},
+      home: HOME,
+    });
+    expect(plan.mode).toBe("hmr");
+    expect(plan.enabledFeatures).toEqual(["runtime-metrics"]);
+    expect(plan.application).toEqual({
+      command: "pnpm",
+      args: [
+        "exec",
+        "electron-vite",
+        "dev",
+        "--logLevel",
+        "warn",
+        "--remoteDebuggingPort",
+        "0",
+      ],
+    });
+    expect(plan.environment).toMatchObject({
+      NODEX_HOME: HOME.nodexHome,
+      CODEX_HOME: HOME.codexHome,
+      NODEX_INITIAL_PROJECTS_DIR: HOME.workspace,
+      NODEX_DEV_ENABLED_FEATURES: "runtime-metrics",
+    });
+  });
+
+  test("selects a build-first built application plan", () => {
+    const plan = createDevLaunchPlan({
+      arguments: parseDevLauncherArguments(["--build"]),
+      environment: { NODEX_REMOTE_DEBUGGING_PORT: "9333" },
+      home: HOME,
+    });
+    expect(plan.mode).toBe("built");
+    expect(plan.preparation.map((command) => command.args.at(-1))).toEqual([
+      "core:build:dev",
+      "build",
+      "stage:codex-runtime:mac:cached",
+    ]);
+    expect(plan.application.args).toContain("--remote-debugging-port=9333");
+  });
+
+  test("applies a seed once, reuses matching provenance, and rejects drift", () => {
+    const requestedSeed = { id: "board/dense", revision: 2 } as const;
+    expect(resolveDevelopmentSeedInitialization({
+      manifest: HOME.manifest,
+      requestedSeed,
+    })).toEqual({ kind: "apply", seed: requestedSeed });
+    expect(resolveDevelopmentSeedInitialization({
+      manifest: {
+        ...HOME.manifest,
+        initializedAt: "2026-08-17T00:00:00.000Z",
+        seed: requestedSeed,
+      },
+      requestedSeed,
+    })).toEqual({ kind: "reuse", seed: requestedSeed });
+    expect(() => resolveDevelopmentSeedInitialization({
+      manifest: {
+        ...HOME.manifest,
+        initializedAt: "2026-08-17T00:00:00.000Z",
+        seed: requestedSeed,
+      },
+      requestedSeed: { id: "board/dense", revision: 3 },
+    })).toThrow(/refusing board\/dense@3/u);
+    expect(() => resolveDevelopmentSeedInitialization({
+      manifest: {
+        ...HOME.manifest,
+        initializedAt: "2026-08-17T00:00:00.000Z",
+      },
+      requestedSeed,
+    })).toThrow("already initialized without a seed");
+  });
+
+  test("fails before launch for unknown feature slugs and invalid debug ports", () => {
+    expect(() => createDevLaunchPlan({
+      arguments: parseDevLauncherArguments(["--enable", "missing"]),
+      environment: {},
+      home: HOME,
+    })).toThrow(/Available features: runtime-metrics/u);
+    expect(() => createDevLaunchPlan({
+      arguments: parseDevLauncherArguments([]),
+      environment: { NODEX_REMOTE_DEBUGGING_PORT: "70000" },
+      home: HOME,
+    })).toThrow("NODEX_REMOTE_DEBUGGING_PORT");
+  });
+});
