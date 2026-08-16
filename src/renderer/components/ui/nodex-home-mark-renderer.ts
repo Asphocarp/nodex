@@ -434,6 +434,7 @@ export function createNodexHomeMarkRenderer(input: {
   let program: WebGLProgram | null = null;
   let vertexArray: WebGLVertexArrayObject | null = null;
   let vertexBuffer: WebGLBuffer | null = null;
+  let contextLost = false;
   let uniforms: RendererUniforms;
   const topScreen = new Float32Array(PANEL_VERTEX_COUNT * 2);
   const frontScreen = new Float32Array(PANEL_VERTEX_COUNT * 2);
@@ -444,24 +445,30 @@ export function createNodexHomeMarkRenderer(input: {
   const cameraMatrix = writeColumnMajor(NODEX_HOME_MARK_BASE_ROTATION);
   const poseMatrix = new Float32Array(9);
 
-  const handleContextLost = (event: Event) => {
-    event.preventDefault();
+  const handleContextLost = () => {
+    contextLost = true;
     input.onContextLost();
   };
   canvas.addEventListener("webglcontextlost", handleContextLost);
 
+  /**
+   * Release only resources owned by this renderer. The browser owns drawing
+   * buffer retirement; forcing context loss here can invalidate a mailbox that
+   * Chromium's compositor is still consuming during the SVG handoff.
+   */
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     canvas.removeEventListener("webglcontextlost", handleContextLost);
-    if (vertexBuffer) gl.deleteBuffer(vertexBuffer);
-    if (vertexArray) gl.deleteVertexArray(vertexArray);
-    if (program) gl.deleteProgram(program);
+    if (!contextLost) {
+      if (vertexBuffer) gl.deleteBuffer(vertexBuffer);
+      if (vertexArray) gl.deleteVertexArray(vertexArray);
+      if (program) gl.deleteProgram(program);
+    }
     vertexBuffer = null;
     vertexArray = null;
     program = null;
     canvas.remove();
-    gl.getExtension("WEBGL_lose_context")?.loseContext();
   };
 
   try {
