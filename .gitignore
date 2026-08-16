@@ -45,6 +45,7 @@ yarn-error.log*
 next-env.d.ts
 
 /.kanban/
+/runs.local/
 *.local
 /dist/
 /target/

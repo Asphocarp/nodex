@@ -421,8 +421,9 @@ Guidelines:
 
 ## Development Runtime Metrics
 
-High-volume `dev runtime metric` records are disabled by default. Set
-`NODEX_DEV_METRICS=1` to enable them. They are emitted at `info`, so the default durable file sink
+High-volume `dev runtime metric` records are disabled by default. Start the app
+with `pnpm run dev --enable runtime-metrics` to enable them for that invocation.
+They are emitted at `info`, so the default durable file sink
 captures an explicitly enabled diagnostic run without sending it to the default warn-only terminal.
 
 ## What To Log

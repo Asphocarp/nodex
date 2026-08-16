@@ -62167,8 +62167,62 @@ var init_YSync = __esm({
   }
 });
 
+// ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YSurfaceOrigin.ts
+var activeSurfaceOrigins, registeredDocuments, registerDocumentOriginRetagger, YSurfaceOriginExtension;
+var init_YSurfaceOrigin = __esm({
+  "../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YSurfaceOrigin.ts"() {
+    "use strict";
+    init_dist5();
+    init_y_prosemirror();
+    init_BlockNoteExtension();
+    activeSurfaceOrigins = /* @__PURE__ */ new WeakMap();
+    registeredDocuments = /* @__PURE__ */ new WeakSet();
+    registerDocumentOriginRetagger = (document2) => {
+      if (registeredDocuments.has(document2)) return;
+      registeredDocuments.add(document2);
+      document2.on("beforeTransaction", (transaction) => {
+        if (transaction.origin !== ySyncPluginKey) return;
+        const origin = activeSurfaceOrigins.get(document2);
+        if (!origin) return;
+        transaction.origin = origin;
+      });
+    };
+    YSurfaceOriginExtension = createExtension(
+      ({ options }) => {
+        const document2 = options.fragment.doc;
+        if (!document2) {
+          throw new Error("Collaborative surface origin requires an attached Y.Doc");
+        }
+        registerDocumentOriginRetagger(document2);
+        const pluginKey = new PluginKey("ySurfaceOrigin");
+        const plugin = new Plugin({
+          key: pluginKey,
+          state: {
+            init: () => false,
+            apply: (transaction) => {
+              const metadata = transaction.getMeta(ySyncPluginKey);
+              return transaction.docChanged && metadata?.isChangeOrigin !== true;
+            }
+          },
+          view: (view) => ({
+            update: () => {
+              if (pluginKey.getState(view.state) !== true) return;
+              activeSurfaceOrigins.set(document2, options.transactionOrigin);
+            }
+          })
+        });
+        return {
+          key: "ySurfaceOrigin",
+          prosemirrorPlugins: [plugin],
+          runsBefore: ["ySync"]
+        };
+      }
+    );
+  }
+});
+
 // ../../../../third_party/blocknote/packages/core/src/extensions/Collaboration/YUndo.ts
-function createSurfaceUndoController() {
+function createSurfaceUndoController(transactionOrigin) {
   let manager = null;
   let disposed = false;
   return {
@@ -62178,7 +62232,7 @@ function createSurfaceUndoController() {
       }
       if (manager) return manager;
       manager = new UndoManager(type, {
-        trackedOrigins: /* @__PURE__ */ new Set([ySyncPluginKey]),
+        trackedOrigins: /* @__PURE__ */ new Set([transactionOrigin]),
         deleteFilter: (item) => defaultDeleteFilter(item, defaultProtectedNodes),
         captureTransaction: (transaction) => transaction.meta.get("addToHistory") !== false
       });
@@ -62270,8 +62324,10 @@ var init_YUndo = __esm({
     init_y_prosemirror();
     init_yjs();
     init_BlockNoteExtension();
-    YUndoExtension = createExtension(() => {
-      const controller = createSurfaceUndoController();
+    YUndoExtension = createExtension(({
+      options
+    }) => {
+      const controller = createSurfaceUndoController(options.transactionOrigin);
       return {
         key: "yUndo",
         prosemirrorPlugins: [createSurfaceYUndoPlugin(controller)],
@@ -62313,6 +62369,7 @@ var init_ForkYDoc = __esm({
     init_BlockNoteExtension();
     init_YCursorPlugin();
     init_YSync();
+    init_YSurfaceOrigin();
     init_YUndo();
     ForkYDocExtension = createExtension(
       ({ editor, options }) => {
@@ -62344,6 +62401,7 @@ var init_ForkYDoc = __esm({
             };
             editor.unregisterExtension([
               YUndoExtension,
+              YSurfaceOriginExtension,
               YCursorExtension,
               YSyncExtension
             ]);
@@ -62352,9 +62410,13 @@ var init_ForkYDoc = __esm({
               fragment: forkedFragment
             };
             editor.registerExtension([
+              YSurfaceOriginExtension({
+                fragment: forkedFragment,
+                transactionOrigin: options.transactionOrigin ?? {}
+              }),
               YSyncExtension(newOptions),
               // No need to register the cursor plugin again, it's a local fork
-              YUndoExtension()
+              YUndoExtension({ transactionOrigin: options.transactionOrigin ?? {} })
             ]);
             store.setState({ isForked: true });
           },
@@ -62367,12 +62429,21 @@ var init_ForkYDoc = __esm({
             if (!forkedState) {
               return;
             }
-            editor.unregisterExtension(["ySync", "yCursor", "yUndo"]);
+            editor.unregisterExtension([
+              "ySurfaceOrigin",
+              "ySync",
+              "yCursor",
+              "yUndo"
+            ]);
             const { originalFragment, forkedFragment, undoStack } = forkedState;
             editor.registerExtension([
+              YSurfaceOriginExtension({
+                fragment: originalFragment,
+                transactionOrigin: options.transactionOrigin ?? {}
+              }),
               YSyncExtension(options),
               YCursorExtension(options),
-              YUndoExtension()
+              YUndoExtension({ transactionOrigin: options.transactionOrigin ?? {} })
             ]);
             yUndoPluginKey.getState(
               editor.prosemirrorState
@@ -72224,17 +72295,24 @@ var init_Collaboration = __esm({
     init_SchemaMigration();
     init_YCursorPlugin();
     init_YSync();
+    init_YSurfaceOrigin();
     init_YUndo();
     CollaborationExtension = createExtension(
       ({ options }) => {
+        const transactionOrigin = options.transactionOrigin ?? {};
+        const surfaceOptions = { ...options, transactionOrigin };
         return {
           key: "collaboration",
           blockNoteExtensions: [
-            ForkYDocExtension(options),
-            YCursorExtension(options),
-            YSyncExtension(options),
-            YUndoExtension(),
-            SchemaMigration(options)
+            ForkYDocExtension(surfaceOptions),
+            YCursorExtension(surfaceOptions),
+            YSurfaceOriginExtension({
+              fragment: surfaceOptions.fragment,
+              transactionOrigin
+            }),
+            YSyncExtension(surfaceOptions),
+            YUndoExtension({ transactionOrigin }),
+            SchemaMigration(surfaceOptions)
           ]
         };
       }

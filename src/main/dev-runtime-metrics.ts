@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import { isDevelopmentFeatureEnabled } from "../shared/development-features";
 import { getLogger } from "./logging/logger";
 
 type DevRuntimeMetricFields = Record<string, unknown>;
@@ -8,20 +9,8 @@ const devRuntimeMetricLogger = getLogger({
   component: "dev-runtime-metrics",
 });
 
-const FALSE_VALUES = new Set(["0", "false", "off", "no"]);
-const TRUE_VALUES = new Set(["1", "true", "on", "yes"]);
-
-function parseBooleanEnv(value: string | undefined): boolean | null {
-  if (value === undefined) return null;
-  const normalized = value.trim().toLowerCase();
-  if (TRUE_VALUES.has(normalized)) return true;
-  if (FALSE_VALUES.has(normalized)) return false;
-  return null;
-}
-
 export function isDevRuntimeMetricsEnabled(): boolean {
-  const explicit = parseBooleanEnv(process.env.NODEX_DEV_METRICS);
-  return explicit ?? false;
+  return isDevelopmentFeatureEnabled("runtime-metrics");
 }
 
 export function getDevRuntimeMetricStart(): number {

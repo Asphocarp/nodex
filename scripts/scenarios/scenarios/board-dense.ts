@@ -133,7 +133,7 @@ export const BOARD_DENSE_PAGES: readonly BoardDensePageDefinition[] = [
     key: "isolatedWorkflow",
     status: "ship",
     title: "Ship the isolated UI workflow",
-    nfm: "The same recipe now serves Core, Electron, and the retained UI Lab.",
+    nfm: "The same recipe now serves Core, Electron, and seeded development homes.",
   },
 ] as const;
 
@@ -142,7 +142,7 @@ const materializeBoardDense = async (
   workspace: string,
 ): Promise<ScenarioManifest> => {
   const project = await port.createProject({
-    name: "UI Lab · Dense Board",
+    name: "Dense Board",
     sources: [workspace],
   });
   const seeds: readonly ScenarioPageSeed[] = BOARD_DENSE_PAGES.map((page) => ({
