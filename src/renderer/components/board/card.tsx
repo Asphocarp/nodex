@@ -77,6 +77,7 @@ interface CardProps {
   columnId: string;
   displayPrefs?: DbViewDisplayPrefs;
   showPageKey?: boolean;
+  showDescription?: boolean;
   dragInstanceId?: symbol;
   dragDisabled?: boolean;
   dropDisabled?: boolean;
@@ -111,6 +112,7 @@ interface CardBodyProps {
   tagOptions: readonly DatabasePropertyOption[];
   displayPrefs?: DbViewDisplayPrefs;
   showPageKey: boolean;
+  showDescription: boolean;
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
   onOpenPropertyEditor?: (
@@ -305,6 +307,7 @@ const CardBody = memo(function CardBody({
   tagOptions,
   displayPrefs,
   showPageKey,
+  showDescription,
   position,
   activeProperty,
   onOpenPropertyEditor,
@@ -353,8 +356,11 @@ const CardBody = memo(function CardBody({
         />
       ) : null}
 
-      {plainDescription ? (
-        <p className="line-clamp-2 px-2 pb-1 text-xs/normal wrap-break-word text-(--foreground-secondary)">
+      {showDescription && plainDescription ? (
+        <p
+          data-board-page-description="true"
+          className="line-clamp-2 px-2 pb-1 text-xs/normal wrap-break-word text-(--foreground-secondary)"
+        >
           {plainDescription}
         </p>
       ) : null}
@@ -388,6 +394,7 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
   tagOptions,
   displayPrefs,
   showPageKey,
+  showDescription,
   position,
   activeProperty,
   onOpenPropertyEditor,
@@ -416,6 +423,7 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
       tagOptions={tagOptions}
       displayPrefs={displayPrefs}
       showPageKey={showPageKey}
+      showDescription={showDescription}
       position={position}
       activeProperty={activeProperty}
       onOpenPropertyEditor={onOpenPropertyEditor}
@@ -431,6 +439,7 @@ interface CardSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   tagOptions: readonly DatabasePropertyOption[];
   displayPrefs?: DbViewDisplayPrefs;
   showPageKey: boolean;
+  showDescription: boolean;
   showStaticDragGhost?: boolean;
   fixedWidth?: number;
   fixedHeight?: number;
@@ -455,6 +464,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
   tagOptions,
   displayPrefs,
   showPageKey,
+  showDescription,
   showStaticDragGhost = false,
   fixedWidth,
   fixedHeight,
@@ -523,6 +533,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
         tagOptions={tagOptions}
         displayPrefs={displayPrefs}
         showPageKey={showPageKey}
+        showDescription={showDescription}
         position={position}
         activeProperty={activeProperty}
         onOpenPropertyEditor={onOpenPropertyEditor}
@@ -538,11 +549,12 @@ export function CardPreview({
   columnId,
   displayPrefs,
   showPageKey = false,
+  showDescription = true,
   isSelected = false,
   fixedWidth,
   fixedHeight,
   tagOptions = [],
-}: Pick<CardProps, "projectId" | "card" | "columnId" | "displayPrefs" | "showPageKey" | "isSelected" | "tagOptions"> & {
+}: Pick<CardProps, "projectId" | "card" | "columnId" | "displayPrefs" | "showPageKey" | "showDescription" | "isSelected" | "tagOptions"> & {
   fixedWidth?: number;
   fixedHeight?: number;
 }) {
@@ -556,6 +568,7 @@ export function CardPreview({
       tagOptions={tagOptions}
       displayPrefs={displayPrefs}
       showPageKey={showPageKey}
+      showDescription={showDescription}
       isSelected={isSelected}
       fixedWidth={fixedWidth}
       fixedHeight={fixedHeight}
@@ -571,6 +584,7 @@ export function Card({
   columnId,
   displayPrefs,
   showPageKey = false,
+  showDescription = true,
   dragInstanceId,
   dragDisabled = false,
   dropDisabled = false,
@@ -794,6 +808,7 @@ export function Card({
       tagOptions={tagOptions}
       displayPrefs={displayPrefs}
       showPageKey={showPageKey}
+      showDescription={showDescription}
       className="bn-drag-exclude"
       showStaticDragGhost={showStaticDragGhost}
       isDragging={isDragging}
@@ -849,6 +864,7 @@ export function Card({
                 tagOptions={tagOptions}
                 displayPrefs={displayPrefs}
                 showPageKey={showPageKey}
+                showDescription={showDescription}
                 isSelected={dragState.itemCount > 1}
                 fixedWidth={dragState.rect.width}
                 fixedHeight={dragState.rect.height}

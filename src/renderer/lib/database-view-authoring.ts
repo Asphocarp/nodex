@@ -40,10 +40,12 @@ export const emptyDatabaseViewConfig = (): DatabaseViewConfigV4 => ({
       board: {
         fields: [],
         showEmptyGroups: false,
+        showDescription: true,
       },
       list: {
         fields: [{ kind: "intrinsic", field: "page_key" }],
         showEmptyGroups: false,
+        showDescription: true,
       },
     },
   },

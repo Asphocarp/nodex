@@ -230,6 +230,7 @@ function BoardPageCardSurface({
   row,
   trailingProperties,
   showPageKey,
+  showDescription,
   pendingMutationKeys,
   mutationErrors,
   canMoveUp,
@@ -265,6 +266,7 @@ function BoardPageCardSurface({
   readonly row: DatabaseViewRenderRow;
   readonly trailingProperties: readonly DataSourcePropertyRecordV2[];
   readonly showPageKey: boolean;
+  readonly showDescription: boolean;
   readonly pendingMutationKeys: ReadonlyMap<string, number>;
   readonly mutationErrors: ReadonlyMap<string, string>;
   readonly canMoveUp: boolean;
@@ -342,6 +344,7 @@ function BoardPageCardSurface({
   if (!authority) return null;
   const movePending = pendingMutationKeys.has(`page:${row.pageId}`);
   const title = row.title || "Untitled";
+  const description = row.preview.trim();
   const renderPropertyEditor = (property: DataSourcePropertyRecordV2) => {
     const current = authority.values[property.propertyId];
     const propertyError = mutationErrors.get(
@@ -484,6 +487,14 @@ function BoardPageCardSurface({
           </div>
         ) : null}
       </div>
+      {showDescription && description ? (
+        <p
+          data-board-page-description="true"
+          className="mt-1 line-clamp-2 text-xs/normal wrap-break-word text-token-description-foreground"
+        >
+          {description}
+        </p>
+      ) : null}
       {trailingProperties.length > 0 ? (
         <div className="mt-1.5 flex min-w-0 flex-col items-start gap-x-2 gap-y-1">
           {trailingProperties.map(renderPropertyEditor)}
@@ -629,6 +640,7 @@ function BoardDatabaseViewSurface({
   const showBoardPageKey = presentation.layouts.board.fields.some(
     (field) => field.kind === "intrinsic" && field.field === "page_key",
   );
+  const showBoardDescription = presentation.layouts.board.showDescription !== false;
   const columns = useMemo(
     () => buildDatabaseViewColumns(
       model.query,
@@ -1242,6 +1254,7 @@ function BoardDatabaseViewSurface({
     row,
     trailingProperties: trailingBoardProperties,
     showPageKey: showBoardPageKey,
+    showDescription: showBoardDescription,
     pendingMutationKeys,
     mutationErrors,
     canMoveUp: canMoveDatabaseViewPage({

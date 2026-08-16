@@ -42,6 +42,7 @@ interface ColumnProps {
   onLoadMore?: (scopeKey: string) => Promise<void> | void;
   displayPrefs?: DbViewDisplayPrefs;
   showPageKey?: boolean;
+  showDescription?: boolean;
   dragInstanceId?: symbol;
   buildDragData?: (card: CardType, columnId: string) => BoardCardDragData;
   layout: BoardColumnLayout;
@@ -113,6 +114,7 @@ export const Column = memo(function Column({
   onLoadMore,
   displayPrefs,
   showPageKey = false,
+  showDescription = true,
   dragInstanceId,
   buildDragData,
   layout,
@@ -431,6 +433,7 @@ export const Column = memo(function Column({
                       columnId={column.id}
                       displayPrefs={displayPrefs}
                       showPageKey={showPageKey}
+                      showDescription={showDescription}
                       dragInstanceId={dragInstanceId}
                       buildDragData={buildDragData}
                       dragDisabled={dragDisabled}

@@ -55,6 +55,17 @@ describe("Database View Display option reducer", () => {
     ]);
   });
 
+  test("keeps the Board description preference separate from display fields", () => {
+    const board = reduceDisplayOptionChange(
+      { ...effective(), layout: "board" },
+      { kind: "set_show_description", enabled: false },
+      capabilities,
+    );
+
+    expect(board.presentation.layouts.board.showDescription).toBe(false);
+    expect(board.presentation.layouts.list.showDescription).toBeUndefined();
+  });
+
   test("toggles primary group order independently from row ordering", () => {
     const next = reduceDisplayOptionChange(
       effective(),

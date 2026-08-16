@@ -2476,6 +2476,7 @@ fn resolve_agent_data_source_query(
     let empty_layout = DatabaseViewLayoutDisplay {
         fields: Vec::new(),
         show_empty_groups: false,
+        show_description: true,
     };
     let definition = DatabaseViewDefinition {
         filter: query.filter.clone(),
@@ -2821,6 +2822,9 @@ fn apply_presentation_override(
             }
             if let Some(show_empty_groups) = source.show_empty_groups {
                 target.show_empty_groups = show_empty_groups;
+            }
+            if let Some(show_description) = source.show_description {
+                target.show_description = show_description;
             }
         }
     }

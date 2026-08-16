@@ -130,6 +130,31 @@ describe("board card", () => {
     expect(textContent(card.container).includes("Persisted title")).toBe(false);
   });
 
+  test("hides the Page description when the Board display preference is disabled", async () => {
+    const card = await renderCard({
+      card: {
+        id: "card-description",
+        pageKey: null,
+        status: "build",
+        archived: false,
+        title: "Task",
+        richTitle: plainTextToPortableRichText("Task"),
+        descriptionPreview: "A body preview",
+        descriptionLength: 14,
+        hasDescription: true,
+        tags: [],
+        created: new Date("2026-03-01T00:00:00.000Z"),
+        order: 0,
+      },
+      columnId: "build",
+      showDescription: false,
+      onClick: () => undefined,
+    });
+
+    expect(card.container.querySelector('[data-board-page-description="true"]'))
+      .toBeNull();
+  });
+
   test("suppresses browser text selection on the card surface", async () => {
     mockCardPropertyPosition = "inline";
     const card = await renderCard({
