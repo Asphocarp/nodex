@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import {
   NfmCompactLinkToolbar,
   NfmCreateLinkDialogSurface,
-  NfmLinkEditDialogSurface,
+  NfmLinkEditToolbarSurface,
   openNfmResolvedLinkAction,
   resolveNfmLinkAction,
   resolveNfmLinkTooltipLabel,
@@ -399,6 +399,7 @@ export interface NfmLinkToolbarProps extends LinkToolbarProps {
 }
 
 const COPY_FEEDBACK_MS = 1600;
+const NFM_LINK_EDIT_URL_PLACEHOLDER = "Type or paste a link";
 
 function isOpenableLinkAction(
   action: NfmResolvedLinkAction | null,
@@ -417,7 +418,7 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
   const { deleteLink } = useExtension(LinkToolbarExtension);
   const [isEditing, setIsEditing] = useState(false);
   const [copied, setCopied] = useState(false);
-  const editDialogRef = useRef<HTMLDivElement | null>(null);
+  const editToolbarRef = useRef<HTMLDivElement | null>(null);
   const copyResetTimerRef = useRef<number | null>(null);
   const liveRangeRef = useRef(props.range);
   const action = resolveNfmLinkAction(props.url, props.projectWorkspacePath);
@@ -427,9 +428,7 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
     && (action.kind !== "page" || Boolean(hostRuntime?.openPage));
   const {
     currentUrl,
-    currentText,
     setCurrentUrl,
-    setCurrentText,
   } = useNfmLinkEditorState(props);
 
   useEffect(() => {
@@ -445,7 +444,7 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
     };
   }, []);
 
-  const applyLiveLinkEdit = useCallback((nextUrl: string, nextText: string) => {
+  const applyLiveLinkEdit = useCallback((nextUrl: string) => {
     const normalizedUrl = normalizeNfmEditorLinkUrl(nextUrl);
     if (!normalizedUrl) return false;
 
@@ -453,10 +452,10 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
       editor,
       liveRangeRef.current,
       normalizedUrl,
-      nextText,
+      props.text,
     );
     return true;
-  }, [editor]);
+  }, [editor, props.text]);
 
   const closeEditDialog = useCallback((closeToolbar: boolean) => {
     setIsEditing(false);
@@ -470,7 +469,7 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (editDialogRef.current?.contains(target)) return;
+      if (editToolbarRef.current?.contains(target)) return;
       closeEditDialog(true);
     };
 
@@ -498,9 +497,9 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
 
     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
     event.preventDefault();
-    if (!applyLiveLinkEdit(currentUrl, currentText)) return;
+    if (!applyLiveLinkEdit(currentUrl)) return;
     closeEditDialog(true);
-  }, [applyLiveLinkEdit, closeEditDialog, currentText, currentUrl]);
+  }, [applyLiveLinkEdit, closeEditDialog, currentUrl]);
 
   const handleCopyLink = useCallback(async () => {
     const didCopy = await writeTextToClipboard(props.url);
@@ -519,27 +518,17 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
 
   if (isEditing) {
     return (
-      <NfmLinkEditDialogSurface
-        ref={editDialogRef}
-        urlLabel={"Page or URL"}
-        titleLabel={"Link title"}
-        urlPlaceholder={dict.link_toolbar.form.url_placeholder}
-        titlePlaceholder={dict.link_toolbar.form.title_placeholder}
+      <NfmLinkEditToolbarSurface
+        ref={editToolbarRef}
+        urlPlaceholder={NFM_LINK_EDIT_URL_PLACEHOLDER}
         urlValue={currentUrl}
-        titleValue={currentText}
-        removeLabel={dict.link_toolbar.delete.tooltip}
         onUrlChange={(value) => {
           setCurrentUrl(value);
-          applyLiveLinkEdit(value, currentText);
-        }}
-        onTitleChange={(value) => {
-          setCurrentText(value);
-          applyLiveLinkEdit(currentUrl, value);
+          applyLiveLinkEdit(value);
         }}
         onUrlKeyDown={handleFieldKeyDown}
-        onTitleKeyDown={handleFieldKeyDown}
-        onRemoveLink={() => {
-          deleteLink(props.range.from);
+        onApply={() => {
+          if (!applyLiveLinkEdit(currentUrl)) return;
           closeEditDialog(true);
         }}
       />
@@ -551,7 +540,10 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
       href={props.url}
       canOpen={canOpen}
       openTooltip={tooltip}
-      copyLabel={"Copy link"}
+      openLabel={"Open"}
+      clearTooltip={"Clear"}
+      clearLabel={"Clear"}
+      copyLabel={"Copy"}
       copyTooltip={"Copy link"}
       copiedLabel={"Copied"}
       copiedTooltip={"Copied"}
@@ -582,6 +574,10 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
               }
             : undefined,
         );
+      }}
+      onClearLink={() => {
+        deleteLink(liveRangeRef.current.from);
+        closeEditDialog(true);
       }}
       onCopyLink={() => {
         void handleCopyLink();

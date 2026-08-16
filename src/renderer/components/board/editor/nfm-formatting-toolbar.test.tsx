@@ -152,7 +152,8 @@ describe("nfm formatting toolbar", () => {
     })).toBe(false);
   });
 
-  test("omits non-persisted text alignment buttons from the legacy image/file toolbar", () => {
+  test("omits unsupported actions from the legacy image/file toolbar", () => {
+    expect(shouldRenderNfmLegacyFormattingToolbarItem("fileRenameButton")).toBe(false);
     expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignLeftButton")).toBe(false);
     expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignCenterButton")).toBe(false);
     expect(shouldRenderNfmLegacyFormattingToolbarItem("textAlignRightButton")).toBe(false);

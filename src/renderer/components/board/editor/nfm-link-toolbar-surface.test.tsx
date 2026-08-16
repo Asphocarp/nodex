@@ -6,7 +6,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import {
   NfmCompactLinkToolbar,
   NfmCreateLinkDialogSurface,
-  NfmLinkEditDialogSurface,
+  NfmLinkEditToolbarSurface,
 } from "./nfm-link-toolbar-surface";
 
 function renderToolbar(props?: Partial<Parameters<typeof NfmCompactLinkToolbar>[0]>) {
@@ -16,13 +16,17 @@ function renderToolbar(props?: Partial<Parameters<typeof NfmCompactLinkToolbar>[
         href="https://community.openai.com/t/example"
         canOpen={true}
         openTooltip="Open in new tab"
-        copyLabel="Copy link"
+        openLabel="Open"
+        clearTooltip="Clear"
+        clearLabel="Clear"
+        copyLabel="Copy"
         copyTooltip="Copy link"
         copiedLabel="Copied"
         copiedTooltip="Copied"
         editTooltip="Edit"
         editLabel="Edit"
         onOpenLink={() => {}}
+        onClearLink={() => {}}
         onCopyLink={() => {}}
         onEditLink={() => {}}
         {...props}
@@ -32,7 +36,7 @@ function renderToolbar(props?: Partial<Parameters<typeof NfmCompactLinkToolbar>[
 }
 
 describe("nfm compact link toolbar", () => {
-  test("opens the link via the primary URL pill when actionable", async () => {
+  test("opens the link through the Open action when actionable", async () => {
     let openCount = 0;
 
     const view = renderToolbar({
@@ -42,7 +46,7 @@ describe("nfm compact link toolbar", () => {
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Open in new tab" }));
+      fireEvent.click(view.getByRole("button", { name: "Open" }));
       await settleAsyncRender();
     });
 
@@ -62,7 +66,7 @@ describe("nfm compact link toolbar", () => {
       },
     });
 
-    const button = view.getByRole("button", { name: disabledReason });
+    const button = view.getByRole("button", { name: "Open" });
 
     await act(async () => {
       fireEvent.mouseEnter(button);
@@ -85,7 +89,7 @@ describe("nfm compact link toolbar", () => {
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Copy link" }));
+      fireEvent.click(view.getByRole("button", { name: "Copy" }));
       await settleAsyncRender();
     });
 
@@ -120,13 +124,17 @@ describe("nfm compact link toolbar", () => {
               href="https://community.openai.com/t/example"
               canOpen={true}
               openTooltip="Open in new tab"
-              copyLabel="Copy link"
+              openLabel="Open"
+              clearTooltip="Clear"
+              clearLabel="Clear"
+              copyLabel="Copy"
               copyTooltip="Copy link"
               copiedLabel="Copied"
               copiedTooltip="Copied"
               editTooltip="Edit"
               editLabel="Edit"
               onOpenLink={() => {}}
+              onClearLink={() => {}}
               onCopyLink={() => {
                 copied += 1;
               }}
@@ -138,7 +146,7 @@ describe("nfm compact link toolbar", () => {
     }
 
     const view = render(<ToolbarHarness />);
-    const copyButton = view.getByRole("button", { name: "Copy link" });
+    const copyButton = view.getByRole("button", { name: "Copy" });
 
     await act(async () => {
       fireEvent.pointerDown(copyButton);
@@ -150,43 +158,39 @@ describe("nfm compact link toolbar", () => {
     expect(view.container.textContent?.includes("Closed") ?? false).toBe(false);
   });
 
-  test("replaces the toolbar with the edit dialog when edit is clicked", async () => {
+  test("replaces the toolbar with the URL-only edit toolbar when edit is clicked", async () => {
     function ToolbarHarness() {
       const [editing, setEditing] = useState(false);
       const [url, setUrl] = useState("https://community.openai.com/t/example");
-      const [title, setTitle] = useState("OpenAI forum note");
 
       const handleFieldKeyDown = () => {};
 
       return (
         <NodexTooltipProvider>
           {editing ? (
-            <NfmLinkEditDialogSurface
-              urlLabel="Page or URL"
-              titleLabel="Link title"
-              urlPlaceholder="Paste or type a link"
-              titlePlaceholder="Link title"
+            <NfmLinkEditToolbarSurface
+              urlPlaceholder="Type or paste a link"
               urlValue={url}
-              titleValue={title}
-              removeLabel="Remove link"
               onUrlChange={setUrl}
-              onTitleChange={setTitle}
               onUrlKeyDown={handleFieldKeyDown}
-              onTitleKeyDown={handleFieldKeyDown}
-              onRemoveLink={() => {}}
+              onApply={() => setEditing(false)}
             />
           ) : (
             <NfmCompactLinkToolbar
               href={url}
               canOpen={true}
               openTooltip="Open in new tab"
-              copyLabel="Copy link"
+              openLabel="Open"
+              clearTooltip="Clear"
+              clearLabel="Clear"
+              copyLabel="Copy"
               copyTooltip="Copy link"
               copiedLabel="Copied"
               copiedTooltip="Copied"
               editTooltip="Edit"
               editLabel="Edit"
               onOpenLink={() => {}}
+              onClearLink={() => {}}
               onCopyLink={() => {}}
               onEditLink={() => {
                 setEditing(true);
@@ -205,62 +209,52 @@ describe("nfm compact link toolbar", () => {
     });
 
     expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBe(true);
-    expect(view.getByTestId("nfm-link-edit-dialog").getAttribute("role")).toBe("dialog");
-    expect(Boolean(view.getByText("Page or URL"))).toBe(true);
+    expect(view.getByTestId("nfm-link-edit-toolbar").getAttribute("role")).toBe("toolbar");
+    expect(Boolean(view.getByRole("textbox", { name: "Type or paste a link" }))).toBe(true);
+    expect(view.queryByRole("textbox", { name: "Link title" }) === null).toBe(true);
+  });
+
+  test("clears the link through the compact Clear action", async () => {
+    let clearCount = 0;
+    const view = renderToolbar({
+      onClearLink: () => {
+        clearCount += 1;
+      },
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Clear" }));
+      await settleAsyncRender();
+    });
+
+    expect(clearCount).toBe(1);
   });
 });
 
-describe("nfm link edit dialog surface", () => {
-  test("invokes the unlink action", async () => {
-    let removed = 0;
-
+describe("nfm link edit toolbar surface", () => {
+  test("renders only the URL field and applies the edited link", async () => {
+    let applied = 0;
     const view = render(
-      <NfmLinkEditDialogSurface
-        urlLabel="Page or URL"
-        titleLabel="Link title"
-        urlPlaceholder="Paste or type a link"
-        titlePlaceholder="Link title"
+      <NfmLinkEditToolbarSurface
+        urlPlaceholder="Type or paste a link"
         urlValue="https://community.openai.com/t/example"
-        titleValue="OpenAI forum note"
-        removeLabel="Remove link"
         onUrlChange={() => {}}
-        onTitleChange={() => {}}
         onUrlKeyDown={() => {}}
-        onTitleKeyDown={() => {}}
-        onRemoveLink={() => {
-          removed += 1;
+        onApply={() => {
+          applied += 1;
         }}
       />,
     );
 
+    expect(Boolean(view.getByRole("textbox", { name: "Type or paste a link" }))).toBe(true);
+    expect(view.queryByRole("textbox", { name: "Link title" }) === null).toBe(true);
+
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Remove link" }));
+      fireEvent.click(view.getByRole("button", { name: "Apply link" }));
       await settleAsyncRender();
     });
 
-    expect(removed).toBe(1);
-  });
-
-  test("renders the labeled URL and title fields", async () => {
-    const view = render(
-      <NfmLinkEditDialogSurface
-        urlLabel="Page or URL"
-        titleLabel="Link title"
-        urlPlaceholder="Paste or type a link"
-        titlePlaceholder="Link title"
-        urlValue="https://community.openai.com/t/example"
-        titleValue="OpenAI forum note"
-        removeLabel="Remove link"
-        onUrlChange={() => {}}
-        onTitleChange={() => {}}
-        onUrlKeyDown={() => {}}
-        onTitleKeyDown={() => {}}
-        onRemoveLink={() => {}}
-      />,
-    );
-
-    expect(Boolean(view.getByLabelText("Page or URL"))).toBe(true);
-    expect(Boolean(view.getByLabelText("Link title"))).toBe(true);
+    expect(applied).toBe(1);
   });
 
   test("renders the compact create-link dialog and invokes submit", async () => {

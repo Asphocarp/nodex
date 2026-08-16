@@ -116,27 +116,16 @@ vi.mock("./nfm-link-toolbar-deps", () => ({
       </button>
     </div>
   ),
-  NfmLinkEditDialogSurface: ({
-    onTitleChange,
+  NfmLinkEditToolbarSurface: ({
     onUrlChange,
   }: {
     onUrlChange: (value: string) => void;
-    onTitleChange: (value: string) => void;
   }) => (
-    <div data-testid="nfm-link-edit-dialog">
+    <div data-testid="nfm-link-edit-toolbar">
       <input
-        aria-label="Dialog focus"
+        aria-label="Type or paste a link"
         defaultValue=""
       />
-      <button
-        type="button"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          onTitleChange("Changed title");
-        }}
-      >
-        Change Title
-      </button>
       <button
         type="button"
         onMouseDown={(event) => {
@@ -171,7 +160,7 @@ describe("NfmLinkToolbar live editing", () => {
     );
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Copy link" }));
+      fireEvent.click(view.getByRole("button", { name: "Copy" }));
       await settleAsyncRender();
     });
 
@@ -179,7 +168,7 @@ describe("NfmLinkToolbar live editing", () => {
     expect(Boolean(view.getByRole("button", { name: "Copied" }))).toBe(true);
   });
 
-  test("updates the editor on every change without stealing focus from the dialog", async () => {
+  test("updates the editor on every URL change without stealing focus from the toolbar", async () => {
     insertCalls.length = 0;
     markCalls.length = 0;
     focusCalls = 0;
@@ -204,35 +193,22 @@ describe("NfmLinkToolbar live editing", () => {
       await settleAsyncRender();
     });
 
-    const focusProbe = view.getByRole("textbox", { name: "Dialog focus" }) as HTMLInputElement;
+    const focusProbe = view.getByRole("textbox", { name: "Type or paste a link" }) as HTMLInputElement;
     focusProbe.focus();
-
-    await act(async () => {
-      fireEvent.mouseDown(view.getByRole("button", { name: "Change Title" }));
-      await settleAsyncRender();
-    });
-
-    expect(insertCalls[0]?.text).toBe("Changed title");
-    expect(insertCalls[0]?.from).toBe(4);
-    expect(insertCalls[0]?.to).toBe(9);
-    expect(markCalls[0]?.href).toBe("https://community.openai.com/t/example");
-    expect(markCalls[0]?.to).toBe(17);
-    expect(focusCalls).toBe(0);
-    expect(document.activeElement === focusProbe).toBe(true);
-    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBe(true);
 
     await act(async () => {
       fireEvent.mouseDown(view.getByRole("button", { name: "Change URL" }));
       await settleAsyncRender();
     });
 
-    expect(insertCalls[1]?.text).toBe("Changed title");
-    expect(insertCalls[1]?.from).toBe(4);
-    expect(insertCalls[1]?.to).toBe(17);
-    expect(markCalls[1]?.href).toBe("https://example.com/next");
-    expect(markCalls[1]?.to).toBe(17);
+    expect(insertCalls[0]?.text).toBe("OpenAI forum note");
+    expect(insertCalls[0]?.from).toBe(4);
+    expect(insertCalls[0]?.to).toBe(9);
+    expect(markCalls[0]?.href).toBe("https://example.com/next");
+    expect(markCalls[0]?.to).toBe(21);
     expect(focusCalls).toBe(0);
     expect(document.activeElement === focusProbe).toBe(true);
-    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBe(true);
+    expect(Boolean(view.getByTestId("nfm-link-edit-toolbar"))).toBe(true);
+    expect(insertCalls[1]).toBeUndefined();
   });
 });

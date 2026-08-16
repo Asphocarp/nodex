@@ -39,7 +39,7 @@ Manual link creation and editing happen through the BlockNote-based editor UI:
 - the link toolbar shown for an existing selected/hovered link
 
 Both flows use the same Nodex-local submit-time normalizer.
-Both flows now also use the same compact Nodex-owned popover/dialog visual language instead of BlockNote's default form-popover chrome.
+Both flows now also use Nodex-owned surfaces instead of BlockNote's default form-popover chrome. Existing-link actions use the compact toolbar described below; create-link keeps its separate URL form.
 
 ## Inline Link Visual Treatment
 
@@ -59,23 +59,22 @@ highlight remains independent from ordinary link styling. Thread/chat mentions
 use the same label treatment and inline geometry; date mentions retain their
 separate text-level visual style.
 
-## Hover Toolbar Affordance
+## Link Toolbar Affordance
 
-For an existing selected or hovered link, the NFM editor shows a compact hover toolbar anchored to the link.
-The hover pill is positioned above the link.
+For an existing selected or hovered link, the NFM editor shows a compact toolbar anchored below the link by default. Floating UI may flip it above the link when viewport collision requires it.
+Its chrome is a single 36px-high rounded toolbar with the same spacing and shadow in its normal and URL-editing states.
+Both states use an opaque floating surface so editor content never shows through the toolbar, and they share the same link-action glyph set.
+The toolbar uses the same light and dark outline shadow geometry as Notion's link toolbar. `Copy` and `Open` are icon-only actions; their tooltips and accessible names remain available.
 
 The toolbar is intentionally concise:
-- the left URL pill is the primary open action
-- a trailing `Copy link` icon copies the stored raw `href` exactly as authored and flips to the shared `Copied` checkmark feedback state on success
-- a trailing `Edit` button swaps the hover pill into a single anchored edit dialog
+- a truncated, non-interactive URL preview identifies the stored target
+- `Edit` and `Clear` are icon-only actions
+- `Copy` copies the stored raw `href` exactly as authored and flips to the shared `Copied` checkmark feedback state on success
+- `Open` owns navigation and uses the existing open-time link classification rules
 
-The hover toolbar no longer shows a separate inline unlink button.
+`Clear` removes the link mark without opening another surface. Blocked or unresolved targets keep the same failure reason and disable `Open`; the URL preview remains available for inspection.
 
-Instead:
-- unlink remains supported inside the edit dialog as `Remove link`
-- the edit dialog pushes URL/title edits back through the current card draft description on every change while preserving dialog focus, using the same trim-only normalizer and stored-link semantics
-- opening still uses the same open-time link classification rules described below
-- blocked or unresolved links keep the same failure reason and render the URL pill as non-opening
+Selecting `Edit` replaces the compact toolbar with another toolbar of the same height. The edit state contains one URL input with the placeholder `Type or paste a link` and an `Apply link` action rendered as a 20px filled circle with a 12px contrasting checkmark. It does not expose a link-title field: editing the target never changes the visible link text. URL changes continue to use the same trim-only normalizer and stored-link semantics, and the input keeps focus while the current draft target is updated.
 
 This affordance change is visual and interaction-level only; it does not change how manual link targets are stored.
 

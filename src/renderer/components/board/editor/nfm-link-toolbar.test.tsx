@@ -4,7 +4,7 @@ import { act, useCallback, useState } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, settleAsyncRender } from "../../../test/dom";
 
-const deleteLink = () => {};
+const deleteLink = vi.fn();
 const editLink = () => {};
 const showSelection = () => {};
 const formattingToolbarStore = {
@@ -73,17 +73,20 @@ vi.mock("./nfm-link-toolbar-deps", () => ({
   }),
   NfmCompactLinkToolbar: ({
     editLabel,
+    onClearLink,
     onEditLink,
   }: {
     editLabel: string;
+    onClearLink: () => void;
     onEditLink: () => void;
   }) => (
     <div data-testid="nfm-compact-link-toolbar">
       <button type="button" onClick={onEditLink}>{editLabel}</button>
+      <button type="button" onClick={onClearLink}>Clear</button>
     </div>
   ),
   NfmCreateLinkDialogSurface: () => <div data-testid="nfm-create-link-dialog" />,
-  NfmLinkEditDialogSurface: () => <div data-testid="nfm-link-edit-dialog" />,
+  NfmLinkEditToolbarSurface: () => <div data-testid="nfm-link-edit-toolbar" />,
 }));
 
 describe("NfmLinkToolbar", () => {
@@ -151,7 +154,7 @@ describe("NfmLinkToolbar", () => {
     expect(Boolean(view.getByTestId("nfm-create-link-dialog"))).toBe(true);
   });
 
-  test("keeps the edit dialog open for the current link after clicking edit", async () => {
+  test("keeps the edit toolbar open for the current link after clicking edit", async () => {
     createLinkButtonState = undefined;
     const { NfmLinkToolbar } = await import("./nfm-link-toolbar");
 
@@ -173,11 +176,38 @@ describe("NfmLinkToolbar", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBe(true);
+    expect(Boolean(view.getByTestId("nfm-link-edit-toolbar"))).toBe(true);
     expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBe(true);
   });
 
-  test("keeps the edit dialog mounted across parent rerenders when the wrapper component identity is stable", async () => {
+  test("clears the current link from the compact toolbar", async () => {
+    deleteLink.mockClear();
+    const setToolbarOpen = vi.fn();
+    const { NfmLinkToolbar } = await import("./nfm-link-toolbar");
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmLinkToolbar
+          url="https://community.openai.com/t/example"
+          text="OpenAI forum note"
+          range={{ from: 4, to: 9 }}
+          setToolbarOpen={setToolbarOpen}
+          setToolbarPositionFrozen={() => {}}
+          projectWorkspacePath={null}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Clear" }));
+      await settleAsyncRender();
+    });
+
+    expect(deleteLink).toHaveBeenCalledWith(4);
+    expect(setToolbarOpen).toHaveBeenCalledWith(false);
+  });
+
+  test("keeps the edit toolbar mounted across parent rerenders when the wrapper component identity is stable", async () => {
     createLinkButtonState = undefined;
     const { NfmLinkToolbar } = await import("./nfm-link-toolbar");
 
@@ -224,7 +254,7 @@ describe("NfmLinkToolbar", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(view.getByTestId("nfm-link-edit-dialog"))).toBe(true);
+    expect(Boolean(view.getByTestId("nfm-link-edit-toolbar"))).toBe(true);
     expect(view.queryByTestId("nfm-compact-link-toolbar") === null).toBe(true);
   });
 });

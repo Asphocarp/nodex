@@ -66,6 +66,16 @@ const readPageMentionHighlight = async (mention: Locator) => {
   });
 };
 
+const readOpaqueSurfaceStyle = async (surface: Locator) => {
+  return surface.evaluate((element) => {
+    const style = globalThis.getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      backgroundImage: style.backgroundImage,
+    };
+  });
+};
+
 test("materializes and opens the authoritative board/dense environment", async ({}, testInfo) => {
   test.setTimeout(120_000);
   await withElectronScenario({
@@ -201,6 +211,57 @@ test("materializes and opens the authoritative board/dense environment", async (
     expect(editorPageLinkStyle.paddingRight).toBe("0px");
     expect(editorPageLinkStyle.textDecorationLine).toBe("none");
     await editorPageLink.hover();
+    const linkToolbar = page.getByRole("toolbar", { name: "Link actions" });
+    await expect(linkToolbar).toBeVisible();
+    await expect(linkToolbar.getByRole("button", { name: "Edit" })).toBeVisible();
+    await expect(linkToolbar.getByRole("button", { name: "Clear" })).toBeVisible();
+    await expect(linkToolbar.getByRole("button", { name: "Copy" })).toBeVisible();
+    await expect(linkToolbar.getByRole("button", { name: "Open" })).toBeVisible();
+    await expect(linkToolbar.getByRole("button", { name: "Copy" }).getByText("Copy", { exact: true })).toHaveCount(0);
+    await expect(linkToolbar.getByRole("button", { name: "Open" }).getByText("Open", { exact: true })).toHaveCount(0);
+    const compactToolbarSurface = await readOpaqueSurfaceStyle(linkToolbar);
+    expect(compactToolbarSurface.backgroundImage).toBe("none");
+    expect(compactToolbarSurface.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    const compactToolbarBox = await linkToolbar.boundingBox();
+    expect(compactToolbarBox).not.toBeNull();
+    if (!compactToolbarBox) throw new Error("Link toolbar geometry is unavailable");
+    const editorPageLinkBox = await editorPageLink.boundingBox();
+    expect(editorPageLinkBox).not.toBeNull();
+    if (!editorPageLinkBox) throw new Error("Editor link geometry is unavailable");
+    expect(compactToolbarBox.y).toBeGreaterThanOrEqual(editorPageLinkBox.y + editorPageLinkBox.height);
+    await linkToolbar.getByRole("button", { name: "Edit" }).click();
+    const editToolbar = page.getByRole("toolbar", { name: "Edit link" });
+    await expect(editToolbar).toBeVisible();
+    await expect(editToolbar.getByRole("textbox", { name: "Type or paste a link" })).toBeVisible();
+    await expect(editToolbar.getByRole("button", { name: "Apply link" })).toBeVisible();
+    await expect(editToolbar.getByRole("textbox", { name: "Link title" })).toHaveCount(0);
+    const editToolbarSurface = await readOpaqueSurfaceStyle(editToolbar);
+    expect(editToolbarSurface.backgroundImage).toBe("none");
+    expect(editToolbarSurface.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    const applyButton = editToolbar.getByRole("button", { name: "Apply link" });
+    const applyButtonStyle = await applyButton.evaluate((element) => {
+      const style = globalThis.getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderRadius: style.borderRadius,
+        padding: style.padding,
+      };
+    });
+    expect(applyButtonStyle.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(applyButtonStyle.borderRadius).not.toBe("0px");
+    expect(applyButtonStyle.padding).toBe("0px");
+    const editApplyIconBox = await applyButton.locator("svg").boundingBox();
+    expect(editApplyIconBox).not.toBeNull();
+    if (!editApplyIconBox) throw new Error("Link apply icon geometry is unavailable");
+    expect(editApplyIconBox.width).toBeCloseTo(12, 0);
+    expect(editApplyIconBox.height).toBeCloseTo(12, 0);
+    const editToolbarBox = await editToolbar.boundingBox();
+    expect(editToolbarBox).not.toBeNull();
+    if (!editToolbarBox) throw new Error("Link edit toolbar geometry is unavailable");
+    expect(editToolbarBox.height).toBeCloseTo(compactToolbarBox.height, 0);
+    await page.keyboard.press("Escape");
+    await editorPageLink.hover();
+    await expect(linkToolbar).toBeVisible();
     const editorPageLinkHoverStyle = await editorPageLink.evaluate((element) => {
       const style = globalThis.getComputedStyle(element);
       return {
