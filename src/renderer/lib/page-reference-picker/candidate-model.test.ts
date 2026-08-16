@@ -15,6 +15,7 @@ const candidate = (pageId: string): PageReferenceCandidate => ({
   locationLabel: "Library",
   lifecycle: "active",
   matchExcerpt: null,
+  matchSource: "recent",
   disabledReason: null,
 });
 
@@ -78,13 +79,29 @@ describe("Page reference candidate model", () => {
 
   test("shows Page context only for a key match, content hit, or ambiguity", () => {
     const items = [
-      { ...candidate("unique"), title: "Unique", pageKey: "NDX-1" },
-      { ...candidate("duplicate-a"), title: "Weekly", locationLabel: "Product" },
-      { ...candidate("duplicate-b"), title: "Weekly", locationLabel: "Research" },
+      {
+        ...candidate("unique"),
+        title: "Unique",
+        pageKey: "NDX-1",
+        matchSource: "content" as const,
+      },
+      {
+        ...candidate("duplicate-a"),
+        title: "Weekly",
+        locationLabel: "Product",
+        matchSource: "title" as const,
+      },
+      {
+        ...candidate("duplicate-b"),
+        title: "Weekly",
+        locationLabel: "Research",
+        matchSource: "title" as const,
+      },
       {
         ...candidate("content"),
         title: "Architecture",
         matchExcerpt: "A long preview explains the affected projection window and why this Page matched the query.",
+        matchSource: "content" as const,
       },
     ];
 
@@ -104,7 +121,10 @@ describe("Page reference candidate model", () => {
       detail: "Research",
       match: "prefix_title",
     });
-    const pageKeyHit = presentPageReferenceCandidates(items, "NDX-1")[0];
+    const pageKeyHit = presentPageReferenceCandidates([{
+      ...items[0]!,
+      matchSource: "page_key" as const,
+    }], "NDX-1")[0];
     expect(pageKeyHit).toMatchObject({
       detail: "NDX-1",
       match: "page_key",
@@ -124,6 +144,7 @@ describe("Page reference candidate model", () => {
       ...candidate("tail-content"),
       title: "Keep projection updates bounded",
       matchExcerpt: "A deliberately longer preview explains that local commits should update only the affected projection window while preserving causal coverage.",
+      matchSource: "content" as const,
     }], "caus")[0];
     expect(tailHit?.detail?.startsWith("…")).toBe(true);
     expect(tailHit?.detail?.endsWith("causal coverage.")).toBe(true);
@@ -139,6 +160,7 @@ describe("Page reference candidate model", () => {
       ...candidate("short-tail-content"),
       title: "Verify real Electron geometry",
       matchExcerpt: "Exercise the actual desktop boundary at the canonical viewport.",
+      matchSource: "content" as const,
     }], "ca")[0];
     expect(shortTailHit?.detail?.startsWith("…")).toBe(true);
     expect(shortTailHit?.detail?.indexOf("canonical")).toBeLessThanOrEqual(24);
@@ -157,6 +179,7 @@ describe("Page reference candidate model", () => {
         ...candidate("target"),
         title: "Preserve local-first identity",
         matchExcerpt: "Preserve local-first identity",
+        matchSource: "title" as const,
       },
     ], "presrve", { rank: true });
 
@@ -168,5 +191,17 @@ describe("Page reference candidate model", () => {
         .map(({ text }) => text)
         .join(""),
     ).toBe("Preserve");
+  });
+
+  test("does not turn a Core title match into a renderer content match", () => {
+    const [presented] = presentPageReferenceCandidates([{
+      ...candidate("mixed-match"),
+      title: "Keep projection updates bounded",
+      matchExcerpt: "The body also mentions projection, but the title matched first.",
+      matchSource: "title",
+    }], "projection");
+
+    expect(presented?.match).toBe("title");
+    expect(presented?.detail).toBeNull();
   });
 });

@@ -292,6 +292,7 @@ describe("NfmSlashMenu", () => {
           locationLabel: "Product / Editor",
           lifecycle: "active",
           matchExcerpt: "Projection notes",
+          matchSource: "title",
           disabledReason: null,
         },
         {
@@ -302,6 +303,7 @@ describe("NfmSlashMenu", () => {
           locationLabel: "Product / Foundations",
           lifecycle: "active",
           matchExcerpt: "The affected projection window stays bounded.",
+          matchSource: "content",
           disabledReason: null,
         },
       ],

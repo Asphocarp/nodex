@@ -304,6 +304,7 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
         kind: "page_reference_candidates",
         query: read.query,
         limit: read.limit ?? null,
+        source_page_id: read.sourcePageId ?? null,
       };
     case "page_backlinks":
       return {
@@ -865,6 +866,7 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
           status: item.status ?? null,
           locationLabel: item.location_label,
           matchExcerpt: item.match_excerpt ?? null,
+          matchSource: item.match_source,
         })),
       } as const;
     case "page_backlinks":

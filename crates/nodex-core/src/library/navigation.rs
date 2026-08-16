@@ -9,8 +9,8 @@ use nodex_core_contracts::library::{
     LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty, LibraryPageKeyTarget,
     LibraryPageLocation, LibraryPageMembership, LibraryPageOwnershipPath,
     LibraryPageOwnershipPathAncestor, LibraryPageReferenceCandidate,
-    LibraryPageReferencePresentation, LibraryPageTarget, LibraryRead, LibraryReadValue,
-    LibraryResourceTarget, LibraryRouteTarget, LibraryViewLocation,
+    LibraryPageReferenceMatchSource, LibraryPageReferencePresentation, LibraryPageTarget,
+    LibraryRead, LibraryReadValue, LibraryResourceTarget, LibraryRouteTarget, LibraryViewLocation,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -433,9 +433,18 @@ pub(super) fn read(
             }
             super::content::project_page_search(connection, library_id, project_ids, &query, limit)
         }
-        LibraryRead::PageReferenceCandidates { query, limit } => {
-            page_reference_candidates(connection, library_id, context, &query, limit)
-        }
+        LibraryRead::PageReferenceCandidates {
+            query,
+            limit,
+            source_page_id,
+        } => page_reference_candidates(
+            connection,
+            library_id,
+            context,
+            &query,
+            limit,
+            source_page_id.as_deref(),
+        ),
         LibraryRead::PageBacklinks {
             target_page_id,
             cursor,
@@ -491,6 +500,7 @@ fn page_reference_candidates(
     context: &BoundModuleContext,
     query: &str,
     requested_limit: Option<u32>,
+    source_page_id: Option<&str>,
 ) -> Result<LibraryReadValue, StoreError> {
     let query = query.trim().to_lowercase();
     if query.len() > 256 {
@@ -534,6 +544,8 @@ fn page_reference_candidates(
                 page_id,
                 title,
                 Some(preview),
+                LibraryPageReferenceMatchSource::PageKey,
+                source_page_id,
             )?
         {
             return Ok(LibraryReadValue::PageReferenceCandidates { items });
@@ -569,6 +581,8 @@ fn page_reference_candidates(
                 row.get(0)?,
                 row.get(1)?,
                 None,
+                LibraryPageReferenceMatchSource::Recent,
+                source_page_id,
             )? {
                 break;
             }
@@ -612,7 +626,7 @@ fn page_reference_candidates(
                     preview: row.get(2)?,
                     updated_at: row.get(3)?,
                     score: 0,
-                    content_match: false,
+                    match_source: LibraryPageReferenceMatchSource::Recent,
                 })
             },
         )?
@@ -625,14 +639,15 @@ fn page_reference_candidates(
         ));
     }
     candidates.retain_mut(|candidate| {
-        let Some((score, content_match)) =
+        let Some((score, match_source)) =
             page_reference_search_score(&candidate.title, &candidate.preview, &query, &terms)
         else {
             return false;
         };
         candidate.score = score;
-        candidate.content_match = content_match;
-        true
+        candidate.match_source = match_source;
+        !(source_page_id == Some(candidate.page_id.as_str())
+            && match_source == LibraryPageReferenceMatchSource::Content)
     });
     candidates.sort_by(|left, right| {
         right
@@ -642,7 +657,7 @@ fn page_reference_candidates(
             .then_with(|| left.page_id.cmp(&right.page_id))
     });
     for candidate in candidates {
-        let match_excerpt = if candidate.content_match {
+        let match_excerpt = if candidate.match_source == LibraryPageReferenceMatchSource::Content {
             candidate.preview
         } else {
             candidate.title.clone()
@@ -657,6 +672,8 @@ fn page_reference_candidates(
             candidate.page_id,
             candidate.title,
             Some(match_excerpt),
+            candidate.match_source,
+            source_page_id,
         )? {
             break;
         }
@@ -670,7 +687,7 @@ struct PageReferenceSearchCandidate {
     preview: String,
     updated_at: String,
     score: i64,
-    content_match: bool,
+    match_source: LibraryPageReferenceMatchSource,
 }
 
 fn page_reference_search_score(
@@ -678,36 +695,52 @@ fn page_reference_search_score(
     preview: &str,
     query: &str,
     terms: &[String],
-) -> Option<(i64, bool)> {
+) -> Option<(i64, LibraryPageReferenceMatchSource)> {
     if terms.is_empty() {
         return None;
     }
     let normalized_title = title.trim().to_lowercase();
     let normalized_preview = preview.trim().to_lowercase();
     let mut score = 0_i64;
+    let mut title_match = false;
     let mut content_match = false;
 
     if normalized_title == query {
         score += 50_000;
+        title_match = true;
     } else if normalized_title.starts_with(query) {
         score += 40_000;
+        title_match = true;
     } else if normalized_title.contains(query) {
         score += 30_000;
+        title_match = true;
     } else if normalized_preview.contains(query) {
         score += 10_000;
         content_match = true;
     }
 
     for term in terms {
-        let title_match = field_match_quality(&normalized_title, term, true);
+        let title_quality = field_match_quality(&normalized_title, term, true);
         let preview_match = field_match_quality(&normalized_preview, term, false);
         let title_substring = normalized_title.contains(term);
         let preview_substring = normalized_preview.contains(term);
-        let term_score = match title_match {
-            Some(SearchTermMatchQuality::Exact) => 4_000,
-            Some(SearchTermMatchQuality::Prefix) => 3_000,
-            Some(SearchTermMatchQuality::Fuzzy) => 2_000,
-            None if title_substring => 2_500,
+        let term_score = match title_quality {
+            Some(SearchTermMatchQuality::Exact) => {
+                title_match = true;
+                4_000
+            }
+            Some(SearchTermMatchQuality::Prefix) => {
+                title_match = true;
+                3_000
+            }
+            Some(SearchTermMatchQuality::Fuzzy) => {
+                title_match = true;
+                2_000
+            }
+            None if title_substring => {
+                title_match = true;
+                2_500
+            }
             None => match preview_match {
                 Some(SearchTermMatchQuality::Exact) => {
                     content_match = true;
@@ -727,7 +760,14 @@ fn page_reference_search_score(
         };
         score += term_score;
     }
-    Some((score, content_match))
+    let match_source = if title_match {
+        LibraryPageReferenceMatchSource::Title
+    } else if content_match {
+        LibraryPageReferenceMatchSource::Content
+    } else {
+        return None;
+    };
+    Some((score, match_source))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -741,7 +781,14 @@ fn push_page_reference_candidate(
     page_id: String,
     title: String,
     match_excerpt: Option<String>,
+    match_source: LibraryPageReferenceMatchSource,
+    source_page_id: Option<&str>,
 ) -> Result<bool, StoreError> {
+    if source_page_id == Some(page_id.as_str())
+        && match_source == LibraryPageReferenceMatchSource::Content
+    {
+        return Ok(false);
+    }
     if !seen.insert(page_id.clone()) {
         return Ok(false);
     }
@@ -761,6 +808,7 @@ fn push_page_reference_candidate(
         status,
         location_label,
         match_excerpt,
+        match_source,
     });
     Ok(items.len() == limit)
 }
@@ -3461,6 +3509,7 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use nodex_core_contracts::library::LibraryPageReferenceMatchSource;
     use serde_json::json;
 
     use super::{page_reference_search_score, valid_intrinsic_value};
@@ -3483,7 +3532,9 @@ mod tests {
             "presrve",
             &["presrve".to_owned()],
         );
-        assert!(fuzzy.is_some_and(|(_, content_match)| !content_match));
+        assert!(
+            fuzzy.is_some_and(|(_, source)| { source == LibraryPageReferenceMatchSource::Title })
+        );
 
         let content = page_reference_search_score(
             "Verify real Electron geometry",
@@ -3491,6 +3542,9 @@ mod tests {
             "ca",
             &["ca".to_owned()],
         );
-        assert!(content.is_some_and(|(_, content_match)| content_match));
+        assert!(
+            content
+                .is_some_and(|(_, source)| { source == LibraryPageReferenceMatchSource::Content })
+        );
     }
 }

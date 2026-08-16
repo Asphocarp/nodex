@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 22;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 23;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -558,6 +558,7 @@ pub enum LibraryRead {
     PageReferenceCandidates {
         query: String,
         limit: Option<u32>,
+        source_page_id: Option<String>,
     },
     PageBacklinks {
         target_page_id: String,
@@ -1600,6 +1601,16 @@ pub struct LibraryPageReferenceCandidate {
     pub status: Option<LibraryPageWorkflowStatus>,
     pub location_label: String,
     pub match_excerpt: Option<String>,
+    pub match_source: LibraryPageReferenceMatchSource,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageReferenceMatchSource {
+    Recent,
+    PageKey,
+    Title,
+    Content,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

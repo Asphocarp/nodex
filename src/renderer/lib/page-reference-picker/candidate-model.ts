@@ -33,25 +33,18 @@ function normalizeCandidateText(value: string): string {
 function classifyPageCandidateMatch(
   candidate: PageReferenceCandidate,
   query: string,
-  searchResult: SearchResult | null,
 ): MentionSuggestionMatch {
   const normalizedQuery = normalizeCandidateText(query);
-  if (!normalizedQuery) return "recent";
+  if (candidate.matchSource === "recent" || !normalizedQuery) return "recent";
 
   const title = normalizeCandidateText(candidate.title);
   if (title === normalizedQuery) return "exact_title";
-  if (normalizeCandidateText(candidate.pageKey ?? "").includes(normalizedQuery)) {
+  if (candidate.matchSource === "page_key") {
     return "page_key";
   }
   if (title.startsWith(normalizedQuery)) return "prefix_title";
   if (title.includes(normalizedQuery)) return "title";
-  if (
-    searchResult
-    && collectPageSearchMatchedTerms(searchResult, "title").length > 0
-  ) {
-    return "title";
-  }
-  return "content";
+  return candidate.matchSource === "content" ? "content" : "title";
 }
 
 function highlightedTitle(
@@ -138,7 +131,7 @@ export function presentPageReferenceCandidates(
 
   return orderedCandidates.map((candidate) => {
     const searchResult = indexedMatches.get(candidate.pageId) ?? null;
-    const match = classifyPageCandidateMatch(candidate, query, searchResult);
+    const match = classifyPageCandidateMatch(candidate, query);
     const title = candidate.title || "Untitled";
     const titleSegments = highlightedTitle(title, query, searchResult);
     if (match === "content" && candidate.matchExcerpt) {

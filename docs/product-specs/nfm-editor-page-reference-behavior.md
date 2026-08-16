@@ -54,6 +54,7 @@ A second line appears only when it explains a content match, disambiguates dupli
 Search excerpts are bounded around the matching location and highlight matching text in titles, Page keys, and excerpts.
 Page search uses the same normalized token, prefix, typo-tolerant title ranking, and indexed match evidence as the Command palette.
 Core still decides which Page identities are visible and selectable for the current content-access context; renderer search evidence may rank and explain those authorized candidates but never expands their authority.
+For Mention and Link reads, the editor supplies the host Page identity and Core returns the authoritative match source (`recent`, `page_key`, `title`, or `content`). Core omits only a same-Page `content` match before applying the result bound, so the current Page remains discoverable through an empty recent search or an explicit title/Page-key match. Embed reads omit this source context and keep their separate disabled self/ancestor rows.
 Content matching remains exact, substring, or token-prefix based so a fuzzy typo cannot fabricate a body match.
 When the index expands a prefix or typo to a complete matched term, the row highlights that actual term and moves the excerpt window close enough to keep it visible before CSS ellipsis, even when the full source excerpt is shorter than the nominal character budget.
 Database Page rows use their workflow Status icon; Pages without a Status use the generic Page icon at the standard compact-menu size.
@@ -68,7 +69,7 @@ Removing it removes only the shell.
 
 The picker and `@Page` use Page ID as the candidate key and the same authorized candidate source.
 The embed picker retains the Page candidate order; the sectioned `@` menu ranks those candidates within the Page section and orders that section against Chat and Date by its strongest result.
-Unavailable, self, and recursive-ancestor targets fail closed.
+Unavailable, self, and recursive-ancestor embed targets fail closed.
 The embed picker preserves its source Block before opening and inserts only if that Block is still the active insertion point.
 Cancel creates no placeholder; a stale insertion point is reported and leaves the Document unchanged.
 Changing an existing Reference Block’s target is intentionally not an operation: remove the old shell and run `/Embed page…` again so the new connection has a new shell identity and disclosure state.

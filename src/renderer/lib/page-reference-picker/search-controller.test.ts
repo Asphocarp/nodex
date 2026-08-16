@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { createPageReferenceSearchController } from "./search-controller";
+import {
+  createPageReferenceSearchController,
+  resolvePageReferenceSourcePageId,
+} from "./search-controller";
 import type { PageReferenceCandidate, PageReferencePickerRequest } from "./types";
 
 const request = (query: string): PageReferencePickerRequest => ({
   accessContext: { kind: "library" },
-  hostPageId: null,
+  hostPageId: "page:host",
   ancestorPageIds: [],
   intent: "mention",
   query,
@@ -23,5 +26,17 @@ describe("Page reference search controller", () => {
     expect(await currentSearch).toEqual({ status: "current", items: [] });
     resolvers.get("old")?.([]);
     expect(await oldSearch).toEqual({ status: "stale", items: [] });
+  });
+
+  it("passes source context only for inline mention and link searches", () => {
+    expect(resolvePageReferenceSourcePageId(request("query"))).toBe("page:host");
+    expect(resolvePageReferenceSourcePageId({
+      ...request("query"),
+      intent: "link",
+    })).toBe("page:host");
+    expect(resolvePageReferenceSourcePageId({
+      ...request("query"),
+      intent: "reference_block",
+    })).toBeUndefined();
   });
 });

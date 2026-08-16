@@ -34,6 +34,7 @@ import {
   type LibraryModuleReadResult,
   type LibraryMoveDestinationEntry,
   type LibraryMoveDestinationScope,
+  type LibraryPageReferenceCandidate,
   type LibraryNavigationNode,
   type LibraryNavigationParent,
   type LibraryPlacementAnchor,
@@ -41,6 +42,7 @@ import {
   type LibraryRouteTarget,
   type LibraryWriteParent,
 } from "./library-module";
+import { isWorkflowStatus } from "./workflow-status";
 import { parseAuthorizedReadStamp } from "./authorized-read-stamp";
 import {
   PROJECT_MARKER_COLORS,
@@ -1038,7 +1040,7 @@ export const bindLibraryModuleRead = (
       read,
       "libraryModuleRead.read",
       ["mode", "query"],
-      ["limit"],
+      ["limit", "sourcePageId"],
     );
     const query = string(
       read.query,
@@ -1050,12 +1052,19 @@ export const bindLibraryModuleRead = (
     if (limit !== undefined && limit > 60) {
       throw new TypeError("libraryModuleRead.read.limit must be at most 60");
     }
+    const sourcePageId = read.sourcePageId === undefined
+      ? undefined
+      : string(
+          read.sourcePageId,
+          "libraryModuleRead.read.sourcePageId",
+        );
     return {
       version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "page_reference_candidates",
         query,
         ...(limit === undefined ? {} : { limit }),
+        ...(sourcePageId === undefined ? {} : { sourcePageId }),
       },
     };
   }
@@ -1792,6 +1801,85 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
         "library move destinations rootIsCurrent",
       ),
     };
+  }
+  if (readValue.kind === "page_reference_candidates") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", [
+      "kind",
+      "items",
+    ]);
+    if (!Array.isArray(readValue.items)) {
+      throw new TypeError("library Page reference candidates must be an array");
+    }
+    const items: LibraryPageReferenceCandidate[] = readValue.items.map(
+      (entry, index) => {
+        const candidate = record(
+          entry,
+          `library Page reference candidates[${index}]`,
+        );
+        exactKeys(candidate, `library Page reference candidates[${index}]`, [
+          "pageId",
+          "title",
+          "pageKey",
+          "status",
+          "locationLabel",
+          "matchExcerpt",
+          "matchSource",
+        ]);
+        if (
+          candidate.status !== null
+          && !isWorkflowStatus(candidate.status)
+        ) {
+          throw new TypeError(
+            `library Page reference candidates[${index}].status is unsupported`,
+          );
+        }
+        if (
+          candidate.matchSource !== "recent"
+          && candidate.matchSource !== "page_key"
+          && candidate.matchSource !== "title"
+          && candidate.matchSource !== "content"
+        ) {
+          throw new TypeError(
+            `library Page reference candidates[${index}].matchSource is unsupported`,
+          );
+        }
+        return {
+          pageId: string(
+            candidate.pageId,
+            `library Page reference candidates[${index}].pageId`,
+          ),
+          title: string(
+            candidate.title,
+            `library Page reference candidates[${index}].title`,
+            MAX_TITLE_LENGTH,
+            true,
+          ),
+          pageKey: candidate.pageKey === null
+            ? null
+            : string(
+                candidate.pageKey,
+                `library Page reference candidates[${index}].pageKey`,
+              ),
+          status: candidate.status,
+          locationLabel: string(
+            candidate.locationLabel,
+            `library Page reference candidates[${index}].locationLabel`,
+            MAX_TITLE_LENGTH,
+            true,
+          ),
+          matchExcerpt: candidate.matchExcerpt === null
+            ? null
+            : string(
+                candidate.matchExcerpt,
+                `library Page reference candidates[${index}].matchExcerpt`,
+                MAX_TITLE_LENGTH,
+                true,
+              ),
+          matchSource: candidate.matchSource,
+        };
+      },
+    );
+    return { kind: readValue.kind, items };
   }
   throw new TypeError("libraryModuleReadResult value kind is unsupported");
 };

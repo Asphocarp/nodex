@@ -16476,7 +16476,8 @@
         "required": [
           "page_id",
           "title",
-          "location_label"
+          "location_label",
+          "match_source"
         ],
         "properties": {
           "location_label": {
@@ -16487,6 +16488,9 @@
               "string",
               "null"
             ]
+          },
+          "match_source": {
+            "$ref": "#/components/schemas/LibraryPageReferenceMatchSource"
           },
           "page_id": {
             "type": "string"
@@ -16511,6 +16515,15 @@
             "type": "string"
           }
         }
+      },
+      "LibraryPageReferenceMatchSource": {
+        "type": "string",
+        "enum": [
+          "recent",
+          "page_key",
+          "title",
+          "content"
+        ]
       },
       "LibraryPageReferencePresentation": {
         "type": "string",
@@ -22916,6 +22929,12 @@
                   },
                   "query": {
                     "type": "string"
+                  },
+                  "source_page_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 }
               },
