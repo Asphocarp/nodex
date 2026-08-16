@@ -1,7 +1,7 @@
 # NFM Editor Page Connection Behavior
 
 Status: Active
-Last updated: 2026-08-16
+Last updated: 2026-08-17
 
 ## Purpose
 
@@ -33,9 +33,12 @@ The editor stores only `targetPageId`; current title and availability are resolv
 
 The visual is an inline semantic icon and underlined title, not a pill or card.
 Database Pages with an authorized workflow Status use that Status icon; Pages without one use the generic Page icon.
-It is one keyboard-selectable atom and remains readable when navigation is unavailable.
-Hovering or keyboard-focusing the mention shows a compact tooltip resolved under the same content-access context: current title, archived state when applicable, and a bounded Page preview. Missing, deleted, invalid, or unreadable targets show only a safe state explanation; the tooltip never exposes raw IDs, deeplinks, transport errors, or target content outside that authorized read model.
-Clicking an available mention opens the Page through the host navigator.
+It is one keyboard-selectable atom: when the caret is directly beside it, `ArrowLeft` or `ArrowRight` selects the complete non-editable token, and plain `Enter` opens the available Page through the same host navigator as a click.
+The editor keeps that atom range without exposing native text-selection painting; hover and keyboard focus use the same compact highlight overlay on the chip, with a small visual overflow beyond its content box.
+When an available Page mention has keyboard focus, the editor also shows a compact anchored `Open page` affordance with the `↵` Enter hint below the token; this is an action hint, not an additional editable text range.
+It remains readable when navigation is unavailable.
+Hovering the mention shows a compact tooltip resolved under the same content-access context: current title, archived state when applicable, and a bounded Page preview. Missing, deleted, invalid, or unreadable targets show only a safe state explanation; the tooltip never exposes raw IDs, deeplinks, transport errors, or target content outside that authorized read model.
+Clicking or pressing `Enter` on an available mention opens the Page through the host navigator; it never delegates the internal deeplink to the browser.
 Mention serialization never injects the target body into search, title, clipboard, or Agent prompt text.
 Choosing `/Mention a page` replaces the slash command with a visible `@`, leaves the caret after it, and enters the normal `@` suggestion flow so the user can continue typing a query.
 It does not select a Page immediately or introduce a separate picker or occurrence type.

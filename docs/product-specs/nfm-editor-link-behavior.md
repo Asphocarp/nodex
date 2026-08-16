@@ -1,7 +1,7 @@
 # NFM Editor Link Behavior
 
 Status: Active
-Last Updated: 2026-04-06
+Last Updated: 2026-08-17
 
 This document describes the current explicit link behavior inside the NFM / BlockNote editor.
 
@@ -40,6 +40,24 @@ Manual link creation and editing happen through the BlockNote-based editor UI:
 
 Both flows use the same Nodex-local submit-time normalizer.
 Both flows now also use the same compact Nodex-owned popover/dialog visual language instead of BlockNote's default form-popover chrome.
+
+## Inline Link Visual Treatment
+
+Ordinary links inside the editor use the shared interactive link treatment:
+- a medium-weight blue foreground blended from the link and editor text tokens
+- normal inline flow with no extra horizontal padding
+- no underline at rest
+- a 0.5px dashed underline with a 2px offset on hover
+
+Page-mention chips are editor atoms rather than ordinary text links. Their
+labels keep the editor's normal foreground color, stay in normal inline flow
+without extra horizontal padding, and use a subtle solid
+underline at rest (`0.05em` thickness, `10%` offset, and a 25% foreground mix).
+Keyboard focus changes only that underline to the current label color; hover
+does not change the underline. Their own chip hover and keyboard-focus
+highlight remains independent from ordinary link styling. Thread/chat mentions
+use the same label treatment and inline geometry; date mentions retain their
+separate text-level visual style.
 
 ## Hover Toolbar Affordance
 

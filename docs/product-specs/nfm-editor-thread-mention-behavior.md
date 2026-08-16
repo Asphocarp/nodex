@@ -1,7 +1,7 @@
 # NFM Editor Thread Mention Behavior
 
 Status: Active
-Last Updated: 2026-06-24
+Last Updated: 2026-08-17
 
 ## Summary
 
@@ -33,6 +33,8 @@ The mention references a Codex app-server thread/session id as an opaque string.
 - If the thread cannot be resolved, the mention displays `Missing thread` while preserving the original `uuid`.
 - Status text for archived, system-error, approval, waiting, active, idle, loading, and missing states is reserved for hover titles and popovers; it is not rendered inline in the editor body.
 - Hovering or keyboard-focusing the mention auto-reveals a tooltip with the resolved label, state/short-id detail, and workspace or raw id. The tooltip is informational only and does not replace the click action.
+- The mention is one keyboard-selectable atom: when the caret is directly beside it, `ArrowLeft` or `ArrowRight` selects the complete non-editable token, and plain `Enter` opens the resolved thread or its unavailable-state popover through the same action as a click. The editor keeps selection ownership and renders the compact chip highlight, so the label is not painted with native text-selection blue.
+- When a resolved, openable chat mention has keyboard focus, the editor shows the same compact anchored action affordance as Page mentions, labeled `Open chat` with the `↵` Enter hint below the token. Unresolved mentions keep their unavailable-state popover instead.
 
 ## Resolution And Navigation
 

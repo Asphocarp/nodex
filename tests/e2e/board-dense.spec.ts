@@ -32,6 +32,40 @@ const focusEditableBlockEnd = async (block: Locator): Promise<void> => {
   });
 };
 
+const focusEditableBlockAfterPageMention = async (block: Locator): Promise<void> => {
+  await block.evaluate((element) => {
+    const mentionRoot = element.querySelector<HTMLElement>(
+      '[data-mention-inline-root="true"]',
+    );
+    if (!mentionRoot) throw new Error("Block has no page mention boundary");
+    const mentionNodeView = mentionRoot.closest<HTMLElement>(
+      ".bn-ic-react-node-view-renderer",
+    ) ?? mentionRoot;
+
+    const range = document.createRange();
+    range.setStartAfter(mentionNodeView);
+    range.collapse(true);
+    const selection = globalThis.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    element.closest<HTMLElement>('.ProseMirror[contenteditable="true"]')?.focus();
+  });
+};
+
+const readPageMentionHighlight = async (mention: Locator) => {
+  return mention.evaluate((element) => {
+    const style = globalThis.getComputedStyle(element, "::before");
+    return {
+      opacity: style.opacity,
+      backgroundColor: style.backgroundColor,
+      left: style.left,
+      right: style.right,
+      top: style.top,
+      bottom: style.bottom,
+    };
+  });
+};
+
 test("materializes and opens the authoritative board/dense environment", async ({}, testInfo) => {
   test.setTimeout(120_000);
   await withElectronScenario({
@@ -137,6 +171,52 @@ test("materializes and opens the authoritative board/dense environment", async (
     const linkBlock = sourceEditor.locator('.bn-block[data-id]').filter({
       hasText: "Open projection notes",
     }).first();
+    const editorPageLink = linkBlock.getByRole("link", {
+      name: "Open projection notes",
+    });
+    const editorPageLinkStyle = await editorPageLink.evaluate((element) => {
+      const style = globalThis.getComputedStyle(element);
+      const editor = element.closest<HTMLElement>(".nfm-editor")
+        ?.querySelector<HTMLElement>(".bn-editor");
+      const expectedColorProbe = document.createElement("span");
+      expectedColorProbe.style.color =
+        "color-mix(in srgb, var(--color-token-text-link-foreground) 80%, var(--color-token-foreground) 20%)";
+      document.body.append(expectedColorProbe);
+      const expectedColor = globalThis.getComputedStyle(expectedColorProbe).color;
+      expectedColorProbe.remove();
+      return {
+        color: style.color,
+        expectedColor,
+        editorColor: editor ? globalThis.getComputedStyle(editor).color : null,
+        fontWeight: style.fontWeight,
+        paddingLeft: style.paddingLeft,
+        paddingRight: style.paddingRight,
+        textDecorationLine: style.textDecorationLine,
+      };
+    });
+    expect(editorPageLinkStyle.color).toBe(editorPageLinkStyle.expectedColor);
+    expect(editorPageLinkStyle.color).not.toBe(editorPageLinkStyle.editorColor);
+    expect(editorPageLinkStyle.fontWeight).toBe("500");
+    expect(editorPageLinkStyle.paddingLeft).toBe("0px");
+    expect(editorPageLinkStyle.paddingRight).toBe("0px");
+    expect(editorPageLinkStyle.textDecorationLine).toBe("none");
+    await editorPageLink.hover();
+    const editorPageLinkHoverStyle = await editorPageLink.evaluate((element) => {
+      const style = globalThis.getComputedStyle(element);
+      return {
+        textDecorationLine: style.textDecorationLine,
+        textDecorationStyle: style.textDecorationStyle,
+        textDecorationThickness: style.textDecorationThickness,
+        textUnderlineOffset: style.textUnderlineOffset,
+      };
+    });
+    expect(editorPageLinkHoverStyle).toEqual({
+      textDecorationLine: "underline",
+      textDecorationStyle: "dashed",
+      textDecorationThickness: "0.5px",
+      textUnderlineOffset: "2px",
+    });
+    await page.mouse.move(0, 0);
     await linkBlock.click();
     await page.keyboard.press("End");
     await page.keyboard.press("Enter");
@@ -219,20 +299,157 @@ test("materializes and opens the authoritative board/dense environment", async (
       hasText: /Review.*tomorrow/u,
     }).first();
     await expect(insertedMentionBlock).toBeVisible();
-    const insertedMention = insertedMentionBlock.getByRole("button", {
+    const insertedMention = insertedMentionBlock.getByRole("link", {
       name: "Open Page Keep projection updates bounded",
     });
     await expect(insertedMention).toBeVisible();
+    await expect(insertedMention).toHaveAttribute("tabindex", "0");
+    await expect(insertedMention).toHaveAttribute("contenteditable", "false");
+    await expect(insertedMention).toHaveAttribute(
+      "data-page-mention-inline-anchor",
+      "true",
+    );
+    const insertedMentionStyle = await insertedMention.evaluate((element) => {
+      const style = globalThis.getComputedStyle(element);
+      const editor = element.closest<HTMLElement>(".nfm-editor")
+        ?.querySelector<HTMLElement>(".bn-editor");
+      return {
+        color: style.color,
+        editorColor: editor ? globalThis.getComputedStyle(editor).color : null,
+        opacity: style.opacity,
+        paddingLeft: style.paddingLeft,
+        paddingRight: style.paddingRight,
+      };
+    });
+    expect(insertedMentionStyle.color).toBe(insertedMentionStyle.editorColor);
+    expect(insertedMentionStyle.opacity).toBe("1");
+    expect(insertedMentionStyle.paddingLeft).toBe("0px");
+    expect(insertedMentionStyle.paddingRight).toBe("0px");
     await expect(insertedMention.locator("svg"))
       .toHaveAttribute("style", /status-build-dot/u);
+    const mentionLabel = insertedMention.locator("span").filter({
+      hasText: "Keep projection updates bounded",
+    }).last();
+    const mentionRestUnderlineStyle = await mentionLabel.evaluate((element) => {
+      const style = globalThis.getComputedStyle(element);
+      return {
+        color: style.color,
+        textDecorationLine: style.textDecorationLine,
+        textDecorationStyle: style.textDecorationStyle,
+        textDecorationColor: style.textDecorationColor,
+        textDecorationThickness: style.textDecorationThickness,
+        textUnderlineOffset: style.textUnderlineOffset,
+      };
+    });
+    expect(mentionRestUnderlineStyle).toMatchObject({
+      textDecorationLine: "underline",
+      textDecorationStyle: "solid",
+      textUnderlineOffset: "10%",
+    });
+    expect(Number.parseFloat(mentionRestUnderlineStyle.textDecorationThickness)).toBeGreaterThan(0);
+    expect(mentionRestUnderlineStyle.textDecorationColor)
+      .not.toBe(mentionRestUnderlineStyle.color);
     await insertedMention.hover();
+    const mentionHoverUnderlineStyle = await mentionLabel.evaluate((element) => {
+      const style = globalThis.getComputedStyle(element);
+      return {
+        color: style.color,
+        textDecorationLine: style.textDecorationLine,
+        textDecorationStyle: style.textDecorationStyle,
+        textDecorationColor: style.textDecorationColor,
+        textDecorationThickness: style.textDecorationThickness,
+        textUnderlineOffset: style.textUnderlineOffset,
+      };
+    });
+    expect(mentionHoverUnderlineStyle).toMatchObject({
+      textDecorationLine: "underline",
+      textDecorationStyle: "solid",
+      textUnderlineOffset: "10%",
+    });
+    expect(Number.parseFloat(mentionHoverUnderlineStyle.textDecorationThickness)).toBeGreaterThan(0);
+    expect(mentionHoverUnderlineStyle.textDecorationColor)
+      .toBe(mentionRestUnderlineStyle.textDecorationColor);
     const mentionTooltip = page.locator(
       '[role="tooltip"] [data-page-mention-tooltip="true"]',
     );
     await expect(mentionTooltip).toContainText("Keep projection updates bounded");
     await expect(mentionTooltip).not.toContainText("Database Page");
     await expect(mentionTooltip).toContainText("preserving causal coverage");
-    await insertedMention.click();
+    const hoverHighlight = await readPageMentionHighlight(insertedMention);
+    expect(hoverHighlight.opacity).toBe("1");
+    expect(Number.parseFloat(hoverHighlight.left)).toBeLessThan(0);
+    expect(Number.parseFloat(hoverHighlight.right)).toBeLessThan(0);
+    expect(Number.parseFloat(hoverHighlight.top)).toBeLessThan(0);
+    expect(Number.parseFloat(hoverHighlight.bottom)).toBeLessThan(0);
+    await page.mouse.move(0, 0);
+    await focusEditableBlockAfterPageMention(insertedMentionBlock);
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(() => insertedMention.getAttribute(
+      "data-mention-token-selected",
+    )).toBe("true");
+    const mentionFocusAffordance = page.locator(
+      '[data-mention-inline-focus-affordance="true"]',
+    );
+    await expect(mentionFocusAffordance).toBeVisible();
+    await expect(mentionFocusAffordance).toHaveText("Open page↵");
+    const mentionBounds = await insertedMention.boundingBox();
+    const affordanceBounds = await mentionFocusAffordance.boundingBox();
+    expect(mentionBounds).not.toBeNull();
+    expect(affordanceBounds).not.toBeNull();
+    if (!mentionBounds || !affordanceBounds) {
+      throw new Error("Mention focus affordance geometry is unavailable");
+    }
+    expect(affordanceBounds.y).toBeGreaterThan(mentionBounds.y + mentionBounds.height);
+    expect(
+      Math.abs(
+        affordanceBounds.x + affordanceBounds.width / 2
+          - (mentionBounds.x + mentionBounds.width),
+      ),
+    ).toBeLessThan(2);
+    const selectedHighlight = await readPageMentionHighlight(insertedMention);
+    expect(selectedHighlight).toEqual(hoverHighlight);
+    const pageMentionSelection = await insertedMentionBlock.evaluate((element) => {
+      const mentionRoot = element.querySelector<HTMLElement>(
+        '[data-mention-inline-root="true"]',
+      );
+      const editor = mentionRoot?.closest<HTMLElement>(
+        '.ProseMirror[contenteditable="true"]',
+      );
+      const mentionChip = mentionRoot?.querySelector<HTMLElement>(
+        '[data-mention-inline-chip="true"]',
+      );
+      return {
+        editorOwnsFocus: Boolean(editor?.contains(document.activeElement)),
+        mentionIsSelected: mentionChip?.dataset.mentionTokenSelected === "true",
+        nativeTextSelectionHidden: editor?.classList.contains(
+          "ProseMirror-hideselection",
+        ),
+      };
+    });
+    expect(pageMentionSelection).toEqual({
+      editorOwnsFocus: true,
+      mentionIsSelected: true,
+      nativeTextSelectionHidden: true,
+    });
+    const mentionFocusUnderlineStyle = await mentionLabel.evaluate((element) => {
+      const style = globalThis.getComputedStyle(element);
+      return {
+        color: style.color,
+        textDecorationLine: style.textDecorationLine,
+        textDecorationStyle: style.textDecorationStyle,
+        textDecorationColor: style.textDecorationColor,
+        textDecorationThickness: style.textDecorationThickness,
+        textUnderlineOffset: style.textUnderlineOffset,
+      };
+    });
+    expect(mentionFocusUnderlineStyle).toMatchObject({
+      textDecorationLine: "underline",
+      textDecorationStyle: "solid",
+      textUnderlineOffset: "10%",
+    });
+    expect(mentionFocusUnderlineStyle.textDecorationColor)
+      .toBe(mentionFocusUnderlineStyle.color);
+    await page.keyboard.press("Enter");
     await expect(page.getByRole("tab", { name: "Keep projection updates bounded" }))
       .toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: "Unify Database View rendering" }).click();

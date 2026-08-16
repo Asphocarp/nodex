@@ -78,7 +78,7 @@ export function DateMentionInlineVisual(props: DateMentionInlineVisualProps) {
       <Element
         type={buttonProps.type ?? "button"}
         className={cn(
-          "notion-reminder inline-flex max-w-full items-baseline whitespace-nowrap rounded-[2px] px-[0.1em] font-medium align-baseline outline-hidden",
+          "notion-reminder inline-flex max-w-full items-baseline whitespace-nowrap rounded-[2px] font-medium align-baseline outline-hidden",
           "focus-visible:ring-token-focus focus-visible:ring-2",
           interactive && "cursor-interaction hover:bg-token-foreground/5",
           reminderTone === "pending" && "text-token-charts-blue",
@@ -112,7 +112,7 @@ export function DateMentionInlineVisual(props: DateMentionInlineVisualProps) {
   const chip = (
     <Element
       className={cn(
-        "notion-reminder inline-flex max-w-full items-baseline whitespace-nowrap rounded-[2px] px-[0.1em] font-medium align-baseline text-inherit",
+        "notion-reminder inline-flex max-w-full items-baseline whitespace-nowrap rounded-[2px] font-medium align-baseline text-inherit",
         interactive && "cursor-interaction hover:bg-token-foreground/5",
         reminderTone === "pending" && "text-token-charts-blue",
         reminderTone === "overdue" && "text-token-charts-red",
@@ -155,7 +155,9 @@ function DateMentionInlineVisualChildren({
   return (
     <>
       <span className="leading-[inherit] opacity-50">@</span>
-      <span className={cn("min-w-0 truncate leading-[inherit]", labelClassName)}>{label}</span>
+      <span className={cn("min-w-0 truncate leading-[inherit]", labelClassName)}>
+        {label}
+      </span>
       {payload.reminder ? (
         <BellIcon className="ml-[0.25em] inline-block size-[0.95em] shrink-0 self-center opacity-80" />
       ) : null}

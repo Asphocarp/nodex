@@ -31,6 +31,7 @@ import {
 } from "./special-block-copy";
 import { createEmptyThreadSectionBlock } from "./thread-section";
 import { canvasCreatePendingExtension } from "./canvas-create-pending-extension";
+import { mentionChipKeyboardNavigationExtension } from "./mention-chip-keyboard-navigation";
 
 const toggleInputRule = createExtension({
   key: "toggle-input-rule",
@@ -363,6 +364,7 @@ export function createNfmEditorExtensions(
     toggleInputRule,
     quoteInputRule,
     threadSectionInputRule,
+    mentionChipKeyboardNavigationExtension(),
     selectBlockShortcut,
     selectedImageBlockDecorationsExtension(),
     childGroupEnterExt,
