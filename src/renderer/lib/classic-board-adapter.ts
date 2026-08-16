@@ -17,6 +17,7 @@ export interface ClassicBoardPresentation {
   readonly prefs: DbViewPrefs;
   readonly identity: {
     readonly showPageKey: boolean;
+    readonly showDescription: boolean;
   };
 }
 
@@ -46,7 +47,10 @@ export const classicBoardPresentation = (
     (propertyId) => propertyId !== "status",
   );
   return {
-    identity: { showPageKey },
+    identity: {
+      showPageKey,
+      showDescription: effective.presentation.layouts.board.showDescription !== false,
+    },
     prefs: {
       ...defaults,
       display: {

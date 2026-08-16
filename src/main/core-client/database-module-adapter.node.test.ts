@@ -1636,6 +1636,9 @@ describe("Core Database Module Adapter", () => {
           group: null,
           groupDirection: "desc",
           layouts: {
+            board: {
+              showDescription: false,
+            },
             list: {
               fields: [{ kind: "property", propertyId: "priority" }],
             },
@@ -1659,6 +1662,9 @@ describe("Core Database Module Adapter", () => {
           group: { kind: "none" },
           group_direction: "desc",
           layouts: {
+            board: {
+              show_description: false,
+            },
             list: {
               fields: [{ kind: "property", property_id: "priority" }],
             },

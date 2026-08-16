@@ -119,6 +119,7 @@ const normalizedLayout = (
     layout.showEmptyGroups
     && group !== null
     && properties.get(group.propertyId)?.finite === true,
+  showDescription: layout.showDescription !== false,
 });
 
 const overlayPresentation = (
@@ -152,12 +153,18 @@ const overlayPresentation = (
       showEmptyGroups:
         override?.layouts?.board?.showEmptyGroups
         ?? durable.layouts.board.showEmptyGroups,
+      showDescription:
+        override?.layouts?.board?.showDescription
+        ?? durable.layouts.board.showDescription,
     },
     list: {
       fields: override?.layouts?.list?.fields ?? durable.layouts.list.fields,
       showEmptyGroups:
         override?.layouts?.list?.showEmptyGroups
         ?? durable.layouts.list.showEmptyGroups,
+      showDescription:
+        override?.layouts?.list?.showDescription
+        ?? durable.layouts.list.showDescription,
     },
   },
 });
@@ -270,10 +277,14 @@ export const compactDatabaseViewPresentationOverride = (
     const result: {
       fields?: readonly DatabaseViewField[];
       showEmptyGroups?: boolean;
+      showDescription?: boolean;
     } = {};
     if (!equal(baseline.fields, current.fields)) result.fields = current.fields;
     if (baseline.showEmptyGroups !== current.showEmptyGroups) {
       result.showEmptyGroups = current.showEmptyGroups;
+    }
+    if (baseline.showDescription !== current.showDescription) {
+      result.showDescription = current.showDescription !== false;
     }
     return Object.keys(result).length > 0 ? result : undefined;
   };
@@ -351,8 +362,8 @@ export const upgradeDatabaseViewConfigV2 = (
       completion: { range: "all", orderByRecency: false },
       hierarchy: { showSubPages: true, nestedSubPages: false },
       layouts: {
-        board: { fields, showEmptyGroups: false },
-        list: { fields, showEmptyGroups: false },
+        board: { fields, showEmptyGroups: false, showDescription: true },
+        list: { fields, showEmptyGroups: false, showDescription: true },
       },
     },
   };

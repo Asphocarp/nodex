@@ -158,6 +158,7 @@ interface BoardProps {
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
   showPageKey: boolean;
+  showDescription: boolean;
   openPageStage: (
     projectId: string,
     pageId: string,
@@ -185,6 +186,7 @@ export function Board({
   searchQuery,
   dbViewPrefs,
   showPageKey,
+  showDescription,
   openPageStage,
   onOpenPageInNewChat,
   onSendPageToChat,
@@ -1386,6 +1388,7 @@ export function Board({
               onLoadMore={loadMoreGroup}
               displayPrefs={viewPrefs.display}
               showPageKey={showPageKey}
+              showDescription={showDescription}
               dragInstanceId={dragInstanceId}
               buildDragData={buildDragData}
               layout={getBoardColumnLayout(columnLayoutPrefs, column.id)}

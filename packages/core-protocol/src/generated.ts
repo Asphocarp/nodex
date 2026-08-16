@@ -2365,10 +2365,12 @@ export interface components {
         readonly DatabaseViewLayout: "board" | "list";
         readonly DatabaseViewLayoutDisplay: {
             readonly fields: readonly components["schemas"]["DatabaseViewField"][];
+            readonly showDescription?: boolean;
             readonly showEmptyGroups: boolean;
         };
         readonly DatabaseViewLayoutDisplayOverrideInput: {
             readonly fields?: readonly components["schemas"]["DatabaseViewFieldInput"][] | null;
+            readonly show_description?: boolean | null;
             readonly show_empty_groups?: boolean | null;
         };
         /** @enum {string} */

@@ -31,7 +31,7 @@ vi.mock("../../lib/api", () => api);
 vi.mock("@/components/board/board", () => ({ Board: () => null }));
 vi.mock("@/lib/classic-board-adapter", () => ({
   classicBoardPresentation: () => classicBoardAdapter.enabled
-    ? { prefs: {}, identity: { showPageKey: true } }
+    ? { prefs: {}, identity: { showPageKey: true, showDescription: true } }
     : null,
 }));
 vi.mock("./workbench-db-view-panel", () => ({

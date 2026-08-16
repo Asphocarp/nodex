@@ -93,6 +93,9 @@ export const toCoreDatabaseViewPresentationOverride = (
               ...(display.showEmptyGroups === undefined
                 ? {}
                 : { show_empty_groups: display.showEmptyGroups }),
+              ...(display.showDescription === undefined
+                ? {}
+                : { show_description: display.showDescription }),
             },
           };
         }, {}),
@@ -185,6 +188,9 @@ export const fromCoreDatabaseViewPresentationOverride = (
               ...(display.show_empty_groups == null
                 ? {}
                 : { showEmptyGroups: display.show_empty_groups }),
+              ...(display.show_description == null
+                ? {}
+                : { showDescription: display.show_description }),
             },
           };
         }, {}),

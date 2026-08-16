@@ -143,6 +143,7 @@ pub enum DatabaseViewFieldInput {
 pub struct DatabaseViewLayoutDisplayOverrideInput {
     pub fields: Option<Vec<DatabaseViewFieldInput>>,
     pub show_empty_groups: Option<bool>,
+    pub show_description: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -296,6 +297,12 @@ pub enum DatabaseViewField {
 pub struct DatabaseViewLayoutDisplay {
     pub fields: Vec<DatabaseViewField>,
     pub show_empty_groups: bool,
+    #[serde(default = "default_show_description")]
+    pub show_description: bool,
+}
+
+fn default_show_description() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

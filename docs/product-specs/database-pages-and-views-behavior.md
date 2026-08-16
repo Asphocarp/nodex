@@ -116,9 +116,10 @@ a mutation preserves the loaded span where possible, and an expired cursor
 restarts that bounded window rather than silently truncating the result.
 
 Filter is durable View query authority and search is window-local. Layout,
-sorting, grouping, subgrouping, completion policy, empty-group visibility, and
-displayed Properties resolve through a sparse Core personal presentation keyed
-by durable View ID. Its monotonic revision applies only to that presentation;
+sorting, grouping, subgrouping, completion policy, empty-group visibility,
+Board card description visibility, and displayed Properties resolve through a
+sparse Core personal presentation keyed by durable View ID. Its monotonic
+revision applies only to that presentation;
 List disclosure is a separate bounded sparse set changed by idempotent
 per-target patches. The current List exposes disclosure only on group headers;
 Page occurrences remain expanded and do not create personal disclosure state.
@@ -139,8 +140,10 @@ preserves those deltas; a Store-epoch replacement rehydrates both personal
 authorities while retaining the last readable surface until the handover.
 
 Display Options derives valid group fields, intrinsic Page identity fields,
-finite empty groups, completion
-controls, and visible Properties from the active Source schema. Page key is
+finite empty groups, completion controls, and visible Properties from the active
+Source schema. It also exposes the Board-only **Show description** toggle, which
+controls only the Page description preview in Board cards, defaults to visible,
+and does not change Page content, search authority, or List rows. Page key is
 labeled ID and follows the same personal override, reset, and
 default-publishing flow as other display fields. It is included in the default
 List presentation and omitted from the default Board presentation. Hiding any optional

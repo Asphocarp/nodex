@@ -1,4 +1,4 @@
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import { act, useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 
@@ -71,8 +71,13 @@ test("keeps layout edits personal until explicitly published or reset", async ()
   expect(boardIdField.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(boardIdField);
   expect(boardIdField.getAttribute("aria-pressed")).toBe("true");
+  const showDescription = screen.getByRole("button", { name: "Description" });
+  expect(showDescription.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(showDescription);
+  expect(showDescription.getAttribute("aria-pressed")).toBe("false");
   expect(screen.queryByRole("button", { name: "Internal ID" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "List" }));
+  expect(screen.queryByRole("button", { name: "Description" })).toBeNull();
   const statusField = screen.getByRole("button", { name: "Status" });
   expect(statusField.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(statusField);
@@ -122,6 +127,13 @@ describe("DatabaseViewDisplayOptions", () => {
     expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-pressed"))
       .toBe("false");
     expect(screen.getByRole("switch", { name: "Show empty groups" })).toBeTruthy();
+    const displayFieldsHeading = screen.getByText("Display fields");
+    const displayFields = displayFieldsHeading.parentElement;
+    expect(displayFields).not.toBeNull();
+    const descriptionChip = within(displayFields as HTMLElement).getByRole("button", {
+      name: "Description",
+    });
+    expect(descriptionChip.getAttribute("aria-pressed")).toBe("true");
 
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Order by"));

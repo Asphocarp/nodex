@@ -532,6 +532,7 @@ export function WorkbenchDatabaseViewSurface({
                       searchQuery={searchQuery}
                       dbViewPrefs={classicBoard.prefs}
                       showPageKey={classicBoard.identity.showPageKey}
+                      showDescription={classicBoard.identity.showDescription}
                       openPageStage={(_projectId, pageId, titleSnapshot) => {
                         onOpenPage(pageId, titleSnapshot ?? "Untitled Page");
                       }}

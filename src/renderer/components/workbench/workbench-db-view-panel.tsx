@@ -651,6 +651,7 @@ export function DbViewSessionTab({
           searchQuery={searchQuery}
           dbViewPrefs={classicBoard.prefs}
           showPageKey={classicBoard.identity.showPageKey}
+          showDescription={classicBoard.identity.showDescription}
           openPageStage={(nextProjectId, pageId, titleSnapshot, options) => {
             void onOpenPageTab(nextProjectId, pageId, titleSnapshot, {
               sourceTabId: tab.id,
