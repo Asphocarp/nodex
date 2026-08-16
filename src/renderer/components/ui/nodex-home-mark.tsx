@@ -2,6 +2,7 @@ import { animate, motionValue, type MotionValue } from "motion/react";
 import { useCallback, useEffect, useRef, type PointerEvent } from "react";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { setNodexHomeMarkLayerOwner } from "@/lib/nodex-home-mark-layer-ownership";
+import { retireNodexHomeMarkRendererAfterPaint } from "@/lib/nodex-home-mark-renderer-retirement";
 import {
   canMergeNodexMarkAxes,
   composeNodexMarkRotorPose,
@@ -72,6 +73,7 @@ export function NodexHomeMark() {
   const lifecycleGenerationRef = useRef(0);
   const renderFrameRef = useRef<number | null>(null);
   const handoffFrameRef = useRef<number | null>(null);
+  const finishRendererRetirementRef = useRef<(() => void) | null>(null);
   const reducedMotionRef = useRef(reducedMotion);
   reducedMotionRef.current = reducedMotion;
 
@@ -169,6 +171,8 @@ export function NodexHomeMark() {
 
   const disposeRenderer = useCallback(() => {
     cancelHandoff();
+    finishRendererRetirementRef.current?.();
+    finishRendererRetirementRef.current = null;
     rendererCreationRef.current = null;
     rendererRef.current?.dispose();
     rendererRef.current = null;
@@ -288,8 +292,21 @@ export function NodexHomeMark() {
         owner: "svg",
         staticMark: staticMarkRef.current,
       });
-      renderer?.dispose();
       if (rendererRef.current === renderer) rendererRef.current = null;
+      finishRendererRetirementRef.current?.();
+      if (renderer) {
+        const finishRetirement = retireNodexHomeMarkRendererAfterPaint({
+          onDisposed: () => {
+            if (finishRendererRetirementRef.current === finishRetirement) {
+              finishRendererRetirementRef.current = null;
+            }
+          },
+          renderer,
+        });
+        finishRendererRetirementRef.current = finishRetirement;
+      } else {
+        finishRendererRetirementRef.current = null;
+      }
       if (visualRef.current) visualRef.current.style.transform = "";
     });
   };
