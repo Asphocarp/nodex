@@ -1458,6 +1458,16 @@
                       }
                     ]
                   },
+                  "block_transfer_undo": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryBlockTransferUndoResult"
+                      }
+                    ]
+                  },
                   "canvas_mutation": {
                     "oneOf": [
                       {
@@ -1659,6 +1669,16 @@
                       },
                       {
                         "$ref": "#/components/schemas/LibraryBlockTransferResult"
+                      }
+                    ]
+                  },
+                  "block_transfer_undo": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryBlockTransferUndoResult"
                       }
                     ]
                   },
@@ -12692,7 +12712,8 @@
           "root_block_ids",
           "causal_dependencies",
           "source",
-          "target"
+          "target",
+          "promotion_policy"
         ],
         "properties": {
           "actor": {},
@@ -12704,6 +12725,9 @@
           },
           "mode": {
             "$ref": "#/components/schemas/LibraryBlockTransferMode"
+          },
+          "promotion_policy": {
+            "$ref": "#/components/schemas/LibraryPagePromotionPolicy"
           },
           "root_block_ids": {
             "type": "array",
@@ -12724,6 +12748,127 @@
         "enum": [
           "move",
           "copy"
+        ]
+      },
+      "LibraryBlockTransferPromotionEvidence": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "not_requested"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "not_applicable"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "no_match"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "grammar_version",
+              "priority_option_id",
+              "tag_option_ids",
+              "tag_names",
+              "created_tag_option_ids",
+              "kind"
+            ],
+            "properties": {
+              "created_tag_option_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "estimate_option_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "grammar_version": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "applied"
+                ]
+              },
+              "priority_option_id": {
+                "type": "string"
+              },
+              "tag_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tag_option_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "grammar_version",
+              "reason",
+              "kind"
+            ],
+            "properties": {
+              "grammar_version": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "preserved"
+                ]
+              },
+              "reason": {
+                "$ref": "#/components/schemas/LibraryTaskShorthandPreservedReason"
+              }
+            }
+          }
         ]
       },
       "LibraryBlockTransferResult": {
@@ -12841,7 +12986,19 @@
           },
           "transformation_evidence": {
             "type": "array",
-            "items": {}
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferTransformationEvidence"
+            }
+          },
+          "undo_token": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryBlockTransferUndoToken"
+              }
+            ]
           }
         }
       },
@@ -13042,6 +13199,118 @@
             }
           }
         ]
+      },
+      "LibraryBlockTransferTransformationEvidence": {
+        "type": "object",
+        "required": [
+          "sourceBlockId",
+          "resultPageId",
+          "kind",
+          "sourceBlockType",
+          "semanticTitleHash",
+          "consumedPropertyKeys",
+          "bodyRootBlockIds",
+          "sourceToResultBlockIds",
+          "promotion"
+        ],
+        "properties": {
+          "bodyRootBlockIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "consumedPropertyKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "promotion": {
+            "$ref": "#/components/schemas/LibraryBlockTransferPromotionEvidence"
+          },
+          "resultPageId": {
+            "type": "string"
+          },
+          "semanticTitleHash": {
+            "type": "string"
+          },
+          "sourceBlockId": {
+            "type": "string"
+          },
+          "sourceBlockType": {
+            "type": "string"
+          },
+          "sourceToResultBlockIds": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "wrapperReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LibraryBlockTransferUndoResult": {
+        "type": "object",
+        "required": [
+          "transfer_operation_id",
+          "restored_source_root_ids",
+          "removed_page_ids",
+          "document_commits"
+        ],
+        "properties": {
+          "document_commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentCommit"
+            }
+          },
+          "removed_page_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "restored_source_root_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "transfer_operation_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryBlockTransferUndoToken": {
+        "type": "object",
+        "required": [
+          "transfer_operation_id",
+          "recipe_hash",
+          "store_epoch"
+        ],
+        "properties": {
+          "recipe_hash": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          },
+          "transfer_operation_id": {
+            "type": "string"
+          }
+        }
       },
       "LibraryCanvasDestination": {
         "oneOf": [
@@ -16480,6 +16749,13 @@
           }
         ]
       },
+      "LibraryPagePromotionPolicy": {
+        "type": "string",
+        "enum": [
+          "literal",
+          "task_shorthand_v1"
+        ]
+      },
       "LibraryPageReferenceCandidate": {
         "type": "object",
         "required": [
@@ -17468,6 +17744,18 @@
         "enum": [
           "document_title",
           "document_block"
+        ]
+      },
+      "LibraryTaskShorthandPreservedReason": {
+        "type": "string",
+        "enum": [
+          "malformed_shorthand",
+          "nonempty_title_required",
+          "rich_text_boundary",
+          "target_property_conflict",
+          "target_schema_incompatible",
+          "tag_schema_permission_required",
+          "tag_option_limit"
         ]
       },
       "LibraryViewLocation": {
@@ -19420,6 +19708,24 @@
                     "enum": [
                       "transfer_blocks"
                     ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "token",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "undo_block_transfer"
+                    ]
+                  },
+                  "token": {
+                    "$ref": "#/components/schemas/LibraryBlockTransferUndoToken"
                   }
                 }
               }
@@ -27640,6 +27946,16 @@
                               }
                             ]
                           },
+                          "block_transfer_undo": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryBlockTransferUndoResult"
+                              }
+                            ]
+                          },
                           "canvas_mutation": {
                             "oneOf": [
                               {
@@ -27841,6 +28157,16 @@
                               },
                               {
                                 "$ref": "#/components/schemas/LibraryBlockTransferResult"
+                              }
+                            ]
+                          },
+                          "block_transfer_undo": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryBlockTransferUndoResult"
                               }
                             ]
                           },

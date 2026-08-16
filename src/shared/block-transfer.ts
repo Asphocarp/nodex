@@ -9,13 +9,14 @@ import type {
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 
 /** Exact writer request/receipt protocol. */
-export const BLOCK_TRANSFER_CONTRACT_VERSION = 2 as const;
+export const BLOCK_TRANSFER_CONTRACT_VERSION = 3 as const;
 /** Public logical parent protocol compiled by the SQLite writer. */
-export const BLOCK_TRANSFER_INTENT_CONTRACT_VERSION = 2 as const;
+export const BLOCK_TRANSFER_INTENT_CONTRACT_VERSION = 3 as const;
 export const MAX_BLOCK_TRANSFER_ROOTS = 10_000;
 export const MAX_BLOCK_TRANSFER_ID_LENGTH = 512;
 
 export type BlockTransferMode = "move" | "copy";
+export type PagePromotionPolicy = "literal" | "task_shorthand_v1";
 
 export type BlockTransferIntentSource =
   | { readonly kind: "library"; readonly libraryId: string }
@@ -66,6 +67,7 @@ export interface BlockTransferIntent {
   readonly causalDependencies: readonly BlockTransferDocumentHead[];
   readonly source: BlockTransferIntentSource;
   readonly target: BlockTransferIntentTarget;
+  readonly promotionPolicy: PagePromotionPolicy;
 }
 
 export interface BlockTransferDocumentHead {
@@ -163,7 +165,36 @@ export interface BlockTransferTransformationEvidence {
     | "unmapped_type_state";
   readonly bodyRootBlockIds: readonly BlockId[];
   readonly sourceToResultBlockIds: Readonly<Record<BlockId, BlockId>>;
+  readonly promotion: BlockTransferPromotionEvidence;
 }
+
+export type TaskShorthandPreservedReason =
+  | "malformed_shorthand"
+  | "nonempty_title_required"
+  | "rich_text_boundary"
+  | "target_property_conflict"
+  | "target_schema_incompatible"
+  | "tag_schema_permission_required"
+  | "tag_option_limit";
+
+export type BlockTransferPromotionEvidence =
+  | { readonly kind: "not_requested" }
+  | { readonly kind: "not_applicable" }
+  | { readonly kind: "no_match" }
+  | {
+      readonly kind: "applied";
+      readonly grammarVersion: 1;
+      readonly priorityOptionId: string;
+      readonly estimateOptionId: string | null;
+      readonly tagOptionIds: readonly string[];
+      readonly tagNames: readonly string[];
+      readonly createdTagOptionIds: readonly string[];
+    }
+  | {
+      readonly kind: "preserved";
+      readonly grammarVersion: 1;
+      readonly reason: TaskShorthandPreservedReason;
+    };
 
 export interface BlockTransferReceipt {
   readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
@@ -180,6 +211,35 @@ export interface BlockTransferReceipt {
   readonly finalLocationRevisions: Readonly<Record<BlockId, number>>;
   readonly documentCommits: readonly DocumentCommitRef[];
   readonly affectedDatabaseBlockIds: readonly BlockId[];
+  readonly commitSeq: number;
+  readonly committedAt: string;
+  readonly undoToken: BlockTransferUndoToken | null;
+}
+
+export interface BlockTransferUndoToken {
+  readonly transferOperationId: string;
+  readonly recipeHash: string;
+  readonly storeEpoch: string;
+}
+
+export interface BlockTransferUndoIntent {
+  readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
+  readonly operationId: string;
+  readonly projectId: string;
+  readonly storeEpoch: string;
+  readonly token: BlockTransferUndoToken;
+}
+
+export interface BlockTransferUndoReceipt {
+  readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
+  readonly operationId: string;
+  readonly projectId: string;
+  readonly storeEpoch: string;
+  readonly transferOperationId: string;
+  readonly duplicate: boolean;
+  readonly restoredSourceRootIds: readonly BlockId[];
+  readonly removedPageIds: readonly BlockId[];
+  readonly documentCommits: readonly DocumentCommitRef[];
   readonly commitSeq: number;
   readonly committedAt: string;
 }
@@ -200,6 +260,8 @@ export type BlockTransferErrorCode =
   | "invalid_target"
   | "transfer_cycle"
   | "unsupported_transfer"
+  | "undo_unavailable"
+  | "undo_conflict"
   | "recovery_required"
   | "unknown";
 
@@ -214,6 +276,9 @@ export interface BlockTransferCommandError {
 export type BlockTransferCommandResult<Value = BlockTransferReceipt> =
   | LocalCommitCommandSuccess<Value>
   | { readonly ok: false; readonly error: BlockTransferCommandError };
+
+export type BlockTransferUndoCommandResult =
+  BlockTransferCommandResult<BlockTransferUndoReceipt>;
 
 export class BlockTransferContractError extends Error {
   constructor(message: string) {
@@ -890,6 +955,7 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
       "rootBlockIds",
       "source",
       "target",
+      "promotionPolicy",
     ],
     ["clientSessionId", "causalDependencies"],
   );
@@ -901,6 +967,14 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
   if (intent.mode !== "move" && intent.mode !== "copy") {
     throw new BlockTransferContractError(
       "blockTransferIntent.mode must be move or copy",
+    );
+  }
+  if (
+    intent.promotionPolicy !== "literal"
+    && intent.promotionPolicy !== "task_shorthand_v1"
+  ) {
+    throw new BlockTransferContractError(
+      "blockTransferIntent.promotionPolicy must be literal or task_shorthand_v1",
     );
   }
   const rootBlockIds = readRootBlockIds(intent);
@@ -928,6 +1002,7 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
     causalDependencies,
     source,
     target,
+    promotionPolicy: intent.promotionPolicy,
   };
 };
 
@@ -997,6 +1072,7 @@ export const blockTransferIntentFromRequest = (
     causalDependencies: [],
     source,
     target,
+    promotionPolicy: "literal",
   };
 };
 
@@ -1012,6 +1088,7 @@ export const canonicalizeBlockTransferLogicalIntent = (value: unknown): string =
     rootBlockIds: intent.rootBlockIds,
     source: intent.source,
     target: intent.target,
+    promotionPolicy: intent.promotionPolicy,
   });
 };
 
@@ -1073,6 +1150,69 @@ export const parseBlockTransferRequest = (
     ),
     source,
     target,
+  };
+};
+
+export const parseBlockTransferUndoToken = (
+  value: unknown,
+): BlockTransferUndoToken => {
+  const token = readRecord(value, "blockTransferUndo.token");
+  assertExactKeys(token, "blockTransferUndo.token", [
+    "transferOperationId",
+    "recipeHash",
+    "storeEpoch",
+  ]);
+  const recipeHash = readString(
+    token,
+    "recipeHash",
+    "blockTransferUndo.token",
+    64,
+  );
+  if (!/^[0-9a-f]{64}$/.test(recipeHash)) {
+    throw new BlockTransferContractError(
+      "blockTransferUndo.token.recipeHash must be a SHA-256 digest",
+    );
+  }
+  return {
+    transferOperationId: readString(
+      token,
+      "transferOperationId",
+      "blockTransferUndo.token",
+    ),
+    recipeHash,
+    storeEpoch: readString(token, "storeEpoch", "blockTransferUndo.token"),
+  };
+};
+
+export const parseBlockTransferUndoIntent = (
+  value: unknown,
+): BlockTransferUndoIntent => {
+  const intent = readRecord(value, "blockTransferUndo");
+  assertExactKeys(intent, "blockTransferUndo", [
+    "version",
+    "operationId",
+    "projectId",
+    "storeEpoch",
+    "token",
+  ]);
+  if (intent.version !== BLOCK_TRANSFER_CONTRACT_VERSION) {
+    throw new BlockTransferContractError(
+      `blockTransferUndo.version must be ${BLOCK_TRANSFER_CONTRACT_VERSION}`,
+    );
+  }
+  const storeEpoch = readString(intent, "storeEpoch", "blockTransferUndo");
+  const token = parseBlockTransferUndoToken(intent.token);
+  if (token.storeEpoch !== storeEpoch) {
+    throw new BlockTransferContractError(
+      "blockTransferUndo token belongs to another store epoch",
+    );
+  }
+  return {
+    version: BLOCK_TRANSFER_CONTRACT_VERSION,
+    operationId: readString(intent, "operationId", "blockTransferUndo"),
+    projectId: readString(intent, "projectId", "blockTransferUndo"),
+    storeEpoch,
+    token,
   };
 };
 

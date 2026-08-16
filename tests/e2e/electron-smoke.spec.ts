@@ -967,7 +967,7 @@ async function transferBoardFixturePages(
         "blocks:transfer",
         project.projectId,
         {
-          version: 2,
+          version: 3,
           operationId: createUuidV7(),
           projectId: project.projectId,
           storeEpoch: project.storeEpoch,
@@ -980,6 +980,7 @@ async function transferBoardFixturePages(
             viewId: database.viewId,
             groupKey,
           },
+          promotionPolicy: "literal",
         },
       ),
       `${label} batch ${Math.floor(offset / 20) + 1}`,
@@ -1920,7 +1921,7 @@ test("converges a Block transfer into the live Board Page projection", async () 
         "blocks:transfer",
         project.projectId,
         {
-          version: 2,
+          version: 3,
           operationId: createUuidV7(),
           projectId: project.projectId,
           storeEpoch: project.storeEpoch,
@@ -1933,6 +1934,7 @@ test("converges a Block transfer into the live Board Page projection", async () 
             viewId: database.viewId,
             groupKey: "triage",
           },
+          promotionPolicy: "literal",
         },
       ),
       "Transfer Block into Board",
@@ -2248,7 +2250,7 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
       source,
       [
         "Before smoke sibling",
-        "DnD smoke title",
+        "1XL(ui, unclear) DnD smoke title",
         "\tDnD smoke first child",
         "\tDnD smoke middle child",
         "\tDnD smoke last child",
@@ -2291,7 +2293,7 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     );
     await expect(sourceSurface).toBeVisible({ timeout: 15_000 });
     const sourceBlock = sourceSurface.locator(".bn-block[data-id]").filter({
-      hasText: "DnD smoke title",
+      hasText: "1XL(ui, unclear) DnD smoke title",
     }).first();
     await expect(sourceBlock).toBeVisible();
 
@@ -2348,8 +2350,52 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     expect(detail.page).toMatchObject({
       plainText: expect.stringContaining("DnD smoke last child"),
     });
-    await expect(page.locator('[data-slot="toast-item"] [role="alert"]'))
-      .toHaveCount(0);
+    expect(detail.dataSourceContext).toMatchObject({
+      kind: "member",
+      values: {
+        priority: { value: "p1-high" },
+        estimate: { value: "xl" },
+        status: { value: "triage" },
+      },
+    });
+    const dataSourceContext = detail.dataSourceContext;
+    if (!isRecord(dataSourceContext) || !isRecord(dataSourceContext.values)) {
+      throw new Error("Native DnD Data Source context is unavailable");
+    }
+    const tagsValue = dataSourceContext.values.tags;
+    if (!isRecord(tagsValue)) {
+      throw new Error("Native DnD Tags value is unavailable");
+    }
+    const tags = tagsValue.value;
+    expect(tags).toEqual(expect.any(Array));
+    expect(tags).toHaveLength(2);
+    const promotionToast = page.locator('[data-slot="toast-item"]')
+      .filter({ hasText: "Task shorthand applied" });
+    await expect(promotionToast.locator('[role="alert"]')).toBeVisible();
+    await promotionToast.getByRole("button", { name: "Undo" }).click();
+
+    await expect(promotedCards).toHaveCount(0, { timeout: 15_000 });
+    await expect.poll(
+      async () => await readConvergenceBoardTotal(page, project),
+      { timeout: 15_000 },
+    ).toBe(3);
+    await expect.poll(async () => {
+      const restored = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(
+          page,
+          "pages:detail:get",
+          project.projectId,
+          source.pageId,
+        ),
+        "Read restored source Page detail",
+      );
+      return isRecord(restored.page) ? restored.page.plainText : null;
+    }, { timeout: 15_000 }).toEqual(
+      expect.stringContaining("1XL(ui, unclear) DnD smoke title"),
+    );
+    await page.getByRole("tab", { name: "DnD source Page" }).click();
+    await expect(sourceSurface).toBeVisible({ timeout: 15_000 });
+    await expect(sourceBlock).toHaveCount(1, { timeout: 15_000 });
   } finally {
     await harness.close();
   }
@@ -3043,7 +3089,7 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
         "blocks:transfer",
         project.projectId,
         {
-          version: 2,
+          version: 3,
           operationId: createUuidV7(),
           projectId: project.projectId,
           storeEpoch: project.storeEpoch,
@@ -3062,6 +3108,7 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
             groupKey: "triage",
             beforePageId: triageAnchorPageId,
           },
+          promotionPolicy: "literal",
         },
       );
     const transfer = requireIpcValue<Record<string, unknown>>(
@@ -3480,7 +3527,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
           "blocks:transfer",
           project.projectId,
           {
-            version: 2,
+            version: 3,
             operationId: createUuidV7(),
             projectId: project.projectId,
             storeEpoch: project.storeEpoch,
@@ -3494,6 +3541,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
               groupKey: "triage",
               beforePageId: firstTriagePageId,
             },
+            promotionPolicy: "literal",
           },
         ),
         `Transfer high-pressure title Block ${index + 1}`,

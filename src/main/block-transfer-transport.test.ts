@@ -2,16 +2,24 @@ import { describe, expect, test } from "vitest";
 import type {
   BlockTransferCommandResult,
   BlockTransferIntent,
+  BlockTransferUndoCommandResult,
+  BlockTransferUndoIntent,
 } from "../shared/block-transfer";
-import type { PublicBlockTransferIntent } from "../shared/block-transfer-transport";
+import type {
+  PublicBlockTransferIntent,
+  PublicBlockTransferUndoIntent,
+} from "../shared/block-transfer-transport";
 import {
   BLOCK_TRANSFER_IPC_CHANNEL,
+  BLOCK_TRANSFER_UNDO_IPC_CHANNEL,
   registerBlockTransferIpcHandler,
+  registerBlockTransferUndoIpcHandler,
   type BlockTransferIpcHandler,
+  type BlockTransferUndoIpcHandler,
 } from "./block-transfer-ipc";
 
 const intent: PublicBlockTransferIntent = {
-  version: 2,
+  version: 3,
   operationId: "transfer-public-1",
   projectId: "project-a",
   storeEpoch: "epoch-a",
@@ -20,6 +28,7 @@ const intent: PublicBlockTransferIntent = {
   causalDependencies: [],
   source: { kind: "data_source", dataSourceId: "source-a" },
   target: { kind: "document", documentId: "document-host" },
+  promotionPolicy: "literal",
 };
 
 const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
@@ -29,7 +38,7 @@ const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
     observed: { store_epoch: bound.storeEpoch, commit_head: 9 },
   },
   value: {
-    version: 2,
+    version: 3,
     operationId: bound.operationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,
@@ -57,6 +66,42 @@ const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
     affectedDatabaseBlockIds: ["database-a"],
     commitSeq: 9,
     committedAt: "2026-07-13T00:00:00.000Z",
+    undoToken: null,
+  },
+});
+
+const undoIntent: PublicBlockTransferUndoIntent = {
+  version: 3,
+  operationId: "undo-transfer-public-1",
+  projectId: "project-a",
+  storeEpoch: "epoch-a",
+  token: {
+    transferOperationId: "transfer-public-1",
+    recipeHash: "a".repeat(64),
+    storeEpoch: "epoch-a",
+  },
+};
+
+const undone = (
+  bound: BlockTransferUndoIntent,
+): BlockTransferUndoCommandResult => ({
+  ok: true,
+  localCommit: {
+    status: "no_op",
+    observed: { store_epoch: bound.storeEpoch, commit_head: 10 },
+  },
+  value: {
+    version: 3,
+    operationId: bound.operationId,
+    projectId: bound.projectId,
+    storeEpoch: bound.storeEpoch,
+    transferOperationId: bound.token.transferOperationId,
+    duplicate: false,
+    restoredSourceRootIds: ["card-a"],
+    removedPageIds: ["card-a"],
+    documentCommits: [],
+    commitSeq: 10,
+    committedAt: "2026-07-13T00:00:01.000Z",
   },
 });
 
@@ -116,4 +161,26 @@ describe("Block transfer IPC", () => {
     expect(calls).toBe(0);
   });
 
+  test("binds a scoped opaque Undo token without renderer audit fields", async () => {
+    let handler: BlockTransferUndoIpcHandler = async () => {
+      throw new Error("handler missing");
+    };
+    const captured: BlockTransferUndoIntent[] = [];
+    registerBlockTransferUndoIpcHandler({
+      registerHandle: (channel, listener) => {
+        expect(channel).toBe(BLOCK_TRANSFER_UNDO_IPC_CHANNEL);
+        handler = listener;
+      },
+      resolveTrustedIdentity: () => ({ clientSessionId: "trusted" }),
+      undo: async (bound) => {
+        captured.push(bound);
+        return undone(bound);
+      },
+    });
+
+    expect((await handler({}, "project-a", undoIntent)).ok).toBe(true);
+    expect(captured).toEqual([undoIntent]);
+    expect((await handler({}, "project-other", undoIntent)).ok).toBe(false);
+    expect(captured).toHaveLength(1);
+  });
 });

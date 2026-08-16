@@ -153,7 +153,7 @@ const committed = (
   ok: true,
   localCommit: noOpLocalCommit(intent.storeEpoch),
   value: {
-    version: 2,
+    version: 3,
     operationId: intent.operationId,
     projectId: intent.projectId,
     storeEpoch: intent.storeEpoch,
@@ -169,6 +169,7 @@ const committed = (
     affectedDatabaseBlockIds: [],
     commitSeq: 12,
     committedAt: timestamp,
+    undoToken: null,
   },
 });
 

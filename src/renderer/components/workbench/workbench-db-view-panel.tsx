@@ -64,7 +64,10 @@ import {
 import { requestPageCreate } from "@/lib/page-create-workflow";
 import { toast } from "@/components/ui/toast";
 import { isWorkflowStatus } from "../../../shared/workflow-status";
-import { useDatabaseViewMutationHistory } from "./database-view-mutation-history";
+import {
+  useDatabaseViewMutationHistory,
+  type DatabaseViewMutationHistory,
+} from "./database-view-mutation-history";
 
 const DB_VIEW_TABS: Array<{
   id: "board" | "list";
@@ -125,6 +128,7 @@ export function DatabaseViewTabSurface({
   forcedDisplayField,
   pageCreateSurfaceId,
   onRequestCreatePage,
+  mutationHistory: providedMutationHistory,
 }: {
   readonly model: DatabaseViewRenderModel;
   readonly presentationLayout?: DatabaseViewLayout;
@@ -162,10 +166,12 @@ export function DatabaseViewTabSurface({
   readonly forcedDisplayField?: DatabaseViewField | null;
   readonly pageCreateSurfaceId?: string;
   readonly onRequestCreatePage?: (groupKey: string) => void;
+  readonly mutationHistory?: DatabaseViewMutationHistory;
 }) {
-  const mutationHistory = useDatabaseViewMutationHistory(
+  const localMutationHistory = useDatabaseViewMutationHistory(
     `${model.storeEpoch}:${model.databaseViewId}`,
   );
+  const mutationHistory = providedMutationHistory ?? localMutationHistory;
   const presentation = effectivePresentation ?? {
     layout: presentationLayout,
     presentation: model.query.view.config.presentation,
@@ -296,6 +302,9 @@ export function DbViewSessionTab({
     enabled: !personalPreference.loading,
   });
   const databaseView = runtime.databaseView;
+  const mutationHistory = useDatabaseViewMutationHistory(
+    `${databaseView?.storeEpoch ?? "pending"}:${databaseViewId}`,
+  );
   const [publishingPresentation, setPublishingPresentation] = useState(false);
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const [databaseManagerOpen, setDatabaseManagerOpen] = useState(false);
@@ -666,6 +675,7 @@ export function DbViewSessionTab({
           onOpenPageInNewChat={onOpenPageInNewChat}
           onSendPageToChat={onSendPageToChat}
           scrollStateKey={`database-view:${sessionId}:${tab.id}:${databaseViewId}:board`}
+          mutationHistory={mutationHistory}
         />
       ) : undefined}
       overlay={(
@@ -696,6 +706,7 @@ export function DbViewSessionTab({
       }}
       pageCreateSurfaceId={surfaceId}
       onRequestCreatePage={requestListPageCreate}
+      mutationHistory={mutationHistory}
     />
   );
 }

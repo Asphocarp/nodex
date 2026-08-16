@@ -151,6 +151,7 @@ fn create_page_in_data_source(
                     page_copy: None,
                     canvas_mutation: None,
                     block_transfer: None,
+                    block_transfer_undo: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -274,6 +275,7 @@ pub(super) fn move_page(
         causal_dependencies: Vec::new(),
         source,
         target,
+        promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
     };
     let prepared = super::block_transfer::prepare_for_apply(
         connection,

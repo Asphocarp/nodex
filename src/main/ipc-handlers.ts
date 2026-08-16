@@ -287,7 +287,10 @@ import { registerPageDetailIpcHandler } from "./page-detail-ipc";
 import { registerLibraryPageDetailIpcHandler } from "./library-page-detail-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 import { registerAdditionalDocumentCommandIpcHandler } from "./additional-document-command-ipc";
-import { registerBlockTransferIpcHandler } from "./block-transfer-ipc";
+import {
+  registerBlockTransferIpcHandler,
+  registerBlockTransferUndoIpcHandler,
+} from "./block-transfer-ipc";
 import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
 import {
   registerPageLifecycleIpcHandler,
@@ -2076,6 +2079,19 @@ export function registerIpcHandlers(
       };
     },
     transfer: documentSync.transferBlocks,
+  });
+
+  registerBlockTransferUndoIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, intent) =>
+        listener(event, projectId, intent),
+      );
+    },
+    resolveTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      return resolveDocumentSyncTarget(event);
+    },
+    undo: documentSync.undoBlockTransfer,
   });
 
   registerDocumentHistoryIpcHandlers({

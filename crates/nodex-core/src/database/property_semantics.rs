@@ -54,6 +54,16 @@ pub(crate) fn is_priority_option_id(value: &str) -> bool {
     PRIORITY_OPTIONS.iter().any(|(id, _)| *id == value)
 }
 
+pub(crate) fn priority_option_id(priority: u8) -> Option<&'static str> {
+    PRIORITY_OPTIONS
+        .get(usize::from(priority))
+        .map(|(id, _)| *id)
+}
+
+pub(crate) fn is_estimate_option_id(value: &str) -> bool {
+    ESTIMATE_OPTION_IDS.contains(&value)
+}
+
 fn is_compact_scoped_id(value: &str, prefix: &str) -> bool {
     value.len() == 10
         && value.starts_with(prefix)

@@ -314,7 +314,7 @@ export const moveNfmBlocks = async (
   }
 
   const result = await dependencies.transfer(request.projectId, {
-    version: 2,
+    version: 3,
     operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -323,6 +323,7 @@ export const moveNfmBlocks = async (
     causalDependencies,
     source: { kind: "page", pageId: request.sourcePageId },
     target,
+    promotionPolicy: "literal",
   });
   if (!result.ok) throw commandError(result.error);
   return result.value;

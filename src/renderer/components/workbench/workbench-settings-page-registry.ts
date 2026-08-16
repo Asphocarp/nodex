@@ -41,16 +41,14 @@ export interface SettingsSectionPageProps {
   onOpenThread?: (threadId: string) => void | Promise<void>;
   onPathChange: (path: string) => void;
   onRequestProjectPickerOpen: () => void;
-  onSmartPrefixParsingEnabledChange: (value: boolean) => void;
-  onStripSmartPrefixFromTitleEnabledChange: (value: boolean) => void;
+  onTaskShorthandPagePromotionEnabledChange: (value: boolean) => void;
   onThreadQueueFollowUpsEnabledChange: (value: boolean) => void;
   onWorktreeAutoBranchPrefixChange: (value: string) => void;
   onWorktreeStartModeChange: (value: WorktreeStartMode) => void;
   open: boolean;
   path: string;
   projects: Project[];
-  smartPrefixParsingEnabled: boolean;
-  stripSmartPrefixFromTitleEnabled: boolean;
+  taskShorthandPagePromotionEnabled: boolean;
   threadQueueFollowUpsEnabled: boolean;
   worktreeAutoBranchPrefix: string;
   worktreeStartMode: WorktreeStartMode;

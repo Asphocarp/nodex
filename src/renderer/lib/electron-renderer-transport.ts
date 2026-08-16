@@ -45,8 +45,14 @@ import type {
 } from "../../shared/block-documents/document-operations";
 import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
-import type { BlockTransferCommandResult } from "../../shared/block-transfer";
-import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
+import type {
+  BlockTransferCommandResult,
+  BlockTransferUndoCommandResult,
+} from "../../shared/block-transfer";
+import type {
+  PublicBlockTransferIntent,
+  PublicBlockTransferUndoIntent,
+} from "../../shared/block-transfer-transport";
 import type {
   CreateDocumentVersionCheckpoint,
   CreatedDocumentVersionSummary,
@@ -272,6 +278,16 @@ export function createElectronRendererTransport(
         projectId,
         intent,
       ) as Promise<BlockTransferCommandResult>;
+    },
+    undoBlockTransfer(
+      projectId: string,
+      intent: PublicBlockTransferUndoIntent,
+    ) {
+      return bridge.invoke(
+        "blocks:transfer:undo",
+        projectId,
+        intent,
+      ) as Promise<BlockTransferUndoCommandResult>;
     },
     createDocumentVersionCheckpoint(
       projectId: string,

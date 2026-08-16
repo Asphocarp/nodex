@@ -1283,26 +1283,14 @@ export function WorktreeAutoBranchPrefixSettingControl({
   );
 }
 
-export function SmartPrefixParsingSettingControl({
+export function TaskShorthandPagePromotionSettingControl({
   value,
   onChange,
 }: {
   value: boolean;
   onChange: (value: boolean) => void;
 }) {
-  return <TogglePill ariaLabel="Smart prefix parsing" value={value} onChange={onChange} />;
-}
-
-export function StripSmartPrefixFromTitleSettingControl({
-  value,
-  onChange,
-  disabled = false,
-}: {
-  value: boolean;
-  onChange: (value: boolean) => void;
-  disabled?: boolean;
-}) {
-  return <TogglePill ariaLabel="Strip smart prefix from title" value={value} onChange={onChange} disabled={disabled} />;
+  return <TogglePill ariaLabel="Task shorthand on Block to Page" value={value} onChange={onChange} />;
 }
 
 export function ComposerEnterBehaviorControl({
@@ -1812,10 +1800,8 @@ export interface SettingsRouteShellProps {
   onWorktreeStartModeChange: (value: WorktreeStartMode) => void;
   worktreeAutoBranchPrefix: string;
   onWorktreeAutoBranchPrefixChange: (value: string) => void;
-  smartPrefixParsingEnabled: boolean;
-  onSmartPrefixParsingEnabledChange: (value: boolean) => void;
-  stripSmartPrefixFromTitleEnabled: boolean;
-  onStripSmartPrefixFromTitleEnabledChange: (value: boolean) => void;
+  taskShorthandPagePromotionEnabled: boolean;
+  onTaskShorthandPagePromotionEnabledChange: (value: boolean) => void;
 }
 
 function SettingsPlaceholderPage({
@@ -1931,10 +1917,8 @@ export function SettingsRouteShell({
   onWorktreeStartModeChange,
   worktreeAutoBranchPrefix,
   onWorktreeAutoBranchPrefixChange,
-  smartPrefixParsingEnabled,
-  onSmartPrefixParsingEnabledChange,
-  stripSmartPrefixFromTitleEnabled,
-  onStripSmartPrefixFromTitleEnabledChange,
+  taskShorthandPagePromotionEnabled,
+  onTaskShorthandPagePromotionEnabledChange,
 }: SettingsRouteShellProps) {
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const shellRef = useRef<HTMLDivElement>(null);
@@ -2067,10 +2051,8 @@ export function SettingsRouteShell({
                 onWorktreeStartModeChange={onWorktreeStartModeChange}
                 worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
                 onWorktreeAutoBranchPrefixChange={onWorktreeAutoBranchPrefixChange}
-                smartPrefixParsingEnabled={smartPrefixParsingEnabled}
-                onSmartPrefixParsingEnabledChange={onSmartPrefixParsingEnabledChange}
-                stripSmartPrefixFromTitleEnabled={stripSmartPrefixFromTitleEnabled}
-                onStripSmartPrefixFromTitleEnabledChange={onStripSmartPrefixFromTitleEnabledChange}
+                taskShorthandPagePromotionEnabled={taskShorthandPagePromotionEnabled}
+                onTaskShorthandPagePromotionEnabledChange={onTaskShorthandPagePromotionEnabledChange}
               />
             )}
           </Suspense>

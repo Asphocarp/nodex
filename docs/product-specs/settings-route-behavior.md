@@ -52,7 +52,9 @@ become independent rail entries.
 General owns Permissions, general behavior, Composer, Files & links, and
 Notifications. Browser owns General, Autofill and passwords, Extensions,
 Downloads, Permissions, Site permissions, Developer mode, and its focused
-history/manager detail pages. Pages owns Cards & Page Stage and Block import.
+history/manager detail pages. Pages owns Cards & Page Stage and the single
+`Task shorthand on Block → Page` import preference defined by
+[Task Shorthand Page Promotion Behavior](task-shorthand-page-promotion-behavior.md).
 
 ## Search
 

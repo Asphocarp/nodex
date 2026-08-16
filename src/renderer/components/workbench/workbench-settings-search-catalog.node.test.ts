@@ -44,7 +44,7 @@ describe("workbench settings search catalog", () => {
     expect(hasSectionResult("force fixed theme", "appearance")).toBe(true);
     expect(hasSectionResult("danger-full-access", "agent")).toBe(true);
     expect(hasSectionResult("materialize inflating note", "general-settings")).toBe(true);
-    expect(hasSectionResult("smart parse", "page")).toBe(true);
+    expect(hasSectionResult("task shorthand", "page")).toBe(true);
     expect(hasSectionResult("more-properties toggle", "page")).toBe(true);
     expect(hasSectionResult("auto-create branch detached", "worktrees")).toBe(true);
     expect(hasSectionResult("CODEX_SOURCE_TREE_PATH", "local-environments")).toBe(true);

@@ -40,6 +40,7 @@ import type {
   OpenPageInNewChatInput,
   SendPageToChatInput,
 } from "@/lib/page-chat-actions";
+import { useDatabaseViewMutationHistory } from "./database-view-mutation-history";
 
 type DatabaseReadTarget =
   | { readonly databaseViewId: string }
@@ -230,6 +231,9 @@ export function WorkbenchDatabaseViewSurface({
   const targetIdentity = target.kind === "database-default"
     ? `database:${target.databaseId}`
     : `view:${target.databaseViewId}`;
+  const mutationHistory = useDatabaseViewMutationHistory(
+    `pending:${accessProjectId ?? "library"}:${targetIdentity}`,
+  );
   const queryKey = useMemo(
     () => queryKeys.libraryDatabases.view(accessProjectId, targetIdentity),
     [accessProjectId, targetIdentity],
@@ -300,6 +304,9 @@ export function WorkbenchDatabaseViewSurface({
       : undefined,
     [mergedWindow],
   );
+  if (model) {
+    mutationHistory.setScope(`${model.storeEpoch}:${model.databaseViewId}`);
+  }
   const classicBoard = useMemo(() => model
     ? classicBoardPresentation({
         layout: model.query.view.defaultLayout,
@@ -518,6 +525,7 @@ export function WorkbenchDatabaseViewSurface({
             presentedPageIds={presentedPageIds}
             initialSelectedPageIds={selectedPageIds}
             onSelectedPageIdsChange={setSelectedPageIds}
+            mutationHistory={mutationHistory}
             boardSurface={
               accessContext.kind === "project" && classicBoard
                 ? (
@@ -544,6 +552,7 @@ export function WorkbenchDatabaseViewSurface({
                       onSelectedPageIdsChange={setSelectedPageIds}
                       pageStageCloseRef={pageStageCloseRef}
                       scrollStateKey={`database-view:${targetIdentity}:board`}
+                      mutationHistory={mutationHistory}
                     />
                   )
                 : undefined

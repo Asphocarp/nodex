@@ -1,4 +1,12 @@
-import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useDeferredValue,
+  useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import { Column } from "./column";
 import {
@@ -75,8 +83,12 @@ import {
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   resolveLocalBlockDragDropSession,
   resolveCrossSurfaceTransferMode,
+  resolvePagePromotionPolicy,
+  summarizeBlockPagePromotionPreview,
+  summarizeBlockPagePromotionReceipt,
   shouldHandleNativeCrossSurfaceDrag,
 } from "./cross-surface-drag";
+import { readTaskShorthandPagePromotionEnabled } from "../../lib/page-promotion-preference";
 import { toast } from "@/components/ui/toast";
 import { useBoardElementDragMonitor } from "./use-board-element-drag-monitor";
 import { transferBlocks } from "@/lib/api";
@@ -103,6 +115,12 @@ import type {
   DatabaseViewPresentationOverride,
 } from "../../../shared/database-kernel";
 import type { DatabaseViewMutationReceipt } from "@/lib/database-view-row-mutations";
+import {
+  handleDatabaseViewMutationHistoryKeyDown,
+  useDatabaseViewMutationHistory,
+  type DatabaseViewMutationHistory,
+} from "../workbench/database-view-mutation-history";
+import { undoDatabaseViewBlockTransfer } from "../workbench/database-view-block-transfer-undo";
 import {
   findBoardKeyboardLocation,
   resolveBoardKeyboardActionPageIds,
@@ -173,6 +191,7 @@ interface BoardProps {
   onSelectedPageIdsChange?: (pageIds: ReadonlySet<string>) => void;
   pageStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   scrollStateKey?: string | null;
+  mutationHistory?: DatabaseViewMutationHistory;
 }
 
 export function Board({
@@ -196,7 +215,12 @@ export function Board({
   onSelectedPageIdsChange,
   pageStageCloseRef,
   scrollStateKey,
+  mutationHistory: providedMutationHistory,
 }: BoardProps) {
+  const localMutationHistory = useDatabaseViewMutationHistory(
+    `pending:${projectId}:${databaseViewId}`,
+  );
+  const mutationHistory = providedMutationHistory ?? localMutationHistory;
   const appHandle = useScopeHandle(appScope);
   const mutationAuditSessionId = useMutationAuditSessionId();
   const pendingCardPreviewOpenRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -229,6 +253,9 @@ export function Board({
       presentationOverride,
       presentationOverrideReady,
     });
+  localMutationHistory.setScope(
+    `${databaseView?.storeEpoch ?? "pending"}:${databaseViewId}`,
+  );
 
   const [cardSelection, setCardSelection] = useState<CardSelectionState>(() =>
     initialSelectedPageIds && initialSelectedPageIds.size > 0
@@ -500,7 +527,19 @@ export function Board({
         event.clientY,
       );
       setActiveDropColumnId(columnId);
-      const label = blockTransferDropLabel(mode, "data_source");
+      const session = resolveLocalBlockDragDropSession(event.dataTransfer);
+      const promotionPolicy = resolvePagePromotionPolicy({
+        preferenceEnabled: readTaskShorthandPagePromotionEnabled(),
+        shiftKey: event.shiftKey,
+      });
+      const label = session
+        ? summarizeBlockPagePromotionPreview({
+            mode,
+            rootCount: session.payload.rootBlockIds.length,
+            hints: session.taskShorthandPreviewHints ?? [],
+            literal: promotionPolicy === "literal",
+          })
+        : blockTransferDropLabel(mode, "data_source");
       setDropIndicator((current) =>
         current?.columnId === columnId &&
         current.index === index &&
@@ -585,6 +624,10 @@ export function Board({
           groupKey: columnId,
           ...(beforePageId ? { beforePageId } : {}),
           altKey: event.altKey,
+          promotionPolicy: resolvePagePromotionPolicy({
+            preferenceEnabled: readTaskShorthandPagePromotionEnabled(),
+            shiftKey: event.shiftKey,
+          }),
           ...(sourceHead
             ? {
                 causalDependencies: [{
@@ -600,6 +643,31 @@ export function Board({
         toast.danger(result.error.message);
         return;
       }
+      if (result.value.undoToken) {
+        mutationHistory.registerBlockTransfer(result.value.undoToken);
+      }
+      const shorthandFeedback = summarizeBlockPagePromotionReceipt(result.value);
+      const feedbackMessage = shorthandFeedback?.message ?? "Block promoted to a Page.";
+      const feedbackOptions = result.value.undoToken && databaseView
+        ? {
+            action: {
+              label: "Undo",
+              onClick: () => {
+                void mutationHistory.undoLast({
+                  listMove: async () => false,
+                  blockTransfer: async (token) => await undoDatabaseViewBlockTransfer({
+                    projectId,
+                    storeEpoch: databaseView.storeEpoch,
+                    token,
+                  }),
+                });
+                return false;
+              },
+            },
+          }
+        : undefined;
+      if (shorthandFeedback?.tone === "info") toast.info(feedbackMessage, feedbackOptions);
+      else toast.success(feedbackMessage, feedbackOptions);
       const commitCursor = result.localCommit.status === "committed"
         ? {
             storeEpoch: result.localCommit.commit.store_epoch,
@@ -611,7 +679,7 @@ export function Board({
           };
       await refresh(commitCursor);
     },
-    [databaseView, filteredBoard, projectId, refresh],
+    [databaseView, filteredBoard, mutationHistory, projectId, refresh],
   );
 
   const performCardDrop = useCallback(async (
@@ -1372,6 +1440,19 @@ export function Board({
       onPointerDownCapture={() => {
         markPageCreateTargetActive(appHandle, surfaceId);
         markContextualKeyboardActionTargetActive(surfaceId);
+      }}
+      onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (!databaseView) return;
+        handleDatabaseViewMutationHistoryKeyDown({
+          event,
+          history: mutationHistory,
+          undoListMove: async () => false,
+          undoBlockTransfer: async (token) => await undoDatabaseViewBlockTransfer({
+            projectId,
+            storeEpoch: databaseView.storeEpoch,
+            token,
+          }),
+        });
       }}
     >
       <BoardScrollContainer ref={boardScrollContainerRef} scrollStateKey={scrollStateKey}>

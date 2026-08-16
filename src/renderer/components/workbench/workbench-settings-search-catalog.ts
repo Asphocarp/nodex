@@ -391,12 +391,9 @@ const SETTINGS_SEARCH_PANELS = {
         title: "Block import",
         entries: [
           entry(
-            "Smart parse block prefixes",
-            "Interpret shorthand like 1XL(tag) during block-to-card import.",
-          ),
-          entry(
-            "Strip parsed prefix from title",
-            "Remove matched shorthand from imported Page titles after parsing.",
+            "Task shorthand on Block → Page",
+            "Interpret priority, estimate, and tags such as 1XL(ui, unclear) when a Block is promoted into a Page.",
+            ["task shorthand", "block import", "priority", "estimate", "tags", "1XL"],
           ),
         ],
       },

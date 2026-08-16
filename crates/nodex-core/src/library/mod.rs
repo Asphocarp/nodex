@@ -771,6 +771,7 @@ impl LibraryModule {
                 page_copy: None,
                 canvas_mutation: None,
                 block_transfer: None,
+                block_transfer_undo: None,
                 page_lifecycle: None,
                 block_property_mutation: None,
                 agent_page_copy: None,
@@ -4169,6 +4170,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let mut stale_intent = move_intent.clone();
         stale_intent.causal_dependencies[0].expected_head_seq += 1;
@@ -4263,6 +4265,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let copied = module
             .apply(
@@ -4423,6 +4426,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let denied = module
             .apply(
@@ -4443,6 +4447,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let denied = module
             .apply(
@@ -4539,6 +4544,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let denied = module
             .apply(
@@ -4580,6 +4586,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         module
             .apply(
@@ -4674,6 +4681,7 @@ mod tests {
         const MOVE_WRAP_DOCUMENT: &str = "document:move-wrapper-source";
         const PROMOTE_SIBLING: &str = "018f0000-0000-7000-8000-000000000311";
         const PROMOTE_CHILD: &str = "018f0000-0000-7000-8000-000000000314";
+        const SHORTHAND_ROOT: &str = "018f0000-0000-7000-8000-000000000317";
         const WRAP_SIBLING: &str = "018f0000-0000-7000-8000-000000000312";
         const WRAP_NESTED_ANCHOR: &str = "018f0000-0000-7000-8000-000000000313";
         const MOVE_WRAP_CHILD: &str = "018f0000-0000-7000-8000-000000000315";
@@ -4868,6 +4876,26 @@ mod tests {
                                 parent_block_id: Some(roots.0.clone()),
                                 before_block_id: None,
                             },
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(SHORTHAND_ROOT),
+                                parent_block_id: None,
+                                before_block_id: None,
+                            },
+                            ContractDocumentBlockOperation::UpdateBlock {
+                                block_id: SHORTHAND_ROOT.to_owned(),
+                                patch: DocumentBlockUpdatePatch {
+                                    block_type: None,
+                                    props: None,
+                                    content: DocumentOptionalValue::Value {
+                                        value: serde_json::json!([{
+                                            "type": "text",
+                                            "text": "1XL(ui, unclear) Fix import",
+                                            "styles": { "italic": true }
+                                        }]),
+                                    },
+                                    unset_content: false,
+                                },
+                            },
                         ],
                         actor: serde_json::json!({ "kind": "test" }),
                     },
@@ -4979,6 +5007,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
                 before_block_id: Some(ANCHOR_PAGE.to_owned()),
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let promoted = library
             .apply(
@@ -5019,10 +5048,7 @@ mod tests {
             promotion_commit.identity.commit_seq,
             promoted.committed.commit_seq,
         );
-        assert_eq!(
-            promoted_result.transformation_evidence[0]["kind"],
-            "promote"
-        );
+        assert_eq!(promoted_result.transformation_evidence[0].kind, "promote");
         let replayed = library
             .apply(
                 &context,
@@ -5059,6 +5085,8 @@ mod tests {
                                 library_id: "library-1".to_owned(),
                                 before_block_id: None,
                             },
+                            promotion_policy:
+                                nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
                         },
                     },
                 },
@@ -5071,10 +5099,60 @@ mod tests {
             .as_ref()
             .expect("moved wrapper result");
         let moved_wrapper_page_id = &moved_wrapper_result.result_root_block_ids[0];
-        assert_eq!(
-            moved_wrapper_result.transformation_evidence[0]["kind"],
-            "wrap"
-        );
+        let moved_wrapper_undo_token = moved_wrapper_result
+            .undo_token
+            .clone()
+            .expect("moved wrapper Undo token");
+        assert_eq!(moved_wrapper_result.transformation_evidence[0].kind, "wrap");
+        let moved_source_head = document_heads(&kernel, &[MOVE_WRAP_DOCUMENT])
+            .into_iter()
+            .next()
+            .expect("moved source head");
+        documents
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "edit-source-after-wrapper-promotion".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: MOVE_WRAP_DOCUMENT.to_owned(),
+                        generation: moved_source_head.generation,
+                        expected_head_seq: moved_source_head.expected_head_seq,
+                        operations: vec![ContractDocumentBlockOperation::UpdateBlock {
+                            block_id: MOVE_WRAP_SIBLING.to_owned(),
+                            patch: DocumentBlockUpdatePatch {
+                                block_type: None,
+                                props: None,
+                                content: DocumentOptionalValue::Value {
+                                    value: serde_json::json!([{
+                                        "type": "text",
+                                        "text": "Edited source after promotion",
+                                        "styles": {}
+                                    }]),
+                                },
+                                unset_content: false,
+                            },
+                        }],
+                        actor: serde_json::json!({ "kind": "test" }),
+                    },
+                },
+            )
+            .expect("edit source after wrapper promotion");
+        let source_conflict = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "undo-wrapper-after-source-edit".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::UndoBlockTransfer {
+                        token: moved_wrapper_undo_token,
+                    },
+                },
+            )
+            .expect_err("source edit must fence Block transfer Undo");
+        assert_eq!(source_conflict.code, CoreErrorCode::RevisionConflict);
 
         let wrap_intent = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
@@ -5088,6 +5166,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
                 before_block_id: Some(ANCHOR_PAGE.to_owned()),
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let wrapped = library
             .apply(
@@ -5110,11 +5189,17 @@ mod tests {
             .expect("wrapper result");
         let wrapper_page_id = &wrapped_result.result_root_block_ids[0];
         let copied_task_id = &wrapped_result.copied_block_ids[&roots.1];
+        let wrapped_undo_token = wrapped_result
+            .undo_token
+            .clone()
+            .expect("wrapped copy Undo token");
         assert_ne!(wrapper_page_id, copied_task_id);
-        assert_eq!(wrapped_result.transformation_evidence[0]["kind"], "wrap");
+        assert_eq!(wrapped_result.transformation_evidence[0].kind, "wrap");
         assert_eq!(
-            wrapped_result.transformation_evidence[0]["wrapperReason"],
-            "type_requires_wrapper"
+            wrapped_result.transformation_evidence[0]
+                .wrapper_reason
+                .as_deref(),
+            Some("type_requires_wrapper")
         );
 
         let data_source_intent = LibraryBlockTransferLogicalIntent {
@@ -5131,6 +5216,7 @@ mod tests {
                 group_key: Some("ship".to_owned()),
                 before_page_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let data_source_transfer = library
             .apply(
@@ -5156,10 +5242,7 @@ mod tests {
             data_source_result.affected_database_ids,
             vec![DATABASE.to_owned()]
         );
-        assert_eq!(
-            data_source_result.transformation_evidence[0]["kind"],
-            "wrap"
-        );
+        assert_eq!(data_source_result.transformation_evidence[0].kind, "wrap");
         assert_eq!(
             data_source_result.final_locations[&data_source_page_id],
             LibraryBlockLocation::DataSource {
@@ -5171,6 +5254,245 @@ mod tests {
             data_source_result.final_location_revisions[&data_source_page_id],
             2
         );
+
+        let shorthand_transfer = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "promote-task-shorthand".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: LibraryBlockTransferLogicalIntent {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            mode: LibraryBlockTransferMode::Move,
+                            root_block_ids: vec![SHORTHAND_ROOT.to_owned()],
+                            causal_dependencies: document_heads(&kernel, &[PROMOTE_DOCUMENT]),
+                            source: LibraryBlockTransferSource::Document {
+                                document_id: PROMOTE_DOCUMENT.to_owned(),
+                            },
+                            target: LibraryBlockTransferTarget::DataSource {
+                                data_source_id: DATA_SOURCE.to_owned(),
+                                view_id: VIEW.to_owned(),
+                                group_key: Some("ship".to_owned()),
+                                before_page_id: None,
+                            },
+                            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
+                        },
+                    },
+                },
+            )
+            .expect("promote task shorthand");
+        let shorthand_result = shorthand_transfer
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("task shorthand result");
+        let shorthand_page_id = &shorthand_result.result_root_block_ids[0];
+        let nodex_core_contracts::library::LibraryBlockTransferPromotionEvidence::Applied {
+            priority_option_id,
+            estimate_option_id,
+            tag_names,
+            tag_option_ids,
+            created_tag_option_ids,
+            ..
+        } = &shorthand_result.transformation_evidence[0].promotion
+        else {
+            panic!("expected applied shorthand evidence")
+        };
+        assert_eq!(priority_option_id, "p1-high");
+        assert_eq!(estimate_option_id.as_deref(), Some("xl"));
+        assert_eq!(tag_names, &["ui", "unclear"]);
+        assert_eq!(tag_option_ids.len(), 2);
+        assert_eq!(created_tag_option_ids.len(), 2);
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let title = connection.query_row(
+                    "SELECT materialization.title FROM pages page JOIN document_materializations materialization ON materialization.document_id = page.document_id WHERE page.block_id = ?1",
+                    [shorthand_page_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(title, "Fix import");
+                let values = connection
+                    .prepare(
+                        "SELECT value.property_id, value.value_json FROM data_source_property_values value JOIN data_source_page_memberships membership ON membership.id = value.membership_id AND membership.data_source_id = value.data_source_id WHERE membership.page_block_id = ?1 ORDER BY value.property_id",
+                    )?
+                    .query_map([shorthand_page_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                    .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+                assert_eq!(values.get("priority").map(String::as_str), Some("\"p1-high\""));
+                assert_eq!(values.get("estimate").map(String::as_str), Some("\"xl\""));
+                assert_eq!(values.get("status").map(String::as_str), Some("\"ship\""));
+                let stored_tags = serde_json::from_str::<Vec<String>>(&values["tags"]).expect("stored tags");
+                assert_eq!(
+                    stored_tags
+                        .into_iter()
+                        .collect::<std::collections::BTreeSet<_>>(),
+                    tag_option_ids
+                        .iter()
+                        .cloned()
+                        .collect::<std::collections::BTreeSet<_>>()
+                );
+                Ok(())
+            })
+            .expect("task shorthand Page values");
+        let shorthand_undo_token = shorthand_result
+            .undo_token
+            .clone()
+            .expect("task shorthand transfer Undo token");
+        let shorthand_undo_request = ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: "undo-promote-task-shorthand".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::UndoBlockTransfer {
+                token: shorthand_undo_token,
+            },
+        };
+        let shorthand_undo = library
+            .apply(&context, shorthand_undo_request.clone())
+            .expect("undo task shorthand promotion");
+        let undo_result = shorthand_undo
+            .committed
+            .value
+            .block_transfer_undo
+            .as_ref()
+            .expect("Block transfer Undo result");
+        assert_eq!(
+            undo_result.restored_source_root_ids,
+            vec![SHORTHAND_ROOT.to_owned()]
+        );
+        assert_eq!(
+            undo_result.removed_page_ids,
+            vec![shorthand_page_id.clone()]
+        );
+        let replayed_undo = library
+            .apply(&context, shorthand_undo_request)
+            .expect("replay task shorthand Undo");
+        assert!(replayed_undo.committed.receipt.mutation.duplicate);
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let source_tree = connection.query_row(
+                    "SELECT block_tree_json FROM document_materializations WHERE document_id = ?1",
+                    [PROMOTE_DOCUMENT],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert!(source_tree.contains("1XL(ui, unclear) Fix import"));
+                let promoted_page_count = connection.query_row(
+                    "SELECT count(*) FROM pages WHERE block_id = ?1",
+                    [shorthand_page_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(promoted_page_count, 0);
+                let tags_config = connection.query_row(
+                    "SELECT config_json FROM data_source_properties \
+                     WHERE data_source_id = ?1 AND id = 'tags'",
+                    [DATA_SOURCE],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert!(
+                    created_tag_option_ids
+                        .iter()
+                        .all(|option_id| !tags_config.contains(option_id))
+                );
+                Ok(())
+            })
+            .expect("task shorthand Undo restored source and schema");
+
+        let conflict_promotion = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "promote-task-shorthand-for-conflict".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: LibraryBlockTransferLogicalIntent {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            mode: LibraryBlockTransferMode::Move,
+                            root_block_ids: vec![SHORTHAND_ROOT.to_owned()],
+                            causal_dependencies: document_heads(&kernel, &[PROMOTE_DOCUMENT]),
+                            source: LibraryBlockTransferSource::Document {
+                                document_id: PROMOTE_DOCUMENT.to_owned(),
+                            },
+                            target: LibraryBlockTransferTarget::DataSource {
+                                data_source_id: DATA_SOURCE.to_owned(),
+                                view_id: VIEW.to_owned(),
+                                group_key: Some("ship".to_owned()),
+                                before_page_id: None,
+                            },
+                            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
+                        },
+                    },
+                },
+            )
+            .expect("promote shorthand for conflict");
+        let conflict_result = conflict_promotion
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("conflict promotion result");
+        let conflict_page_id = &conflict_result.result_root_block_ids[0];
+        let conflict_token = conflict_result
+            .undo_token
+            .clone()
+            .expect("conflict promotion Undo token");
+        documents
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "edit-promoted-task-title".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: format!("document:{conflict_page_id}"),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![ContractDocumentBlockOperation::SetTitle {
+                            title: "Edited after promotion".to_owned(),
+                        }],
+                        actor: serde_json::json!({ "kind": "test" }),
+                    },
+                },
+            )
+            .expect("edit promoted Page title");
+        let conflict = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "undo-edited-task-promotion".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::UndoBlockTransfer {
+                        token: conflict_token,
+                    },
+                },
+            )
+            .expect_err("edited Page must fence Block transfer Undo");
+        assert_eq!(conflict.code, CoreErrorCode::RevisionConflict);
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let title = connection.query_row(
+                    "SELECT title FROM document_materializations WHERE document_id = ?1",
+                    [format!("document:{conflict_page_id}")],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(title, "Edited after promotion");
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM document_block_index \
+                         WHERE document_id = ?1 AND block_id = ?2",
+                        params![PROMOTE_DOCUMENT, SHORTHAND_ROOT],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                Ok(())
+            })
+            .expect("failed Undo leaves edited Page and source untouched");
 
         kernel
             .readers()
@@ -5273,6 +5595,12 @@ mod tests {
                     move_wrapper_source_blocks,
                     vec![MOVE_WRAP_SIBLING.to_owned()],
                 );
+                let move_wrapper_source_tree = connection.query_row(
+                    "SELECT block_tree_json FROM document_materializations WHERE document_id = ?1",
+                    [MOVE_WRAP_DOCUMENT],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert!(move_wrapper_source_tree.contains("Edited source after promotion"));
                 let data_source_evidence = connection.query_row(
                     "SELECT block.library_id, block.placement_revision, \
                             page.parent_kind, page.parent_id, membership.revision, \
@@ -5337,6 +5665,53 @@ mod tests {
             })
             .expect("transformation evidence");
 
+        let undone_copy = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "undo-copy-wrapper-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::UndoBlockTransfer {
+                        token: wrapped_undo_token,
+                    },
+                },
+            )
+            .expect("undo copied wrapper");
+        assert_eq!(
+            undone_copy
+                .committed
+                .value
+                .block_transfer_undo
+                .as_ref()
+                .expect("copy Undo result")
+                .removed_page_ids,
+            vec![wrapper_page_id.clone()]
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM pages WHERE block_id = ?1",
+                        [wrapper_page_id],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM document_block_index \
+                         WHERE document_id = ?1 AND block_id = ?2",
+                        params![WRAP_DOCUMENT, roots.1],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                Ok(())
+            })
+            .expect("copy Undo leaves source untouched");
+
         let return_to_library = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
@@ -5349,6 +5724,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
                 before_block_id: Some(ANCHOR_PAGE.to_owned()),
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let returned = library
             .apply(
@@ -5396,6 +5772,7 @@ mod tests {
                 group_key: Some("ship".to_owned()),
                 before_page_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let returned = library
             .apply(
@@ -5454,6 +5831,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let nested = library
             .apply(
@@ -5686,6 +6064,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
                 before_block_id: Some(ANCHOR_PAGE.to_owned()),
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let returned = library
             .apply(
@@ -5742,6 +6121,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let nested = library
             .apply(
@@ -5781,6 +6161,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let moved = library
             .apply(
@@ -5820,6 +6201,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let cycle = library
             .apply(
@@ -5841,6 +6223,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let copied = library
             .apply(
@@ -5898,6 +6281,7 @@ mod tests {
                 parent_block_id: Some(roots.1.clone()),
                 before_block_id: Some(WRAP_NESTED_ANCHOR.to_owned()),
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let target_head = kernel
             .readers()
@@ -6002,6 +6386,7 @@ mod tests {
                 group_key: Some("ship".to_owned()),
                 before_page_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let moved = library
             .apply(

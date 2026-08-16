@@ -5,20 +5,24 @@ use std::time::{Duration, Instant};
 
 use nodex_core_contracts::library::{
     LibraryBlockLocation, LibraryBlockTransferDocumentCommit, LibraryBlockTransferDocumentHead,
-    LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferResult,
-    LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryCommitValue,
+    LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
+    LibraryBlockTransferPromotionEvidence, LibraryBlockTransferResult, LibraryBlockTransferSource,
+    LibraryBlockTransferTarget, LibraryBlockTransferTransformationEvidence,
+    LibraryBlockTransferUndoResult, LibraryBlockTransferUndoToken, LibraryCommitValue,
     LibraryPageCopyDestination, LibraryPageCopyPositionAnchor, LibraryPageCopyValue,
-    LibraryPageCopyViewPlacement, LibraryPageViewPlacementResult, LibraryPlacementAnchor,
-    LibraryReceipt,
+    LibraryPageCopyViewPlacement, LibraryPagePromotionPolicy, LibraryPageViewPlacementResult,
+    LibraryPlacementAnchor, LibraryReceipt,
 };
 use nodex_core_contracts::{BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::database::{
-    ExistingPageTransferTarget, PageCopyDataSourceDestination, StagedPagePlacementRevisions,
-    current_page_key_for_page, place_staged_page_in_data_source,
+    ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyValueDraft,
+    PageTaskShorthandBatchPlan, PageTaskShorthandCandidate, PageTaskShorthandPreservedReason,
+    StagedPagePlacementRevisions, apply_page_task_shorthand_schema, current_page_key_for_page,
+    place_staged_page_in_data_source, plan_page_task_shorthand,
     resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
     transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
@@ -42,6 +46,10 @@ use crate::domain::block_to_page::{
 use crate::domain::identity::stable_uuid_v7;
 use crate::domain::rich_text::RichTextItem;
 use crate::domain::subtree::BlockSubtreeInsertionTarget;
+use crate::domain::task_shorthand::{
+    TASK_SHORTHAND_GRAMMAR_VERSION, TaskShorthandMatch, TaskShorthandParse, TaskShorthandRejection,
+    parse_task_shorthand,
+};
 use crate::infrastructure::durable_mutation::{
     self, DurableMutationScope, OperationIdentity, SealedOutcome,
 };
@@ -163,6 +171,69 @@ pub(super) struct PreparedPageParentTransfer {
     copied_block_ids: BTreeMap<String, String>,
     actor_project_id: String,
     target: PreparedPageParentTarget,
+    task_shorthand_plan: Option<PageTaskShorthandBatchPlan>,
+}
+
+const BLOCK_TRANSFER_UNDO_RECIPE_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BlockTransferUndoRecipeV1 {
+    version: u32,
+    mode: LibraryBlockTransferMode,
+    project_id: String,
+    library_id: String,
+    store_epoch: String,
+    source_document_id: String,
+    source_generation: i64,
+    source_post_head_seq: Option<i64>,
+    source_pre_materialization: Option<DocumentMaterialization>,
+    roots: Vec<BlockTransferUndoRootV1>,
+    target_guard_hash: String,
+    schema_restore: Option<BlockTransferUndoSchemaRestoreV1>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BlockTransferUndoRootV1 {
+    source_root_id: String,
+    result_page_id: String,
+    result_document_id: String,
+    source_block_ids: Vec<String>,
+    source_root_type: String,
+    source_root_properties: Vec<BlockTransferUndoBlockPropertyV1>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BlockTransferUndoBlockPropertyV1 {
+    property_key: String,
+    value_type: String,
+    value_json: String,
+    revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BlockTransferUndoSchemaRestoreV1 {
+    data_source_id: String,
+    property_id: String,
+    pre_config_json: String,
+    created_option_ids: Vec<String>,
+}
+
+struct PendingBlockTransferUndoRecipe {
+    recipe: BlockTransferUndoRecipeV1,
+    token: LibraryBlockTransferUndoToken,
+}
+
+struct PageParentApplyCommand<'a> {
+    context: &'a BoundModuleContext,
+    library_id: &'a str,
+    operation_id: &'a str,
+    store_epoch: &'a str,
+    request_hash: &'a str,
+    intent: &'a LibraryBlockTransferLogicalIntent,
 }
 
 enum PreparedPageParentTarget {
@@ -181,6 +252,11 @@ struct PreparedPageParentRoot {
     document_id: String,
     transformation: BlockToPageTransformation,
     source_to_result_block_ids: BTreeMap<String, String>,
+    promotion_evidence: LibraryBlockTransferPromotionEvidence,
+    task_shorthand: Option<TaskShorthandMatch>,
+    destination_values: Option<Vec<PageCopyValueDraft>>,
+    source_root_type: String,
+    source_root_properties: Vec<BlockTransferUndoBlockPropertyV1>,
 }
 
 pub(super) struct PreparedPageOwnershipTransfer {
@@ -832,12 +908,14 @@ fn apply_with_authority(
         };
         return apply_page_parent_transfer(
             connection,
-            context,
-            library_id,
-            operation_id,
-            store_epoch,
-            request_hash,
-            intent,
+            PageParentApplyCommand {
+                context,
+                library_id,
+                operation_id,
+                store_epoch,
+                request_hash,
+                intent,
+            },
             *prepared,
         );
     }
@@ -961,6 +1039,7 @@ fn apply_with_authority(
                 page_etags: BTreeMap::new(),
                 move_etags: BTreeMap::new(),
                 page_view_placements: BTreeMap::new(),
+                undo_token: None,
             };
             let affected_page_ids = affected_page_ids(&prepared);
             let is_same_storage_relocation = moves_between_documents
@@ -1006,6 +1085,7 @@ fn apply_with_authority(
                     page_copy: None,
                     canvas_mutation: None,
                     block_transfer: Some(result.clone()),
+                    block_transfer_undo: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -2256,6 +2336,7 @@ fn apply_page_ownership_transfer(
             page_etags,
             move_etags,
             page_view_placements,
+            undo_token: None,
         };
         committed_revisions.extend(
             final_location_revisions
@@ -2324,6 +2405,7 @@ fn apply_page_ownership_transfer(
                 page_copy: None,
                 canvas_mutation: None,
                 block_transfer: Some(result.clone()),
+                block_transfer_undo: None,
                 page_lifecycle: None,
                 block_property_mutation: None,
                 agent_page_copy: None,
@@ -2505,6 +2587,7 @@ fn apply_page_ownership_copy(
         page_etags: BTreeMap::new(),
         move_etags: BTreeMap::new(),
         page_view_placements: BTreeMap::new(),
+        undo_token: None,
     };
     let actor_project_id =
         actor_project_id.ok_or_else(|| corrupt("Page copy produced no actor Project"))?;
@@ -2530,6 +2613,7 @@ fn apply_page_ownership_copy(
             page_copy: None,
             canvas_mutation: None,
             block_transfer: Some(result.clone()),
+            block_transfer_undo: None,
             page_lifecycle: None,
             block_property_mutation: None,
             agent_page_copy: None,
@@ -2721,6 +2805,11 @@ fn prepare_page_parent_transfer(
                 "Page ownership roots use the recursive Page transfer compiler",
             ));
         }
+        let (promotion_evidence, task_shorthand) = prepare_task_shorthand_title_policy(
+            intent.promotion_policy,
+            matches!(target, PreparedPageParentTarget::DataSource { .. }),
+            &transformation,
+        );
         let document_id = format!("document:{page_id}");
         require_fresh_page_authority(
             connection,
@@ -2737,6 +2826,20 @@ fn prepare_page_parent_transfer(
                             && !source_root.block_ids.contains(block_id)
                 }),
         );
+        let source_root_properties = connection
+            .prepare(
+                "SELECT property_key, value_type, value_json, revision \
+                 FROM block_properties WHERE block_id = ?1 ORDER BY property_key",
+            )?
+            .query_map([&source_root.root_block_id], |row| {
+                Ok(BlockTransferUndoBlockPropertyV1 {
+                    property_key: row.get(0)?,
+                    value_type: row.get(1)?,
+                    value_json: row.get(2)?,
+                    revision: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         roots.push(PreparedPageParentRoot {
             source_root_id: source_root.root_block_id.clone(),
             source_block_ids: source_root.block_ids.clone(),
@@ -2744,7 +2847,83 @@ fn prepare_page_parent_transfer(
             document_id,
             transformation,
             source_to_result_block_ids,
+            promotion_evidence,
+            task_shorthand,
+            destination_values: None,
+            source_root_type: materialized.block_type.clone(),
+            source_root_properties,
         });
+    }
+    let task_shorthand_plan = if let PreparedPageParentTarget::DataSource { destination } = &target
+    {
+        let candidates = roots
+            .iter()
+            .filter_map(|root| {
+                root.task_shorthand
+                    .as_ref()
+                    .map(|candidate| PageTaskShorthandCandidate {
+                        root_id: root.source_root_id.clone(),
+                        priority: candidate.priority,
+                        estimate: candidate.estimate.clone(),
+                        tag_names: candidate.tag_names.clone(),
+                    })
+            })
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            None
+        } else {
+            Some(plan_page_task_shorthand(
+                connection,
+                library_id,
+                project_id,
+                operation_id,
+                destination,
+                &candidates,
+            )?)
+        }
+    } else {
+        None
+    };
+    if let Some(plan) = &task_shorthand_plan {
+        for root in &mut roots {
+            let Some(root_plan) = plan
+                .roots
+                .iter()
+                .find(|candidate| candidate.root_id == root.source_root_id)
+            else {
+                if root.task_shorthand.is_some() {
+                    let reason = match plan.preserved_reasons.get(&root.source_root_id) {
+                        Some(PageTaskShorthandPreservedReason::TargetPropertyConflict) =>
+                            nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::TargetPropertyConflict,
+                        Some(PageTaskShorthandPreservedReason::TagSchemaPermissionRequired) =>
+                            nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::TagSchemaPermissionRequired,
+                        Some(PageTaskShorthandPreservedReason::TagOptionLimit) =>
+                            nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::TagOptionLimit,
+                        Some(PageTaskShorthandPreservedReason::TargetSchemaIncompatible) | None =>
+                            nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::TargetSchemaIncompatible,
+                    };
+                    root.promotion_evidence = LibraryBlockTransferPromotionEvidence::Preserved {
+                        grammar_version: TASK_SHORTHAND_GRAMMAR_VERSION,
+                        reason,
+                    };
+                }
+                continue;
+            };
+            if let (Some(candidate), BlockToPageTransformation::Promote { rich_title, .. }) =
+                (&root.task_shorthand, &mut root.transformation)
+            {
+                *rich_title = candidate.rewritten_title.clone();
+            }
+            root.destination_values = Some(root_plan.values.clone());
+            root.promotion_evidence = LibraryBlockTransferPromotionEvidence::Applied {
+                grammar_version: TASK_SHORTHAND_GRAMMAR_VERSION,
+                priority_option_id: root_plan.priority_option_id.clone(),
+                estimate_option_id: root_plan.estimate_option_id.clone(),
+                tag_option_ids: root_plan.tag_option_ids.clone(),
+                tag_names: root_plan.tag_names.clone(),
+                created_tag_option_ids: root_plan.created_tag_option_ids.clone(),
+            };
+        }
     }
     new_block_ids.sort();
     new_block_ids.dedup();
@@ -2790,6 +2969,7 @@ fn prepare_page_parent_transfer(
         copied_block_ids,
         actor_project_id,
         target,
+        task_shorthand_plan,
     })
 }
 
@@ -2921,16 +3101,269 @@ fn prepared_transfer_read_set(prepared: &PreparedTransfer) -> PreparedTransferRe
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply_page_parent_transfer(
+fn read_task_shorthand_schema_restore(
     connection: &Connection,
-    context: &BoundModuleContext,
-    library_id: &str,
+    prepared: &PreparedPageParentTransfer,
+) -> Result<Option<BlockTransferUndoSchemaRestoreV1>, StoreError> {
+    let Some(plan) = &prepared.task_shorthand_plan else {
+        return Ok(None);
+    };
+    if plan.new_tag_options.is_empty() {
+        return Ok(None);
+    }
+    let PreparedPageParentTarget::DataSource { destination } = &prepared.target else {
+        return Ok(None);
+    };
+    let pre_config_json = connection.query_row(
+        "SELECT config_json FROM data_source_properties \
+         WHERE data_source_id = ?1 AND id = 'tags' AND lifecycle = 'active'",
+        [&destination.data_source_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    Ok(Some(BlockTransferUndoSchemaRestoreV1 {
+        data_source_id: destination.data_source_id.clone(),
+        property_id: "tags".to_owned(),
+        pre_config_json,
+        created_option_ids: plan
+            .new_tag_options
+            .iter()
+            .map(|option| option.id.clone())
+            .collect(),
+    }))
+}
+
+fn block_transfer_target_guard_hash(
+    connection: &Connection,
+    roots: &[BlockTransferUndoRootV1],
+    schema_restore: Option<&BlockTransferUndoSchemaRestoreV1>,
+) -> Result<String, StoreError> {
+    let mut guarded_pages = Vec::with_capacity(roots.len());
+    for root in roots {
+        let authority = connection
+            .query_row(
+                "SELECT block.type, block.lifecycle, block.placement_revision, \
+                   block.metadata_revision, page.parent_kind, page.parent_id, \
+                   page.document_id, document.generation, document.head_seq, document.state_hash \
+                 FROM blocks block JOIN pages page ON page.block_id = block.id \
+                 JOIN documents document ON document.id = page.document_id \
+                 WHERE block.id = ?1",
+                [&root.result_page_id],
+                |row| {
+                    Ok(serde_json::json!({
+                        "type": row.get::<_, String>(0)?,
+                        "lifecycle": row.get::<_, String>(1)?,
+                        "placementRevision": row.get::<_, i64>(2)?,
+                        "metadataRevision": row.get::<_, i64>(3)?,
+                        "parentKind": row.get::<_, String>(4)?,
+                        "parentId": row.get::<_, String>(5)?,
+                        "documentId": row.get::<_, String>(6)?,
+                        "documentGeneration": row.get::<_, i64>(7)?,
+                        "documentHeadSeq": row.get::<_, i64>(8)?,
+                        "documentStateHash": row.get::<_, String>(9)?,
+                    }))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| conflict("Promoted Page is no longer available for Undo"))?;
+        let memberships = connection
+            .prepare(
+                "SELECT id, data_source_id, revision, removed_at \
+                 FROM data_source_page_memberships WHERE page_block_id = ?1 \
+                 ORDER BY data_source_id, id",
+            )?
+            .query_map([&root.result_page_id], |row| {
+                Ok(serde_json::json!([
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ]))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let values = connection
+            .prepare(
+                "SELECT value.data_source_id, value.membership_id, value.property_id, \
+                   value.value_type, value.value_json, value.revision \
+                 FROM data_source_property_values value \
+                 JOIN data_source_page_memberships membership \
+                   ON membership.id = value.membership_id \
+                  AND membership.data_source_id = value.data_source_id \
+                 WHERE membership.page_block_id = ?1 \
+                 ORDER BY value.data_source_id, value.membership_id, value.property_id",
+            )?
+            .query_map([&root.result_page_id], |row| {
+                Ok(serde_json::json!([
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                ]))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let positions = connection
+            .prepare(
+                "SELECT view_id, rank_key, revision \
+                 FROM database_view_page_positions WHERE page_block_id = ?1 ORDER BY view_id",
+            )?
+            .query_map([&root.result_page_id], |row| {
+                Ok(serde_json::json!([
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ]))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let properties = connection
+            .prepare(
+                "SELECT property_key, value_type, value_json, revision \
+                 FROM block_properties WHERE block_id = ?1 ORDER BY property_key",
+            )?
+            .query_map([&root.result_page_id], |row| {
+                Ok(serde_json::json!([
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ]))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        guarded_pages.push(serde_json::json!({
+            "pageId": root.result_page_id,
+            "authority": authority,
+            "memberships": memberships,
+            "values": values,
+            "positions": positions,
+            "properties": properties,
+        }));
+    }
+    let schema = schema_restore
+        .map(|restore| {
+            connection.query_row(
+                "SELECT source.schema_revision, property.schema_revision, property.config_json \
+                 FROM data_sources source JOIN data_source_properties property \
+                   ON property.data_source_id = source.id \
+                 WHERE source.id = ?1 AND property.id = ?2",
+                params![restore.data_source_id, restore.property_id],
+                |row| {
+                    Ok(serde_json::json!({
+                        "dataSourceId": restore.data_source_id,
+                        "propertyId": restore.property_id,
+                        "sourceRevision": row.get::<_, i64>(0)?,
+                        "propertyRevision": row.get::<_, i64>(1)?,
+                        "config": row.get::<_, String>(2)?,
+                    }))
+                },
+            )
+        })
+        .transpose()?;
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "pages": guarded_pages,
+        "schema": schema,
+    }))
+    .map_err(|_| internal("Block transfer Undo guard cannot be encoded"))?;
+    Ok(sha256(&bytes))
+}
+
+fn build_page_parent_undo_recipe(
+    connection: &Connection,
     operation_id: &str,
     store_epoch: &str,
-    request_hash: &str,
     intent: &LibraryBlockTransferLogicalIntent,
+    prepared: &PreparedPageParentTransfer,
+    document_commits: &[PersistedTransferCommit],
+    schema_restore: Option<BlockTransferUndoSchemaRestoreV1>,
+) -> Result<PendingBlockTransferUndoRecipe, StoreError> {
+    let source_post_head_seq = if intent.mode == LibraryBlockTransferMode::Move {
+        Some(
+            document_commits
+                .iter()
+                .find(|commit| {
+                    commit.public.document_id == prepared.source_authority.head.id
+                        && commit.public.base_head_seq == prepared.source_authority.head.head_seq
+                })
+                .ok_or_else(|| corrupt("Move transfer has no source Document commit"))?
+                .public
+                .head_seq,
+        )
+    } else {
+        None
+    };
+    let roots = prepared
+        .roots
+        .iter()
+        .map(|root| BlockTransferUndoRootV1 {
+            source_root_id: root.source_root_id.clone(),
+            result_page_id: root.page_id.clone(),
+            result_document_id: root.document_id.clone(),
+            source_block_ids: root.source_block_ids.clone(),
+            source_root_type: root.source_root_type.clone(),
+            source_root_properties: root.source_root_properties.clone(),
+        })
+        .collect::<Vec<_>>();
+    let target_guard_hash =
+        block_transfer_target_guard_hash(connection, &roots, schema_restore.as_ref())?;
+    let recipe = BlockTransferUndoRecipeV1 {
+        version: BLOCK_TRANSFER_UNDO_RECIPE_VERSION,
+        mode: intent.mode,
+        project_id: prepared.actor_project_id.clone(),
+        library_id: prepared.source_authority.head.library_id.clone(),
+        store_epoch: store_epoch.to_owned(),
+        source_document_id: prepared.source_authority.head.id.clone(),
+        source_generation: prepared.source_authority.head.generation,
+        source_post_head_seq,
+        source_pre_materialization: (intent.mode == LibraryBlockTransferMode::Move)
+            .then(|| prepared.source_materialization.clone()),
+        roots,
+        target_guard_hash,
+        schema_restore,
+    };
+    let recipe_json = serde_json::to_vec(&recipe)
+        .map_err(|_| internal("Block transfer Undo recipe cannot be encoded"))?;
+    let token = LibraryBlockTransferUndoToken {
+        transfer_operation_id: operation_id.to_owned(),
+        recipe_hash: sha256(&recipe_json),
+        store_epoch: store_epoch.to_owned(),
+    };
+    Ok(PendingBlockTransferUndoRecipe { recipe, token })
+}
+
+fn persist_page_parent_undo_recipe(
+    connection: &Connection,
+    pending: &PendingBlockTransferUndoRecipe,
+    now: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "INSERT INTO block_transfer_undo_recipes(\
+           transfer_operation_id, project_id, library_id, store_epoch, recipe_hash, \
+           recipe_json, consumed_at, created_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
+        params![
+            pending.token.transfer_operation_id,
+            pending.recipe.project_id,
+            pending.recipe.library_id,
+            pending.recipe.store_epoch,
+            pending.token.recipe_hash,
+            serde_json::to_string(&pending.recipe)
+                .map_err(|_| internal("Block transfer Undo recipe cannot be encoded"))?,
+            now,
+        ],
+    )?;
+    Ok(())
+}
+
+fn apply_page_parent_transfer(
+    connection: &Connection,
+    command: PageParentApplyCommand<'_>,
     mut prepared: PreparedPageParentTransfer,
 ) -> Result<LibraryApplyOutcome, StoreError> {
+    let context = command.context;
+    let library_id = command.library_id;
+    let operation_id = command.operation_id;
+    let store_epoch = command.store_epoch;
+    let request_hash = command.request_hash;
+    let intent = command.intent;
     let apply_started_at = Instant::now();
     let now = sqlite_now(connection)?;
     let commit_result = durable_mutation::run(
@@ -2945,6 +3378,24 @@ fn apply_page_parent_transfer(
             context,
         },
         |scope| {
+            let schema_restore = read_task_shorthand_schema_restore(connection, &prepared)?;
+            let mut shorthand_schema_revisions = BTreeMap::new();
+            if let Some(plan) = &prepared.task_shorthand_plan
+                && !plan.new_tag_options.is_empty()
+                && let PreparedPageParentTarget::DataSource { destination } = &mut prepared.target
+            {
+                let schema = apply_page_task_shorthand_schema(
+                    connection,
+                    library_id,
+                    bound_project_id(context)?,
+                    &destination.data_source_id,
+                    &plan.new_tag_options,
+                    plan.expected_tags_property_revision,
+                    &now,
+                )?;
+                destination.expected_data_source_revision = schema.source_revision;
+                shorthand_schema_revisions = schema.committed_revisions;
+            }
             let persistence_started_at = Instant::now();
             let before_block_id = match &prepared.target {
                 PreparedPageParentTarget::Library { before_block_id } => before_block_id.as_deref(),
@@ -2972,7 +3423,14 @@ fn apply_page_parent_transfer(
                     .iter()
                     .flat_map(|root| root.source_block_ids.iter().cloned())
                     .collect::<Vec<_>>();
-                let update_id = format!("block-transfer:{request_hash}:source");
+                // The intent hash can recur after a completed transfer is undone. Keep the
+                // Document receipt tied to the durable operation identity so a later, valid
+                // transfer does not collide with the earlier receipt; replay of the same
+                // operation is still handled by the durable mutation ledger above this seam.
+                let update_id = format!(
+                    "block-transfer:{}:{request_hash}:source",
+                    sha256(operation_id.as_bytes())
+                );
                 document_commits.push(persist_prepared_update(
                     connection,
                     bound_project_id(context)?,
@@ -3003,21 +3461,28 @@ fn apply_page_parent_transfer(
                 };
                 document_commits.push(persist_page_parent_genesis(
                     connection,
-                    bound_project_id(context)?,
-                    store_epoch,
-                    request_hash,
+                    &command,
                     stage,
                     &now,
                     scope.evidence(),
                 )?);
                 if let PreparedPageParentTarget::DataSource { destination, .. } = &prepared.target {
+                    let mut root_destination = destination.clone();
+                    if let Some(values) = prepared
+                        .roots
+                        .iter()
+                        .find(|root| root.page_id == page_id)
+                        .and_then(|root| root.destination_values.clone())
+                    {
+                        root_destination.values = values;
+                    }
                     let placement = place_staged_page_in_data_source(
                         connection,
                         library_id,
                         bound_project_id(context)?,
                         None,
                         &page_id,
-                        destination,
+                        &root_destination,
                         staged_revisions,
                         &now,
                     )?;
@@ -3051,6 +3516,15 @@ fn apply_page_parent_transfer(
             affected_view_ids.sort();
             affected_view_ids.dedup();
             let page_keys = read_current_page_keys(connection, library_id, &result_root_block_ids)?;
+            let pending_undo = build_page_parent_undo_recipe(
+                connection,
+                operation_id,
+                store_epoch,
+                intent,
+                &prepared,
+                &document_commits,
+                schema_restore,
+            )?;
             let result = LibraryBlockTransferResult {
                 mode: intent.mode,
                 source_root_block_ids: intent.root_block_ids.clone(),
@@ -3072,11 +3546,13 @@ fn apply_page_parent_transfer(
                 page_etags: BTreeMap::new(),
                 move_etags: BTreeMap::new(),
                 page_view_placements: BTreeMap::new(),
+                undo_token: Some(pending_undo.token.clone()),
             };
             let mut committed_revisions = final_location_revisions
                 .iter()
                 .map(|(block_id, revision)| (format!("blockLocation:{block_id}"), *revision))
                 .collect::<BTreeMap<_, _>>();
+            committed_revisions.extend(shorthand_schema_revisions);
             for commit in &document_commits {
                 committed_revisions.insert(
                     format!("documentHead:{}", commit.public.document_id),
@@ -3149,6 +3625,7 @@ fn apply_page_parent_transfer(
                     page_copy: None,
                     canvas_mutation: None,
                     block_transfer: Some(result.clone()),
+                    block_transfer_undo: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -3169,6 +3646,7 @@ fn apply_page_parent_transfer(
                         event_sequence,
                         &now,
                     )?;
+                    persist_page_parent_undo_recipe(connection, &pending_undo, &now)?;
                     persist_operation_checkpoints(
                         connection,
                         context,
@@ -3556,18 +4034,19 @@ fn stage_page_parent_root(
 
 fn persist_page_parent_genesis(
     connection: &Connection,
-    actor_project_id: &str,
-    store_epoch: &str,
-    request_hash: &str,
+    command: &PageParentApplyCommand<'_>,
     stage: StagedPageParentGenesis,
     now: &str,
     attached_commit: &local_commit::CommitContext,
 ) -> Result<PersistedTransferCommit, StoreError> {
+    let actor_project_id = bound_project_id(command.context)?;
+    let operation_id = command.operation_id;
+    let request_hash = command.request_hash;
     let authority = read_document_authority(connection, &stage.document_id)?
         .ok_or_else(|| corrupt("Staged Page has no Document authority"))?;
     let update_id = format!(
         "block-transfer-page-genesis:{}",
-        sha256(format!("{request_hash}\0{}", stage.page_id).as_bytes())
+        sha256(format!("{operation_id}\0{request_hash}\0{}", stage.page_id).as_bytes())
     );
     let full_state = stage.prepared.engine.full_state_v1();
     let persisted = persist_yjs_genesis_with_local_commit(
@@ -3581,7 +4060,7 @@ fn persist_page_parent_genesis(
             update: &stage.prepared.update_v1,
             state_vector: &stage.prepared.state_vector_v1,
             full_state: &full_state,
-            store_epoch,
+            store_epoch: command.store_epoch,
             operation_id: &update_id,
             // A Move can reuse the promoted Block's descendants (or an entire
             // wrapped subtree) in the new Page Document. Their source index
@@ -3649,7 +4128,46 @@ pub(super) fn read_library_anchor(
     })
 }
 
-fn transformation_evidence(root: &PreparedPageParentRoot) -> Result<Value, StoreError> {
+fn prepare_task_shorthand_title_policy(
+    policy: LibraryPagePromotionPolicy,
+    is_data_source_target: bool,
+    transformation: &BlockToPageTransformation,
+) -> (
+    LibraryBlockTransferPromotionEvidence,
+    Option<TaskShorthandMatch>,
+) {
+    if policy == LibraryPagePromotionPolicy::Literal {
+        return (LibraryBlockTransferPromotionEvidence::NotRequested, None);
+    }
+    if !is_data_source_target {
+        return (LibraryBlockTransferPromotionEvidence::NotApplicable, None);
+    }
+    let BlockToPageTransformation::Promote { rich_title, .. } = transformation else {
+        return (LibraryBlockTransferPromotionEvidence::NotApplicable, None);
+    };
+    match parse_task_shorthand(rich_title) {
+        TaskShorthandParse::NoMatch => (LibraryBlockTransferPromotionEvidence::NoMatch, None),
+        TaskShorthandParse::Rejected(reason) => (
+            LibraryBlockTransferPromotionEvidence::Preserved {
+                grammar_version: TASK_SHORTHAND_GRAMMAR_VERSION,
+                reason: match reason {
+                    TaskShorthandRejection::Malformed => nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::MalformedShorthand,
+                    TaskShorthandRejection::NonemptyTitleRequired => nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::NonemptyTitleRequired,
+                    TaskShorthandRejection::RichTextBoundary => nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::RichTextBoundary,
+                },
+            },
+            None,
+        ),
+        TaskShorthandParse::Match(parsed) => (
+            LibraryBlockTransferPromotionEvidence::NoMatch,
+            Some(parsed),
+        ),
+    }
+}
+
+fn transformation_evidence(
+    root: &PreparedPageParentRoot,
+) -> Result<LibraryBlockTransferTransformationEvidence, StoreError> {
     let (kind, rich_title, body_root_ids, consumed_props, wrapper_reason) =
         match &root.transformation {
             BlockToPageTransformation::Promote {
@@ -3686,24 +4204,23 @@ fn transformation_evidence(root: &PreparedPageParentRoot) -> Result<Value, Store
         };
     let semantic_title =
         serde_json::to_vec(rich_title).map_err(|_| internal("Page transformation title JSON"))?;
-    let mut evidence = serde_json::json!({
-        "sourceBlockId": root.source_root_id,
-        "resultPageId": root.page_id,
-        "kind": kind,
-        "sourceBlockType": match &root.transformation {
+    Ok(LibraryBlockTransferTransformationEvidence {
+        source_block_id: root.source_root_id.clone(),
+        result_page_id: root.page_id.clone(),
+        kind: kind.to_owned(),
+        source_block_type: match &root.transformation {
             BlockToPageTransformation::Promote { consumed_type, .. } => consumed_type,
             BlockToPageTransformation::Wrap { wrapped_root, .. } => &wrapped_root.block_type,
             BlockToPageTransformation::AlreadyPage { .. } => "page",
-        },
-        "semanticTitleHash": sha256(&semantic_title),
-        "consumedPropertyKeys": consumed_props,
-        "bodyRootBlockIds": body_root_ids,
-        "sourceToResultBlockIds": root.source_to_result_block_ids,
-    });
-    if let Some(wrapper_reason) = wrapper_reason {
-        evidence["wrapperReason"] = Value::String(wrapper_reason.to_owned());
-    }
-    Ok(evidence)
+        }
+        .to_owned(),
+        semantic_title_hash: sha256(&semantic_title),
+        consumed_property_keys: consumed_props,
+        wrapper_reason: wrapper_reason.map(str::to_owned),
+        body_root_block_ids: body_root_ids,
+        source_to_result_block_ids: root.source_to_result_block_ids.clone(),
+        promotion: root.promotion_evidence.clone(),
+    })
 }
 
 fn affected_page_ids(prepared: &PreparedTransfer) -> Vec<String> {
@@ -4758,6 +5275,516 @@ fn persist_operation_checkpoints(
     Ok(())
 }
 
+fn read_block_transfer_undo_recipe(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    token: &LibraryBlockTransferUndoToken,
+) -> Result<BlockTransferUndoRecipeV1, StoreError> {
+    let row = connection
+        .query_row(
+            "SELECT project_id, library_id, store_epoch, recipe_hash, recipe_json, consumed_at \
+             FROM block_transfer_undo_recipes WHERE transfer_operation_id = ?1",
+            [&token.transfer_operation_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Block transfer Undo is no longer available"))?;
+    if row.1 != library_id
+        || row.2 != token.store_epoch
+        || row.3 != token.recipe_hash
+        || context.project_id.as_ref().map(|id| id.0.as_str()) != Some(row.0.as_str())
+    {
+        return Err(unauthorized(
+            "Block transfer Undo token is outside this scope",
+        ));
+    }
+    if row.5.is_some() {
+        return Err(conflict("Block transfer was already undone"));
+    }
+    if sha256(row.4.as_bytes()) != token.recipe_hash {
+        return Err(corrupt("Stored Block transfer Undo recipe hash changed"));
+    }
+    let recipe = serde_json::from_str::<BlockTransferUndoRecipeV1>(&row.4)
+        .map_err(|_| corrupt("Stored Block transfer Undo recipe is invalid"))?;
+    if recipe.version != BLOCK_TRANSFER_UNDO_RECIPE_VERSION
+        || recipe.project_id != row.0
+        || recipe.library_id != row.1
+        || recipe.store_epoch != row.2
+    {
+        return Err(corrupt(
+            "Stored Block transfer Undo recipe identity changed",
+        ));
+    }
+    Ok(recipe)
+}
+
+fn validate_undo_created_tags_are_private(
+    connection: &Connection,
+    recipe: &BlockTransferUndoRecipeV1,
+) -> Result<(), StoreError> {
+    let Some(schema) = &recipe.schema_restore else {
+        return Ok(());
+    };
+    let removed_pages = recipe
+        .roots
+        .iter()
+        .map(|root| root.result_page_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut statement = connection.prepare(
+        "SELECT membership.page_block_id, value.value_json \
+         FROM data_source_property_values value \
+         JOIN data_source_page_memberships membership \
+           ON membership.id = value.membership_id \
+          AND membership.data_source_id = value.data_source_id \
+         WHERE value.data_source_id = ?1 AND value.property_id = ?2 \
+           AND membership.removed_at IS NULL",
+    )?;
+    let rows = statement.query_map(params![schema.data_source_id, schema.property_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (page_id, value_json) = row?;
+        if removed_pages.contains(page_id.as_str()) {
+            continue;
+        }
+        let values = serde_json::from_str::<Vec<String>>(&value_json).unwrap_or_default();
+        if values
+            .iter()
+            .any(|value| schema.created_option_ids.contains(value))
+        {
+            return Err(conflict(
+                "A tag created by this promotion is now used by another Page",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn purge_promoted_page(
+    connection: &Connection,
+    recipe: &BlockTransferUndoRecipeV1,
+    root: &BlockTransferUndoRootV1,
+) -> Result<(), StoreError> {
+    let indexed_block_ids = connection
+        .prepare(
+            "SELECT block_id FROM document_block_index \
+             WHERE document_id = ?1 ORDER BY ordinal, block_id",
+        )?
+        .query_map([&root.result_document_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    connection.execute(
+        "DELETE FROM database_view_page_positions WHERE page_block_id = ?1",
+        [&root.result_page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM data_source_page_memberships WHERE page_block_id = ?1",
+        [&root.result_page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM page_read_model WHERE page_block_id = ?1",
+        [&root.result_page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM scheduled_page_index WHERE page_block_id = ?1",
+        [&root.result_page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM project_resource_grants WHERE root_kind = 'page' AND root_id = ?1",
+        [&root.result_page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM library_block_placements WHERE block_id = ?1",
+        [&root.result_page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM document_block_index WHERE document_id = ?1",
+        [&root.result_document_id],
+    )?;
+    connection.execute(
+        "DELETE FROM block_documents WHERE block_id = ?1 AND document_id = ?2",
+        params![root.result_page_id, root.result_document_id],
+    )?;
+    connection.execute(
+        "DELETE FROM pages WHERE block_id = ?1 AND document_id = ?2",
+        params![root.result_page_id, root.result_document_id],
+    )?;
+    let deleted_document = connection.execute(
+        "DELETE FROM documents WHERE id = ?1",
+        [&root.result_document_id],
+    )?;
+    if deleted_document != 1 {
+        return Err(conflict("Promoted Page Document changed before Undo"));
+    }
+
+    let retained = if recipe.mode == LibraryBlockTransferMode::Move {
+        root.source_block_ids
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>()
+    } else {
+        BTreeSet::new()
+    };
+    for block_id in indexed_block_ids
+        .into_iter()
+        .chain(std::iter::once(root.result_page_id.clone()))
+    {
+        if retained.contains(&block_id) {
+            continue;
+        }
+        connection.execute("DELETE FROM blocks WHERE id = ?1", [&block_id])?;
+    }
+    if recipe.mode == LibraryBlockTransferMode::Move {
+        connection.execute(
+            "DELETE FROM block_properties WHERE block_id = ?1",
+            [&root.source_root_id],
+        )?;
+        let changed = connection.execute(
+            "UPDATE blocks SET type = ?1, placement_revision = placement_revision + 1, \
+               metadata_revision = metadata_revision + 1, updated_at = ?2 \
+             WHERE id = ?3 AND library_id = ?4 AND lifecycle = 'active' AND type = 'page'",
+            params![
+                root.source_root_type,
+                sqlite_now(connection)?,
+                root.source_root_id,
+                recipe.library_id,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Promoted root changed before Undo"));
+        }
+        let now = sqlite_now(connection)?;
+        for property in &root.source_root_properties {
+            connection.execute(
+                "INSERT INTO block_properties(\
+                   block_id, library_id, property_key, value_type, value_json, revision, updated_at\
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    root.source_root_id,
+                    recipe.library_id,
+                    property.property_key,
+                    property.value_type,
+                    property.value_json,
+                    property.revision + 1,
+                    now,
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn restore_undo_schema(
+    connection: &Connection,
+    recipe: &BlockTransferUndoRecipeV1,
+    now: &str,
+) -> Result<BTreeMap<String, i64>, StoreError> {
+    let Some(schema) = &recipe.schema_restore else {
+        return Ok(BTreeMap::new());
+    };
+    let property_revision = connection.query_row(
+        "UPDATE data_source_properties \
+         SET config_json = ?1, schema_revision = schema_revision + 1, updated_at = ?2 \
+         WHERE data_source_id = ?3 AND id = ?4 AND lifecycle = 'active' \
+         RETURNING schema_revision",
+        params![
+            schema.pre_config_json,
+            now,
+            schema.data_source_id,
+            schema.property_id,
+        ],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let source_revision = connection.query_row(
+        "UPDATE data_sources SET schema_revision = schema_revision + 1, updated_at = ?1 \
+         WHERE id = ?2 AND lifecycle = 'active' RETURNING schema_revision",
+        params![now, schema.data_source_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(BTreeMap::from([
+        (
+            format!("dataSource:{}:schema", schema.data_source_id),
+            source_revision,
+        ),
+        (
+            format!(
+                "dataSource:{}:property:{}:schema",
+                schema.data_source_id, schema.property_id
+            ),
+            property_revision,
+        ),
+    ]))
+}
+
+pub(super) fn undo(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    request_hash: &str,
+    token: &LibraryBlockTransferUndoToken,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    if token.store_epoch != store_epoch {
+        return Err(StoreError::new(
+            StoreErrorCode::StaleStoreEpoch,
+            "Block transfer Undo targets a stale store epoch",
+            true,
+        ));
+    }
+    let recipe = read_block_transfer_undo_recipe(connection, context, library_id, token)?;
+    require_project_in_library(connection, &recipe.project_id, library_id)?;
+    if let Some(expected_head_seq) = recipe.source_post_head_seq {
+        let current = read_document_authority(connection, &recipe.source_document_id)?
+            .ok_or_else(|| conflict("Source Document is no longer available for Undo"))?;
+        if current.head.generation != recipe.source_generation
+            || current.head.head_seq != expected_head_seq
+        {
+            return Err(conflict("Source Document changed after Block promotion"));
+        }
+    }
+    let target_guard = block_transfer_target_guard_hash(
+        connection,
+        &recipe.roots,
+        recipe.schema_restore.as_ref(),
+    )?;
+    if target_guard != recipe.target_guard_hash {
+        return Err(conflict(
+            "Promoted Page or target schema changed after promotion",
+        ));
+    }
+    validate_undo_created_tags_are_private(connection, &recipe)?;
+
+    let mut source_restore = if recipe.mode == LibraryBlockTransferMode::Move {
+        let authority = read_document_authority(connection, &recipe.source_document_id)?
+            .ok_or_else(|| conflict("Source Document is no longer available for Undo"))?;
+        let schema = require_schema(&authority)?;
+        let engine = reconstruct_yjs_engine(connection, &authority.head)?;
+        let decoded = decode_block_document(engine.document(), schema)
+            .map_err(|error| corrupt(error.to_string()))?;
+        let base =
+            materialize_decoded_document(&decoded).map_err(|error| corrupt(error.to_string()))?;
+        let target = recipe
+            .source_pre_materialization
+            .as_ref()
+            .ok_or_else(|| corrupt("Move Undo recipe has no source snapshot"))?;
+        let operations = source_restore_operations(target, &recipe.roots)?;
+        let update = prepare_document_operation_update(
+            &authority.head.id,
+            schema,
+            &engine.full_state_v1(),
+            &authority.head.state_vector,
+            &operations,
+            false,
+        )
+        .map_err(|error| invalid(error.to_string()))?;
+        if update.materialization != *target {
+            return Err(corrupt(
+                "Block transfer Undo did not restore the exact source Document",
+            ));
+        }
+        Some((authority, engine, base, update))
+    } else {
+        None
+    };
+
+    let now = sqlite_now(connection)?;
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            for root in &recipe.roots {
+                purge_promoted_page(connection, &recipe, root)?;
+            }
+            let mut document_commits = Vec::new();
+            if let Some((authority, engine, base, update)) = source_restore.as_mut() {
+                let advances = recipe
+                    .roots
+                    .iter()
+                    .flat_map(|root| root.source_block_ids.iter().cloned())
+                    .collect::<Vec<_>>();
+                document_commits.push(persist_prepared_update(
+                    connection,
+                    &recipe.project_id,
+                    authority,
+                    base,
+                    engine,
+                    update.clone(),
+                    &format!("block-transfer-undo:{request_hash}:source"),
+                    operation_id,
+                    store_epoch,
+                    TransferDocumentPlacement::Derived {
+                        advances: &advances,
+                        exact_moves: &[],
+                    },
+                    &[],
+                    scope.evidence(),
+                )?);
+            }
+            let mut committed_revisions = restore_undo_schema(connection, &recipe, &now)?;
+            for commit in &document_commits {
+                committed_revisions.insert(
+                    format!("documentHead:{}", commit.public.document_id),
+                    commit.public.head_seq,
+                );
+            }
+            let consumed = connection.execute(
+                "UPDATE block_transfer_undo_recipes SET consumed_at = ?1 \
+                 WHERE transfer_operation_id = ?2 AND consumed_at IS NULL",
+                params![now, token.transfer_operation_id],
+            )?;
+            if consumed != 1 {
+                return Err(conflict("Block transfer was already undone"));
+            }
+            let result = LibraryBlockTransferUndoResult {
+                transfer_operation_id: token.transfer_operation_id.clone(),
+                restored_source_root_ids: if recipe.mode == LibraryBlockTransferMode::Move {
+                    recipe
+                        .roots
+                        .iter()
+                        .map(|root| root.source_root_id.clone())
+                        .collect()
+                } else {
+                    Vec::new()
+                },
+                removed_page_ids: recipe
+                    .roots
+                    .iter()
+                    .map(|root| root.result_page_id.clone())
+                    .collect(),
+                document_commits: document_commits
+                    .iter()
+                    .map(|commit| commit.public.clone())
+                    .collect(),
+            };
+            let affected_database_ids = recipe
+                .schema_restore
+                .as_ref()
+                .map(|schema| vec![schema.data_source_id.clone()])
+                .unwrap_or_default();
+            let affected_parent_keys = recipe
+                .schema_restore
+                .as_ref()
+                .map(|schema| vec![format!("data_source:{}", schema.data_source_id)])
+                .unwrap_or_else(|| vec![format!("library:{library_id}")]);
+            seal_mutation_with(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: recipe.project_id.clone(),
+                    operation_kind: "undo_block_transfer",
+                    change_kind: "block_mutation",
+                    did_mutate: true,
+                    created_target: None,
+                    affected_parent_keys,
+                    affected_block_ids: result.restored_source_root_ids.clone(),
+                    affected_page_ids: result.removed_page_ids.clone(),
+                    affected_database_ids,
+                    affected_view_ids: Vec::new(),
+                    affected_document_ids: result
+                        .document_commits
+                        .iter()
+                        .map(|commit| commit.document_id.clone())
+                        .collect(),
+                    committed_revisions,
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    block_transfer_undo: Some(result),
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+                |_, _| Ok(()),
+            )
+        },
+    )?;
+    library_commit_result(connection, commit_result)
+}
+
+/// Reinsert moved roots at their original structural coordinates without
+/// replacing the whole Yjs document. Open ProseMirror bindings can then apply
+/// the relative update while preserving their live fragment and selection.
+fn source_restore_operations(
+    source_before_transfer: &DocumentMaterialization,
+    roots: &[BlockTransferUndoRootV1],
+) -> Result<Vec<DocumentBlockOperation>, StoreError> {
+    let wanted = roots
+        .iter()
+        .map(|root| root.source_root_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut found = BTreeSet::new();
+    let mut operations = Vec::with_capacity(wanted.len());
+
+    fn visit_siblings<'a>(
+        siblings: &'a [MaterializedBlockNode],
+        parent_block_id: Option<&'a str>,
+        wanted: &BTreeSet<&str>,
+        found: &mut BTreeSet<&'a str>,
+        operations: &mut Vec<DocumentBlockOperation>,
+    ) {
+        for (index, block) in siblings.iter().enumerate() {
+            if wanted.contains(block.id.as_str()) {
+                found.insert(block.id.as_str());
+                operations.push(DocumentBlockOperation::InsertBlock {
+                    block: block.clone(),
+                    parent_block_id: parent_block_id.map(str::to_owned),
+                    before_block_id: siblings.get(index + 1).map(|sibling| sibling.id.clone()),
+                });
+                continue;
+            }
+            visit_siblings(
+                &block.children,
+                Some(block.id.as_str()),
+                wanted,
+                found,
+                operations,
+            );
+        }
+    }
+
+    visit_siblings(
+        &source_before_transfer.block_tree,
+        None,
+        &wanted,
+        &mut found,
+        &mut operations,
+    );
+    if found.len() != wanted.len() {
+        return Err(corrupt(
+            "Block transfer Undo source snapshot is missing a moved root",
+        ));
+    }
+
+    // A selected root may use the next selected sibling as its anchor. Apply
+    // right-to-left so every such anchor exists before it is referenced.
+    operations.reverse();
+    Ok(operations)
+}
+
 fn bound_project_id(context: &BoundModuleContext) -> Result<&str, StoreError> {
     context
         .project_id
@@ -4779,6 +5806,10 @@ fn invalid(message: impl Into<String>) -> StoreError {
 
 fn not_found(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::NotFound, message, false)
+}
+
+fn conflict(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::RevisionConflict, message, true)
 }
 
 fn unauthorized(message: impl Into<String>) -> StoreError {
@@ -4814,6 +5845,7 @@ mod tests {
                 parent_block_id: None,
                 before_block_id: None,
             },
+            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
         let mut first = BoundModuleContext {
             profile_id: nodex_core_contracts::ProfileId("profile-1".to_owned()),

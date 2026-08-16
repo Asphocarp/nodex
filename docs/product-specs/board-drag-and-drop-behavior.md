@@ -112,6 +112,7 @@ This post-removal contract must stay identical across:
 ## Editor Interop
 
 ### NFM block -> Board
+- Task shorthand interpretation, literal fallback, modifiers, and authoring feedback follow [Task Shorthand Page Promotion Behavior](task-shorthand-page-promotion-behavior.md).
 - Native block drag from Card Stage and independently mounted owning/reference editors into Board targets the Database parent, not a serialized row snapshot. The custom side-menu starts one window-local drag session only after BlockNote has established the exact root Block selection. The default operation is move; holding Alt/Option at drop time copies instead.
 - Move submits one logical `BlockTransfer`: text-like roots promote to Cards in place, while non-convertible roots receive deterministic wrapper Cards. Copy recursively clones ownership with fresh IDs and leaves the source unchanged. Neither path serializes NFM nor mutates a Card description projection.
 - Multi-block order follows the selected top-level document order. Nested selected blocks are represented only once through their selected ancestor.

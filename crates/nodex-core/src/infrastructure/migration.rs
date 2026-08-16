@@ -75,6 +75,46 @@ const LEGACY_P4_PRIORITY_NAME: &str = "P4 - Later";
 const P3_PRIORITY_ID: &str = "p3-low";
 const P3_PRIORITY_NAME: &str = "P3 - Low";
 
+const V128_BLOCK_TRANSFER_UNDO_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS block_transfer_undo_recipes (
+  transfer_operation_id TEXT PRIMARY KEY
+    REFERENCES block_mutations(mutation_id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  store_epoch TEXT NOT NULL,
+  recipe_hash TEXT NOT NULL,
+  recipe_json TEXT NOT NULL,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL,
+  CHECK (length(transfer_operation_id) BETWEEN 1 AND 512),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(recipe_hash) = 64 AND recipe_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (json_valid(recipe_json) AND json_type(recipe_json) = 'object'),
+  CHECK (consumed_at IS NULL OR length(consumed_at) > 0),
+  CHECK (length(created_at) > 0)
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_block_transfer_undo_recipes_scope
+  ON block_transfer_undo_recipes(library_id, project_id, created_at);
+
+CREATE TRIGGER IF NOT EXISTS block_transfer_undo_recipes_are_immutable
+BEFORE UPDATE ON block_transfer_undo_recipes
+WHEN NOT (
+  OLD.consumed_at IS NULL
+  AND NEW.consumed_at IS NOT NULL
+  AND OLD.transfer_operation_id = NEW.transfer_operation_id
+  AND OLD.project_id = NEW.project_id
+  AND OLD.library_id = NEW.library_id
+  AND OLD.store_epoch = NEW.store_epoch
+  AND OLD.recipe_hash = NEW.recipe_hash
+  AND OLD.recipe_json = NEW.recipe_json
+  AND OLD.created_at = NEW.created_at
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Block transfer Undo recipes are immutable');
+END;
+"#;
+
 const V120_DOCUMENT_BLOCK_TOMBSTONES_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS document_block_tombstones (
   block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
@@ -2619,6 +2659,33 @@ fn validate_v127_document_page_references(connection: &Connection) -> Result<(),
     Ok(())
 }
 
+fn ensure_v128_block_transfer_undo(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V128_BLOCK_TRANSFER_UNDO_SQL)?;
+    validate_v128_block_transfer_undo(connection)
+}
+
+fn validate_v128_block_transfer_undo(connection: &Connection) -> Result<(), StoreError> {
+    let invalid: i64 = connection.query_row(
+        "SELECT count(*) FROM block_transfer_undo_recipes recipe \
+         WHERE recipe.consumed_at IS NOT NULL AND length(recipe.consumed_at) = 0 \
+            OR NOT EXISTS (\
+              SELECT 1 FROM block_mutations mutation \
+              WHERE mutation.mutation_id = recipe.transfer_operation_id \
+                AND mutation.mutation_kind = 'block_transfer' \
+                AND mutation.project_id = recipe.project_id \
+                AND mutation.store_epoch = recipe.store_epoch\
+            )",
+        [],
+        |row| row.get(0),
+    )?;
+    if invalid != 0 {
+        return Err(corrupt(
+            "v128 Store contains invalid Block transfer Undo recipes",
+        ));
+    }
+    Ok(())
+}
+
 pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
@@ -2655,6 +2722,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v125_default_draft_sessions(connection)?;
         validate_v126_thread_recency(connection)?;
         validate_v127_document_page_references(connection)?;
+        validate_v128_block_transfer_undo(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -2690,6 +2758,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v125_default_draft_sessions(connection)?;
         validate_v126_thread_recency(connection)?;
         validate_v127_document_page_references(connection)?;
+        validate_v128_block_transfer_undo(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -2754,6 +2823,7 @@ pub fn prepare_profile_store_with_observer(
     validate_v125_default_draft_sessions(connection)?;
     validate_v126_thread_recency(connection)?;
     validate_v127_document_page_references(connection)?;
+    validate_v128_block_transfer_undo(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2820,6 +2890,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_v125_default_draft_sessions(connection)?;
     validate_v126_thread_recency(connection)?;
     validate_v127_document_page_references(connection)?;
+    validate_v128_block_transfer_undo(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2915,6 +2986,7 @@ fn upgrade_owned_store(
         124 => validate_exact_v124_schema(connection)?,
         125 => validate_exact_v125_schema(connection)?,
         126 => validate_exact_v126_schema(connection)?,
+        127 => validate_exact_v127_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -3065,6 +3137,7 @@ fn upgrade_owned_store(
         ensure_v125_default_draft_sessions(transaction)?;
         ensure_v126_thread_recency(transaction)?;
         ensure_v127_document_page_references(transaction)?;
+        ensure_v128_block_transfer_undo(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -3542,9 +3615,10 @@ fn publish_current_store(
         ensure_v124_thread_execution_hosts(transaction)?;
         ensure_v125_default_draft_sessions(transaction)?;
         ensure_v126_thread_recency(transaction)?;
+        ensure_v127_document_page_references(transaction)?;
+        ensure_v128_block_transfer_undo(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
-        import_automation_jitter_salt(transaction, profile_home, now)?;
-        ensure_v127_document_page_references(transaction)
+        import_automation_jitter_salt(transaction, profile_home, now)
     })
 }
 
@@ -3599,9 +3673,10 @@ fn create_fresh_store(
         ensure_v124_thread_execution_hosts(transaction)?;
         ensure_v125_default_draft_sessions(transaction)?;
         ensure_v126_thread_recency(transaction)?;
+        ensure_v127_document_page_references(transaction)?;
+        ensure_v128_block_transfer_undo(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
-        import_automation_jitter_salt(transaction, profile_home, now)?;
-        ensure_v127_document_page_references(transaction)
+        import_automation_jitter_salt(transaction, profile_home, now)
     })
 }
 
@@ -7851,6 +7926,15 @@ fn validate_exact_v126_schema(connection: &Connection) -> Result<(), StoreError>
     validate_v126_thread_recency(connection)
 }
 
+fn validate_exact_v127_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 127)?;
+    validate_v121_page_key_invariants(connection)?;
+    validate_v124_thread_execution_hosts(connection)?;
+    validate_v125_default_draft_sessions(connection)?;
+    validate_v126_thread_recency(connection)?;
+    validate_v127_document_page_references(connection)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -7867,7 +7951,8 @@ fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreErr
     validate_v124_thread_execution_hosts(connection)?;
     validate_v125_default_draft_sessions(connection)?;
     validate_v126_thread_recency(connection)?;
-    validate_v127_document_page_references(connection)
+    validate_v127_document_page_references(connection)?;
+    validate_v128_block_transfer_undo(connection)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -8050,6 +8135,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 127 {
         ensure_v127_document_page_references(&expected)?;
     }
+    if schema_version >= 128 {
+        ensure_v128_block_transfer_undo(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -8211,6 +8299,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     if version >= 127 {
         ensure_v127_document_page_references(&expected)?;
     }
+    if version >= 128 {
+        ensure_v128_block_transfer_undo(&expected)?;
+    }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
@@ -8335,9 +8426,16 @@ mod tests {
 
     const DOCUMENT_ID: &str = "document:migration-page";
 
+    fn remove_v128_block_transfer_undo_schema(connection: &Connection) -> Result<(), StoreError> {
+        connection
+            .execute_batch("DROP TABLE block_transfer_undo_recipes;")
+            .map_err(StoreError::from)
+    }
+
     fn remove_v127_document_page_reference_schema(
         connection: &Connection,
     ) -> Result<(), StoreError> {
+        remove_v128_block_transfer_undo_schema(connection)?;
         connection
             .execute_batch(
                 "DROP INDEX idx_document_page_references_target; \
@@ -9104,6 +9202,53 @@ mod tests {
             })
             .expect("read migrated Thread recency");
         assert_eq!(migrated, (200, 1, 0));
+    }
+
+    #[test]
+    fn previous_published_store_migrates_to_the_current_schema() {
+        assert_eq!(
+            CORE_SCHEMA_VERSION, 128,
+            "refresh the previous-published Store fixture for each Store version bump",
+        );
+        let previous_store_version = CORE_SCHEMA_VERSION - 1;
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(move |connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    remove_v128_block_transfer_undo_schema(transaction)?;
+                    transaction.execute(
+                        "UPDATE core_store_metadata SET store_format_version = ?1 WHERE id = 1",
+                        [previous_store_version],
+                    )?;
+                    transaction.pragma_update(None, "user_version", previous_store_version)?;
+                    Ok(())
+                })
+            })
+            .expect("restore exact previous-published Store");
+        drop(kernel);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("migrate previous-published Store");
+        assert_eq!(
+            upgraded.preparation().migrated_from_version,
+            Some(previous_store_version),
+        );
+        assert!(upgraded.preparation().migration_backup_path.is_some());
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let undo_table_count = connection.query_row(
+                    "SELECT count(*) FROM sqlite_schema \
+                     WHERE type = 'table' AND name = 'block_transfer_undo_recipes'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(undo_table_count, 1);
+                validate_exact_current_schema(connection)
+            })
+            .expect("read migrated block-transfer Undo schema");
     }
 
     #[test]
@@ -12388,10 +12533,10 @@ mod tests {
             .execute(
                 "INSERT INTO codex_threads(\
                    thread_id, thread_preview, model_provider, status_type, \
-                   status_active_flags_json, archived, created_at, updated_at, linked_at\
+                   status_active_flags_json, archived, created_at, updated_at, recency_at, linked_at\
                  ) VALUES (\
                    'thread-invalid-clock', '', 'openai', 'notLoaded', '[]', 0, \
-                   2000, 1000, '2026-07-23T00:00:00Z'\
+                   2000, 1000, 2000, '2026-07-23T00:00:00Z'\
                  )",
                 [],
             )

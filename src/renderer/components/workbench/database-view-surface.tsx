@@ -86,17 +86,22 @@ import {
   hasDragType,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   resolveLocalBlockDragDropSession,
+  resolvePagePromotionPolicy,
+  summarizeBlockPagePromotionReceipt,
   shouldHandleNativeCrossSurfaceDrag,
 } from "../board/cross-surface-drag";
+import { readTaskShorthandPagePromotionEnabled } from "../../lib/page-promotion-preference";
 import { transferBlocks } from "@/lib/api";
 import { resolveBlockDocumentMutationBarrier } from "@/lib/block-document-mutation-registry";
 import { toast } from "@/components/ui/toast";
 import { computeNativeDropIndexFromSurface } from "../board/native-drop-index";
 import { DatabaseList } from "./database-list/database-list";
 import {
+  handleDatabaseViewMutationHistoryKeyDown,
   useDatabaseViewMutationHistory,
   type DatabaseViewMutationHistory,
 } from "./database-view-mutation-history";
+import { undoDatabaseViewBlockTransfer } from "./database-view-block-transfer-undo";
 
 const DATABASE_VIEW_PAGE_DRAG_MIME =
   "application/vnd.nodex.database-view-pages.v1+json";
@@ -578,9 +583,14 @@ function BoardDatabaseViewSurface({
   presentedPageIds,
   initialSelectedPageIds,
   onSelectedPageIdsChange,
+  mutationHistory: providedMutationHistory,
 }: Omit<DatabaseViewSurfaceProps, "effectivePresentation"> & {
   readonly effectivePresentation: EffectiveDatabaseViewPresentation;
 }) {
+  const localMutationHistory = useDatabaseViewMutationHistory(
+    `${model.storeEpoch}:${model.databaseViewId}`,
+  );
+  const mutationHistory = providedMutationHistory ?? localMutationHistory;
   const [pendingMutationKeys, setPendingMutationKeys] = useState<ReadonlyMap<
     string,
     number
@@ -989,6 +999,10 @@ function BoardDatabaseViewSurface({
         groupKey: target.groupKey,
         ...(target.beforePageId ? { beforePageId: target.beforePageId } : {}),
         altKey: event.altKey,
+        promotionPolicy: resolvePagePromotionPolicy({
+          preferenceEnabled: readTaskShorthandPagePromotionEnabled(),
+          shiftKey: event.shiftKey,
+        }),
         ...(sourceHead
           ? {
               causalDependencies: [{
@@ -1004,6 +1018,34 @@ function BoardDatabaseViewSurface({
       toast.danger(result.error.message);
       return;
     }
+    if (result.value.undoToken) {
+      mutationHistory.registerBlockTransfer(result.value.undoToken);
+    }
+    const shorthandFeedback = summarizeBlockPagePromotionReceipt(result.value);
+    const feedbackMessage = shorthandFeedback?.message ?? "Block promoted to a Page.";
+    const feedbackOptions = result.value.undoToken
+      ? {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              void mutationHistory.undoLast({
+                listMove: async () => false,
+                blockTransfer: async (token) => await undoDatabaseViewBlockTransfer({
+                  projectId: model.accessContext.kind === "project"
+                    ? model.accessContext.projectId
+                    : "",
+                  storeEpoch: model.storeEpoch,
+                  token,
+                  onCommitted,
+                }),
+              });
+              return false;
+            },
+          },
+        }
+      : undefined;
+    if (shorthandFeedback?.tone === "info") toast.info(feedbackMessage, feedbackOptions);
+    else toast.success(feedbackMessage, feedbackOptions);
     await onCommitted?.();
   };
   const dropOnBoardTarget = (
@@ -1304,8 +1346,25 @@ function BoardDatabaseViewSurface({
       });
     },
   } as const);
+  const mutationHistoryProjectId = model.accessContext.kind === "project"
+    ? model.accessContext.projectId
+    : null;
 
   const handleListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      mutationHistoryProjectId
+      && handleDatabaseViewMutationHistoryKeyDown({
+        event,
+        history: mutationHistory,
+        undoListMove: async () => false,
+        undoBlockTransfer: async (token) => await undoDatabaseViewBlockTransfer({
+          projectId: mutationHistoryProjectId,
+          storeEpoch: model.storeEpoch,
+          token,
+          onCommitted,
+        }),
+      })
+    ) return;
     if (activeLayout !== "list") return;
     const target = event.target as HTMLElement;
     const row = target.closest<HTMLElement>("[data-database-view-page-id]");
