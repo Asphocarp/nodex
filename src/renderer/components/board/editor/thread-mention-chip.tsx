@@ -31,6 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 import { threadMentionInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { ActivitySpinnerIcon, ThreadIcon, ArchiveIcon } from "@/components/shared/icons";
+import { MentionInlineFocusAffordance } from "../mention-inline-focus-affordance";
 import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
 
 export interface ThreadMentionProps {
@@ -247,12 +248,11 @@ export function ThreadMentionInlineContentView({
       type="button"
       contentEditable={false}
       className={cn(
-        "align-baseline outline-hidden",
-        "blend cursor-interaction transition-[background-color,color,text-decoration-color] duration-100 ease-in",
-        "hover:bg-token-foreground/5 focus-visible:ring-token-focus focus-visible:ring-2",
+        "cursor-interaction",
         missing && "text-token-description-foreground",
       )}
       label={chip.label}
+      withGuards
       onMouseDown={(event) => {
         event.preventDefault();
       }}
@@ -290,7 +290,11 @@ export function ThreadMentionInlineContentView({
   );
 
   if (canOpen) {
-    return <span className="inline align-baseline">{renderTooltip(trigger)}</span>;
+    return (
+      <MentionInlineFocusAffordance label="Open chat">
+        <span className="inline align-baseline">{renderTooltip(trigger)}</span>
+      </MentionInlineFocusAffordance>
+    );
   }
 
   return (

@@ -82,6 +82,28 @@ describe("thread mention inline content", () => {
 
     const mention = view.getByRole("button");
     expect(textContent(mention)).toBe("Investigate parser issue");
+    expect(mention.getAttribute("data-mention-inline-chip")).toBe("true");
+    expect(mention.closest('[data-mention-inline-root="true"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-mention-inline-guard="start"]'))
+      .not.toBeNull();
+    expect(view.container.querySelector('[data-mention-inline-guard="end"]'))
+      .not.toBeNull();
+
+    mention.dataset.mentionTokenSelected = "true";
+    await waitFor(() => {
+      const affordance = document.body.querySelector(
+        '[data-mention-inline-focus-affordance="true"]',
+      );
+      if (!affordance || textContent(affordance) !== "Open chat↵") {
+        throw new Error("Thread mention focus affordance not open");
+      }
+    });
+    delete mention.dataset.mentionTokenSelected;
+    await waitFor(() => {
+      if (document.body.querySelector('[data-mention-inline-focus-affordance="true"]')) {
+        throw new Error("Thread mention focus affordance did not close");
+      }
+    });
 
     fireEvent.click(mention);
     await settleAsyncRender();

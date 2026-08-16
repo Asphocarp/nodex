@@ -2,11 +2,31 @@ import {
   ComponentsContext,
   FormattingToolbar,
   getFormattingToolbarItems,
+  useBlockNoteEditor,
   useComponentsContext,
 } from "@blocknote/react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import { useId, useMemo, useRef, type ChangeEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  createContext,
+  forwardRef,
+  useContext,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ChangeEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { ActivitySpinnerIcon, CheckmarkIcon, ChevronDownIcon } from "@/components/shared/icons";
+import {
+  ImagePlus,
+  Link2,
+  Trash2,
+  UploadCloud,
+} from "@/components/shared/icons/generic-icons";
 import { NodexButton } from "@/components/ui/button";
 import {
   NodexDropdownContent,
@@ -22,11 +42,26 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CopyImageButton } from "./copy-image-button";
+import {
+  NfmFileActionMenu,
+  NfmFileCaptionButton,
+  NfmFileReplaceButton,
+  type NfmFileAction,
+} from "./nfm-file-action-menu";
+import { NfmFileDownloadButton } from "./nfm-file-download-button";
 import { NfmCreateLinkButton } from "./nfm-link-toolbar";
 import { NfmTextActionMenu } from "./nfm-text-action-menu";
 import type { NfmFormattingToolbarMode } from "./nfm-formatting-toolbar-controller";
 
+const NfmFormattingToolbarIconContext = createContext<ReactNode | undefined>(undefined);
+
+const NFM_LEGACY_FORMATTING_TOOLBAR_ICON_OVERRIDES: Record<string, ReactNode> = {
+  fileDeleteButton: <Trash2 />,
+  filePreviewButton: <ImagePlus />,
+};
+
 const NFM_LEGACY_FORMATTING_TOOLBAR_OMITTED_KEYS = new Set([
+  "fileRenameButton",
   "textAlignLeftButton",
   "textAlignCenterButton",
   "textAlignRightButton",
@@ -69,17 +104,10 @@ function ToolbarRoot({
   );
 }
 
-function ToolbarButton({
-  className,
-  mainTooltip,
-  secondaryTooltip,
-  icon,
-  onClick,
-  isSelected = false,
-  isDisabled = false,
-  children,
-  label,
-}: {
+type ToolbarButtonProps = Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "children" | "className" | "disabled" | "onClick"
+> & {
   className?: string;
   mainTooltip?: string;
   secondaryTooltip?: string;
@@ -89,46 +117,72 @@ function ToolbarButton({
   isDisabled?: boolean;
   children?: ReactNode;
   label?: string;
-}) {
-  const button = (
-    <button
-      type="button"
-      contentEditable={false}
-      aria-label={label}
-      disabled={isDisabled}
-      className={cn(
-        "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-[9px] px-2 text-[12px] leading-4 text-token-text-secondary outline-hidden transition-colors",
-        "focus-visible:ring-1 focus-visible:ring-token-focus-border",
-        !isDisabled && "hover:bg-token-foreground/6 hover:text-token-foreground",
-        isSelected && "bg-token-foreground/10 text-token-foreground",
-        isDisabled && "cursor-default opacity-40",
-        className,
-      )}
-      onMouseDown={keepEditorSelection}
-      onClick={(event) => {
-        if (isDisabled) return;
-        onClick?.(event);
-      }}
-    >
-      {icon ? <span className="shrink-0 [&_svg]:size-4">{icon}</span> : null}
-      {children}
-    </button>
-  );
+};
 
-  if (!mainTooltip) return button;
+const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
+  function ToolbarButton(
+    {
+      className,
+      mainTooltip,
+      secondaryTooltip,
+      icon,
+      onClick,
+      isSelected = false,
+      isDisabled = false,
+      children,
+      label,
+      ...buttonProps
+    },
+    ref,
+  ) {
+    const iconOverride = useContext(NfmFormattingToolbarIconContext);
+    const button = (
+      <button
+        {...buttonProps}
+        ref={ref}
+        type="button"
+        contentEditable={false}
+        aria-label={label}
+        disabled={isDisabled}
+        className={cn(
+          "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-[9px] px-2 text-[12px] leading-4 text-token-text-secondary outline-hidden transition-colors",
+          "focus-visible:ring-1 focus-visible:ring-token-focus-border",
+          !isDisabled && "hover:bg-token-foreground/6 hover:text-token-foreground",
+          isSelected && "bg-token-foreground/10 text-token-foreground",
+          isDisabled && "cursor-default opacity-40",
+          className,
+        )}
+        onMouseDown={(event) => {
+          keepEditorSelection(event);
+          buttonProps.onMouseDown?.(event);
+        }}
+        onClick={(event) => {
+          if (isDisabled) return;
+          onClick?.(event);
+        }}
+      >
+        {icon || iconOverride ? (
+          <span className="shrink-0 [&_svg]:size-4">{iconOverride ?? icon}</span>
+        ) : null}
+        {children}
+      </button>
+    );
 
-  return (
-    <NodexTooltip
-      tooltipContent={mainTooltip}
-      shortcutLabel={secondaryTooltip}
-      side="top"
-      sideOffset={6}
-      delayDuration={0}
-    >
-      {button}
-    </NodexTooltip>
-  );
-}
+    if (!mainTooltip) return button;
+
+    return (
+      <NodexTooltip
+        tooltipContent={mainTooltip}
+        shortcutLabel={secondaryTooltip}
+        side="top"
+        sideOffset={6}
+        delayDuration={0}
+      >
+        {button}
+      </NodexTooltip>
+    );
+  },
+);
 
 function ToolbarSelect({
   className,
@@ -371,13 +425,17 @@ function FormTextInput({
   autoComplete?: string;
   "aria-activedescendant"?: string;
 }) {
+  const iconOverride = useContext(NfmFormattingToolbarIconContext);
+
   return (
     <label className="flex flex-col gap-1.5">
       {label ? (
         <span className="text-[11px] leading-4 font-medium text-token-text-secondary">{label}</span>
       ) : null}
       <div className="flex items-center gap-2 rounded-md border-[0.5px] border-token-border bg-token-input-background px-2 py-1.5 shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--color-token-foreground)_2%,transparent)] focus-within:border-token-focus-border focus-within:ring-1 focus-within:ring-token-focus-border">
-        <span className="shrink-0 text-token-description-foreground [&_svg]:size-4">{icon}</span>
+        <span className="shrink-0 text-token-description-foreground [&_svg]:size-4">
+          {iconOverride ?? icon}
+        </span>
         <input
           autoFocus={autoFocus}
           name={name}
@@ -399,11 +457,13 @@ function FormTextInput({
 }
 
 function FilePanelRoot({
+  className,
   tabs,
   openTab,
   setOpenTab,
   loading,
 }: {
+  className?: string;
   tabs: {
     name: string;
     tabPanel: ReactNode;
@@ -415,17 +475,23 @@ function FilePanelRoot({
   const activeTab = tabs.find((tab) => tab.name === openTab) ?? tabs[0];
 
   return (
-    <div className="flex w-[18rem] flex-col gap-2 bg-token-dropdown-background/95 p-2 text-token-foreground backdrop-blur-sm">
+    <div className={cn("flex w-full min-w-[18rem] flex-col gap-1.5 p-1.5 text-token-foreground", className)}>
       <div className="flex items-center justify-between gap-2">
-        <div className="inline-flex items-center gap-0.5 rounded-[10px] bg-token-foreground/5 p-0.5">
+        <div
+          role="tablist"
+          aria-label="Replace image source"
+          className="inline-flex items-center gap-0.5 rounded-lg p-0.5"
+        >
           {tabs.map((tab) => (
             <button
               key={tab.name}
               type="button"
+              role="tab"
+              aria-selected={tab.name === openTab}
               className={cn(
-                "inline-flex h-6 items-center rounded-[8px] px-2 text-[12px] leading-4 outline-hidden transition-colors",
+                "inline-flex h-6 items-center rounded-md px-2.5 text-xs leading-4 outline-hidden",
                 tab.name === openTab
-                  ? "bg-token-foreground/10 text-token-foreground"
+                  ? "bg-token-foreground/6 font-medium text-token-foreground"
                   : "text-token-text-secondary hover:bg-token-foreground/6 hover:text-token-foreground",
               )}
               onMouseDown={keepEditorSelection}
@@ -457,13 +523,14 @@ function FilePanelButton({
 }) {
   return (
     <NodexButton
-      variant="secondary"
-      size="xs"
-      className={cn("w-full justify-center rounded-md", className)}
+      variant="outline"
+      size="sm"
+      className={cn("w-full justify-center gap-1.5 rounded-lg border-token-border/70 bg-transparent px-2.5 text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-foreground", className)}
       onMouseDown={keepEditorSelection}
       onClick={onClick}
       aria-label={label}
     >
+      <Link2 className="size-4 text-token-text-secondary" />
       {children ?? label}
     </NodexButton>
   );
@@ -476,7 +543,7 @@ function FilePanelTabPanel({
   className?: string;
   children?: ReactNode;
 }) {
-  return <div className={cn("flex flex-col gap-2 p-1", className)}>{children}</div>;
+  return <div className={cn("flex flex-col gap-1.5 p-0.5", className)}>{children}</div>;
 }
 
 function FilePanelTextInput({
@@ -532,14 +599,15 @@ function FilePanelFileInput({
         }}
       />
       <NodexButton
-        variant="secondary"
-        size="xs"
-        className="w-full justify-center rounded-md"
+        variant="outline"
+        size="sm"
+        className="w-full justify-center gap-1.5 rounded-lg border-token-border/70 bg-transparent px-2.5 text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-foreground"
         onMouseDown={keepEditorSelection}
         onClick={() => {
           inputRef.current?.click();
         }}
       >
+        <UploadCloud className="size-4 text-token-text-secondary" />
         {placeholder}
       </NodexButton>
     </div>
@@ -547,12 +615,65 @@ function FilePanelFileInput({
 }
 
 export function NfmLegacyFormattingToolbar() {
+  const editor = useBlockNoteEditor();
   const baseComponents = useComponentsContext()!;
+  const [fileAction, setFileAction] = useState<NfmFileAction | null>(null);
+
+  const closeFileAction = () => {
+    setFileAction(null);
+    editor.focus();
+  };
 
   const toolbarItems = useMemo(() => {
-    const items = getFormattingToolbarItems().map((item) =>
-      item.key === "createLinkButton" ? <NfmCreateLinkButton key="createLinkButton" /> : item)
-      .filter((item) => shouldRenderNfmLegacyFormattingToolbarItem(item.key ?? ""));
+    const items = getFormattingToolbarItems()
+      .filter((item) => {
+        const itemKey = typeof item.key === "string" ? item.key : "";
+        return shouldRenderNfmLegacyFormattingToolbarItem(itemKey);
+      })
+      .map((item) => {
+        if (item.key === "fileCaptionButton") {
+          return (
+            <NfmFileCaptionButton
+              key="fileCaptionButton"
+              onOpen={(blockId) => {
+                setFileAction({ type: "caption", blockId });
+              }}
+            />
+          );
+        }
+
+        if (item.key === "replaceFileButton") {
+          return (
+            <NfmFileReplaceButton
+              key="replaceFileButton"
+              onOpen={(blockId) => {
+                setFileAction({ type: "replace", blockId });
+              }}
+            />
+          );
+        }
+
+        if (item.key === "createLinkButton") {
+          return <NfmCreateLinkButton key="createLinkButton" />;
+        }
+
+        if (item.key === "fileDownloadButton") {
+          return <NfmFileDownloadButton key="fileDownloadButton" />;
+        }
+
+        const itemKey = typeof item.key === "string" ? item.key : "";
+        const iconOverride = NFM_LEGACY_FORMATTING_TOOLBAR_ICON_OVERRIDES[itemKey];
+        if (!iconOverride) return item;
+
+        return (
+          <NfmFormattingToolbarIconContext.Provider
+            key={item.key}
+            value={iconOverride}
+          >
+            {item}
+          </NfmFormattingToolbarIconContext.Provider>
+        );
+      });
     const copyImageButton = <CopyImageButton key="copyImageButton" />;
     const fileDownloadButtonIndex = items.findIndex((item) => item.key === "fileDownloadButton");
 
@@ -611,7 +732,11 @@ export function NfmLegacyFormattingToolbar() {
 
   return (
     <ComponentsContext.Provider value={components}>
-      <FormattingToolbar>{toolbarItems}</FormattingToolbar>
+      {fileAction ? (
+        <NfmFileActionMenu action={fileAction} onClose={closeFileAction} />
+      ) : (
+        <FormattingToolbar>{toolbarItems}</FormattingToolbar>
+      )}
     </ComponentsContext.Provider>
   );
 }

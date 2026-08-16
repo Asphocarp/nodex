@@ -174,9 +174,17 @@ describe("Page mention inline content", () => {
       </NodexTooltipProvider>,
     );
 
-    const mention = view.getByRole("button", {
+    const mention = view.getByRole("link", {
       name: "Open Page Keep projection updates bounded",
     });
+    expect(mention.tagName).toBe("A");
+    expect(mention.getAttribute("href")).toBe("nodex://pages/page-1");
+    expect(mention.getAttribute("tabindex")).toBe("0");
+    expect(mention.getAttribute("contenteditable")).toBe("false");
+    expect(view.container.querySelector('[data-mention-inline-guard="start"]'))
+      .not.toBeNull();
+    expect(view.container.querySelector('[data-mention-inline-guard="end"]'))
+      .not.toBeNull();
     expect(mention.getAttribute("title")).toBe(null);
     expect(mention.querySelector("svg")?.getAttribute("style"))
       .toContain("status-build-dot");
@@ -191,6 +199,22 @@ describe("Page mention inline content", () => {
         || textContent(tooltip).includes("Database Page")
       ) {
         throw new Error("Page mention tooltip not open");
+      }
+    });
+
+    mention.dataset.mentionTokenSelected = "true";
+    await waitFor(() => {
+      const affordance = document.body.querySelector(
+        '[data-mention-inline-focus-affordance="true"]',
+      );
+      if (!affordance || textContent(affordance) !== "Open page↵") {
+        throw new Error("Page mention focus affordance not open");
+      }
+    });
+    delete mention.dataset.mentionTokenSelected;
+    await waitFor(() => {
+      if (document.body.querySelector('[data-mention-inline-focus-affordance="true"]')) {
+        throw new Error("Page mention focus affordance did not close");
       }
     });
 

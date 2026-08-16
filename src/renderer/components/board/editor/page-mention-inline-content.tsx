@@ -1,6 +1,7 @@
 import { createReactInlineContentSpec } from "@blocknote/react";
 import type { ReactNode } from "react";
 
+import { MentionInlineFocusAffordance } from "../mention-inline-focus-affordance";
 import { PageMentionInlineVisual } from "../page-mention-inline-visual";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { usePageTargetReadModel } from "@/lib/block-reference-queries";
@@ -142,11 +143,12 @@ export function PageMentionInlineContentView({
     host ? props.targetPageId : "",
   );
   const model = target.data;
-  const available = model?.status === "available";
+  const availablePage = model?.status === "available" ? model.page : null;
+  const available = availablePage !== null;
   const detail = useContentPageDetail(
-    available ? model.libraryId : null,
+    availablePage?.libraryId ?? null,
     accessContext,
-    available ? model.page.pageId : null,
+    availablePage?.pageId ?? null,
   );
   const workflowStatus = readPageDetailWorkflowStatus(detail.detail);
   const icon = workflowStatus
@@ -162,20 +164,25 @@ export function PageMentionInlineContentView({
   const mention = canOpen
     ? (
         <PageMentionInlineVisual
-          as="button"
-          type="button"
+          as="a"
+          href={availablePage
+            ? buildPageDeepLink({ pageId: availablePage.pageId })
+            : undefined}
+          tabIndex={0}
           label={presentation.label}
           icon={icon}
+          withGuards
           contentEditable={false}
+          data-page-mention-inline-anchor="true"
           aria-label={`Open Page ${presentation.label}`}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            if (!available) return;
+            if (!availablePage) return;
             void host?.openPage?.({
               accessContext,
-              pageId: model.page.pageId,
-              titleSnapshot: model.page.title,
+              pageId: availablePage.pageId,
+              titleSnapshot: availablePage.title,
             });
           }}
         />
@@ -184,10 +191,11 @@ export function PageMentionInlineContentView({
         <PageMentionInlineVisual
           label={presentation.label}
           icon={icon}
+          withGuards
           contentEditable={false}
           tabIndex={0}
           aria-label={presentation.tooltipTitle}
-          className="text-token-description-foreground hover:bg-token-foreground/5 focus-visible:bg-token-foreground/5 focus-visible:outline-none"
+          className="text-token-description-foreground"
         />
       );
   const renderTooltip = (children: ReactNode) => (
@@ -205,10 +213,18 @@ export function PageMentionInlineContentView({
     </NodexTooltip>
   );
 
-  return (
+  const mentionSurface = (
     <span className="inline align-baseline">
       {renderTooltip(mention)}
     </span>
+  );
+
+  if (!canOpen) return mentionSurface;
+
+  return (
+    <MentionInlineFocusAffordance label="Open page">
+      {mentionSurface}
+    </MentionInlineFocusAffordance>
   );
 }
 
