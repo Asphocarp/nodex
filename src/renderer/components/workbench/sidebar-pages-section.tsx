@@ -274,9 +274,8 @@ export function SidebarPagesSection({
             <span className="min-w-0 truncate px-1">Retry Pages</span>
           </button>
         ) : roots.length === 0 ? (
-          <div className="flex h-token-nav-row items-center rounded-lg px-1 text-base text-token-description-foreground">
-            <span className="flex size-6 shrink-0 items-center justify-center" aria-hidden>·</span>
-            <span className="min-w-0 truncate px-1">No standalone Pages</span>
+          <div className="px-row-x py-row-y text-sm text-token-description-foreground">
+            No standalone pages
           </div>
         ) : (
           <SidebarPaginatedItems
