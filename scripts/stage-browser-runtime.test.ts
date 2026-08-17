@@ -47,6 +47,30 @@ describe("stageBrowserRuntime", () => {
     }).status).toBe("available");
   });
 
+  test("installs a closure for an Agent version inside its sealed protocol window", () => {
+    const sourceRoot = makeRoot("nodex-browser-source-");
+    const runtimeRoot = makeRoot("nodex-browser-destination-");
+    writeBrowserRuntimeFixture(sourceRoot, {
+      codexCliVersion: "0.146.0-alpha.9",
+      codexCompatibilityVersion: "0.144.5",
+    });
+
+    stageBrowserRuntime({
+      expectedCodexCompatibilityVersion: "0.144.6",
+      runtimeRoot,
+      sourceRoot,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+
+    expect(resolveBrowserRuntimeBundle({
+      expectedCodexCompatibilityVersion: "0.144.6",
+      runtimeRoot,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    }).status).toBe("available");
+  });
+
   test("preserves the previously active bundle when source verification fails", () => {
     const sourceRoot = makeRoot("nodex-browser-source-");
     const runtimeRoot = makeRoot("nodex-browser-destination-");

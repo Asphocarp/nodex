@@ -139,6 +139,7 @@ export const agentActivityV2UserInputRequest = {
         },
       ],
     }],
+    isBlocking: false,
     autoResolutionMs: 60_000,
   },
 } satisfies ServerRequest;

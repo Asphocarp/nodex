@@ -30,6 +30,7 @@ function buildPayload(overrides: Partial<CodexMcpToolCallView> = {}): CodexMcpTo
     durationMs: null,
     completed: true,
     ...overrides,
+    readOnlyHint: overrides.readOnlyHint ?? null,
   };
 }
 

@@ -684,6 +684,7 @@ describe("scoped canonical lifecycle projection diff", () => {
       arguments: {},
       appContext: null,
       pluginId: null,
+      readOnlyHint: null,
       result: null,
       error: null,
       durationMs: null,

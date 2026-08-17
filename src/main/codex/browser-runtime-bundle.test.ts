@@ -102,6 +102,29 @@ describe("resolveBrowserRuntimeBundle", () => {
     });
   });
 
+  test("accepts a stable Codex version inside the closure's sealed protocol window", () => {
+    const runtimeRoot = makeRuntimeRoot();
+    writeBrowserRuntimeFixture(path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY), {
+      codexCliVersion: "0.146.0-alpha.9",
+      codexCompatibilityVersion: "0.144.5",
+    });
+
+    expect(resolveFixture(runtimeRoot).status).toBe("available");
+  });
+
+  test("rejects the stable release at a prerelease upper boundary", () => {
+    const runtimeRoot = makeRuntimeRoot();
+    writeBrowserRuntimeFixture(path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY), {
+      codexCliVersion: "0.144.6-alpha.9",
+      codexCompatibilityVersion: "0.144.5",
+    });
+
+    expect(resolveFixture(runtimeRoot)).toMatchObject({
+      reason: "incompatible-codex",
+      status: "unavailable",
+    });
+  });
+
   test("provides a platform verification seam for architecture and signing checks", () => {
     const runtimeRoot = makeRuntimeRoot();
     writeBrowserRuntimeFixture(path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY));

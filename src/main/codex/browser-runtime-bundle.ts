@@ -8,6 +8,7 @@ import {
   type BrowserRuntimeArtifact,
   type BrowserRuntimeManifest,
 } from "../../shared/browser-runtime-metadata";
+import { isBrowserRuntimeCompatibleWithCodex } from "../../shared/browser-runtime-codex-compatibility";
 
 export type BrowserRuntimeUnavailableReason =
   | "artifact-integrity"
@@ -197,7 +198,10 @@ export function resolveBrowserRuntimeBundle(
   if (!manifest) {
     return unavailable("invalid-manifest", "Browser runtime bundle manifest is invalid");
   }
-  if (manifest.codexCompatibilityVersion !== options.expectedCodexCompatibilityVersion) {
+  if (!isBrowserRuntimeCompatibleWithCodex(
+    manifest,
+    options.expectedCodexCompatibilityVersion,
+  )) {
     return unavailable(
       "incompatible-codex",
       "Browser runtime bundle does not match the active Codex compatibility version",

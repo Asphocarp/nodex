@@ -107,6 +107,7 @@ function buildMcpAppItem(turnId: string): CodexConversationItem {
       callId: "mcp_1",
       functionName: "calendar__open",
       pluginId: "calendar",
+      readOnlyHint: false,
       mcpAppResourceUri: "nodex://mcp-app/calendar/event",
       source: null,
       invocation: {

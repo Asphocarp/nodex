@@ -209,6 +209,7 @@ function projectDirectUserInput(
         description: option.description,
       })),
     })),
+    isBlocking: request.params.isBlocking,
     autoResolutionMs: request.params.autoResolutionMs,
     createdAt,
   };
@@ -233,6 +234,7 @@ function projectDynamicRequest(input: {
       threadId: input.conversation.threadId,
       turnId: request.params.turnId,
       itemId: request.params.callId,
+      isBlocking: true,
       questions: parsed.questions,
       isOnboardingDynamicInput: true,
       createdAt: input.createdAt,

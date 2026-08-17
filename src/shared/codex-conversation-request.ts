@@ -220,6 +220,7 @@ function selectSyntheticUserInputForTurn(
         ...question,
         isOther: false,
       })),
+      isBlocking: true,
       createdAt: item.createdAt,
     };
   }
@@ -380,6 +381,7 @@ export function areConversationLiveRequestsEqual(
     case "userInput":
       if (right.type !== "userInput") return false;
       return left.questions === right.questions
+        && left.isBlocking === right.isBlocking
         && left.isOnboardingDynamicInput === right.isOnboardingDynamicInput
         && left.autoResolutionMs === right.autoResolutionMs;
     case "optionPicker":
@@ -493,7 +495,7 @@ export function isBlockingConversationRequest(
   request: CodexConversationLiveRequest,
 ): boolean {
   return request.type === "approval"
-    || request.type === "userInput"
+    || (request.type === "userInput" && request.isBlocking)
     || request.type === "optionPicker"
     || request.type === "setupCodexStep"
     || request.type === "mcpServerElicitation"

@@ -3,8 +3,13 @@
 Nodex builds consume the Browser runtime exclusively through
 `browser-runtime.lock.json`. Each architecture-specific archive is immutable and
 bound by its byte size, archive SHA-256, inner manifest SHA-256, source desktop
-build, Browser plugin version, Codex compatibility version, and component
-versions.
+build, Browser plugin version, Codex compatibility floor, and component
+versions. A closure remains compatible only while the active stable Agent Codex
+version is at or above that reviewed floor and below the closure's embedded
+Codex CLI version when that upper boundary is a prerelease (or at or below it
+when stable). This bounded window avoids repackaging identical Browser payloads
+for every compatible Agent patch while still failing closed outside versions
+represented by the sealed closure.
 
 Normal development, CI, and packaging must use
 `pnpm run materialize:browser-runtime:mac`. They must not inspect an installed
@@ -14,7 +19,7 @@ Updating the runtime is an explicit maintainer workflow:
 
 1. Obtain the intended signed desktop builds for both macOS architectures.
 2. Run the following separately for `arm64` and `x64`, using the Codex
-   compatibility version pinned by the Agent runtime lock:
+   oldest Agent Codex version reviewed with that closure:
 
    ```sh
    pnpm run browser-runtime:vendor -- \

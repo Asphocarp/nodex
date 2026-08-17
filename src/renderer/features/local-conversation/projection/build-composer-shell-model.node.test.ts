@@ -164,6 +164,7 @@ describe("buildComposerShellModel", () => {
             itemId: "item_1",
             createdAt: 10,
             questions: [],
+            isBlocking: true,
           },
         ],
         pendingSteers: [

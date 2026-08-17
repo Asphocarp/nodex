@@ -219,6 +219,7 @@ export const agentActivityV2McpAppContextPrecedenceItem = {
   },
   mcpAppResourceUri: "ui://fixture/deprecated",
   pluginId: "plugin-fixture",
+  readOnlyHint: true,
   result: {
     content: [{
       type: "text",
@@ -246,6 +247,7 @@ export const agentActivityV2McpBrowserSourceItem = {
   },
   appContext: FULL_MCP_APP_CONTEXT,
   pluginId: "plugin-browser-fixture",
+  readOnlyHint: false,
   result: {
     content: [{
       type: "resource_link",
@@ -280,6 +282,7 @@ export const agentActivityV2McpComputerUseItem = {
   },
   appContext: null,
   pluginId: null,
+  readOnlyHint: false,
   result: null,
   error: null,
   durationMs: null,
@@ -296,6 +299,7 @@ export const agentActivityV2McpErrorItem = {
   },
   appContext: null,
   pluginId: null,
+  readOnlyHint: null,
   result: {
     content: [{
       type: "text",
@@ -323,6 +327,7 @@ export const agentActivityV2McpStatusResolvedAppItem = {
   arguments: {},
   appContext: null,
   pluginId: null,
+  readOnlyHint: true,
   result: {
     content: [],
     structuredContent: null,

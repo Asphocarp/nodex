@@ -31,6 +31,7 @@ function buildMcpItem(
     arguments: { query: "projection contract" },
     appContext: null,
     pluginId: null,
+    readOnlyHint: null,
     result: null,
     error: null,
     durationMs: null,
@@ -92,6 +93,7 @@ describe("Codex MCP tool-call projection", () => {
     const item = buildMcpItem({
       appContext,
       mcpAppResourceUri: "ui://deprecated.html",
+      readOnlyHint: true,
     });
     const normalized = projectCodexCanonicalTurnItemViews({
       threadId: "thread-1",
@@ -104,6 +106,7 @@ describe("Codex MCP tool-call projection", () => {
     expect(normalized?.rawItem).toBe(item);
     expect(item.appContext).toBe(appContext);
     expect(normalized?.mcpToolCall?.mcpAppResourceUri).toBe("ui://context.html");
+    expect(normalized?.mcpToolCall?.readOnlyHint).toBe(true);
     expect(Object.prototype.hasOwnProperty.call(normalized?.mcpToolCall, "mcpAppResourceUri")).toBe(true);
     expect(Object.prototype.hasOwnProperty.call(normalized?.mcpToolCall, "appContext")).toBe(false);
 

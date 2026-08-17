@@ -36,6 +36,7 @@ const ordinaryRequest: CodexUserInputRequest = {
       { label: "Broad", description: "Refactor the full request lane." },
     ],
   }],
+  isBlocking: true,
   createdAt: 1,
 };
 

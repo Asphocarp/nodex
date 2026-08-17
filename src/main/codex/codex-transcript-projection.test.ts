@@ -87,6 +87,7 @@ describe("finalizeTurnTranscriptState", () => {
           callId: "mcp_terminal",
           functionName: "docs__search",
           pluginId: null,
+          readOnlyHint: null,
           mcpAppResourceUri: undefined,
           source: null,
           invocation: {

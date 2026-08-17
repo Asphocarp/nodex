@@ -8,6 +8,7 @@ import {
 } from "../../shared/browser-runtime-metadata";
 
 type BrowserRuntimeFixtureOptions = {
+  codexCliVersion?: string;
   codexCompatibilityVersion?: string;
   targetArch?: "arm64" | "x64";
   targetPlatform?: "darwin" | "linux" | "win32";
@@ -218,7 +219,7 @@ export function writeBrowserRuntimeFixture(
       signingTeamId: "TESTTEAM",
     },
     runtimeVersions: {
-      codexCli: "0.144.6",
+      codexCli: options.codexCliVersion ?? "0.144.6",
       cuaRuntime: "0.0.6/test",
       node: "24.0.0",
       peerAuthorization: "test",

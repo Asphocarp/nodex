@@ -123,6 +123,7 @@ describe("renderConversationMarkdown", () => {
             callId: "mcp",
             functionName: "search",
             pluginId: null,
+            readOnlyHint: true,
             mcpAppResourceUri: undefined,
             source: null,
             invocation: { server: "docs", tool: "search", arguments: { q: "Radix" } },

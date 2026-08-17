@@ -209,6 +209,42 @@ describe("local-conversation selectors", () => {
     expect(selectConversationLiveRequests(conversation).length).toBe(2);
   });
 
+  test("blocks turns only for user-input requests that require an indefinite response", () => {
+    const conversation = buildConversation({
+      turns: [
+        buildTurn({ turnId: "turn_1" }),
+        buildTurn({ turnId: "turn_2" }),
+      ],
+      requests: [
+        {
+          type: "userInput",
+          requestId: "nonblocking_input",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "item_1",
+          questions: [],
+          isBlocking: false,
+          createdAt: 1,
+        },
+        {
+          type: "userInput",
+          requestId: "blocking_input",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "turn_2",
+          itemId: "item_2",
+          questions: [],
+          isBlocking: true,
+          createdAt: 2,
+        },
+      ],
+    });
+
+    expect(selectBlockedTurnIds(conversation)).toEqual(["turn_2"]);
+    expect(selectConversationLiveRequests(conversation)).toHaveLength(2);
+  });
+
   test("prioritizes request-user-input ahead of approval in the live request order", () => {
     const conversation = buildConversation({
       turns: [
@@ -235,6 +271,7 @@ describe("local-conversation selectors", () => {
           itemId: "item_2",
           createdAt: 2,
           questions: [],
+          isBlocking: true,
         },
       ],
     });
@@ -426,6 +463,7 @@ describe("local-conversation selectors", () => {
           itemId: "item_1",
           createdAt: 2,
           questions: [],
+          isBlocking: true,
         },
         {
           type: "approval",
@@ -473,6 +511,7 @@ describe("local-conversation selectors", () => {
           itemId: "item_1",
           createdAt: 2,
           questions: [],
+          isBlocking: true,
         },
       ],
     });
@@ -521,6 +560,7 @@ describe("local-conversation selectors", () => {
         itemId: "item_1",
         createdAt: 2,
         questions: [],
+        isBlocking: true,
       },
       {
         type: "approval" as const,
@@ -605,6 +645,7 @@ describe("local-conversation selectors", () => {
         turnId: "turn_1",
         itemId: "input-item-1",
         questions: [],
+        isBlocking: true,
         createdAt: 1,
       }],
       canonicalRequests: [{
@@ -615,6 +656,7 @@ describe("local-conversation selectors", () => {
           turnId: "turn_1",
           itemId: "input-item-1",
           questions: [],
+          isBlocking: true,
           autoResolutionMs: null,
         },
       }],

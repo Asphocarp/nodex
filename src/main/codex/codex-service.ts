@@ -26317,6 +26317,7 @@ export class CodexService extends EventEmitter {
       turnId,
       itemId,
       questions,
+      isBlocking: params.isBlocking,
       autoResolutionMs: params.autoResolutionMs,
       createdAt: Date.now(),
     };
@@ -26339,10 +26340,12 @@ export class CodexService extends EventEmitter {
         resolve,
         reject,
       });
-      this.userInputAutoResolutionController.observeRequest(
-        threadId,
-        requestId,
-      );
+      if (!params.isBlocking) {
+        this.userInputAutoResolutionController.observeRequest(
+          threadId,
+          requestId,
+        );
+      }
       this.applyStandalonePendingRequestProjection(request);
       const ownerRouted = this.forwardServerRequestToRendererOwner({
         id: protocolRequestId,

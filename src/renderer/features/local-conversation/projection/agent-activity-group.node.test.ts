@@ -98,6 +98,7 @@ function mcpBlock(
       callId: id,
       functionName: `${server}__${tool}`,
       pluginId: options.pluginId ?? null,
+      readOnlyHint: null,
       mcpAppResourceUri: options.mcpAppResourceUri,
       source: options.source ?? (server === "browser-use"
         ? { kind: "browserUse", backend: "iab" }

@@ -3114,6 +3114,7 @@ function buildOwnerUserInputRequest(
         description: option.description,
       })),
     })),
+    isBlocking: params.isBlocking,
     autoResolutionMs: params.autoResolutionMs,
     createdAt: Date.now(),
   };

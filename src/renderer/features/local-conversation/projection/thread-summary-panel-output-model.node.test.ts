@@ -71,6 +71,7 @@ function buildMcpSuccessItem(
       callId: itemId,
       functionName: `${input.server}__${input.tool}`,
       pluginId: null,
+      readOnlyHint: true,
       mcpAppResourceUri: undefined,
       source: null,
       invocation: {

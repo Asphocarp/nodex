@@ -845,6 +845,7 @@ function buildUserInputRequestConversation(): CodexConversationSnapshot {
         turnId: "turn_story_streaming",
         itemId: "reasoning_story_streaming",
         questions: buildUserInputQuestions(),
+        isBlocking: true,
         createdAt: 26_000,
       },
     ],
@@ -1244,6 +1245,7 @@ function buildMcpToolCallView(overrides: Partial<CodexMcpToolCallView>): CodexMc
     completed: true,
     result: null,
     ...overrides,
+    readOnlyHint: overrides.readOnlyHint ?? null,
   };
 }
 
@@ -2389,6 +2391,7 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     turnId: "turn_story_request",
     itemId: "item_story_request_user_input",
     questions: buildUserInputQuestions(),
+    isBlocking: true,
     createdAt: 1,
   },
   userInputResponse: {

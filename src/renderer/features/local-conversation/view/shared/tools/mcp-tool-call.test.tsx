@@ -66,6 +66,7 @@ function buildMcpView(overrides?: Partial<CodexMcpToolCallView>): CodexMcpToolCa
       },
     },
     ...overrides,
+    readOnlyHint: overrides?.readOnlyHint ?? null,
   };
 }
 
