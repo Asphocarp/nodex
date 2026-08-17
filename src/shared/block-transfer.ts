@@ -60,8 +60,10 @@ export type BlockTransferDataSourcePlacement =
   | {
       readonly kind: "direct";
       readonly viewId: string;
+      readonly presentationOverride: DatabaseViewPresentationOverride;
       readonly groupKey: string | null;
       readonly beforePageId?: BlockId;
+      readonly sortedPropertyValues?: readonly BlockTransferPropertyValue[];
     }
   | {
       readonly kind: "list_occurrence";
@@ -70,6 +72,11 @@ export type BlockTransferDataSourcePlacement =
       readonly expectedProjection: DatabaseListProjectionExpectationV2;
       readonly target: DatabaseListMoveTargetV2;
     };
+
+export interface BlockTransferPropertyValue {
+  readonly propertyId: string;
+  readonly value: DatabaseJsonValue;
+}
 
 /**
  * Public logical command. Freshness coordinates are deliberately absent:
@@ -849,8 +856,8 @@ const parseIntentTarget = (
         assertExactKeys(
           placement,
           "blockTransferIntent.target.placement",
-          ["kind", "viewId", "groupKey"],
-          ["beforePageId"],
+          ["kind", "viewId", "presentationOverride", "groupKey"],
+          ["beforePageId", "sortedPropertyValues"],
         );
         const groupKey = placement.groupKey === null
           ? null
@@ -869,6 +876,49 @@ const parseIntentTarget = (
             "blockTransferIntent.target.placement.beforePageId cannot be a transferred root",
           );
         }
+        const sortedPropertyValues = (() => {
+          if (placement.sortedPropertyValues === undefined) return [];
+          if (
+            !Array.isArray(placement.sortedPropertyValues)
+            || placement.sortedPropertyValues.length > 8
+          ) {
+            throw new BlockTransferContractError(
+              "blockTransferIntent.target.placement.sortedPropertyValues must contain at most 8 values",
+            );
+          }
+          const seen = new Set<string>();
+          return placement.sortedPropertyValues.map((rawValue, index) => {
+            const entry = readRecord(
+              rawValue,
+              `blockTransferIntent.target.placement.sortedPropertyValues[${index}]`,
+            );
+            assertExactKeys(
+              entry,
+              `blockTransferIntent.target.placement.sortedPropertyValues[${index}]`,
+              ["propertyId", "value"],
+            );
+            const propertyId = readString(
+              entry,
+              "propertyId",
+              `blockTransferIntent.target.placement.sortedPropertyValues[${index}]`,
+            );
+            if (seen.has(propertyId)) {
+              throw new BlockTransferContractError(
+                "blockTransferIntent.target.placement.sortedPropertyValues cannot repeat a Property",
+              );
+            }
+            seen.add(propertyId);
+            let value: DatabaseJsonValue;
+            try {
+              value = JSON.parse(stableStringifyDatabaseJson(entry.value)) as DatabaseJsonValue;
+            } catch (error) {
+              throw new BlockTransferContractError(
+                `blockTransferIntent.target.placement.sortedPropertyValues[${index}].value must be bounded JSON: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+            return { propertyId, value };
+          });
+        })();
         return {
           kind: placement.kind,
           viewId: readString(
@@ -876,8 +926,12 @@ const parseIntentTarget = (
             "viewId",
             "blockTransferIntent.target.placement",
           ),
+          presentationOverride: parseDatabaseViewPresentationOverride(
+            placement.presentationOverride,
+          ),
           groupKey,
           ...(beforePageId ? { beforePageId } : {}),
+          ...(sortedPropertyValues.length > 0 ? { sortedPropertyValues } : {}),
         };
       }
       if (placement.kind === "list_occurrence") {
@@ -1121,6 +1175,7 @@ export const blockTransferIntentFromRequest = (
       placement: {
         kind: "direct",
         viewId: request.target.viewId,
+        presentationOverride: { layout: "board" },
         groupKey: request.target.groupKey,
         ...(request.target.beforePageId
           ? { beforePageId: request.target.beforePageId }

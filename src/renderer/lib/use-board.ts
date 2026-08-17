@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
+  BOARD_PLACEMENT_REMOTE_LANE,
   boardContainsPageIds,
   buildCompleteOrSkipOccurrenceTransform,
   buildPatchPageTransform,
@@ -49,7 +50,33 @@ import {
   type PageMetadataBoardMutationEnvelope,
 } from "./page-metadata-board-runtime";
 import { createBoardPage } from "./board-page-create-command";
-import type { DatabaseViewPresentationOverride } from "../../shared/database-kernel";
+import type {
+  DatabaseViewPresentationOverride,
+  EffectiveDatabaseViewPresentation,
+} from "../../shared/database-kernel";
+import {
+  applyOptimisticDatabaseViewBoardDrop,
+  buildDatabaseViewBoardDropOperations,
+  type DatabaseViewDropPropertyValue,
+} from "./database-view-drag-operations";
+import {
+  commitDatabaseViewOperations,
+  type DatabaseViewMutationReceipt,
+} from "./database-view-row-mutations";
+import { withEffectiveDatabaseViewPresentation } from "./database-view-render-model";
+
+export interface DatabaseViewBoardPageDropIntent {
+  readonly pageIds: readonly string[];
+  /** The exact personal/durable presentation rendered at drag time. */
+  readonly presentation: EffectiveDatabaseViewPresentation;
+  readonly target: {
+    readonly groupKey: string | null;
+    readonly subgroupKey: string | null;
+    readonly beforePageId?: string;
+  };
+  /** Property values inferred by the rendered slot at mouse-up. */
+  readonly propertyValues: readonly DatabaseViewDropPropertyValue[];
+}
 
 interface UseBoardOptions {
   projectId: string;
@@ -368,6 +395,80 @@ export function useBoard(options: UseBoardOptions) {
     [onMutation, projectId, requireWritableSelectedView, store],
   );
 
+  const moveDatabaseViewPages = useCallback(
+    async (input: DatabaseViewBoardPageDropIntent): Promise<boolean> => {
+      if (!requireWritableSelectedView()) return false;
+      const visibleAuthority = store.getSnapshot().databaseView;
+      if (!visibleAuthority) return false;
+      const visibleModel = withEffectiveDatabaseViewPresentation(
+        visibleAuthority,
+        input.presentation,
+      );
+      const initialOperations = buildDatabaseViewBoardDropOperations({
+        model: visibleModel,
+        pageIds: input.pageIds,
+        target: input.target,
+        propertyValues: input.propertyValues,
+      });
+      if (initialOperations.length === 0) return false;
+      const fallbackRows = visibleModel.query.rows.filter((row) =>
+        input.pageIds.includes(row.page.pageId)
+      );
+
+      const outcome = await store.runOptimisticDatabaseViewMutation<
+        DatabaseViewMutationReceipt
+      >({
+        kind: "database:position-many",
+        conflictKeys: input.pageIds.map((pageId) => `card:${pageId}:position`),
+        remoteLane: BOARD_PLACEMENT_REMOTE_LANE,
+        apply: (canonicalModel) => {
+          const model = withEffectiveDatabaseViewPresentation(
+            canonicalModel,
+            input.presentation,
+          );
+          const projected = applyOptimisticDatabaseViewBoardDrop(model, {
+            pageIds: input.pageIds,
+            target: input.target,
+            fallbackRows,
+            propertyValues: input.propertyValues,
+          });
+          // Identity against canonical authority is the journal's convergence
+          // signal. Do not retain a presentation-only overlay after the drop
+          // itself has materialized.
+          return projected === model ? canonicalModel : projected;
+        },
+        runRemote: async (canonicalAuthority) => {
+          const canonicalModel = withEffectiveDatabaseViewPresentation(
+            canonicalAuthority,
+            input.presentation,
+          );
+          const operations = buildDatabaseViewBoardDropOperations({
+            model: canonicalModel,
+            pageIds: input.pageIds,
+            target: input.target,
+            propertyValues: input.propertyValues,
+          });
+          const receipt = await commitDatabaseViewOperations({
+            model: canonicalModel,
+            operations,
+          });
+          if (!receipt) {
+            throw new Error("The Board drop no longer changes this View");
+          }
+          return receipt;
+        },
+        getCommitCursor: (receipt) => ({
+          storeEpoch: receipt.storeEpoch,
+          commitSeq: receipt.commitSeq,
+        }),
+      });
+      if (!outcome.ok || !outcome.result) return false;
+      onMutation?.();
+      return true;
+    },
+    [onMutation, requireWritableSelectedView, store],
+  );
+
   const listPageOccurrences = useCallback(
     async (
       windowStart: Date,
@@ -561,6 +662,7 @@ export function useBoard(options: UseBoardOptions) {
     deletePage,
     movePage,
     movePages,
+    moveDatabaseViewPages,
     listPageOccurrences,
     completeOccurrence,
     skipOccurrence,

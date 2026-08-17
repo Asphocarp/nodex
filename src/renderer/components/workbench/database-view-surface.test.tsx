@@ -389,6 +389,105 @@ const groupedListModel = (): DatabaseViewRenderModel => {
   };
 };
 
+const priorityGroupedBoardModel = (): DatabaseViewRenderModel => {
+  const next = boardModel();
+  const priorityProperty = {
+    propertyId: priorityPropertyId,
+    dataSourceId,
+    name: "Priority",
+    ...testPropertySemantics("select", 4),
+    valueType: "select" as const,
+    config: {
+      options: [
+        { id: "p1-high", name: "P1 - High", color: "red" },
+        { id: "p3-low", name: "P3 - Low", color: "gray" },
+      ],
+    },
+    rankKey: "0",
+    lifecycle: "active" as const,
+    revision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        defaultLayout: "board",
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            group: { propertyId: priorityPropertyId },
+            layouts: {
+              ...next.query.view.config.presentation.layouts,
+              board: {
+                ...next.query.view.config.presentation.layouts.board,
+                fields: [
+                  { kind: "property", propertyId: priorityPropertyId },
+                  { kind: "property", propertyId: tagsPropertyId },
+                ],
+              },
+            },
+          },
+        },
+      },
+      properties: [priorityProperty, ...next.query.properties],
+      rows: next.query.rows.map((row) => ({
+        ...row,
+        values: {
+          ...row.values,
+          [priorityPropertyId]: {
+            propertyId: priorityPropertyId,
+            valueType: "select" as const,
+            value: "p1-high",
+            revision: 1,
+          },
+        },
+        effectiveGroupKey: "p1-high",
+      })),
+    },
+  };
+};
+
+const prioritySortedBoardModel = (): DatabaseViewRenderModel => {
+  const next = priorityGroupedBoardModel();
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            group: null,
+            sort: [{
+              field: { kind: "property", propertyId: priorityPropertyId },
+              direction: "asc",
+              nulls: "last",
+            }],
+          },
+        },
+      },
+      rows: next.query.rows.map((row, index) => ({
+        ...row,
+        values: {
+          ...row.values,
+          [priorityPropertyId]: {
+            ...row.values[priorityPropertyId]!,
+            value: index === 0 ? "p1-high" : "p3-low",
+          },
+        },
+        effectiveGroupKey: null,
+      })),
+    },
+  };
+};
+
 const editableSemanticListModel = (): DatabaseViewRenderModel => {
   const next = listModel();
   const statusProperty = {
@@ -485,8 +584,53 @@ const shortcutEvent = (key: string, input: {
   target: null,
 });
 
+const databaseViewPageDataTransfer = (): DataTransfer => {
+  const data = new Map<string, string>();
+  return {
+    effectAllowed: "none",
+    dropEffect: "none",
+    get types() {
+      return [...data.keys()];
+    },
+    getData: (type: string) => data.get(type) ?? "",
+    setData: (type: string, value: string) => data.set(type, value),
+    setDragImage: () => undefined,
+  } as unknown as DataTransfer;
+};
+
 describe("DatabaseViewSurface", () => {
   beforeEach(() => resetContextualKeyboardActionRegistryForTests());
+
+  test("uses the canonical Card contract for a non-Status grouping", () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={priorityGroupedBoardModel()}
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    const cards = screen.container.querySelectorAll<HTMLElement>(
+      '[data-database-board-card="true"]',
+    );
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.draggable).toBe(true);
+    expect(screen.getByText("P1 - High")).toBeTruthy();
+    expect(screen.container.querySelector(
+      '[data-database-view-property-id="priority"]',
+    )).toBeNull();
+    expect(screen.container.querySelector(
+      '[data-database-view-property-id="tags"]',
+    )).toBeTruthy();
+    const emptyLowColumn = screen.container.querySelector(
+      '[data-board-column-root][data-board-column-id="p3-low"]',
+    );
+    expect(emptyLowColumn?.getAttribute("data-board-column-collapsed"))
+      .toBe("true");
+    expect([...screen.container.querySelectorAll(
+      '[data-database-board-collapsed-label="true"]',
+    )].some((element) => element.textContent === "P3 - Low")).toBe(true);
+  });
 
   test("classifies missing page moves separately from missing Properties", () => {
     const error = new DatabaseViewMutationError({
@@ -591,17 +735,24 @@ describe("DatabaseViewSurface", () => {
     expect(description?.textContent).toContain("A body preview");
   });
 
-  test("projects an open Page editor title into the List row immediately", async () => {
+  test.each([
+    ["Board", boardModel()],
+    ["List", model],
+  ] as const)("projects an open Page editor title into the %s immediately", async (
+    _layout,
+    renderModel,
+  ) => {
     const titleStore = createPageTitleProjectionStore();
+    const opened: unknown[][] = [];
     const screen = render(
       <PageTitleProjectionProvider
         currentLibraryId="library-1"
         store={titleStore}
       >
         <DatabaseViewSurface
-          model={model}
+          model={renderModel}
           searchQuery=""
-          onOpenPage={() => undefined}
+          onOpenPage={(...args) => opened.push(args)}
         />
       </PageTitleProjectionProvider>,
     );
@@ -621,6 +772,10 @@ describe("DatabaseViewSurface", () => {
     expect(screen.queryByRole("button", {
       name: "Open Page Focused Page",
     })).toBeNull();
+    fireEvent.click(screen.getByRole("button", {
+      name: "Open Page Live editor title",
+    }));
+    expect(opened[0]).toEqual(["page-focused", "Live editor title"]);
   });
 
   test("switches one durable View between Board and List without changing identity", () => {
@@ -946,7 +1101,9 @@ describe("DatabaseViewSurface", () => {
       await Promise.resolve();
     });
 
-    expect(await screen.findByRole("textbox", { name: "Search Page actions" }))
+    expect(await screen.findByRole("textbox", {
+      name: "Search Page actions and properties",
+    }))
       .toBe(document.activeElement);
     expect(screen.getByRole("menuitem", { name: "Open page" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Add to selection" })).toBeTruthy();
@@ -1003,6 +1160,107 @@ describe("DatabaseViewSurface", () => {
     expect(presented?.getAttribute("aria-selected")).toBe("false");
     expect(presented?.querySelector('[data-page-presence-rail="true"]'))
       .not.toBeNull();
+  });
+
+  test("keeps a Board reorder projected until receipt-fenced authority converges", async () => {
+    let resolveCommit: ((receipt: {
+      readonly storeEpoch: string;
+      readonly commitSeq: number;
+    }) => void) | undefined;
+    const commitOperations = vi.fn<typeof commitDatabaseViewOperations>(
+      () => new Promise((resolve) => {
+        resolveCommit = (receipt) => resolve(receipt as never);
+      }),
+    );
+    const current = boardModel();
+    const screen = render(
+      <DatabaseViewSurface
+        model={current}
+        searchQuery=""
+        onOpenPage={() => undefined}
+        commitOperations={commitOperations}
+      />,
+    );
+    const dataTransfer = databaseViewPageDataTransfer();
+    const source = screen.container.querySelector<HTMLElement>(
+      '[data-board-uuid-v7="page-focused"]',
+    );
+    const column = source?.closest<HTMLElement>("[data-board-column-root]");
+    if (!source || !column) throw new Error("Board drag fixture is incomplete");
+    const pageOrder = () => Array.from(
+      column.querySelectorAll<HTMLElement>("[data-board-uuid-v7]"),
+    ).map((element) => element.dataset.boardUuidV7);
+
+    await act(async () => {
+      fireEvent.dragStart(source, { dataTransfer });
+      fireEvent.drop(column, { dataTransfer, clientY: 1 });
+      await Promise.resolve();
+    });
+    expect(pageOrder()).toEqual(["page-next", "page-focused"]);
+    expect(source.draggable).toBe(false);
+    expect(commitOperations).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCommit?.({ storeEpoch: current.storeEpoch, commitSeq: 3 });
+      await Promise.resolve();
+    });
+    expect(pageOrder()).toEqual(["page-next", "page-focused"]);
+    expect(source.draggable).toBe(false);
+
+    const canonical = {
+      ...current,
+      commitSeq: 3,
+      query: {
+        ...current.query,
+        rows: [current.query.rows[1]!, current.query.rows[0]!],
+      },
+    };
+    await act(async () => {
+      screen.rerender(
+        <DatabaseViewSurface
+          model={canonical}
+          searchQuery=""
+          onOpenPage={() => undefined}
+          commitOperations={commitOperations}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(pageOrder()).toEqual(["page-next", "page-focused"]);
+    expect(source.draggable).toBe(true);
+  });
+
+  test("hands a sorted Board drop its exact Property projection", async () => {
+    const onMoveBoardPages = vi.fn(async () => true);
+    const current = prioritySortedBoardModel();
+    const screen = render(
+      <DatabaseViewSurface
+        model={current}
+        searchQuery=""
+        onOpenPage={() => undefined}
+        onMoveBoardPages={onMoveBoardPages}
+      />,
+    );
+    const dataTransfer = databaseViewPageDataTransfer();
+    const source = screen.container.querySelector<HTMLElement>(
+      '[data-board-uuid-v7="page-focused"]',
+    );
+    const column = source?.closest<HTMLElement>("[data-board-column-root]");
+    if (!source || !column) throw new Error("Sorted Board drag fixture is incomplete");
+
+    await act(async () => {
+      fireEvent.dragStart(source, { dataTransfer });
+      fireEvent.drop(column, { dataTransfer, clientY: 1 });
+      await Promise.resolve();
+    });
+
+    expect(onMoveBoardPages).toHaveBeenCalledWith(expect.objectContaining({
+      pageIds: ["page-focused"],
+      propertyValues: [{
+        propertyId: priorityPropertyId,
+        value: "p3-low",
+      }],
+    }));
   });
 
   test("commits a Board boundary move through the global shortcut route", async () => {
@@ -1532,7 +1790,6 @@ describe("DatabaseViewTabSurface", () => {
         taskSearchOpen={false}
         searchShortcutLabel="Ctrl+F"
         taskSearchInputRef={{ current: null }}
-        boardSurface={<div>Stale Board presenter</div>}
         onSearchQueryChange={() => undefined}
         onOpenTaskSearch={() => undefined}
         onCloseTaskSearch={() => undefined}
@@ -1540,11 +1797,10 @@ describe("DatabaseViewTabSurface", () => {
       />,
     );
 
-    expect(screen.queryByText("Stale Board presenter")).toBeNull();
     expect(screen.getByRole("grid", { name: "Database List" })).toBeTruthy();
   });
 
-  test("keeps the established Board presenter for canonical Board layouts", () => {
+  test("renders every Board layout through the canonical Database Board", () => {
     const screen = render(
       <DatabaseViewTabSurface
         model={model}
@@ -1553,7 +1809,6 @@ describe("DatabaseViewTabSurface", () => {
         taskSearchOpen={false}
         searchShortcutLabel="Ctrl+F"
         taskSearchInputRef={{ current: null }}
-        boardSurface={<div>Established Board presenter</div>}
         onSearchQueryChange={() => undefined}
         onOpenTaskSearch={() => undefined}
         onCloseTaskSearch={() => undefined}
@@ -1561,8 +1816,8 @@ describe("DatabaseViewTabSurface", () => {
       />,
     );
 
-    expect(screen.getByText("Established Board presenter")).toBeTruthy();
-    expect(screen.queryByRole("article")).toBeNull();
+    expect(screen.getByRole("article").getAttribute("data-database-view-page-id"))
+      .toBe("page-focused");
   });
 
   test("uses the DB View tab toolbar to search the shared Database surface", async () => {

@@ -1,6 +1,6 @@
 use nodex_core_contracts::database::{
     DatabaseViewDefinition, DatabaseViewFilter, DatabaseViewFilterGroupOperator, DatabaseViewGroup,
-    DatabaseViewNullOrder, DatabaseViewSortDirection, DatabaseViewSortField,
+    DatabaseViewNullOrder, DatabaseViewSort, DatabaseViewSortDirection, DatabaseViewSortField,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -47,7 +47,7 @@ pub(super) fn encode_definition_json(
         .map_err(|_| "Database View definition cannot be encoded".to_owned())
 }
 
-pub(super) fn decode_definition_json(value: &str) -> Result<DatabaseViewDefinition, String> {
+pub(crate) fn decode_definition_json(value: &str) -> Result<DatabaseViewDefinition, String> {
     serde_json::from_str::<StoredViewDefinition>(value)
         .map_err(|_| "Database View definition is invalid".to_owned())?
         .into_definition()
@@ -57,6 +57,23 @@ pub(super) fn decode_definition_value(value: Value) -> Result<DatabaseViewDefini
     serde_json::from_value::<StoredViewDefinition>(value)
         .map_err(|_| "Database View definition is invalid".to_owned())?
         .into_definition()
+}
+
+/// The View-global fractional rank is the stable final order for an empty or
+/// Property-only sort tuple. An explicit Manual rule may place that rank at a
+/// deliberate point in a larger tuple and owns its direction.
+pub(crate) fn fractional_order_direction(
+    sort: &[DatabaseViewSort],
+) -> Option<DatabaseViewSortDirection> {
+    if let Some(manual) = sort
+        .iter()
+        .find(|rule| rule.field == DatabaseViewSortField::Manual)
+    {
+        return Some(manual.direction);
+    }
+    sort.iter()
+        .all(|rule| matches!(rule.field, DatabaseViewSortField::Property { .. }))
+        .then_some(DatabaseViewSortDirection::Asc)
 }
 
 /// The one View definition whose row order and group semantics can be shared

@@ -23,6 +23,7 @@ import {
 } from "@dnd-kit/core";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -590,10 +591,12 @@ export const useDatabaseListPageDnd = (item: DatabaseListPageRow) => {
     disabled: context === null,
     data: { kind: "page", occurrenceKey: item.key },
   });
-  const setNodeRef = (node: HTMLElement | null): void => {
-    draggable.setNodeRef(node);
-    droppable.setNodeRef(node);
-  };
+  const setDraggableNodeRef = draggable.setNodeRef;
+  const setDroppableNodeRef = droppable.setNodeRef;
+  const setNodeRef = useCallback((node: HTMLElement | null): void => {
+    setDraggableNodeRef(node);
+    setDroppableNodeRef(node);
+  }, [setDraggableNodeRef, setDroppableNodeRef]);
   return {
     setNodeRef,
     listeners: draggable.listeners,

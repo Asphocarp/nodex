@@ -94,6 +94,29 @@ const normalizedSort = (
   return normalized;
 };
 
+/** The direction used when manual order is the primary presentation rule. */
+export const databaseViewPrimaryManualOrderDirection = (
+  sort: readonly DatabaseViewSort[],
+): DatabaseViewSort["direction"] | null => {
+  const primary = sort[0];
+  if (!primary) return "asc";
+  return primary.field.kind === "manual" ? primary.direction : null;
+};
+
+/**
+ * The View-global fractional rank is the final stable order after writable
+ * Property sorts. An explicit manual rule chooses its direction; a Property-
+ * only tuple gets an implicit ascending tie-break. Intrinsic sorts do not
+ * imply a writable position.
+ */
+export const databaseViewFractionalOrderDirection = (
+  sort: readonly DatabaseViewSort[],
+): DatabaseViewSort["direction"] | null => {
+  const manual = sort.find((rule) => rule.field.kind === "manual");
+  if (manual) return manual.direction;
+  return sort.every((rule) => rule.field.kind === "property") ? "asc" : null;
+};
+
 const normalizedGroup = (
   group: null | { readonly propertyId: string },
   properties: ReadonlyMap<string, DatabaseViewPropertyCapability>,
@@ -342,6 +365,28 @@ export const compactDatabaseViewPresentationOverride = (
   if (board || list) override.layouts = { ...(board ? { board } : {}), ...(list ? { list } : {}) };
   return Object.keys(override).length > 0 ? override : null;
 };
+
+/**
+ * Freezes the complete presentation that gave a pointer gesture its meaning.
+ * Semantic mutations use this rather than reinterpreting a drop against the
+ * durable View after Profile-local presentation has changed its axes or sort.
+ */
+export const databaseViewGesturePresentationOverride = (
+  effective: EffectiveDatabaseViewPresentation,
+  layout: DatabaseViewLayout = effective.layout,
+): DatabaseViewPresentationOverride => ({
+  layout,
+  sort: effective.presentation.sort,
+  group: effective.presentation.group,
+  subgroup: effective.presentation.subgroup,
+  groupDirection: effective.presentation.groupDirection,
+  completion: { ...effective.presentation.completion },
+  hierarchy: { ...effective.presentation.hierarchy },
+  layouts: {
+    board: { ...effective.presentation.layouts.board },
+    list: { ...effective.presentation.layouts.list },
+  },
+});
 
 /** Deterministically upgrades the durable v2 presentation shape. */
 export const upgradeDatabaseViewConfigV2 = (

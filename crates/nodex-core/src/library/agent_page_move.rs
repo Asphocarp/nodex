@@ -1075,11 +1075,13 @@ fn transfer_intent(
                 .ok_or_else(|| corrupt("Agent Page-move target has no resolved View"))?;
             LibraryBlockTransferTarget::DataSource {
                 data_source_id: data_source_id.clone(),
-                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                placement: Box::new(LibraryBlockTransferDataSourcePlacement::Direct {
                     view_id: view.view_id.clone(),
+                    presentation_override: Default::default(),
                     group_key: view.group_key.clone(),
                     before_page_id: view.before.as_ref().map(|anchor| anchor.page_id.clone()),
-                },
+                    sorted_property_values: Vec::new(),
+                }),
             }
         }
     };

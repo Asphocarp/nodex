@@ -78,6 +78,46 @@ describe("BlockTransfer contract", () => {
     );
   });
 
+  test("preserves bounded sorted Property inference for a direct View placement", () => {
+    const logical = blockTransferIntentFromRequest(request());
+    const inferred = {
+      ...logical,
+      target: {
+        kind: "data_source" as const,
+        dataSourceId: "data-source-b",
+        placement: {
+          kind: "direct" as const,
+          viewId: "view-b",
+          presentationOverride: {
+            layout: "board" as const,
+            sort: [{
+              field: { kind: "property" as const, propertyId: "priority" },
+              direction: "asc" as const,
+              nulls: "last" as const,
+            }],
+          },
+          groupKey: "ship",
+          beforePageId: "card-2",
+          sortedPropertyValues: [{ propertyId: "priority", value: "p3-low" }],
+        },
+      },
+    };
+    expect(parseBlockTransferIntent(inferred)).toEqual(inferred);
+    expect(() => parseBlockTransferIntent({
+      ...inferred,
+      target: {
+        ...inferred.target,
+        placement: {
+          ...inferred.target.placement,
+          sortedPropertyValues: [
+            { propertyId: "priority", value: "p3-low" },
+            { propertyId: "priority", value: "p2-medium" },
+          ],
+        },
+      },
+    })).toThrow(/cannot repeat a Property/);
+  });
+
   test("rejects incomplete revision evidence and same-parent reorder seams", () => {
     expect(() =>
       parseBlockTransferRequest({

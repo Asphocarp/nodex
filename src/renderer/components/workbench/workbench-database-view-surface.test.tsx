@@ -25,15 +25,8 @@ const api = vi.hoisted(() => ({
 const presenter = vi.hoisted(() => ({
   props: null as Record<string, unknown> | null,
 }));
-const classicBoardAdapter = vi.hoisted(() => ({ enabled: false }));
 
 vi.mock("../../lib/api", () => api);
-vi.mock("@/components/board/board", () => ({ Board: () => null }));
-vi.mock("@/lib/classic-board-adapter", () => ({
-  classicBoardPresentation: () => classicBoardAdapter.enabled
-    ? { prefs: {}, identity: { showPageKey: true, showDescription: true } }
-    : null,
-}));
 vi.mock("./workbench-db-view-panel", () => ({
   DatabaseViewTabSurface: (props: Record<string, unknown>) => {
     presenter.props = props;
@@ -171,7 +164,6 @@ const makeGroups = <ProjectScope extends string | null>(
 beforeEach(() => {
   vi.clearAllMocks();
   presenter.props = null;
-  classicBoardAdapter.enabled = false;
   api.readLibraryDatabaseViewGroups.mockResolvedValue(makeGroups(null));
   api.readLibraryDatabaseViewWindow.mockResolvedValue(makeWindow(null));
   api.readDatabaseViewGroups.mockResolvedValue(makeGroups("project-alpha"));
@@ -179,8 +171,7 @@ beforeEach(() => {
 });
 
 describe("WorkbenchDatabaseViewSurface", () => {
-  test("adapts a canonical Project Board into the established presenter", async () => {
-    classicBoardAdapter.enabled = true;
+  test("routes a Project Board through the shared Database View presenter", async () => {
     render(
       <TestQueryProvider>
         <WorkbenchDatabaseViewSurface
@@ -191,7 +182,8 @@ describe("WorkbenchDatabaseViewSurface", () => {
       </TestQueryProvider>,
     );
 
-    await waitFor(() => expect(presenter.props?.boardSurface).toBeTruthy());
+    await waitFor(() => expect(presenter.props?.model).toBeTruthy());
+    expect(presenter.props).not.toHaveProperty("boardSurface");
   });
 
   test("uses Library reads and the shared Database View presenter", async () => {

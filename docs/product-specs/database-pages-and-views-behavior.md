@@ -103,11 +103,19 @@ identity or emitting one patch per Page.
 
 Database Views support Board and List layouts. Both execute the selected View's
 saved query through one runtime and preserve the durable View identity while the
-layout changes. The canonical status-grouped Board keeps its established
-Column/Card composition, whole-card drag, column controls, Page menus, and
-keyboard behavior. Board configurations that require capabilities such as
-subgroups may use the advanced renderer without replacing that canonical
-presentation. Historical Table, top-level Toggle List, and Calendar layouts
+layout changes. Every legal Board grouping and subgrouping uses one canonical
+Column/Card presentation with whole-card drag, schema-driven compact Properties,
+column controls, Page menus, and keyboard behavior. Grouping changes column and
+swimlane membership, markers, labels, and semantic tone; it never selects a
+different Card presenter. Grouping and subgrouping Properties are structural and
+do not repeat in the Card body, while other displayed empty Properties do not
+occupy visual rows. Column headers remain opaque and sticky while the Board
+scrolls; Page and Block drags show the canonical insertion indicator before a
+drop. A collapsed target keeps its compact rail, highlights only that target,
+and puts its horizontal drop boundary below the complete collapsed header.
+Finite empty groups remain present as canonical collapsed rails instead of
+disappearing, while each populated Status column retains the full-width
+`New page` launcher. Historical Table, top-level Toggle List, and Calendar layouts
 migrate to List; inline `pageRef` and toggle-list Blocks remain editor features.
 
 Grouped Views page independently per group and show the canonical total even
@@ -116,7 +124,7 @@ a mutation preserves the loaded span where possible, and an expired cursor
 restarts that bounded window rather than silently truncating the result.
 
 Filter is durable View query authority and search is window-local. Layout,
-sorting, grouping, subgrouping, completion policy, empty-group visibility,
+sorting, grouping, subgrouping, completion policy, List empty-group visibility,
 Board card description visibility, and displayed Properties resolve through a
 sparse Core personal presentation keyed by durable View ID. Its monotonic
 revision applies only to that presentation;
@@ -273,18 +281,21 @@ history, and List-scoped Command/Ctrl+Z restores it only while editor, input,
 combobox, and menu Undo owners are inactive.
 
 List also accepts native NFM Block drags from another mounted editor in the
-same renderer window. Under manual order, a root Page-row half resolves to a
-truthful root-level gap and reuses the existing insertion line; group and
-subgroup headers, empty Lists, nested rows, and derived sorts use a quiet
-destination-surface highlight instead. External Blocks do not author child
+same renderer window. Under manual order or an inferable writable Property
+sort, a root Page-row half resolves to a truthful root-level gap and reuses the
+existing insertion line; group and subgroup headers, empty Lists, nested rows,
+and non-inferable sorts use a quiet destination-surface highlight instead.
+External Blocks do not author child
 nesting: a nested row resolves to its owning group, because Option/Alt already
-means Copy for Block transfer. Under title, created, or another derived sort,
-the destination group is exact but the sort owns the final visible position.
+means Copy for Block transfer. At a root gap under writable Property sorts,
+Core adopts the visible neighbors' writable sort prefix for both Page moves and
+Block promotion. Under title or created sorting, the destination group is exact
+but the intrinsic sort owns the final visible position.
 Free-text search, read-only Views, non-Project contexts, incomplete or stale
 Core projections, and cross-Project/store sessions fail closed. The renderer
 sends only the raw occurrence target, exact projection expectation, and
-effective List presentation; Core atomically resolves group/subgroup Property
-values, root placement, shorthand, source Move/Copy, receipt, and Undo.
+effective List presentation; Core atomically resolves group/subgroup and sorted
+Property values, root placement, shorthand, source Move/Copy, receipt, and Undo.
 
 Primary and subgroup headers paint an opaque full-width sticky surface through
 the scrollport's top edge. The scroll container must not introduce transparent
@@ -332,8 +343,10 @@ A manual position is optional; an unpositioned Page remains visible according
 to the View's null policy. Board drag, Board keyboard movement, and manual List
 movement write one View-global rank. Cross-group Board movement commits the
 target grouping Property values and rank in one atomic Database mutation from
-stable Page and View identities. Manual reorder is disabled only where a
-different active sort owns visible order. Detailed behavior is specified in
+stable Page and View identities. Under a writable Property sort, Board and List
+infer the Property prefix needed for the selected visible gap and commit it with
+the move; View-global fractional rank remains the final stable tie-break among
+Pages with equal sorted values. Detailed behavior is specified in
 [Board Drag and Drop Behavior](board-drag-and-drop-behavior.md).
 
 ## Page creation

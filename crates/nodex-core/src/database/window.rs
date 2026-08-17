@@ -334,6 +334,66 @@ pub(crate) struct PresentedListProjection {
     pub(crate) authority: ProjectionSnapshotAuthority,
 }
 
+pub(super) struct DirectDropPresentation {
+    pub(crate) group_property_id: Option<String>,
+    pub(crate) writable_sort_property_ids: Vec<String>,
+}
+
+/// Resolves the exact Board presentation that authored a direct drop. The
+/// returned axes are deliberately small: BlockTransfer needs semantic Property
+/// coordinates, not a second View projection implementation.
+pub(super) fn direct_drop_presentation(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+) -> Result<DirectDropPresentation, StoreError> {
+    let mut view = resolve_view(connection, library_id, view_id)?;
+    apply_presentation_override(&mut view.config.presentation, presentation_override)?;
+    if let Some(layout) = presentation_override.layout {
+        view.layout = match layout {
+            DatabaseViewLayoutInput::Board => ViewLayout::Board,
+            DatabaseViewLayoutInput::List => ViewLayout::List,
+        };
+    }
+    if !matches!(view.layout, ViewLayout::Board) {
+        return Err(invalid(
+            "Direct Block transfer placement requires a Board presentation",
+        ));
+    }
+    refresh_effective_presentation(connection, &mut view)?;
+    let structural_property_ids = [
+        view.config
+            .presentation
+            .group
+            .as_ref()
+            .map(|group| group.property_id.as_str()),
+        view.config
+            .presentation
+            .subgroup
+            .as_ref()
+            .map(|group| group.property_id.as_str()),
+    ];
+    let mut writable_sort_property_ids = Vec::new();
+    for sort in &view.config.presentation.sort {
+        let ViewSortField::Property { property_id } = &sort.field else {
+            break;
+        };
+        if structural_property_ids.contains(&Some(property_id.as_str())) {
+            continue;
+        }
+        writable_sort_property_ids.push(property_id.clone());
+    }
+    Ok(DirectDropPresentation {
+        group_property_id: view
+            .config
+            .presentation
+            .group
+            .map(|group| group.property_id),
+        writable_sort_property_ids,
+    })
+}
+
 pub(crate) fn presented_list_projection(
     connection: &Connection,
     library_id: &str,
@@ -3274,6 +3334,24 @@ fn sort_components(
         components.push(SortComponent {
             expression,
             direction: rule.direction,
+        });
+    }
+    let has_explicit_manual = config
+        .presentation
+        .sort
+        .iter()
+        .any(|rule| rule.field == ViewSortField::Manual);
+    if !has_explicit_manual
+        && super::view_contract::fractional_order_direction(&config.presentation.sort).is_some()
+    {
+        let rank = active_expression("position.rank_key".to_owned());
+        components.push(SortComponent {
+            expression: format!("CASE WHEN {rank} IS NULL THEN 1 ELSE 0 END"),
+            direction: SortDirection::Asc,
+        });
+        components.push(SortComponent {
+            expression: rank,
+            direction: SortDirection::Asc,
         });
     }
     if let Some(completed) = &completed {

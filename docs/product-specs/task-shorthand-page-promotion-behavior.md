@@ -20,6 +20,9 @@ Version 1 recognizes a compact prefix token at the first character of a rich tit
 - The prefix is limited to 1024 UTF-8 bytes.
 - Parsing may cross adjacent styled text spans, but never crosses a Link, mention, line break, or other rich-text atom.
 - Leading whitespace, P4, empty tag segments, missing titles, and every colon form remain literal.
+- A compact prefix is not a shorthand candidate until the complete prefix is
+  followed by whitespace. Ordinary titles such as `3abc`, `3d`, and `3XLabc`
+  are `no_match`, not malformed shorthand.
 
 Examples:
 
@@ -36,7 +39,9 @@ Core reads the exact durable rich title and target Data Source schema, then comp
 
 Each root is independently all-or-literal.
 A root is stripped only when every shorthand field can be represented without loss.
-Priority or Estimate conflicts with the direct target group preserve the complete title; matching scalar values merge, and Tags merge as a set.
+Priority or Estimate conflicts with the direct target grouping or
+position-derived writable sort values preserve the complete title; the chosen
+drop position wins, matching scalar values merge, and Tags merge as a set.
 Existing Tags options are reused by exact NFC name.
 Missing Tags options are created only with schema authority and within the option bound; otherwise the affected root remains literal while other roots may still apply.
 

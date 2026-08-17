@@ -1,0 +1,391 @@
+import type { DragEvent as ReactDragEvent } from "react";
+import { createPortal } from "react-dom";
+
+import { BoardPageKey } from "@/components/board/board-page-key";
+import { PagePresenceRail } from "@/components/board/page-presence-rail";
+import { DataSourcePropertyValueEditor } from "@/components/database/data-source-property-value-editor";
+import type { DataSourcePropertyOptionRegistryState } from "@/components/database/data-source-property-editor-binding";
+import { PropertyEditorFeedback } from "@/components/database/property-editor-feedback";
+import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
+import type {
+  DatabaseViewRenderModel,
+  DatabaseViewRenderRow,
+} from "@/lib/database-view-render-model";
+import {
+  readDataSourceRelationTargetDescriptor,
+  searchDataSourceRelationCandidates,
+} from "@/lib/data-source-relation-runtime";
+import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
+import type { RelationTargetWindow } from "@/lib/data-source-relation-value";
+import { cn } from "@/lib/utils";
+import type {
+  DatabaseJsonValue,
+  DatabasePropertyOption,
+} from "../../../../shared/database-kernel";
+import type {
+  DataSourcePropertyRecordV2,
+} from "../../../../shared/database-module-v2";
+import { DatabaseListRowContextMenu } from "../database-list/database-list-row-context-menu";
+import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
+import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
+import { projectDatabaseBoardCardProperties } from "./database-board-model";
+
+export interface DatabaseBoardCardProps {
+  readonly model: DatabaseViewRenderModel;
+  readonly row: DatabaseViewRenderRow;
+  readonly trailingProperties: readonly DataSourcePropertyRecordV2[];
+  readonly groupPropertyId: string | null;
+  readonly subgroupPropertyId: string | null;
+  readonly showPageKey: boolean;
+  readonly showDescription: boolean;
+  readonly pendingMutationKeys: ReadonlyMap<string, number>;
+  readonly mutationErrors: ReadonlyMap<string, string>;
+  readonly canMoveUp: boolean;
+  readonly canMoveDown: boolean;
+  readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
+  readonly onSetValue: (
+    pageId: string,
+    propertyId: string,
+    value: DatabaseJsonValue,
+  ) => void;
+  readonly onSetStructuralValue: (
+    pageId: string,
+    propertyId: string,
+    value: DatabaseJsonValue,
+  ) => void;
+  readonly onPatchRelation: (
+    pageId: string,
+    propertyId: string,
+    delta: { readonly addPageIds: readonly string[]; readonly removeEdgeIds: readonly string[] },
+  ) => void;
+  readonly onReplaceOneRelation: (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    targetPageId: string | null,
+  ) => void;
+  readonly onPatchOptions: (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    delta: {
+      readonly addOptionIds: readonly string[];
+      readonly removeOptionIds: readonly string[];
+    },
+  ) => void;
+  readonly onCreateOption: (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    option: { readonly optionId: string; readonly name: string; readonly color?: string },
+  ) => Promise<void>;
+  readonly onLoadRelationTargets: (
+    pageId: string,
+    propertyId: string,
+    after: string | null,
+  ) => Promise<RelationTargetWindow>;
+  readonly onSearchRelationCandidates: (
+    property: DataSourcePropertyRecordV2,
+    query: string,
+    after?: string | null,
+  ) => ReturnType<typeof searchDataSourceRelationCandidates>;
+  readonly onLoadRelationTargetDescriptor: (
+    property: DataSourcePropertyRecordV2,
+  ) => ReturnType<typeof readDataSourceRelationTargetDescriptor>;
+  readonly onRelationValueStale: () => void;
+  readonly onRequestOptions: (property: DataSourcePropertyRecordV2) => void;
+  readonly onRequestMoreOptions: (property: DataSourcePropertyRecordV2) => void;
+  readonly optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>;
+  readonly optionRegistryStates: Readonly<Record<
+    string,
+    DataSourcePropertyOptionRegistryState
+  >>;
+  readonly optionRegistryHasMore: Readonly<Record<string, boolean>>;
+  readonly optionRegistryLoadingMore: Readonly<Record<string, boolean>>;
+  readonly onMove: (
+    pageId: string,
+    direction: "up" | "down" | "top" | "bottom",
+  ) => void;
+  readonly highlighted: boolean;
+  readonly presented: boolean;
+  readonly selected: boolean;
+  readonly onHighlight: (pageId: string) => void;
+  readonly onSelectOnly: (pageId: string) => void;
+  readonly onToggleSelection: (pageId: string) => void;
+  readonly draggable: boolean;
+  readonly pragmaticDragData: BoardCardDragData | null;
+  readonly dragging: boolean;
+  readonly onDragStartPage: (
+    row: DatabaseViewRenderRow,
+    event: ReactDragEvent<HTMLElement>,
+  ) => void;
+  readonly onDragEndPage: () => void;
+}
+
+/** The one Card composition used by every legal Board grouping. */
+export function DatabaseBoardCard({
+  model,
+  row,
+  trailingProperties,
+  groupPropertyId,
+  subgroupPropertyId,
+  showPageKey,
+  showDescription,
+  pendingMutationKeys,
+  mutationErrors,
+  canMoveUp,
+  canMoveDown,
+  onOpenPage,
+  onSetValue,
+  onSetStructuralValue,
+  onPatchOptions,
+  onPatchRelation,
+  onReplaceOneRelation,
+  onCreateOption,
+  onLoadRelationTargets,
+  onSearchRelationCandidates,
+  onLoadRelationTargetDescriptor,
+  onRelationValueStale,
+  onRequestOptions,
+  onRequestMoreOptions,
+  optionRegistries,
+  optionRegistryStates,
+  optionRegistryHasMore,
+  optionRegistryLoadingMore,
+  onMove,
+  highlighted,
+  presented,
+  selected,
+  onHighlight,
+  onSelectOnly,
+  onToggleSelection,
+  draggable,
+  pragmaticDragData,
+  dragging,
+  onDragStartPage,
+  onDragEndPage,
+}: DatabaseBoardCardProps) {
+  const { setElementRef: cardRef, previewPortal } = useDatabaseViewPageDragSource(
+    draggable ? pragmaticDragData : null,
+    { nativePreview: "portal" },
+  );
+  const title = usePresentedPageTitle(row.pageId, row.title, model.libraryId);
+  const authority = model.query.rows.find(
+    (candidate) => candidate.page.pageId === row.pageId,
+  );
+  if (!authority) return null;
+  const description = row.preview.trim();
+  const compactProperties = projectDatabaseBoardCardProperties({
+    authority,
+    displayedProperties: trailingProperties,
+    groupPropertyId,
+    subgroupPropertyId,
+  });
+  const propertyBinding = (property: DataSourcePropertyRecordV2) => {
+    const current = authority.values[property.propertyId];
+    const structural = property.propertyId === groupPropertyId
+      || property.propertyId === subgroupPropertyId;
+    const propertyError = mutationErrors.get(
+      `value:${row.pageId}:${property.propertyId}`,
+    );
+    return {
+      property,
+      value: current?.value,
+      revision: current?.revision ?? 0,
+      disabled: model.readOnlyReason !== null,
+      pending:
+        pendingMutationKeys.has(`value:${row.pageId}:${property.propertyId}`)
+        || pendingMutationKeys.has(`property:${property.propertyId}`),
+      error: propertyError,
+      options: optionRegistries[property.propertyId]
+        ?? readDatabasePropertyOptions(property),
+      optionRegistryState: optionRegistryStates[property.propertyId] ?? "ready",
+      optionRegistryHasMore: optionRegistryHasMore[property.propertyId] ?? false,
+      optionRegistryLoadingMore:
+        optionRegistryLoadingMore[property.propertyId] ?? false,
+      onRequestOptions: () => onRequestOptions(property),
+      onRequestMoreOptions: () => onRequestMoreOptions(property),
+      relationCandidates: model.query.rows.map((candidate) => ({
+        pageId: candidate.page.pageId,
+        title: candidate.page.title,
+      })),
+      relationSourcePageId: row.pageId,
+      onChange: (value: DatabaseJsonValue) => structural
+        ? onSetStructuralValue(row.pageId, property.propertyId, value)
+        : onSetValue(row.pageId, property.propertyId, value),
+      onCreateOption: (option: {
+        readonly optionId: string;
+        readonly name: string;
+        readonly color?: string;
+      }) => onCreateOption(row.pageId, property, option),
+      onPatchOptions: (delta: {
+        readonly addOptionIds: readonly string[];
+        readonly removeOptionIds: readonly string[];
+      }) => {
+        if (!structural) {
+          onPatchOptions(row.pageId, property, delta);
+          return;
+        }
+        const selectedIds = Array.isArray(current?.value)
+          ? current.value.filter((entry): entry is string => typeof entry === "string")
+          : [];
+        const next = new Set(selectedIds);
+        for (const optionId of delta.removeOptionIds) next.delete(optionId);
+        for (const optionId of delta.addOptionIds) next.add(optionId);
+        onSetStructuralValue(row.pageId, property.propertyId, [...next]);
+      },
+      onPatchRelation: (delta: {
+        readonly addPageIds: readonly string[];
+        readonly removeEdgeIds: readonly string[];
+      }) => onPatchRelation(row.pageId, property.propertyId, delta),
+      onReplaceOneRelation: (targetPageId: string | null) =>
+        onReplaceOneRelation(row.pageId, property, targetPageId),
+      onLoadRelationTargets: (after: string | null) =>
+        onLoadRelationTargets(row.pageId, property.propertyId, after),
+      onSearchRelationCandidates: (query: string, after?: string | null) =>
+        onSearchRelationCandidates(property, query, after),
+      onLoadRelationTargetDescriptor: () => onLoadRelationTargetDescriptor(property),
+      onOpenRelationPage: (pageId: string, relationTitle: string) =>
+        onOpenPage(pageId, relationTitle),
+      onRelationValueStale,
+    } as const;
+  };
+  const ringShadow = selected
+    ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 72%, transparent)"
+    : highlighted
+      ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 50%, transparent)"
+      : "0 0 0 1px color-mix(in srgb, var(--column-accent, var(--foreground-tertiary)) 17%, transparent)";
+  const elevationShadow = dragging
+    ? "0 8px 16px color-mix(in srgb, var(--foreground) 12%, transparent)"
+    : "0 4px 12px color-mix(in srgb, var(--foreground) 5%, transparent), 0 1px 2px color-mix(in srgb, var(--foreground) 4%, transparent)";
+  const previewShadow = document.documentElement.classList.contains("dark")
+    ? "0 4px 12px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1), 0 0 0 1px color-mix(in srgb, var(--column-accent, rgba(255,255,255,0.07)) 20%, transparent)"
+    : "0 4px 12px rgba(25,25,25,0.027), 0 1px 2px rgba(25,25,25,0.02), 0 0 0 1px color-mix(in srgb, var(--column-accent, rgba(42,28,0,0.07)) 15%, transparent)";
+  const renderCard = (previewRect: DOMRect | null) => (
+    <article
+      ref={previewRect ? undefined : cardRef}
+      data-database-view-page-id={row.pageId}
+      data-database-board-card="true"
+      data-card-context-menu-trigger={previewRect ? undefined : "true"}
+      data-board-uuid-v7={row.pageId}
+      data-database-view-page-presented={!previewRect && presented ? "true" : undefined}
+      tabIndex={previewRect ? -1 : highlighted ? 0 : -1}
+      aria-hidden={previewRect ? true : undefined}
+      aria-selected={previewRect ? undefined : selected}
+      inert={previewRect ? true : undefined}
+      draggable={previewRect ? false : draggable}
+      aria-label={!previewRect && draggable ? `Drag ${title}` : undefined}
+      onPointerDown={previewRect ? undefined : () => onHighlight(row.pageId)}
+      onFocus={previewRect ? undefined : () => onHighlight(row.pageId)}
+      onDragStart={!previewRect && draggable ? (event) => onDragStartPage(row, event) : undefined}
+      onDragEnd={!previewRect && draggable ? onDragEndPage : undefined}
+      className={cn(
+        "bn-drag-exclude group/card relative min-h-10 min-w-0 cursor-pointer overflow-hidden rounded-lg bg-(--card) outline-none select-none",
+        "hover:bg-[color-mix(in_srgb,var(--column-accent,var(--foreground-tertiary))_8%,var(--card))]",
+        !previewRect && selected && "bg-[color-mix(in_srgb,var(--accent-blue)_6%,var(--card))]",
+        !previewRect && dragging && "opacity-45",
+      )}
+      style={previewRect
+        ? {
+            boxShadow: previewShadow,
+            minHeight: previewRect.height,
+            pointerEvents: "none",
+            width: previewRect.width,
+          }
+        : { boxShadow: `${elevationShadow}, ${ringShadow}` }}
+    >
+      {!previewRect && presented ? <PagePresenceRail /> : null}
+      <BoardPageKey
+        pageKey={row.pageKey}
+        showPageKey={showPageKey}
+        className="mx-2 mb-0.5 pt-2"
+      />
+      <div className={cn(
+        "flex min-h-7 min-w-0 items-start gap-1 px-2 pb-1",
+        showPageKey && row.pageKey ? "pt-0" : "pt-2",
+      )}>
+        <button
+          type="button"
+          data-card-context-menu-trigger="true"
+          aria-label={`Open Page ${showPageKey && row.pageKey ? `${row.pageKey} ` : ""}${title}`}
+          className="min-w-0 flex-1 text-left text-base/normal font-medium wrap-break-word text-(--foreground) outline-none"
+          onClick={() => onOpenPage(row.pageId, title)}
+        >
+          <span>{title}</span>
+        </button>
+      </div>
+      {showDescription && description ? (
+        <p
+          data-board-page-description="true"
+          className="line-clamp-2 px-2 pb-1 text-xs/normal wrap-break-word text-(--foreground-secondary)"
+        >
+          {description}
+        </p>
+      ) : null}
+      {compactProperties.length > 0 ? (
+        <div className="mx-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 pb-2">
+          {compactProperties.map(({ property }) => {
+            const binding = propertyBinding(property);
+            return (
+              <div
+                key={property.propertyId}
+                data-database-view-property-id={property.propertyId}
+                className="min-w-0 shrink-0"
+              >
+                <DataSourcePropertyValueEditor {...binding} showLabel={false} />
+                {binding.error ? <PropertyEditorFeedback message={binding.error} /> : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      {mutationErrors.get(`page:${row.pageId}`) ? (
+        <PropertyEditorFeedback
+          message={mutationErrors.get(`page:${row.pageId}`)!}
+          className="mt-1"
+        />
+      ) : null}
+    </article>
+  );
+  const card = renderCard(null);
+  const dragPreview = previewPortal
+    ? createPortal(
+        <div
+          data-database-view-page-drag-preview="true"
+          style={{
+            boxSizing: "border-box",
+            height: previewPortal.rect.height,
+            width: previewPortal.rect.width,
+          }}
+        >
+          <div className="relative opacity-90">
+            {renderCard(previewPortal.rect)}
+            {previewPortal.itemCount > 1 ? (
+              <div className="absolute -top-1.5 -right-1.5 rounded-full bg-(--foreground) px-1.75 py-0.75 text-sm font-medium text-(--background) shadow-lg">
+                {previewPortal.itemCount}
+              </div>
+            ) : null}
+          </div>
+        </div>,
+        previewPortal.container,
+      )
+    : null;
+  return (
+    <>
+      <DatabaseListRowContextMenu
+        selected={selected}
+        canMoveUp={canMoveUp}
+        canMoveDown={canMoveDown}
+        pageKey={row.pageKey}
+        propertyBindings={model.query.properties
+          .filter((property) => property.lifecycle === "active")
+          .map(propertyBinding)}
+        groupingPropertyId={groupPropertyId}
+        onOpen={() => onOpenPage(row.pageId, title)}
+        onSelectOnly={() => onSelectOnly(row.pageId)}
+        onToggleSelection={() => onToggleSelection(row.pageId)}
+        onMove={(direction) => onMove(row.pageId, direction)}
+      >
+        {card}
+      </DatabaseListRowContextMenu>
+      {dragPreview}
+    </>
+  );
+}

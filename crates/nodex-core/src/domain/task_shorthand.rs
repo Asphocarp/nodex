@@ -110,7 +110,13 @@ fn parse_leading_text(items: &[RichTextItem], leading_text: &str) -> TaskShortha
         .last()
         .map_or(0, |(offset, ch)| offset + ch.len_utf8());
     if whitespace_bytes == 0 {
-        return boundary_or_malformed(items, leading_text);
+        if items
+            .iter()
+            .any(|item| !matches!(item, RichTextItem::Text { .. }))
+        {
+            return TaskShorthandParse::Rejected(TaskShorthandRejection::RichTextBoundary);
+        }
+        return TaskShorthandParse::NoMatch;
     }
     cursor += whitespace_bytes;
     if cursor > MAX_PREFIX_BYTES {
@@ -199,6 +205,7 @@ mod tests {
     #[serde(rename_all = "camelCase")]
     struct Fixture {
         title: String,
+        outcome: String,
         #[serde(rename = "match")]
         matches: bool,
         priority: Option<u8>,
@@ -269,9 +276,7 @@ mod tests {
         ));
         assert!(matches!(
             parse_task_shorthand(&[text("1XL(ui)")]),
-            TaskShorthandParse::Rejected(
-                TaskShorthandRejection::NonemptyTitleRequired | TaskShorthandRejection::Malformed
-            )
+            TaskShorthandParse::NoMatch
         ));
         assert!(matches!(
             parse_task_shorthand(&[
@@ -301,6 +306,12 @@ mod tests {
         .expect("task shorthand fixtures");
         for fixture in fixtures {
             let parsed = parse_task_shorthand(&[text(&fixture.title)]);
+            let outcome = match &parsed {
+                TaskShorthandParse::NoMatch => "no_match",
+                TaskShorthandParse::Rejected(_) => "rejected",
+                TaskShorthandParse::Match(_) => "match",
+            };
+            assert_eq!(outcome, fixture.outcome, "{}", fixture.title);
             if !fixture.matches {
                 assert!(
                     !matches!(parsed, TaskShorthandParse::Match(_)),

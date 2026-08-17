@@ -301,6 +301,50 @@ function createBoardSnapshot(
   };
 }
 
+function createTwoPageBoardSnapshot(
+  pageIds: readonly [string, string] = ["card-1", "card-2"],
+  commitSeq = 1,
+): DatabaseViewWindowSnapshot {
+  const cards = pageIds.map((pageId, index): DatabasePageSummary => ({
+    ...createPageSummary(pageId === "card-1" ? "First" : "Second"),
+    id: pageId,
+    order: index,
+  }));
+  const snapshot = createBoardSnapshot({
+    columns: [
+      { id: "triage", name: "Ideas", cards },
+      { id: "ship", name: "Ship", cards: [] },
+    ],
+  }, commitSeq, "view-primary", true, commitSeq);
+  const template = snapshot.query.rows[0];
+  if (!template) throw new Error("Database View row fixture is missing");
+  const queryRows = cards.map((card, index) => ({
+    ...template,
+    membership: {
+      ...template.membership,
+      membershipId: `membership-${card.id}`,
+    },
+    page: {
+      ...template.page,
+      pageId: card.id,
+      documentId: `document-${card.id}`,
+      title: card.title,
+      richTitle: card.richTitle,
+    },
+    position: { rankKey: String.fromCharCode(97 + index), revision: 1 },
+  }));
+  return {
+    ...snapshot,
+    rows: cards.map((card, index) => ({
+      page: card,
+      groupKey: card.status,
+      subgroupKey: null,
+      rankKey: String.fromCharCode(97 + index),
+    })),
+    query: { ...snapshot.query, rows: queryRows },
+  };
+}
+
 function createGroupsSnapshot(
   overrides: Partial<DatabaseViewGroupsSnapshot> = {},
 ): DatabaseViewGroupsSnapshot {
@@ -1762,6 +1806,84 @@ describe("board store", () => {
     release();
   });
 
+  test("does not replace a Property-sorted window with fractional order before repair", async () => {
+    const projection = createProjectionHarness();
+    const repair = createDeferred<DatabaseViewWindowSnapshot>();
+    const initial = createTwoPageBoardSnapshot(["card-2", "card-1"]);
+    const rankByPageId = new Map([
+      ["card-1", "a"],
+      ["card-2", "z"],
+    ]);
+    const propertySorted = {
+      ...initial,
+      rows: initial.rows.map((row) => ({
+        ...row,
+        rankKey: rankByPageId.get(row.page.id) ?? row.rankKey,
+      })),
+      query: {
+        ...initial.query,
+        rows: initial.query.rows.map((row) => {
+          if (!row.position) {
+            throw new Error("Expected the sorted Board fixture to have positions");
+          }
+          return {
+            ...row,
+            position: {
+              ...row.position,
+              rankKey: rankByPageId.get(row.page.pageId) ?? row.position.rankKey,
+            },
+          };
+        }),
+      },
+    } satisfies DatabaseViewWindowSnapshot;
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        return readCount === 1 ? propertySorted : await repair.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    store.setPresentationOverride({
+      sort: [{
+        field: { kind: "property", propertyId: "priority" },
+        direction: "asc",
+        nulls: "last",
+      }],
+    });
+    const release = store.subscribe(() => {});
+    await waitForMicrotasks();
+
+    const updated = {
+      ...propertySorted.rows[0]!.page,
+      title: "Updated without manual reorder",
+      richTitle: plainTextToPortableRichText("Updated without manual reorder"),
+    };
+    projection.publish(pageUpserted(2, updated, "z"));
+    await waitForMicrotasks();
+
+    expect(store.getSnapshot().databaseView?.query.rows.map((row) =>
+      row.page.pageId
+    )).toEqual(["card-2", "card-1"]);
+    expect(store.getSnapshot().databaseView?.query.rows[0]?.page.title)
+      .toBe("Updated without manual reorder");
+
+    repair.resolve({
+      ...propertySorted,
+      commitSeq: 2,
+      projection: {
+        ...propertySorted.projection,
+        revision: 2,
+        coveredCommitSeq: 2,
+        effectHash: "2".padStart(64, "a"),
+      },
+    });
+    await waitForProjectionRepair();
+    release();
+  });
+
   test("local draft overlays do not bump card revision", async () => {
     const board = createBoard();
     const registry = createTestRegistry({
@@ -1801,6 +1923,60 @@ describe("board store", () => {
 
     deferred.resolve({ ok: true });
     await pendingMutation;
+  });
+
+  test("keeps a generic Database View reorder projected through receipt refresh", async () => {
+    const initial = createTwoPageBoardSnapshot();
+    const canonical = createTwoPageBoardSnapshot(["card-2", "card-1"], 2);
+    const remote = createDeferred<{
+      readonly storeEpoch: string;
+      readonly commitSeq: number;
+    }>();
+    const refreshed = createDeferred<DatabaseViewWindowSnapshot>();
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        return readCount === 1 ? initial : await refreshed.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+    const reorder = (model: NonNullable<ReturnType<typeof store.getSnapshot>["databaseView"]>) => {
+      const rows = [...model.query.rows].sort((left, right) =>
+        left.page.pageId === "card-2" ? -1 : right.page.pageId === "card-2" ? 1 : 0
+      );
+      if (rows.every((row, index) => row === model.query.rows[index])) return model;
+      return { ...model, query: { ...model.query, rows } };
+    };
+
+    const mutation = store.runOptimisticDatabaseViewMutation({
+      kind: "database:position-many",
+      conflictKeys: ["card:card-2:position"],
+      apply: reorder,
+      remoteLane: "database-view:placement",
+      runRemote: async (canonicalModel) => {
+        expect(canonicalModel.query.rows.map((row) => row.page.pageId)).toEqual([
+          "card-1",
+          "card-2",
+        ]);
+        return await remote.promise;
+      },
+      getCommitCursor: (receipt) => receipt,
+    });
+    const visibleOrder = () => store.getSnapshot().databaseView?.query.rows
+      .map((row) => row.page.pageId);
+    expect(visibleOrder()).toEqual(["card-2", "card-1"]);
+
+    remote.resolve({ storeEpoch: "epoch-1", commitSeq: 2 });
+    await waitForMicrotasks();
+    expect(readCount).toBe(2);
+    expect(visibleOrder()).toEqual(["card-2", "card-1"]);
+
+    refreshed.resolve(canonical);
+    expect((await mutation).ok).toBe(true);
+    expect(visibleOrder()).toEqual(["card-2", "card-1"]);
   });
 
   test("ignores no-op local overlays", async () => {

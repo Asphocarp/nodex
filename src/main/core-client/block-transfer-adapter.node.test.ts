@@ -142,7 +142,19 @@ describe("Core Block Transfer Adapter", () => {
         placement: {
           kind: "direct",
           viewId: "view:target",
+          presentationOverride: {
+            layout: "board",
+            sort: [{
+              field: { kind: "property", propertyId: "priority" },
+              direction: "asc",
+              nulls: "last",
+            }],
+          },
           groupKey: "ship",
+          sortedPropertyValues: [{
+            propertyId: "priority",
+            value: "p3-low",
+          }],
         },
       },
     };
@@ -216,7 +228,19 @@ describe("Core Block Transfer Adapter", () => {
           placement: {
             kind: "direct",
             view_id: "view:target",
+            presentation_override: {
+              layout: "board",
+              sort: [{
+                field: { kind: "property", property_id: "priority" },
+                direction: "asc",
+                nulls: "last",
+              }],
+            },
             group_key: "ship",
+            sorted_property_values: [{
+              property_id: "priority",
+              value: "p3-low",
+            }],
           },
         },
       },

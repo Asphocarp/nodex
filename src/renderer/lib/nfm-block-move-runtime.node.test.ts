@@ -239,8 +239,12 @@ describe("NFM Block move runtime", () => {
       target: {
         kind: "data_source",
         dataSourceId,
-        viewId: statusViewId,
-        groupKey: "ship",
+        placement: {
+          kind: "direct",
+          viewId: statusViewId,
+          presentationOverride: { layout: "board" },
+          groupKey: "ship",
+        },
       },
       causalDependencies: [{
         documentId: "document-source",

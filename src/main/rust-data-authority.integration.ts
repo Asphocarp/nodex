@@ -763,6 +763,7 @@ describe("Electron native data authority", () => {
           placement: {
             kind: "direct" as const,
             viewId: primaryView.viewId,
+            presentationOverride: { layout: "board" as const },
             groupKey: "ship",
           },
         },
@@ -1227,6 +1228,7 @@ describe("Electron native data authority", () => {
           placement: {
             kind: "direct" as const,
             viewId: primaryView.viewId,
+            presentationOverride: { layout: "board" as const },
             groupKey: "ship",
           },
         },

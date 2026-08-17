@@ -91,8 +91,16 @@ const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
             ? {
                 kind: intent.target.placement.kind,
                 view_id: intent.target.placement.viewId,
+                presentation_override: toCoreDatabaseViewPresentationOverride(
+                  intent.target.placement.presentationOverride,
+                ),
                 group_key: intent.target.placement.groupKey,
                 before_page_id: intent.target.placement.beforePageId ?? null,
+                sorted_property_values: (intent.target.placement.sortedPropertyValues ?? [])
+                  .map((entry) => ({
+                    property_id: entry.propertyId,
+                    value: entry.value,
+                  })),
               }
             : {
                 kind: intent.target.placement.kind,

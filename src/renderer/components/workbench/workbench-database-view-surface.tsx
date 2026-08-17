@@ -33,8 +33,6 @@ import {
   resourceAuthorityQueryMeta,
 } from "../../lib/resource-authority-query-cache";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
-import { Board } from "@/components/board/board";
-import { classicBoardPresentation } from "@/lib/classic-board-adapter";
 import type { Project } from "@/lib/types";
 import type {
   OpenPageInNewChatInput,
@@ -186,10 +184,6 @@ export function WorkbenchDatabaseViewSurface({
   onPresentationChange,
   keyboardSurface,
   presentedPageIds,
-  projects = [],
-  pageStageCloseRef,
-  onOpenPageInNewChat,
-  onSendPageToChat,
 }: {
   readonly accessContext: ContentAccessContext;
   readonly target: DatabaseSurfaceTarget;
@@ -307,12 +301,6 @@ export function WorkbenchDatabaseViewSurface({
   if (model) {
     mutationHistory.setScope(`${model.storeEpoch}:${model.databaseViewId}`);
   }
-  const classicBoard = useMemo(() => model
-    ? classicBoardPresentation({
-        layout: model.query.view.defaultLayout,
-        presentation: model.query.view.config.presentation,
-      })
-    : null, [model]);
   useEffect(() => {
     if (!model) return;
     onPresentationChange?.({
@@ -526,37 +514,6 @@ export function WorkbenchDatabaseViewSurface({
             initialSelectedPageIds={selectedPageIds}
             onSelectedPageIdsChange={setSelectedPageIds}
             mutationHistory={mutationHistory}
-            boardSurface={
-              accessContext.kind === "project" && classicBoard
-                ? (
-                    <Board
-                      surfaceId={keyboardSurface?.surfaceId ?? targetIdentity}
-                      panelTabId={keyboardSurface?.presentationId ?? targetIdentity}
-                      projectId={accessContext.projectId}
-                      databaseViewId={model.databaseViewId}
-                      presentationOverride={null}
-                      presentationOverrideReady
-                      projects={projects}
-                      searchQuery={searchQuery}
-                      dbViewPrefs={classicBoard.prefs}
-                      showPageKey={classicBoard.identity.showPageKey}
-                      showDescription={classicBoard.identity.showDescription}
-                      openPageStage={(_projectId, pageId, titleSnapshot) => {
-                        onOpenPage(pageId, titleSnapshot ?? "Untitled Page");
-                      }}
-                      onOpenPageInNewChat={onOpenPageInNewChat}
-                      onSendPageToChat={onSendPageToChat}
-                      pageStagePageId={undefined}
-                      presentedPageIds={presentedPageIds}
-                      initialSelectedPageIds={selectedPageIds}
-                      onSelectedPageIdsChange={setSelectedPageIds}
-                      pageStageCloseRef={pageStageCloseRef}
-                      scrollStateKey={`database-view:${targetIdentity}:board`}
-                      mutationHistory={mutationHistory}
-                    />
-                  )
-                : undefined
-            }
             onCommitted={async () => {
               await query.refetch();
             }}

@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { withElectronScenario } from "../../scripts/scenarios/harness/electron-e2e-harness";
 import {
@@ -75,6 +75,425 @@ const readOpaqueSurfaceStyle = async (surface: Locator) => {
   });
 };
 
+const setBoardCardPriority = async ({
+  page,
+  pageId,
+  optionName,
+}: {
+  readonly page: Page;
+  readonly pageId: string;
+  readonly optionName: string;
+}): Promise<void> => {
+  const card = page.locator(`[data-board-uuid-v7="${pageId}"]`);
+  await expect(card).toBeVisible();
+  await card.locator('[data-card-context-menu-trigger="true"]')
+    .click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Priority/u }).click();
+  await page.getByRole("option", { name: optionName, exact: true }).click();
+};
+
+const dragBoardCardWithMouse = async ({
+  page,
+  source,
+  target,
+  expectPropertyChangeIndicator = false,
+}: {
+  readonly page: Page;
+  readonly source: Locator;
+  readonly target: Locator;
+  readonly expectPropertyChangeIndicator?: boolean;
+}): Promise<void> => {
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !targetBox) throw new Error("Board drag geometry is unavailable");
+  const sourcePoint = {
+    x: sourceBox.x + 3,
+    y: sourceBox.y + sourceBox.height / 2,
+  };
+  const targetPoint = {
+    x: targetBox.x + targetBox.width / 2,
+    y: targetBox.y + Math.max(24, targetBox.height - 18),
+  };
+  let released = false;
+  try {
+    await page.mouse.move(sourcePoint.x, sourcePoint.y);
+    await page.mouse.down();
+    await page.mouse.move(sourcePoint.x + 12, sourcePoint.y, { steps: 4 });
+    await expect(source).toHaveAttribute("data-database-view-page-drag-active", "true");
+    await expect(source).toHaveCSS("opacity", "0.45");
+    await page.mouse.move(targetPoint.x, targetPoint.y, { steps: 30 });
+    await page.mouse.move(targetPoint.x + 1, targetPoint.y + 1);
+    await page.mouse.move(targetPoint.x + 2, targetPoint.y + 2);
+    await expect(page.locator('[data-board-drop-indicator="true"]')).toBeVisible();
+    if (expectPropertyChangeIndicator) {
+      await expect(page.locator(
+        '[data-board-property-change-indicator="true"]',
+      )).toBeVisible();
+    } else {
+      await expect(page.locator(
+        '[data-board-property-change-indicator="true"]',
+      )).toHaveCount(0);
+    }
+    await page.mouse.up();
+    released = true;
+    if (expectPropertyChangeIndicator) {
+      await expect(page.locator('[data-board-drop-indicator="true"]')).toHaveCount(0);
+      await expect(page.locator(
+        '[data-board-property-change-indicator="true"]',
+      )).toHaveCount(0);
+    }
+  } finally {
+    if (!released) await page.mouse.up().catch(() => undefined);
+  }
+};
+
+const observeSortedBoardContinuity = async ({
+  page,
+  columnId,
+  pageIds,
+}: {
+  readonly page: Page;
+  readonly columnId: string;
+  readonly pageIds: readonly string[];
+}): Promise<void> => {
+  await page.evaluate(({ columnId: observedColumnId, pageIds: observedPageIds }) => {
+    const surface = document.querySelector<HTMLElement>(
+      '[data-database-board-scroll="true"]',
+    );
+    if (!surface) throw new Error("Board continuity surface is missing");
+    const trackedNodes = new Map(observedPageIds.map((pageId) => [
+      pageId,
+      document.querySelector<HTMLElement>(`[data-board-uuid-v7="${pageId}"]`),
+    ]));
+    const samples: Array<{
+      readonly sameSurface: boolean;
+      readonly sameTrackedNodes: boolean;
+      readonly order: readonly string[];
+    }> = [];
+    const sample = (): void => {
+      const currentSurface = document.querySelector<HTMLElement>(
+        '[data-database-board-scroll="true"]',
+      );
+      const column = document.querySelector<HTMLElement>(
+        `[data-board-column-root][data-board-column-id="${observedColumnId}"]`,
+      );
+      const order = Array.from(
+        column?.querySelectorAll<HTMLElement>("[data-board-uuid-v7]") ?? [],
+      ).flatMap((element) => {
+        const pageId = element.dataset.boardUuidV7;
+        return pageId && observedPageIds.includes(pageId) ? [pageId] : [];
+      });
+      samples.push({
+        sameSurface: currentSurface === surface,
+        sameTrackedNodes: observedPageIds.every((pageId) =>
+          column?.querySelector(`[data-board-uuid-v7="${pageId}"]`)
+            === trackedNodes.get(pageId)
+        ),
+        order,
+      });
+    };
+    const observer = new MutationObserver(sample);
+    observer.observe(document.body, { childList: true, subtree: true });
+    sample();
+    (globalThis as typeof globalThis & {
+      __nodexSortedBoardContinuity?: {
+        readonly observer: MutationObserver;
+        readonly samples: typeof samples;
+      };
+    }).__nodexSortedBoardContinuity = { observer, samples };
+  }, { columnId, pageIds });
+};
+
+const finishSortedBoardContinuityObservation = async (page: Page) =>
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    const state = (globalThis as typeof globalThis & {
+      __nodexSortedBoardContinuity?: {
+        readonly observer: MutationObserver;
+        readonly samples: ReadonlyArray<{
+          readonly sameSurface: boolean;
+          readonly sameTrackedNodes: boolean;
+          readonly order: readonly string[];
+        }>;
+      };
+    }).__nodexSortedBoardContinuity;
+    if (!state) throw new Error("Board continuity observation was not started");
+    state.observer.disconnect();
+    return state.samples;
+  });
+
+const dragDatabasePageToEditorWithMouse = async ({
+  page,
+  source,
+  editor,
+}: {
+  readonly page: Page;
+  readonly source: Locator;
+  readonly editor: Locator;
+}): Promise<void> => {
+  await source.scrollIntoViewIfNeeded();
+  const editorSurface = editor.locator('.ProseMirror[contenteditable="true"]').first();
+  await editorSurface.scrollIntoViewIfNeeded();
+  const sourceBox = await source.boundingBox();
+  const editorBox = await editorSurface.boundingBox();
+  if (!sourceBox || !editorBox) {
+    throw new Error("Database Page to editor drag geometry is unavailable");
+  }
+  const sourcePoint = {
+    x: sourceBox.x + Math.min(12, sourceBox.width / 2),
+    y: sourceBox.y + sourceBox.height / 2,
+  };
+  const viewport = await page.evaluate(() => ({
+    width: globalThis.innerWidth,
+    height: globalThis.innerHeight,
+  }));
+  const editorViewport = {
+    left: Math.max(editorBox.x + 16, 16),
+    right: Math.min(editorBox.x + editorBox.width - 16, viewport.width - 16),
+    top: Math.max(editorBox.y + 16, 16),
+    bottom: Math.min(editorBox.y + editorBox.height - 16, viewport.height - 16),
+  };
+  if (
+    editorViewport.right <= editorViewport.left
+    || editorViewport.bottom <= editorViewport.top
+  ) {
+    throw new Error("Database Page editor has no visible drop surface");
+  }
+  const targetPoint = {
+    x: Math.min(editorViewport.left + 160, editorViewport.right),
+    y: Math.min(editorViewport.top + 64, editorViewport.bottom),
+  };
+  let released = false;
+  try {
+    await page.mouse.move(sourcePoint.x, sourcePoint.y);
+    await page.mouse.down();
+    await page.mouse.move(sourcePoint.x + 12, sourcePoint.y, { steps: 4 });
+    await expect(source).toHaveAttribute(
+      "data-database-view-page-drag-active",
+      "true",
+    );
+    await page.mouse.move(targetPoint.x, targetPoint.y, { steps: 30 });
+    await page.mouse.move(targetPoint.x + 1, targetPoint.y + 1);
+    await page.mouse.move(targetPoint.x + 2, targetPoint.y + 2);
+    await expect(editor.locator('[data-block-transfer-drop-indicator]')).toBeVisible();
+    await page.mouse.up();
+    released = true;
+  } finally {
+    if (!released) await page.mouse.up().catch(() => undefined);
+  }
+};
+
+test("moves Board cards and List rows into NFM as real Page blocks", async () => {
+  test.setTimeout(120_000);
+  await withElectronScenario({
+    label: "database-view-page-to-editor",
+    scenarioId: BOARD_DENSE_SCENARIO_ID,
+  }, async ({ application, page, manifest }) => {
+    if (!manifest) throw new Error("board/dense did not materialize");
+    await application.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1440, height: 960 });
+    });
+    await focusBoardDenseUi(page, manifest);
+    await page.locator('[data-page-stage-surface="true"]:visible')
+      .getByRole("link", { name: "Open projection notes" })
+      .click();
+    await expect(page.getByRole("tab", { name: "Keep projection updates bounded" }))
+      .toHaveAttribute("aria-selected", "true");
+    const referenceTab = page.getByRole("tab", { name: "Keep projection updates bounded" });
+    await referenceTab.dblclick();
+    await expect(referenceTab).not.toHaveAttribute("data-app-shell-tab-preview", "true");
+    await referenceTab.click({ button: "right" });
+    await page.getByRole("menuitem", { name: /^Move to (?:right|bottom) panel$/u }).click();
+    await page.getByRole("tab", { name: "Project Home" }).click();
+
+    const primaryPageId = manifest.pageIdsByKey.boundedProjection;
+    const boardSourcePageId = manifest.pageIdsByKey.offlineRecovery;
+    const listSourcePageId = manifest.pageIdsByKey.sceneOwnership;
+    if (!primaryPageId || !boardSourcePageId || !listSourcePageId) {
+      throw new Error("board/dense Page transfer fixtures are missing");
+    }
+    const editor = page.locator(
+      `[data-page-stage-page-id="${primaryPageId}"]:visible .nfm-editor`,
+    ).first();
+    await expect(editor).toBeVisible();
+
+    const boardSource = page.locator(
+      `[data-board-uuid-v7="${boardSourcePageId}"]:visible`,
+    );
+    await expect(boardSource).toBeVisible();
+    await dragDatabasePageToEditorWithMouse({ page, source: boardSource, editor });
+    await expect(editor.locator(
+      `[data-page-outliner-target="${boardSourcePageId}"]`,
+    )).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(
+      `[data-board-uuid-v7="${boardSourcePageId}"]`,
+    )).toHaveCount(0, { timeout: 15_000 });
+
+    await page.getByRole("tablist", { name: "Database views" })
+      .getByRole("tab", { name: "List", exact: true })
+      .click();
+    const list = page.getByRole("grid", { name: /List$/ });
+    await expect(list).toBeVisible({ timeout: 15_000 });
+    const listSource = list.locator(
+      `[data-list-row="true"][data-database-view-page-id="${listSourcePageId}"]`,
+    );
+    await expect(listSource).toBeVisible();
+    await dragDatabasePageToEditorWithMouse({
+      page,
+      source: listSource.locator('[data-database-view-page-drag-handle="true"]'),
+      editor,
+    });
+    await expect(editor.locator(
+      `[data-page-outliner-target="${listSourcePageId}"]`,
+    )).toBeVisible({ timeout: 15_000 });
+    await expect(listSource).toHaveCount(0, { timeout: 15_000 });
+  });
+});
+
+test("keeps the canonical Board while grouping and dragging by Priority", async ({}, testInfo) => {
+  test.setTimeout(120_000);
+  await withElectronScenario({
+    label: "board-dense-priority-grouping",
+    scenarioId: BOARD_DENSE_SCENARIO_ID,
+    onFailure: async ({ page, readRuntimeLogs }) => {
+      await testInfo.attach("priority-grouped-runtime-logs", {
+        body: Buffer.from(await readRuntimeLogs()),
+        contentType: "text/plain",
+      });
+      const screenshot = await page?.screenshot({ fullPage: true }).catch(() => null);
+      if (screenshot) {
+        await testInfo.attach("priority-grouped-failure", {
+          body: screenshot,
+          contentType: "image/png",
+        });
+      }
+    },
+  }, async ({ application, page, manifest }) => {
+    if (!manifest) throw new Error("board/dense did not materialize");
+    await application.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1440, height: 960 });
+    });
+    await focusBoardDenseProjectHome(page, manifest);
+    const sourcePageId = manifest.pageIdsByKey[BOARD_DENSE_PRIMARY_PAGE_KEY];
+    const targetPageId = manifest.pageIdsByKey.boundedProjection;
+    if (!sourcePageId || !targetPageId) {
+      throw new Error("board/dense priority grouping Pages are missing");
+    }
+    await setBoardCardPriority({ page, pageId: sourcePageId, optionName: "P1 - High" });
+    await setBoardCardPriority({ page, pageId: targetPageId, optionName: "P1 - High" });
+
+    await page.getByRole("button", { name: "Display options" }).click();
+    await page.getByRole("button", { name: "Order by", exact: true }).click();
+    await page.getByRole("option", { name: "Priority", exact: true })
+      .dispatchEvent("click");
+    await page.getByRole("button", { name: "Group by", exact: true }).click();
+    await page.getByRole("option", { name: "Priority", exact: true })
+      .dispatchEvent("click");
+
+    const highColumn = page.locator(
+      '[data-board-column-root][data-board-column-id="p1-high"]',
+    );
+    await expect(highColumn.locator(
+      `[data-board-uuid-v7="${sourcePageId}"]`,
+    )).toBeVisible({ timeout: 15_000 });
+    await expect(highColumn.locator(
+      `[data-board-uuid-v7="${targetPageId}"]`,
+    )).toBeVisible({ timeout: 15_000 });
+    const initialManualOrder = await highColumn
+      .locator("[data-board-uuid-v7]")
+      .evaluateAll((elements, pageIds) => elements
+        .map((element) => element.getAttribute("data-board-uuid-v7"))
+        .filter((pageId): pageId is string => Boolean(pageId))
+        .filter((pageId) => pageIds.includes(pageId)), [sourcePageId, targetPageId]);
+    expect(initialManualOrder).toHaveLength(2);
+    const [manualSourcePageId, manualTargetPageId] = initialManualOrder;
+    if (!manualSourcePageId || !manualTargetPageId) {
+      throw new Error("Board manual-order Pages are missing");
+    }
+    const unchangedSourceCard = highColumn.locator(
+      `[data-board-uuid-v7="${manualSourcePageId}"]`,
+    );
+    const unchangedTargetCard = highColumn.locator(
+      `[data-board-uuid-v7="${manualTargetPageId}"]`,
+    );
+    await observeSortedBoardContinuity({
+      page,
+      columnId: "p1-high",
+      pageIds: initialManualOrder,
+    });
+    await dragBoardCardWithMouse({
+      page,
+      source: unchangedSourceCard,
+      target: unchangedTargetCard,
+    });
+    await expect.poll(async () => await highColumn
+      .locator("[data-board-uuid-v7]")
+      .evaluateAll((elements, pageIds) => elements
+        .map((element) => element.getAttribute("data-board-uuid-v7"))
+        .filter((pageId): pageId is string => Boolean(pageId))
+        .filter((pageId) => pageIds.includes(pageId)), initialManualOrder), {
+      timeout: 15_000,
+    }).toEqual([manualTargetPageId, manualSourcePageId]);
+    await page.waitForTimeout(500);
+    const continuity = await finishSortedBoardContinuityObservation(page);
+    const finalManualOrder = [manualTargetPageId, manualSourcePageId];
+    expect(continuity.flatMap((sample, index) =>
+      sample.sameSurface ? [] : [{ index, ...sample }]
+    )).toEqual([]);
+    expect(continuity.flatMap((sample, index) =>
+      sample.sameTrackedNodes ? [] : [{ index, ...sample }]
+    )).toEqual([]);
+    expect(continuity.every((sample) =>
+      JSON.stringify(sample.order) === JSON.stringify(initialManualOrder)
+      || JSON.stringify(sample.order) === JSON.stringify(finalManualOrder)
+    )).toBe(true);
+    const firstFinalSample = continuity.findIndex((sample) =>
+      JSON.stringify(sample.order) === JSON.stringify(finalManualOrder)
+    );
+    expect(firstFinalSample).toBeGreaterThanOrEqual(0);
+    expect(continuity.slice(firstFinalSample).every((sample) =>
+      JSON.stringify(sample.order) === JSON.stringify(finalManualOrder)
+    )).toBe(true);
+
+    await setBoardCardPriority({ page, pageId: targetPageId, optionName: "P3 - Low" });
+
+    const lowColumn = page.locator(
+      '[data-board-column-root][data-board-column-id="p3-low"]',
+    );
+    const sourceCard = highColumn.locator(`[data-board-uuid-v7="${sourcePageId}"]`);
+    await expect(sourceCard).toBeVisible({ timeout: 15_000 });
+    const targetCard = lowColumn.locator(
+      `[data-board-uuid-v7="${targetPageId}"]`,
+    );
+    await expect(targetCard).toBeVisible();
+    await expect(sourceCard).toHaveAttribute("data-database-board-card", "true");
+    await expect(sourceCard.locator('[data-database-view-property-id="priority"]'))
+      .toHaveCount(0);
+
+    await dragBoardCardWithMouse({
+      page,
+      source: sourceCard,
+      target: targetCard,
+      expectPropertyChangeIndicator: true,
+    });
+    await expect.poll(async () => await page.locator(
+      `[data-board-uuid-v7="${sourcePageId}"]`,
+    ).evaluate((element) =>
+      element.closest<HTMLElement>("[data-board-column-root]")
+        ?.dataset.boardColumnId ?? "missing"
+    ), { timeout: 15_000 }).toBe("p3-low");
+    await expect(highColumn.locator(`[data-board-uuid-v7="${sourcePageId}"]`))
+      .toHaveCount(0);
+
+    await testInfo.attach("priority-grouped-board", {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: "image/png",
+    });
+  });
+});
+
 test("materializes and opens the authoritative board/dense environment", async ({}, testInfo) => {
   test.setTimeout(120_000);
   await withElectronScenario({
@@ -113,6 +532,74 @@ test("materializes and opens the authoritative board/dense environment", async (
       height: window.innerHeight,
     }))).toEqual({ width: 1440, height: 960 });
     await focusBoardDenseProjectHome(page, manifest);
+    const stickyHeader = page.locator(
+      '[data-database-board-sticky-header="true"]',
+    );
+    await expect(stickyHeader).toHaveCSS("position", "sticky");
+    await expect.poll(async () => await stickyHeader.evaluate((element) => {
+      const style = globalThis.getComputedStyle(element);
+      const background = style.backgroundColor.match(/[\d.]+/gu)?.map(Number) ?? [];
+      return {
+        opaque: background.length < 4 || background[3] === 1,
+        zIndex: Number(style.zIndex),
+      };
+    })).toEqual({ opaque: true, zIndex: 20 });
+    const buildHeader = page.locator(
+      '[data-database-board-column-header="true"]',
+    ).filter({ hasText: "Build" });
+    await buildHeader.hover();
+    const moreOptions = buildHeader.getByRole("button", {
+      name: "More options for Build",
+    });
+    await expect(moreOptions).toHaveCSS("opacity", "1");
+    const labelBox = await buildHeader.locator(
+      '[data-database-board-column-label="true"]',
+    ).boundingBox();
+    const countBox = await buildHeader.locator(
+      '[data-database-board-column-count="true"]',
+    ).boundingBox();
+    if (!labelBox || !countBox) {
+      throw new Error("Board Column label geometry is unavailable");
+    }
+    expect(countBox.x - (labelBox.x + labelBox.width)).toBeLessThanOrEqual(8);
+    await moreOptions.click();
+    await page.getByRole("button", { name: "Collapse", exact: true }).click();
+    const buildColumn = page.locator(
+      '[data-board-column-root][data-board-column-id="build"]',
+    );
+    await expect(buildColumn).toHaveAttribute("data-board-column-collapsed", "true");
+    await expect.poll(async () => (await buildColumn.boundingBox())?.width ?? null)
+      .toBe(52);
+    await expect(buildHeader.locator(
+      '[data-database-board-collapsed-label="true"]',
+    )).toHaveText("Build");
+    const collapsedHeaderUnderlay = page.locator(
+      '[data-database-board-collapsed-header-underlay="true"]',
+    ).filter({ hasText: "Build" });
+    await expect.poll(async () => await collapsedHeaderUnderlay.evaluate((element) => {
+      const background = globalThis.getComputedStyle(element).backgroundColor
+        .match(/[\d.]+/gu)?.map(Number) ?? [];
+      return background.length < 4 || background[3] === 1;
+    })).toBe(true);
+    const collapsedIconBox = await buildHeader.locator("svg").first().boundingBox();
+    const collapsedLabelBox = await buildHeader.locator(
+      '[data-database-board-collapsed-label="true"]',
+    ).boundingBox();
+    if (!collapsedIconBox || !collapsedLabelBox) {
+      throw new Error("Collapsed Board Column geometry is unavailable");
+    }
+    expect(collapsedLabelBox.y - (collapsedIconBox.y + collapsedIconBox.height))
+      .toBeLessThanOrEqual(10);
+    await buildColumn.getByRole("button", { name: "Expand Build" }).click();
+    await expect(buildColumn).toHaveAttribute("data-board-column-collapsed", "false");
+    const headerBox = await buildHeader.boundingBox();
+    const buildBodyBox = await page.locator(
+      '[data-board-column-root][data-board-column-id="build"]',
+    ).boundingBox();
+    if (!headerBox || !buildBodyBox) {
+      throw new Error("Board Column geometry is unavailable");
+    }
+    expect(Math.abs(headerBox.y + headerBox.height - buildBodyBox.y)).toBeLessThanOrEqual(1);
     const boardScreenshot = testInfo.outputPath("board-project-home.png");
     await page.screenshot({ path: boardScreenshot, fullPage: true });
     await focusBoardDenseUi(page, manifest);

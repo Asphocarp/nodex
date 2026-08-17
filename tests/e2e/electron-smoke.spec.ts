@@ -294,6 +294,7 @@ async function dragBlockFromEditorWithMouse({
   target,
   targetYRatio = 0.7,
   expectedFeedback,
+  onFeedback,
   exerciseAncestorScrollLifecycle = false,
 }: {
   page: Page;
@@ -302,6 +303,7 @@ async function dragBlockFromEditorWithMouse({
   target: Locator;
   targetYRatio?: number;
   expectedFeedback?: Locator;
+  onFeedback?: () => Promise<void>;
   exerciseAncestorScrollLifecycle?: boolean;
 }): Promise<void> {
   await sourceBlock.scrollIntoViewIfNeeded();
@@ -377,6 +379,7 @@ async function dragBlockFromEditorWithMouse({
     await page.mouse.move(dropPoint.x + 1, dropPoint.y + 1);
     await page.mouse.move(dropPoint.x + 2, dropPoint.y + 2);
     if (expectedFeedback) await expect(expectedFeedback).toBeVisible();
+    await onFeedback?.();
     await page.mouse.up();
     mouseReleased = true;
   } finally {
@@ -432,7 +435,7 @@ async function dragListRowWithMouse({
 }): Promise<void> {
   await sourceRow.scrollIntoViewIfNeeded();
   await sourceRow.hover();
-  await expect(sourceRow).not.toHaveAttribute("draggable", "true");
+  await expect(sourceRow).toHaveAttribute("draggable", "true");
   const dragSurface = sourceRow.locator('[data-list-grid-column="indent"]');
   const handleBox = await dragSurface.boundingBox();
   if (!handleBox) throw new Error("List row drag surface has no layout box");
@@ -2292,15 +2295,62 @@ test("moves a Block into Board and List views with native DnD @dnd-smoke", async
     }).first();
     await expect(sourceBlock).toBeVisible();
 
+    const triageHeader = page.locator(
+      '[data-database-board-column-header="true"]',
+    ).filter({ hasText: "Triage" });
+    await triageHeader.hover();
+    await triageHeader.getByRole("button", {
+      name: "More options for Triage",
+    }).click();
+    await page.getByRole("button", { name: "Collapse", exact: true }).click();
+    await expect(triageColumn).toHaveAttribute(
+      "data-board-column-collapsed",
+      "true",
+    );
+    const collapsedTriageRail = triageColumn.getByRole("button", {
+      name: "Expand Triage",
+    });
+    await expect(collapsedTriageRail).toBeVisible();
+    const collapsedHeader = triageHeader;
+    const collapsedDropFeedback = collapsedHeader.locator(
+      '[data-board-collapsed-drop-indicator="true"]',
+    );
+
     await expectClosingSideMenuToBeInert({ page, sourceBlock, sourceEditor });
     await dragBlockFromEditorWithMouse({
       page,
       sourceBlock,
       sourceEditor,
-      target: triageColumn,
+      target: collapsedTriageRail,
+      expectedFeedback: collapsedDropFeedback,
+      onFeedback: async () => {
+        await expect(collapsedDropFeedback.locator(
+          '[data-board-property-change-indicator="true"]',
+        )).toBeVisible();
+        const [headerBox, moreBox, lineBox] = await Promise.all([
+          collapsedHeader.boundingBox(),
+          collapsedHeader.getByRole("button", {
+            name: "More options for Triage",
+          }).boundingBox(),
+          collapsedDropFeedback.boundingBox(),
+        ]);
+        if (!headerBox || !moreBox || !lineBox) {
+          throw new Error("Collapsed Board drop feedback geometry is unavailable");
+        }
+        expect(headerBox.height).toBeGreaterThan(40);
+        expect(lineBox.y).toBeGreaterThanOrEqual(moreBox.y + moreBox.height);
+        expect(Math.abs(
+          lineBox.y + lineBox.height - (headerBox.y + headerBox.height),
+        )).toBeLessThanOrEqual(1);
+      },
       exerciseAncestorScrollLifecycle: true,
     });
 
+    await collapsedTriageRail.click();
+    await expect(triageColumn).toHaveAttribute(
+      "data-board-column-collapsed",
+      "false",
+    );
     await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(4, {
       timeout: 15_000,
     });
@@ -2531,7 +2581,7 @@ test("opens and pointer-reorders a nested List subtree without changing its inte
       name: "Open Native List DnD smoke",
       exact: true,
     }).click();
-    const board = page.locator("[data-board-root]");
+    const board = page.locator("[data-board-column-root]").first();
     await expect(board).toBeVisible({ timeout: 15_000 });
     await page.getByRole("tablist", { name: "Database views" })
       .getByRole("tab", { name: "List", exact: true })

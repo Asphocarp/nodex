@@ -944,8 +944,9 @@ mod tests {
         DatabaseListProjectionRow, DatabasePagePropertyAddress, DatabasePropertyValueEdit,
         DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseRead, DatabaseReadValue,
         DatabaseViewGroupOverrideInput, DatabaseViewLayoutDisplayOverrideInput,
-        DatabaseViewLayoutInput, DatabaseViewLayoutsOverrideInput,
+        DatabaseViewLayoutInput, DatabaseViewLayoutsOverrideInput, DatabaseViewNullOrderInput,
         DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget,
+        DatabaseViewSortDirectionInput, DatabaseViewSortFieldInput, DatabaseViewSortInput,
     };
     use nodex_core_contracts::document::{
         DocumentBlockOperation as ContractDocumentBlockOperation, DocumentBlockUpdatePatch,
@@ -958,8 +959,8 @@ mod tests {
         LibraryBlockTransferDataSourcePlacement, LibraryBlockTransferDocumentHead,
         LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
         LibraryBlockTransferTarget, LibraryDocumentHead, LibraryMoveDestinationScope,
-        LibraryNavigationParent, LibraryPageFileKind, LibraryPageLifecycleMutation,
-        LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
+        LibraryNavigationParent, LibraryPageCopyValue, LibraryPageFileKind,
+        LibraryPageLifecycleMutation, LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
         LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind, LibraryPageReferenceMatchSource,
         LibraryPageWorkflowStatus, LibraryPageWriteDestination, LibraryProjectAccessChange,
         LibraryWriteParent,
@@ -5207,6 +5208,112 @@ mod tests {
             Some("type_requires_wrapper")
         );
 
+        let presented_board_transfer = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "copy-wrapper-to-presented-board".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: LibraryBlockTransferLogicalIntent {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            mode: LibraryBlockTransferMode::Copy,
+                            root_block_ids: vec![SHORTHAND_ROOT.to_owned()],
+                            causal_dependencies: document_heads(&kernel, &[PROMOTE_DOCUMENT]),
+                            source: LibraryBlockTransferSource::Document {
+                                document_id: PROMOTE_DOCUMENT.to_owned(),
+                            },
+                            target: LibraryBlockTransferTarget::DataSource {
+                                data_source_id: DATA_SOURCE.to_owned(),
+                                placement: Box::new(
+                                    LibraryBlockTransferDataSourcePlacement::Direct {
+                                        view_id: VIEW.to_owned(),
+                                        presentation_override:
+                                            DatabaseViewPresentationOverrideInput {
+                                                layout: Some(DatabaseViewLayoutInput::Board),
+                                                sort: Some(vec![DatabaseViewSortInput {
+                                                    field: DatabaseViewSortFieldInput::Property {
+                                                        property_id: "estimate".to_owned(),
+                                                    },
+                                                    direction: DatabaseViewSortDirectionInput::Asc,
+                                                    nulls: DatabaseViewNullOrderInput::Last,
+                                                }]),
+                                                group: Some(
+                                                    DatabaseViewGroupOverrideInput::Property {
+                                                        property_id: "priority".to_owned(),
+                                                    },
+                                                ),
+                                                ..Default::default()
+                                            },
+                                        group_key: Some("p2-medium".to_owned()),
+                                        before_page_id: None,
+                                        sorted_property_values: vec![LibraryPageCopyValue {
+                                            property_id: "estimate".to_owned(),
+                                            value: serde_json::json!("m"),
+                                        }],
+                                    },
+                                ),
+                            },
+                            promotion_policy:
+                                nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
+                        },
+                    },
+                },
+            )
+            .expect("copy wrapper using the presented Board axes");
+        let presented_result = presented_board_transfer
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("presented Board transfer result");
+        assert!(matches!(
+            presented_result.transformation_evidence[0].promotion,
+            nodex_core_contracts::library::LibraryBlockTransferPromotionEvidence::Preserved {
+                reason: nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::TargetPropertyConflict,
+                ..
+            }
+        ));
+        let presented_page_id = &presented_result.result_root_block_ids[0];
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let title = connection.query_row(
+                    "SELECT materialization.title FROM pages page \
+                     JOIN document_materializations materialization \
+                       ON materialization.document_id = page.document_id \
+                     WHERE page.block_id = ?1",
+                    [presented_page_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(title, "1XL(ui, unclear) Fix import");
+                let values = connection
+                    .prepare(
+                        "SELECT value.property_id, value.value_json \
+                         FROM data_source_property_values value \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.id = value.membership_id \
+                          AND membership.data_source_id = value.data_source_id \
+                         WHERE membership.page_block_id = ?1 \
+                           AND value.property_id IN ('priority', 'estimate') \
+                         ORDER BY value.property_id",
+                    )?
+                    .query_map([presented_page_id], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    values,
+                    vec![
+                        ("estimate".to_owned(), "\"m\"".to_owned()),
+                        ("priority".to_owned(), "\"p2-medium\"".to_owned()),
+                    ]
+                );
+                Ok(())
+            })
+            .expect("presented Board placement values");
+
         let data_source_intent = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
@@ -5217,11 +5324,13 @@ mod tests {
             },
             target: LibraryBlockTransferTarget::DataSource {
                 data_source_id: DATA_SOURCE.to_owned(),
-                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                placement: Box::new(LibraryBlockTransferDataSourcePlacement::Direct {
                     view_id: VIEW.to_owned(),
+                    presentation_override: Default::default(),
                     group_key: Some("ship".to_owned()),
                     before_page_id: None,
-                },
+                    sorted_property_values: Vec::new(),
+                }),
             },
             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
@@ -5340,7 +5449,7 @@ mod tests {
                             },
                             target: LibraryBlockTransferTarget::DataSource {
                                 data_source_id: DATA_SOURCE.to_owned(),
-                                placement: list_placement.clone(),
+                                placement: Box::new(list_placement.clone()),
                             },
                             promotion_policy:
                                 nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
@@ -5403,7 +5512,7 @@ mod tests {
                             },
                             target: LibraryBlockTransferTarget::DataSource {
                                 data_source_id: DATA_SOURCE.to_owned(),
-                                placement: list_placement,
+                                placement: Box::new(list_placement),
                             },
                             promotion_policy:
                                 nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
@@ -5468,7 +5577,7 @@ mod tests {
                             },
                             target: LibraryBlockTransferTarget::DataSource {
                                 data_source_id: DATA_SOURCE.to_owned(),
-                                placement:
+                                placement: Box::new(
                                     LibraryBlockTransferDataSourcePlacement::ListOccurrence {
                                         view_id: VIEW.to_owned(),
                                         presentation_override:
@@ -5494,6 +5603,7 @@ mod tests {
                                         },
                                         target: DatabaseListMoveTarget::Root,
                                     },
+                                ),
                             },
                             promotion_policy:
                                 nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
@@ -5637,7 +5747,7 @@ mod tests {
                             },
                             target: LibraryBlockTransferTarget::DataSource {
                                 data_source_id: DATA_SOURCE.to_owned(),
-                                placement:
+                                placement: Box::new(
                                     LibraryBlockTransferDataSourcePlacement::ListOccurrence {
                                         view_id: VIEW.to_owned(),
                                         presentation_override: priority_presentation,
@@ -5665,6 +5775,7 @@ mod tests {
                                             occurrence_key: medium_priority_group,
                                         },
                                     },
+                                ),
                             },
                             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
                         },
@@ -5743,11 +5854,13 @@ mod tests {
                             },
                             target: LibraryBlockTransferTarget::DataSource {
                                 data_source_id: DATA_SOURCE.to_owned(),
-                                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                                placement: Box::new(LibraryBlockTransferDataSourcePlacement::Direct {
                                     view_id: VIEW.to_owned(),
+                                    presentation_override: Default::default(),
                                     group_key: Some("ship".to_owned()),
                                     before_page_id: None,
-                                },
+                                    sorted_property_values: Vec::new(),
+                                }),
                             },
                             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
                         },
@@ -5890,11 +6003,13 @@ mod tests {
                             },
                             target: LibraryBlockTransferTarget::DataSource {
                                 data_source_id: DATA_SOURCE.to_owned(),
-                                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                                placement: Box::new(LibraryBlockTransferDataSourcePlacement::Direct {
                                     view_id: VIEW.to_owned(),
+                                    presentation_override: Default::default(),
                                     group_key: Some("ship".to_owned()),
                                     before_page_id: None,
-                                },
+                                    sorted_property_values: Vec::new(),
+                                }),
                             },
                             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
                         },
@@ -6242,11 +6357,13 @@ mod tests {
             },
             target: LibraryBlockTransferTarget::DataSource {
                 data_source_id: DATA_SOURCE.to_owned(),
-                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                placement: Box::new(LibraryBlockTransferDataSourcePlacement::Direct {
                     view_id: VIEW.to_owned(),
+                    presentation_override: Default::default(),
                     group_key: Some("ship".to_owned()),
                     before_page_id: None,
-                },
+                    sorted_property_values: Vec::new(),
+                }),
             },
             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
@@ -6858,11 +6975,13 @@ mod tests {
             },
             target: LibraryBlockTransferTarget::DataSource {
                 data_source_id: DATA_SOURCE.to_owned(),
-                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                placement: Box::new(LibraryBlockTransferDataSourcePlacement::Direct {
                     view_id: VIEW.to_owned(),
+                    presentation_override: Default::default(),
                     group_key: Some("ship".to_owned()),
                     before_page_id: None,
-                },
+                    sorted_property_values: Vec::new(),
+                }),
             },
             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };

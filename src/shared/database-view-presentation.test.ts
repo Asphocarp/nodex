@@ -10,6 +10,9 @@ import {
 } from "./database-kernel";
 import {
   compactDatabaseViewPresentationOverride,
+  databaseViewGesturePresentationOverride,
+  databaseViewFractionalOrderDirection,
+  databaseViewPrimaryManualOrderDirection,
   resolveEffectiveDatabaseView,
   upgradeDatabaseViewConfigV2,
   type DatabaseViewCapabilities,
@@ -50,6 +53,65 @@ const presentation: DatabaseViewPresentationConfig = {
 };
 
 describe("Database View presentation", () => {
+  test("freezes the complete effective presentation that authored a gesture", () => {
+    const effective = {
+      layout: "board" as const,
+      presentation: {
+        ...presentation,
+        sort: [{
+          field: { kind: "property" as const, propertyId: "priority" },
+          direction: "desc" as const,
+          nulls: "last" as const,
+        }],
+        group: { propertyId: "priority" },
+        layouts: {
+          board: {
+            ...presentation.layouts.board,
+            showDescription: false,
+          },
+          list: {
+            ...presentation.layouts.list,
+            showDescription: true,
+          },
+        },
+      },
+    };
+
+    expect(databaseViewGesturePresentationOverride(effective, "list")).toEqual({
+      layout: "list",
+      sort: effective.presentation.sort,
+      group: effective.presentation.group,
+      subgroup: null,
+      groupDirection: "asc",
+      completion: { range: "all", orderByRecency: false },
+      hierarchy: { showSubPages: true, nestedSubPages: false },
+      layouts: effective.presentation.layouts,
+    });
+  });
+
+  test("resolves primary manual order independently from fractional tie-breaking", () => {
+    const propertySort = [{
+      field: { kind: "property" as const, propertyId: "priority" },
+      direction: "desc" as const,
+      nulls: "last" as const,
+    }];
+    expect(databaseViewPrimaryManualOrderDirection([])).toBe("asc");
+    expect(databaseViewPrimaryManualOrderDirection(presentation.sort)).toBe("asc");
+    expect(databaseViewPrimaryManualOrderDirection(propertySort)).toBeNull();
+    expect(databaseViewFractionalOrderDirection([])).toBe("asc");
+    expect(databaseViewFractionalOrderDirection(propertySort)).toBe("asc");
+    expect(databaseViewFractionalOrderDirection([propertySort[0]!, {
+      field: { kind: "manual" },
+      direction: "desc",
+      nulls: "last",
+    }])).toBe("desc");
+    expect(databaseViewFractionalOrderDirection([{
+      field: { kind: "title" },
+      direction: "asc",
+      nulls: "last",
+    }])).toBeNull();
+  });
+
   test("rejects the canonical UUID as a presentation field", () => {
     expect(() => parseDatabaseViewConfigV4({
       schemaKey: "nodex.database-view",

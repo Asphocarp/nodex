@@ -22,6 +22,7 @@ const timestamp = "2026-07-16T00:00:00.000Z";
 const querySnapshot = (input: {
   readonly status?: string;
   readonly manual?: boolean;
+  readonly emptySort?: boolean;
 } = {}): DatabaseModuleReadSnapshotV2 => {
   const database = {
     databaseId: parseDatabaseId("database-1"),
@@ -96,13 +97,15 @@ const querySnapshot = (input: {
       schemaKey: "nodex.database-view" as const,
       schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
-      sort: input.manual === false
-        ? [{
+      sort: input.emptySort
+        ? []
+        : input.manual === false
+          ? [{
             field: { kind: "property" as const, propertyId: "priority" },
             direction: "asc" as const,
             nulls: "last" as const,
           }]
-        : [{
+          : [{
             field: { kind: "manual" as const },
             direction: "asc" as const,
             nulls: "last" as const,
@@ -214,7 +217,27 @@ describe("Database Page drag compiler", () => {
     }]);
   });
 
-  test("writes Data Source values before the Page View position", () => {
+  test("uses intrinsic Page order when the View has no explicit sort", () => {
+    const compiled = compileDatabasePageDrag({
+      move: {
+        pageId: "page-b",
+        fromStatus: "build",
+        toStatus: "build",
+        newOrder: 0,
+      },
+      snapshot: querySnapshot({ emptySort: true }),
+    });
+
+    expect(compiled.operations).toEqual([{
+      kind: "position_page",
+      viewId: "view-1",
+      pageId: "page-b",
+      expectedPositionRevision: 23,
+      beforePageId: "page-a",
+    }]);
+  });
+
+  test("writes sorted Property values before their fractional tie-break", () => {
     const compiled = compileDatabasePageDrag({
       move: {
         pageId: "page-a",
@@ -223,7 +246,7 @@ describe("Database Page drag compiler", () => {
         newOrder: 0,
         fieldPatch: { priority: "p2-medium" },
       },
-      snapshot: querySnapshot(),
+      snapshot: querySnapshot({ manual: false }),
     });
 
     expect(compiled.operations.map((operation) => operation.kind)).toEqual([
