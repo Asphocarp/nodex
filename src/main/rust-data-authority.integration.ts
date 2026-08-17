@@ -2497,11 +2497,13 @@ describe("Electron native data authority", () => {
         projectIds: [projectId],
         query: "Electron Library Adapter",
         limit: 10,
-      })).resolves.toEqual([expect.objectContaining({
-        projectId,
-        pageId: "page:electron-library-adapter",
-        status: "triage",
-      })]);
+      })).resolves.toMatchObject({
+        results: [expect.objectContaining({
+          projectId,
+          pageId: "page:electron-library-adapter",
+          status: "triage",
+        })],
+      });
       const libraryDocuments = createCoreDocumentSyncAdapter(
         runtime.rootClient,
       );
