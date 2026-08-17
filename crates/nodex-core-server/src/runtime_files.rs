@@ -20,7 +20,9 @@ pub(crate) const PRIVATE_FILE_MODE: u32 = 0o600;
 const MAX_DESCRIPTOR_BYTES: u64 = 64 * 1024;
 const MAX_AUTH_BYTES: u64 = 128;
 const MAX_PROBE_RESPONSE_BYTES: usize = 64 * 1024;
-const STARTUP_WAIT: Duration = Duration::from_secs(5);
+// A fresh Store or migration can exceed the normal hot-start path under load.
+// Contenders must keep waiting while the incumbent owns the startup lock.
+const STARTUP_WAIT: Duration = Duration::from_secs(30);
 const HANDOFF_EXIT_WAIT: Duration = Duration::from_secs(10);
 const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 const MAX_CORE_EXECUTABLE_BYTES: u64 = 512 * 1024 * 1024;

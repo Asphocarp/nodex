@@ -2501,7 +2501,6 @@ describe("Electron native data authority", () => {
         projectId,
         pageId: "page:electron-library-adapter",
         status: "triage",
-        score: 1_000_000,
       })]);
       const libraryDocuments = createCoreDocumentSyncAdapter(
         runtime.rootClient,

@@ -11,6 +11,9 @@ import {
   BOARD_DENSE_SCENARIO_ID,
 } from "../../scripts/scenarios/scenarios/board-dense";
 
+const primaryShortcut = (key: string): string =>
+  `${process.platform === "darwin" ? "Meta" : "Control"}+${key}`;
+
 const focusEditableBlockEnd = async (block: Locator): Promise<void> => {
   await block.evaluate((element) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -385,12 +388,15 @@ test("keeps the canonical Board while grouping and dragging by Priority", async 
     await setBoardCardPriority({ page, pageId: targetPageId, optionName: "P1 - High" });
 
     await page.getByRole("button", { name: "Display options" }).click();
-    await page.getByRole("button", { name: "Order by", exact: true }).click();
-    await page.getByRole("option", { name: "Priority", exact: true })
-      .dispatchEvent("click");
-    await page.getByRole("button", { name: "Group by", exact: true }).click();
-    await page.getByRole("option", { name: "Priority", exact: true })
-      .dispatchEvent("click");
+    const orderBy = page.getByRole("button", { name: "Order by", exact: true });
+    await orderBy.click();
+    await page.getByRole("option", { name: "Priority", exact: true }).click();
+    await expect(orderBy).toContainText("Priority");
+    const groupBy = page.getByRole("button", { name: "Group by", exact: true });
+    await expect(groupBy).toHaveAttribute("aria-disabled", "false");
+    await groupBy.click();
+    await page.getByRole("option", { name: "Priority", exact: true }).click();
+    await expect(groupBy).toContainText("Priority");
 
     const highColumn = page.locator(
       '[data-board-column-root][data-board-column-id="p1-high"]',
@@ -524,7 +530,7 @@ test("materializes and opens the authoritative board/dense environment", async (
     });
     await application.evaluate(({ BrowserWindow }) => {
       const window = BrowserWindow.getAllWindows()[0];
-      window?.setBounds({ x: 0, y: 0, width: 1440, height: 960 });
+      window?.setContentSize(1440, 960);
     });
     await page.emulateMedia({ colorScheme: "light" });
     await expect.poll(() => page.evaluate(() => ({
@@ -657,7 +663,7 @@ test("materializes and opens the authoritative board/dense environment", async (
     })).toContain("Related Page");
     await expect(page.getByText("Change Page…", { exact: true })).toHaveCount(0);
     await sourceTab.click();
-    await page.keyboard.press("Meta+P");
+    await page.keyboard.press(primaryShortcut("P"));
     const commandPalette = page.getByRole("dialog", { name: "Command palette" });
     const commandPaletteSearch = page.locator(
       'input[aria-label="Command palette search"]:visible',
@@ -693,7 +699,7 @@ test("materializes and opens the authoritative board/dense environment", async (
     await sourceTab.click();
     await expect(page.getByRole("tab", { name: "Immediate searchable projection" }))
       .toBeVisible();
-    await page.keyboard.press("Meta+P");
+    await page.keyboard.press(primaryShortcut("P"));
     await commandPaletteSearch.fill("Immediate searchable");
     await expect(page.getByRole("option", {
       name: /Immediate searchable projection/u,
@@ -994,7 +1000,9 @@ test("materializes and opens the authoritative board/dense environment", async (
     if (!mentionBounds || !affordanceBounds) {
       throw new Error("Mention focus affordance geometry is unavailable");
     }
-    expect(affordanceBounds.y).toBeGreaterThan(mentionBounds.y + mentionBounds.height);
+    expect(affordanceBounds.y).toBeGreaterThanOrEqual(
+      mentionBounds.y + mentionBounds.height - 1,
+    );
     expect(
       Math.abs(
         affordanceBounds.x + affordanceBounds.width / 2

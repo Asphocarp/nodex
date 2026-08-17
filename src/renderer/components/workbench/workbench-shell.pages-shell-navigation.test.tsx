@@ -933,8 +933,10 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.getByText("Page:card-1") !== null).toBe(true);
-    expect(screen.queryByRole("status", { name: "Loading Card One" }) === null).toBe(true);
+    expect(await screen.findByText("Page:card-1") !== null).toBe(true);
+    await waitFor(() => {
+      expect(screen.queryByRole("status", { name: "Loading Card One" })).toBeNull();
+    });
     expect(screen.queryByText("Page not found") === null).toBe(true);
   });
 

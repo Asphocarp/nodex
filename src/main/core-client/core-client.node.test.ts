@@ -26,6 +26,7 @@ import {
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const CORE_STDERR_LIMIT = 16 * 1024;
+const CORE_STARTUP_TIMEOUT_MS = 35_000;
 const coreStderr = new WeakMap<ChildProcessWithoutNullStreams, string>();
 
 const spawnCore = (nodexHome: string): ChildProcessWithoutNullStreams => {
@@ -54,7 +55,7 @@ const readDescriptor = (
     const timeout = setTimeout(() => {
       lines.close();
       reject(failure("Core did not publish a runtime descriptor"));
-    }, 10_000);
+    }, CORE_STARTUP_TIMEOUT_MS);
     lines.once("line", (line) => {
       clearTimeout(timeout);
       lines.close();
