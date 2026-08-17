@@ -244,6 +244,39 @@ describe("selected Database View Page mutations", () => {
     });
   });
 
+  test("moves Pages against implicit manual order when sort rules are empty", () => {
+    const baseModel = model();
+    const unsortedModel: DatabaseViewRenderModel = {
+      ...baseModel,
+      query: {
+        ...baseModel.query,
+        view: {
+          ...baseModel.query.view,
+          config: {
+            ...baseModel.query.view.config,
+            presentation: {
+              ...baseModel.query.view.config.presentation,
+              sort: [],
+            },
+          },
+        },
+      },
+    };
+    expect(buildDatabaseViewMoveOperations({
+      model: unsortedModel,
+      pageId: "page-a",
+      direction: "down",
+      groupComplete: true,
+    })[0]).toMatchObject({
+      kind: "position_pages",
+      pages: [
+        { pageId: "page-b" },
+        { pageId: "page-a" },
+        { pageId: "page-c" },
+      ],
+    });
+  });
+
   test("moves a Page to either manual-order boundary", () => {
     expect(buildDatabaseViewMoveOperations({
       model: model(),

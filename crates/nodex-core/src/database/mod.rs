@@ -9,7 +9,7 @@ pub(crate) mod read;
 mod read_authorization;
 mod relation;
 mod relation_projection;
-mod view_contract;
+pub(crate) mod view_contract;
 mod window;
 
 pub(crate) const MAX_PROPERTY_OPTIONS: usize = 100;
@@ -30,7 +30,7 @@ pub(crate) use mutation::{
     place_staged_page_in_data_source, place_staged_page_in_data_source_prevalidated,
     plan_page_task_shorthand,
     refresh_transferred_page_projection as refresh_copied_page_projection,
-    resolve_page_transfer_data_source_destination,
+    resolve_page_transfer_board_destination, resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
     resolve_page_transfer_list_destination, synchronize_membership_completion_timestamp,
     synchronize_relation_value_projections, transfer_existing_page_for_agent_move_prevalidated,
@@ -4009,6 +4009,221 @@ mod tests {
                 "page:default-child".to_owned(),
                 "page:default-target".to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn semantic_list_move_adopts_the_sorted_property_at_the_target_slot() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:sorted-source",
+                    title: "Sorted source",
+                    value_json: Some("\"ship\""),
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:sorted-low-a",
+                    title: "Sorted low A",
+                    value_json: Some("\"ship\""),
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:sorted-low-b",
+                    title: "Sorted low B",
+                    value_json: Some("\"ship\""),
+                    rank_key: Some("c"),
+                },
+            ],
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                for (page_id, priority) in [
+                    ("page:sorted-source", "p1-high"),
+                    ("page:sorted-low-a", "p3-low"),
+                    ("page:sorted-low-b", "p3-low"),
+                ] {
+                    connection.execute(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, \
+                           value_json, revision, updated_at\
+                         ) VALUES (?1, ?2, 'priority', 'select', ?3, 1, ?4)",
+                        params![
+                            SOURCE_ID,
+                            format!("membership:{page_id}"),
+                            serde_json::to_string(priority).expect("priority JSON"),
+                            NOW,
+                        ],
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("seed sorted Property values");
+        let mut config = view_config(
+            json!({ "kind": "group", "operator": "and", "children": [] }),
+            Some("status"),
+            &["status", "priority"],
+        );
+        config["presentation"]["sort"] = json!([{
+            "field": { "kind": "property", "propertyId": "priority" },
+            "direction": "asc",
+            "nulls": "last"
+        }]);
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:sorted-list-view".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 1,
+                        name: "Sorted List".to_owned(),
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(config),
+                        is_default: true,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect("configure sorted List");
+        let before = read_list_window(&module, 50, None).expect("read sorted List");
+        let occurrence_key = |page_id: &str| {
+            before
+                .rows
+                .items
+                .iter()
+                .find_map(|row| match row {
+                    DatabaseListProjectionRow::Page {
+                        occurrence_key,
+                        summary,
+                        transient_kind: DatabaseListTransientKind::None,
+                        ..
+                    } if summary.page_id == page_id => Some(occurrence_key.clone()),
+                    _ => None,
+                })
+                .expect("sorted List occurrence")
+        };
+        let source_key = occurrence_key("page:sorted-source");
+        let target_key = occurrence_key("page:sorted-low-b");
+        let block_expectation = list_projection_expectation(&before);
+        let block_target_key = target_key.clone();
+        let block_destination = kernel
+            .writer()
+            .call(move |connection| {
+                resolve_page_transfer_list_destination(
+                    connection,
+                    "library-1",
+                    "project-1",
+                    SOURCE_ID,
+                    VIEW_ID,
+                    &DatabaseViewPresentationOverrideInput {
+                        layout: Some(DatabaseViewLayoutInput::List),
+                        ..Default::default()
+                    },
+                    &block_expectation,
+                    &DatabaseListMoveTarget::Page {
+                        occurrence_key: block_target_key,
+                        edge: DatabaseListMoveEdge::Before,
+                    },
+                )
+            })
+            .expect("compile a sorted List Block destination");
+        assert!(
+            block_destination
+                .values
+                .iter()
+                .any(|value| { value.property_id == "priority" && value.value == json!("p3-low") })
+        );
+        assert_eq!(
+            block_destination
+                .view
+                .as_ref()
+                .and_then(|view| view.before.as_ref())
+                .map(|before| before.page_id.as_str()),
+            Some("page:sorted-low-b"),
+        );
+        let moved = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:sorted-list-move".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::MoveListOccurrences {
+                        view_id: VIEW_ID.to_owned(),
+                        presentation_override: DatabaseViewPresentationOverrideInput {
+                            layout: Some(DatabaseViewLayoutInput::List),
+                            ..Default::default()
+                        },
+                        expected_projection: list_projection_expectation(&before),
+                        initiator_occurrence_key: source_key.clone(),
+                        selection: DatabaseListMoveSelection::Explicit {
+                            occurrence_keys: vec![source_key],
+                        },
+                        target: DatabaseListMoveTarget::Page {
+                            occurrence_key: target_key,
+                            edge: DatabaseListMoveEdge::Before,
+                        },
+                    }],
+                },
+            )
+            .expect("move into a sorted List slot");
+        let DatabaseOperationOutcome::ListOccurrenceMove { undo_recipe, .. } =
+            &moved.committed.receipt.operation_outcomes[0]
+        else {
+            panic!("sorted List move outcome");
+        };
+        assert!(undo_recipe.property_states.iter().any(|state| {
+            state.page_id == "page:sorted-source"
+                && state.property_id == "priority"
+                && state.after_value
+                    == DatabasePropertyValueInput::Select {
+                        option_id: "p3-low".to_owned(),
+                    }
+        }));
+        let after = read_list_window(&module, 50, None).expect("read inferred sorted List");
+        let source = after
+            .rows
+            .items
+            .iter()
+            .find_map(|row| match row {
+                DatabaseListProjectionRow::Page { summary, .. }
+                    if summary.page_id == "page:sorted-source" =>
+                {
+                    Some(summary)
+                }
+                _ => None,
+            })
+            .expect("moved sorted Page");
+        assert_eq!(
+            source.database_values.get("priority"),
+            Some(&json!("p3-low")),
+        );
+        let page_order = after
+            .rows
+            .items
+            .iter()
+            .filter_map(|row| match row {
+                DatabaseListProjectionRow::Page { summary, .. } => Some(summary.page_id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            page_order,
+            [
+                "page:sorted-low-a".to_owned(),
+                "page:sorted-source".to_owned(),
+                "page:sorted-low-b".to_owned(),
+            ],
         );
     }
 

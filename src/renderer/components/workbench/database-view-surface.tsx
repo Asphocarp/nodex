@@ -9,26 +9,24 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type DragEvent as ReactDragEvent,
 } from "react";
-import { ArrowDown, ArrowUp, GripVertical } from "@/components/shared/icons/generic-icons";
 import {
   type DatabaseViewLayout,
   type DatabaseViewPresentationConfig,
   type EffectiveDatabaseViewPresentation,
   type DatabaseJsonValue,
   type DatabasePropertyOption,
+  databaseGroupKeyForValue,
 } from "../../../shared/database-kernel";
 import type {
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
 } from "../../../shared/database-module-v2";
 import type { ColumnPaginationState } from "@/lib/board-store";
-import { NodexIconButton } from "@/components/ui/button";
 import {
   compilePageCollectionSearchQuery,
   matchesPageCollectionSearchQuery,
 } from "@/lib/page-search";
 import {
-  databaseViewSupportsManualReorder,
   buildDatabaseViewMovePageRunOperations,
   buildDatabaseViewPropertyValueOperations,
   canMoveDatabaseViewPage,
@@ -38,6 +36,7 @@ import {
 import {
   buildDatabaseViewColumns,
   groupScopeKeyForPath,
+  withEffectiveDatabaseViewPresentation,
   type DatabaseViewRenderColumn,
   type DatabaseViewRenderModel,
   type DatabaseViewRenderRow,
@@ -55,11 +54,7 @@ import {
 } from "@/lib/data-source-property-value-operations";
 import {
   readRelationValuePreview,
-  type RelationTargetWindow,
 } from "@/lib/data-source-relation-value";
-import { DataSourcePropertyValueEditor } from "../database/data-source-property-value-editor";
-import { PropertyEditorFeedback } from "../database/property-editor-feedback";
-import type { DataSourcePropertyOptionRegistryState } from "../database/data-source-property-editor-binding";
 import { usePropertyOptionRegistries } from "../database/use-property-option-registries";
 import {
   readDataSourceRelationTargets,
@@ -75,9 +70,14 @@ import {
   resolveBoardKeyboardNavigation,
   type BoardKeyboardDirection,
 } from "../board/board-keyboard-navigation";
-import { PagePresenceRail } from "../board/page-presence-rail";
-import { BoardPageKey } from "../board/board-page-key";
-import { buildDatabaseViewBoardDropOperations } from "@/lib/database-view-drag-operations";
+import {
+  applyOptimisticDatabaseViewBoardDrop,
+  buildDatabaseViewBoardDropOperations,
+  databaseViewSupportsSortedSlotInference,
+  resolveDatabaseViewDropPropertyValues,
+  resolveDatabaseViewSortedDropValues,
+  type DatabaseViewBoardDropProjection,
+} from "@/lib/database-view-drag-operations";
 import {
   endLocalBlockDragSession,
   hasDragType,
@@ -87,6 +87,8 @@ import {
 } from "./block-transfer/cross-surface-drag";
 import { toast } from "@/components/ui/toast";
 import { computeNativeDropIndexFromSurface } from "../board/native-drop-index";
+import { DropIndicator } from "../board/drop-indicator";
+import { resolveDropIndicatorPlacement } from "../board/drop-indicator-placement";
 import { DatabaseList } from "./database-list/database-list";
 import {
   handleDatabaseViewMutationHistoryKeyDown,
@@ -95,9 +97,32 @@ import {
 } from "./database-view-mutation-history";
 import { undoDatabaseViewBlockTransfer } from "./database-view-block-transfer-undo";
 import { commitDatabaseViewBlockDrop } from "./database-view-block-drop-command";
+import { projectDatabaseBoardGroup } from "./database-board/database-board-model";
+import { DatabaseBoardGroupMarker } from "./database-board/database-board-group-marker";
+import { DatabaseBoardCard } from "./database-board/database-board-card";
+import { buildDatabaseViewPageDragData } from "./database-view-page-drag";
+import { ColumnActionPopover } from "../board/column-action-popover";
+import {
+  databaseBoardColumnLayoutScope,
+  getDatabaseBoardColumnLayout,
+  readDatabaseBoardColumnLayoutPrefs,
+  updateDatabaseBoardColumnLayoutPrefs,
+  type DatabaseBoardColumnLayoutPrefs,
+} from "@/lib/database-board-column-layout";
+import { COLLAPSED_BOARD_COLUMN_WIDTH } from "@/lib/board-column-layout";
+import { PlusIcon } from "@/components/shared/icons";
+import type { DatabaseViewBoardPageDropIntent } from "@/lib/use-board";
+import { databaseViewGesturePresentationOverride } from "../../../shared/database-view-presentation";
 
 const DATABASE_VIEW_PAGE_DRAG_MIME =
   "application/vnd.nodex.database-view-pages.v1+json";
+const DATABASE_BOARD_COLUMN_GUTTER = 12;
+
+const databaseBoardColumnSurfaceWidth = (
+  layoutWidth: number,
+  collapsed: boolean,
+): number => (collapsed ? COLLAPSED_BOARD_COLUMN_WIDTH : layoutWidth)
+  - DATABASE_BOARD_COLUMN_GUTTER;
 
 const readDraggedPageIds = (dataTransfer: DataTransfer): readonly string[] => {
   const serialized = dataTransfer.getData(DATABASE_VIEW_PAGE_DRAG_MIME);
@@ -131,6 +156,9 @@ interface DatabaseViewSurfaceProps {
   ) => void;
   readonly onCommitted?: () => void | Promise<void>;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
+  readonly onMoveBoardPages?: (
+    input: DatabaseViewBoardPageDropIntent,
+  ) => Promise<boolean>;
   readonly mutationHistory?: DatabaseViewMutationHistory;
   readonly keyboardSurface?: {
     readonly surfaceId: string;
@@ -141,6 +169,13 @@ interface DatabaseViewSurfaceProps {
   readonly onSelectedPageIdsChange?: (pageIds: ReadonlySet<string>) => void;
   readonly pageCreateSurfaceId?: string;
   readonly onRequestCreatePage?: (groupKey: string) => void;
+}
+
+interface DatabaseViewBoardOptimisticDrop
+  extends DatabaseViewBoardDropProjection {
+  readonly sessionId: number;
+  readonly storeEpoch: string;
+  readonly receiptCommitSeq: number | null;
 }
 
 const rowByPageId = (
@@ -223,291 +258,6 @@ export const databaseViewMutationErrorMessage = (
     : "Couldn’t save this property. Try again.";
 };
 
-function BoardPageCardSurface({
-  model,
-  row,
-  trailingProperties,
-  showPageKey,
-  showDescription,
-  pendingMutationKeys,
-  mutationErrors,
-  canMoveUp,
-  canMoveDown,
-  onOpenPage,
-  onSetValue,
-  onPatchOptions,
-  onPatchRelation,
-  onReplaceOneRelation,
-  onCreateOption,
-  onLoadRelationTargets,
-  onSearchRelationCandidates,
-  onLoadRelationTargetDescriptor,
-  onRelationValueStale,
-  onRequestOptions,
-  onRequestMoreOptions,
-  optionRegistries,
-  optionRegistryStates,
-  optionRegistryHasMore,
-  optionRegistryLoadingMore,
-  onMove,
-  highlighted,
-  presented,
-  selected,
-  onHighlight,
-  draggable,
-  dragging,
-  onDragStartPage,
-  onDragEndPage,
-  onDropBefore,
-}: {
-  readonly model: DatabaseViewRenderModel;
-  readonly row: DatabaseViewRenderRow;
-  readonly trailingProperties: readonly DataSourcePropertyRecordV2[];
-  readonly showPageKey: boolean;
-  readonly showDescription: boolean;
-  readonly pendingMutationKeys: ReadonlyMap<string, number>;
-  readonly mutationErrors: ReadonlyMap<string, string>;
-  readonly canMoveUp: boolean;
-  readonly canMoveDown: boolean;
-  readonly onOpenPage: DatabaseViewSurfaceProps["onOpenPage"];
-  readonly onSetValue: (
-    pageId: string,
-    propertyId: string,
-    value: DatabaseJsonValue,
-  ) => void;
-  readonly onPatchRelation: (
-    pageId: string,
-    propertyId: string,
-    delta: { readonly addPageIds: readonly string[]; readonly removeEdgeIds: readonly string[] },
-  ) => void;
-  readonly onReplaceOneRelation: (
-    pageId: string,
-    property: DataSourcePropertyRecordV2,
-    targetPageId: string | null,
-  ) => void;
-  readonly onPatchOptions: (
-    pageId: string,
-    property: DataSourcePropertyRecordV2,
-    delta: {
-      readonly addOptionIds: readonly string[];
-      readonly removeOptionIds: readonly string[];
-    },
-  ) => void;
-  readonly onCreateOption: (
-    pageId: string,
-    property: DataSourcePropertyRecordV2,
-    option: { readonly optionId: string; readonly name: string; readonly color?: string },
-  ) => Promise<void>;
-  readonly onLoadRelationTargets: (
-    pageId: string,
-    propertyId: string,
-    after: string | null,
-  ) => Promise<RelationTargetWindow>;
-  readonly onSearchRelationCandidates: (
-    property: DataSourcePropertyRecordV2,
-    query: string,
-    after?: string | null,
-  ) => ReturnType<typeof searchDataSourceRelationCandidates>;
-  readonly onLoadRelationTargetDescriptor: (
-    property: DataSourcePropertyRecordV2,
-  ) => ReturnType<typeof readDataSourceRelationTargetDescriptor>;
-  readonly onRelationValueStale: () => void;
-  readonly onRequestOptions: (property: DataSourcePropertyRecordV2) => void;
-  readonly onRequestMoreOptions: (property: DataSourcePropertyRecordV2) => void;
-  readonly optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>;
-  readonly optionRegistryStates: Readonly<Record<
-    string,
-    DataSourcePropertyOptionRegistryState
-  >>;
-  readonly optionRegistryHasMore: Readonly<Record<string, boolean>>;
-  readonly optionRegistryLoadingMore: Readonly<Record<string, boolean>>;
-  readonly onMove: (pageId: string, direction: "up" | "down") => void;
-  readonly highlighted: boolean;
-  readonly presented: boolean;
-  readonly selected: boolean;
-  readonly onHighlight: (pageId: string) => void;
-  readonly draggable: boolean;
-  readonly dragging: boolean;
-  readonly onDragStartPage: (
-    row: DatabaseViewRenderRow,
-    event: ReactDragEvent<HTMLButtonElement>,
-  ) => void;
-  readonly onDragEndPage: () => void;
-  readonly onDropBefore: (
-    row: DatabaseViewRenderRow,
-    event: ReactDragEvent<HTMLElement>,
-  ) => void;
-}) {
-  const authority = rowByPageId(model, row.pageId);
-  if (!authority) return null;
-  const movePending = pendingMutationKeys.has(`page:${row.pageId}`);
-  const title = row.title || "Untitled";
-  const description = row.preview.trim();
-  const renderPropertyEditor = (property: DataSourcePropertyRecordV2) => {
-    const current = authority.values[property.propertyId];
-    const propertyError = mutationErrors.get(
-      `value:${row.pageId}:${property.propertyId}`,
-    );
-    return (
-      <div
-        key={property.propertyId}
-        data-database-view-property-id={property.propertyId}
-        className="min-w-0 shrink-0"
-      >
-        <DataSourcePropertyValueEditor
-          property={property}
-          value={current?.value}
-          revision={current?.revision ?? 0}
-          disabled={false}
-          pending={
-            pendingMutationKeys.has(`value:${row.pageId}:${property.propertyId}`)
-            || pendingMutationKeys.has(`property:${property.propertyId}`)
-          }
-          options={optionRegistries[property.propertyId]
-            ?? readDatabasePropertyOptions(property)}
-          optionRegistryState={optionRegistryStates[property.propertyId] ?? "ready"}
-          optionRegistryHasMore={optionRegistryHasMore[property.propertyId] ?? false}
-          optionRegistryLoadingMore={
-            optionRegistryLoadingMore[property.propertyId] ?? false
-          }
-          onRequestOptions={() => onRequestOptions(property)}
-          onRequestMoreOptions={() => onRequestMoreOptions(property)}
-          relationCandidates={model.query.rows.map((candidate) => ({
-            pageId: candidate.page.pageId,
-            title: candidate.page.title,
-          }))}
-          relationSourcePageId={row.pageId}
-          onChange={(value) =>
-            onSetValue(row.pageId, property.propertyId, value)}
-          onCreateOption={(option) =>
-            onCreateOption(row.pageId, property, option)}
-          onPatchOptions={(delta) =>
-            onPatchOptions(row.pageId, property, delta)}
-          onPatchRelation={(delta) =>
-            onPatchRelation(row.pageId, property.propertyId, delta)}
-          onReplaceOneRelation={(targetPageId) =>
-            onReplaceOneRelation(row.pageId, property, targetPageId)}
-          onLoadRelationTargets={(after) =>
-            onLoadRelationTargets(row.pageId, property.propertyId, after)}
-          onSearchRelationCandidates={(query, after) =>
-            onSearchRelationCandidates(property, query, after)}
-          onLoadRelationTargetDescriptor={() =>
-            onLoadRelationTargetDescriptor(property)}
-          onOpenRelationPage={(pageId, relationTitle) =>
-            onOpenPage(pageId, relationTitle)}
-          onRelationValueStale={onRelationValueStale}
-        />
-        {propertyError ? (
-          <PropertyEditorFeedback message={propertyError} />
-        ) : null}
-      </div>
-    );
-  };
-  return (
-    <article
-      data-database-view-page-id={row.pageId}
-      data-board-uuid-v7={row.pageId}
-      data-database-view-page-presented={presented ? "true" : undefined}
-      tabIndex={highlighted ? 0 : -1}
-      aria-selected={selected}
-      onPointerDown={() => onHighlight(row.pageId)}
-      onFocus={() => onHighlight(row.pageId)}
-      onDragOver={draggable
-        ? (event) => {
-            const internal = event.dataTransfer.types.includes(
-              DATABASE_VIEW_PAGE_DRAG_MIME,
-            );
-            const blocks = shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)
-              && hasDragType(event.dataTransfer, NODEX_BLOCK_TRANSFER_DRAG_MIME);
-            if (!internal && !blocks) return;
-            event.preventDefault();
-            event.stopPropagation();
-            event.dataTransfer.dropEffect = event.altKey && blocks ? "copy" : "move";
-          }
-        : undefined}
-      onDrop={draggable
-        ? (event) => onDropBefore(row, event)
-        : undefined}
-      className={cn(
-        "group/card relative min-w-0 overflow-hidden rounded-lg bg-token-foreground/5 px-2.5 py-2 outline-none hover:bg-token-foreground/8",
-        (highlighted || selected) && "ring-1 ring-inset",
-        highlighted && !selected
-          && "ring-[color-mix(in_srgb,var(--accent-blue)_50%,transparent)]",
-        selected
-          && "bg-[color-mix(in_srgb,var(--accent-blue)_7%,transparent)] ring-[color-mix(in_srgb,var(--accent-blue)_72%,transparent)]",
-        dragging && "opacity-45",
-      )}
-    >
-      {presented ? <PagePresenceRail /> : null}
-      <BoardPageKey
-        pageKey={row.pageKey}
-        showPageKey={showPageKey}
-        className="mb-0.5"
-      />
-      <div className="flex min-h-6 min-w-0 items-center gap-1">
-        {draggable ? (
-          <button
-            type="button"
-            draggable="true"
-            aria-label={`Drag ${title}`}
-            className="-ml-1 flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-token-description-foreground opacity-0 outline-none hover:bg-token-foreground/7 hover:text-token-text-primary focus-visible:opacity-100 group-hover/card:opacity-100 active:cursor-grabbing"
-            onPointerDown={(event) => event.stopPropagation()}
-            onDragStart={(event) => onDragStartPage(row, event)}
-            onDragEnd={onDragEndPage}
-          >
-            <GripVertical className="size-3.5" />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          aria-label={`Open Page ${showPageKey && row.pageKey ? `${row.pageKey} ` : ""}${title}`}
-          className="min-w-0 flex-1 text-left text-sm text-token-text-primary outline-none"
-          onClick={() => onOpenPage(row.pageId, row.title)}
-        >
-          <span className="block truncate">{title}</span>
-        </button>
-        {databaseViewSupportsManualReorder(model) ? (
-          <div className="flex shrink-0 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100">
-            <NodexIconButton
-              icon={ArrowUp}
-              size="xs"
-              ariaLabel={`Move ${row.title} up`}
-              disabled={movePending || !canMoveUp}
-              onClick={() => onMove(row.pageId, "up")}
-            />
-            <NodexIconButton
-              icon={ArrowDown}
-              size="xs"
-              ariaLabel={`Move ${row.title} down`}
-              disabled={movePending || !canMoveDown}
-              onClick={() => onMove(row.pageId, "down")}
-            />
-          </div>
-        ) : null}
-      </div>
-      {showDescription && description ? (
-        <p
-          data-board-page-description="true"
-          className="mt-1 line-clamp-2 text-xs/normal wrap-break-word text-token-description-foreground"
-        >
-          {description}
-        </p>
-      ) : null}
-      {trailingProperties.length > 0 ? (
-        <div className="mt-1.5 flex min-w-0 flex-col items-start gap-x-2 gap-y-1">
-          {trailingProperties.map(renderPropertyEditor)}
-        </div>
-      ) : null}
-      {mutationErrors.get(`page:${row.pageId}`) ? (
-        <PropertyEditorFeedback
-          message={mutationErrors.get(`page:${row.pageId}`)!}
-          className="mt-1"
-        />
-      ) : null}
-    </article>
-  );
-}
-
 export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
   const { onSelectedPageIdsChange } = props;
   const localMutationHistory = useDatabaseViewMutationHistory(
@@ -572,10 +322,13 @@ function BoardDatabaseViewSurface({
   onOpenPage,
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
+  onMoveBoardPages,
   keyboardSurface,
   presentedPageIds,
   initialSelectedPageIds,
   onSelectedPageIdsChange,
+  pageCreateSurfaceId,
+  onRequestCreatePage,
   mutationHistory: providedMutationHistory,
 }: Omit<DatabaseViewSurfaceProps, "effectivePresentation"> & {
   readonly effectivePresentation: EffectiveDatabaseViewPresentation;
@@ -598,6 +351,17 @@ function BoardDatabaseViewSurface({
   const [draggingPageIds, setDraggingPageIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const [optimisticDrop, setOptimisticDrop] =
+    useState<DatabaseViewBoardOptimisticDrop | null>(null);
+  const optimisticDropSessionIdRef = useRef(0);
+  const draggingPageIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const [boardDragInstanceId] = useState(() => Symbol("database-board-drag"));
+  const [dropIndicator, setDropIndicator] = useState<{
+    readonly scopeKey: string;
+    readonly index: number;
+    readonly exactSlot: boolean;
+    readonly label?: string;
+  } | null>(null);
   const keyboardSurfaceFallbackId = useId();
   const surfaceId = keyboardSurface?.surfaceId
     ?? `database-view:${model.databaseViewId}:${keyboardSurfaceFallbackId}`;
@@ -632,6 +396,39 @@ function BoardDatabaseViewSurface({
   }, [onSelectedPageIdsChange, selectedPageIds]);
   const activeLayout = effectivePresentation.layout;
   const presentation = effectivePresentation.presentation;
+  const authorityMutationModel = useMemo(
+    () => withEffectiveDatabaseViewPresentation(model, effectivePresentation),
+    [effectivePresentation, model],
+  );
+  const mutationModel = useMemo(
+    () => optimisticDrop
+      ? applyOptimisticDatabaseViewBoardDrop(
+          authorityMutationModel,
+          optimisticDrop,
+        )
+      : authorityMutationModel,
+    [authorityMutationModel, optimisticDrop],
+  );
+  useEffect(() => {
+    if (!optimisticDrop) return;
+    if (optimisticDrop.storeEpoch !== authorityMutationModel.storeEpoch) {
+      setOptimisticDrop(null);
+      return;
+    }
+    if (
+      optimisticDrop.receiptCommitSeq === null
+      || authorityMutationModel.commitSeq < optimisticDrop.receiptCommitSeq
+      || applyOptimisticDatabaseViewBoardDrop(
+          authorityMutationModel,
+          optimisticDrop,
+        ) !== authorityMutationModel
+    ) return;
+    setOptimisticDrop((current) =>
+      current?.sessionId === optimisticDrop.sessionId ? null : current
+    );
+  }, [authorityMutationModel, optimisticDrop]);
+  const groupPropertyId = presentation.group?.propertyId ?? null;
+  const subgroupPropertyId = presentation.subgroup?.propertyId ?? null;
   const compiledSearchQuery = useMemo(
     () => compilePageCollectionSearchQuery(deferredSearchQuery),
     [deferredSearchQuery],
@@ -646,9 +443,9 @@ function BoardDatabaseViewSurface({
   const showBoardDescription = presentation.layouts.board.showDescription !== false;
   const columns = useMemo(
     () => buildDatabaseViewColumns(
-      model.query,
+      mutationModel.query,
       presentation.group?.propertyId ?? null,
-      presentation.layouts[activeLayout ?? "list"].showEmptyGroups,
+      true,
     ).map((column): DatabaseViewRenderColumn => ({
       ...column,
       rows: compiledSearchQuery.normalizedQuery.length === 0
@@ -657,13 +454,60 @@ function BoardDatabaseViewSurface({
               matchesPageCollectionSearchQuery(
                 row.pageKey,
                 normalizeSearchText(
-                  `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, optionRegistries)}`,
+                  `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(mutationModel, row.pageId, optionRegistries)}`,
                 ),
                 compiledSearchQuery,
             )),
     })),
-    [activeLayout, compiledSearchQuery, model, optionRegistries, presentation],
+    [compiledSearchQuery, mutationModel, optionRegistries, presentation],
   );
+  const groupProperty = model.query.properties.find((property) =>
+    property.lifecycle === "active" && property.propertyId === groupPropertyId
+  ) ?? null;
+  const subgroupProperty = model.query.properties.find((property) =>
+    property.lifecycle === "active" && property.propertyId === subgroupPropertyId
+  ) ?? null;
+  const groupOptions = groupProperty
+    ? optionRegistries[groupProperty.propertyId] ?? readDatabasePropertyOptions(groupProperty)
+    : [];
+  const subgroupOptions = subgroupProperty
+    ? optionRegistries[subgroupProperty.propertyId]
+      ?? readDatabasePropertyOptions(subgroupProperty)
+    : [];
+  const columnPresentations = new Map(columns.map((column) => [
+    column.id,
+    projectDatabaseBoardGroup({
+      property: groupProperty,
+      groupKey: column.groupKey,
+      label: column.name,
+      pathKey: column.scopeKey,
+      options: groupOptions,
+    }),
+  ] as const));
+  const columnLayoutScope = databaseBoardColumnLayoutScope({
+    viewId: model.databaseViewId,
+    groupPropertyId,
+  });
+  const [columnLayoutPrefs, setColumnLayoutPrefs] =
+    useState<DatabaseBoardColumnLayoutPrefs>(() =>
+      readDatabaseBoardColumnLayoutPrefs(columnLayoutScope)
+    );
+  useEffect(() => {
+    setColumnLayoutPrefs(readDatabaseBoardColumnLayoutPrefs(columnLayoutScope));
+  }, [columnLayoutScope]);
+  const patchColumnLayout = (
+    pathKey: string,
+    patch: Parameters<typeof updateDatabaseBoardColumnLayoutPrefs>[3],
+  ) => {
+    setColumnLayoutPrefs((current) =>
+      updateDatabaseBoardColumnLayoutPrefs(
+        columnLayoutScope,
+        current,
+        pathKey,
+        patch,
+      )
+    );
+  };
   const subgroupsByColumn = useMemo(() => {
     const subgroupPropertyId = presentation.subgroup?.propertyId;
     if (!subgroupPropertyId) {
@@ -751,17 +595,30 @@ function BoardDatabaseViewSurface({
   }, [visiblePageIds]);
   const failedContinuations = [...(groupPagination?.values() ?? [])]
     .filter((state) => state.error !== null);
+  const columnTotalRows = (columnId: string): number =>
+    (subgroupsByColumn.get(columnId) ?? []).reduce(
+      (total, subgroup) =>
+        total + (groupPagination?.get(subgroup.scopeKey)?.totalRows
+          ?? subgroup.rows.length),
+      0,
+    );
   const groupShowMore = (scopeKey: string) => {
     const state = groupPagination?.get(scopeKey);
     if (!state?.hasMore || !onLoadMoreGroup) return null;
+    const remainingRows = state.totalRows === null
+      ? null
+      : Math.max(state.totalRows - state.loadedRows, 0);
+    const label = remainingRows !== null && remainingRows > 0
+      ? `Show ${Math.min(remainingRows, 50)} more`
+      : "Show more";
     return (
       <button
         type="button"
         disabled={state.loadingMore}
         onClick={() => void onLoadMoreGroup(scopeKey)}
-        className="mt-1 w-full rounded-md px-2 py-1 text-left text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50"
+        className="mt-2 flex w-full items-center rounded-md px-2.5 py-1.5 text-xs font-medium text-(--foreground-secondary) hover:bg-(--surface-hover) disabled:opacity-50"
       >
-        {state.loadingMore ? "Loading…" : "Show more"}
+        {state.loadingMore ? "Loading…" : label}
       </button>
     );
   };
@@ -771,7 +628,7 @@ function BoardDatabaseViewSurface({
     mutationKeys: readonly string[],
     propagateError = false,
   ) => {
-    if (operations.length === 0) return;
+    if (operations.length === 0) return null;
     setPendingMutationKeys((current) => {
       const next = new Map(current);
       for (const key of mutationKeys) next.set(key, (next.get(key) ?? 0) + 1);
@@ -783,11 +640,12 @@ function BoardDatabaseViewSurface({
       return next;
     });
     try {
-      await commitOperations({
-        model,
+      const receipt = await commitOperations({
+        model: mutationModel,
         operations,
       });
       await onCommitted?.();
+      return receipt;
     } catch (nextError) {
       console.error("[database-view:mutation]", nextError);
       const pageMutation = mutationKeys.some((key) => key.startsWith("page:"));
@@ -801,6 +659,7 @@ function BoardDatabaseViewSurface({
       }
       await onCommitted?.();
       if (propagateError) throw nextError;
+      return null;
     } finally {
       setPendingMutationKeys((current) => {
         const next = new Map(current);
@@ -819,9 +678,35 @@ function BoardDatabaseViewSurface({
     propertyId: string,
     value: DatabaseJsonValue,
   ) => void commit(
-    buildDatabaseViewPropertyValueOperations({ model, pageId, propertyId, value }),
+    buildDatabaseViewPropertyValueOperations({
+      model: mutationModel,
+      pageId,
+      propertyId,
+      value,
+    }),
     [`value:${pageId}:${propertyId}`],
   );
+  const setStructuralValue = (
+    pageId: string,
+    propertyId: string,
+    value: DatabaseJsonValue,
+  ) => {
+    const row = model.query.rows.find((candidate) => candidate.page.pageId === pageId);
+    if (!row) return;
+    const operations = buildDatabaseViewBoardDropOperations({
+      model: mutationModel,
+      pageIds: [pageId],
+      target: {
+        groupKey: propertyId === groupPropertyId
+          ? databaseGroupKeyForValue(value)
+          : row.effectiveGroupKey,
+        subgroupKey: propertyId === subgroupPropertyId
+          ? databaseGroupKeyForValue(value)
+          : row.effectiveSubgroupKey,
+      },
+    });
+    void commit(operations, [`page:${pageId}`, `value:${pageId}:${propertyId}`]);
+  };
   const isPageRunGroupComplete = (pageIds: readonly string[]): boolean => {
     const owningColumns = pageIds.map((pageId) =>
       columns.find((column) =>
@@ -842,7 +727,7 @@ function BoardDatabaseViewSurface({
     const groupComplete = isPageRunGroupComplete(orderedPageIds);
     void commit(
       buildDatabaseViewMovePageRunOperations({
-        model,
+        model: mutationModel,
         pageIds: orderedPageIds,
         direction,
         groupComplete,
@@ -889,7 +774,7 @@ function BoardDatabaseViewSurface({
   };
   const startPageDrag = (
     row: DatabaseViewRenderRow,
-    event: ReactDragEvent<HTMLButtonElement>,
+    event: ReactDragEvent<HTMLElement>,
   ): void => {
     const pageIds = selectedPageIds.has(row.pageId)
       ? allRows.flatMap((candidate) =>
@@ -900,12 +785,16 @@ function BoardDatabaseViewSurface({
       DATABASE_VIEW_PAGE_DRAG_MIME,
       JSON.stringify({ pageIds }),
     );
-    event.dataTransfer.effectAllowed = "move";
-    setDraggingPageIds(new Set(pageIds));
+    event.dataTransfer.effectAllowed = "copyMove";
+    const nextDraggingPageIds = new Set(pageIds);
+    draggingPageIdsRef.current = nextDraggingPageIds;
+    setDraggingPageIds(nextDraggingPageIds);
     highlightPage(row.pageId);
   };
   const endPageDrag = (): void => {
+    draggingPageIdsRef.current = new Set();
     setDraggingPageIds(new Set());
+    setDropIndicator(null);
   };
   const dropPages = (
     event: ReactDragEvent<HTMLElement>,
@@ -919,17 +808,60 @@ function BoardDatabaseViewSurface({
     if (pageIds.length === 0) return;
     event.preventDefault();
     event.stopPropagation();
-    const operations = buildDatabaseViewBoardDropOperations({
-      model,
+    const propertyValues = resolveDatabaseViewDropPropertyValues({
+      model: mutationModel,
       pageIds,
       target,
     });
+    const operations = buildDatabaseViewBoardDropOperations({
+      model: mutationModel,
+      pageIds,
+      target,
+      propertyValues,
+    });
+    if (operations.length === 0) {
+      endPageDrag();
+      return;
+    }
+    if (onMoveBoardPages) {
+      // The store publishes the optimistic projection synchronously before
+      // this Promise reaches its first await. Start that handoff before
+      // clearing gesture-only state so the old layout is never exposed.
+      const move = onMoveBoardPages({
+        pageIds,
+        presentation: effectivePresentation,
+        target,
+        propertyValues,
+      });
+      endPageDrag();
+      void move;
+      return;
+    }
+    const optimistic: DatabaseViewBoardOptimisticDrop = {
+      sessionId: ++optimisticDropSessionIdRef.current,
+      storeEpoch: mutationModel.storeEpoch,
+      pageIds,
+      fallbackRows: mutationModel.query.rows.filter((row) =>
+        pageIds.includes(row.page.pageId)
+      ),
+      target,
+      propertyValues,
+      receiptCommitSeq: null,
+    };
+    setOptimisticDrop(optimistic);
     endPageDrag();
-    if (operations.length === 0) return;
-    void commit(
-      operations,
-      pageIds.map((pageId) => `page:${pageId}`),
-    );
+    void (async () => {
+      const receipt = await commit(
+        operations,
+        pageIds.map((pageId) => `page:${pageId}`),
+      );
+      setOptimisticDrop((current) => {
+        if (current?.sessionId !== optimistic.sessionId) return current;
+        return receipt
+          ? { ...current, receiptCommitSeq: receipt.commitSeq }
+          : null;
+      });
+    })();
   };
   const dropBlocks = async (
     event: ReactDragEvent<HTMLElement>,
@@ -963,8 +895,16 @@ function BoardDatabaseViewSurface({
       placement: {
         kind: "direct",
         viewId: model.databaseViewId,
+        presentationOverride: databaseViewGesturePresentationOverride(
+          effectivePresentation,
+          "board",
+        ),
         groupKey: target.groupKey,
         ...(target.beforePageId ? { beforePageId: target.beforePageId } : {}),
+        sortedPropertyValues: resolveDatabaseViewSortedDropValues({
+          model: mutationModel,
+          target,
+        }),
       },
       altKey: event.altKey,
       shiftKey: event.shiftKey,
@@ -986,6 +926,114 @@ function BoardDatabaseViewSurface({
     }
     void dropBlocks(event, target);
   };
+  const handleBoardCellDragOver = (
+    event: ReactDragEvent<HTMLElement>,
+    scopeKey: string,
+    rows: readonly DatabaseViewRenderRow[],
+    target: {
+      readonly groupKey: string | null;
+      readonly subgroupKey: string | null;
+    },
+  ): void => {
+    const internal = event.dataTransfer.types.includes(
+      DATABASE_VIEW_PAGE_DRAG_MIME,
+    );
+    const blocks = shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)
+      && hasDragType(event.dataTransfer, NODEX_BLOCK_TRANSFER_DRAG_MIME);
+    if (!internal && !blocks) return;
+    const exactSlot = databaseViewSupportsSortedSlotInference(mutationModel);
+    const internalPageIds = internal
+      ? [...draggingPageIdsRef.current]
+      : [];
+    if (!exactSlot && internal) {
+      const changesStructure = internalPageIds.some((pageId) => {
+        const row = model.query.rows.find((candidate) => candidate.page.pageId === pageId);
+        return row?.effectiveGroupKey !== target.groupKey
+          || row.effectiveSubgroupKey !== target.subgroupKey;
+      });
+      if (!changesStructure) return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = event.altKey && blocks ? "copy" : "move";
+    const ignoredPageIds = new Set(internalPageIds);
+    const index = computeNativeDropIndexFromSurface(
+      event.currentTarget,
+      event.clientY,
+      { ignoredPageIds },
+    );
+    const remainingRows = rows.filter((row) => !ignoredPageIds.has(row.pageId));
+    const values = exactSlot ? resolveDatabaseViewDropPropertyValues({
+      model: mutationModel,
+      pageIds: [...ignoredPageIds],
+      target: {
+        ...target,
+        ...(remainingRows[index]
+          ? { beforePageId: remainingRows[index].pageId }
+          : {}),
+      },
+    }) : [];
+    const label = values.flatMap(({ propertyId, value }) => {
+      const property = model.query.properties.find((candidate) =>
+        candidate.lifecycle === "active" && candidate.propertyId === propertyId
+      );
+      if (!property) return [];
+      const options = optionRegistries[propertyId]
+        ?? readDatabasePropertyOptions(property);
+      const formatted = value === null
+        ? "Empty"
+        : typeof value === "string"
+          ? options.find((option) => option.id === value)?.name ?? value
+          : Array.isArray(value)
+            ? value.map((entry) =>
+                typeof entry === "string"
+                  ? options.find((option) => option.id === entry)?.name ?? entry
+                  : String(entry)
+              ).join(", ")
+            : String(value);
+      return [`${property.name}: ${formatted}`];
+    }).join(" · ");
+    setDropIndicator((current) =>
+      current?.scopeKey === scopeKey
+        && current.index === index
+        && current.exactSlot === exactSlot
+        && current.label === (label || undefined)
+        ? current
+        : { scopeKey, index, exactSlot, ...(label ? { label } : {}) }
+    );
+  };
+  const handleBoardCellDragLeave = (
+    event: ReactDragEvent<HTMLElement>,
+    scopeKey: string,
+  ): void => {
+    const related = event.relatedTarget;
+    if (related instanceof Node && event.currentTarget.contains(related)) return;
+    setDropIndicator((current) => current?.scopeKey === scopeKey ? null : current);
+  };
+  const handleBoardCellDrop = (
+    event: ReactDragEvent<HTMLElement>,
+    rows: readonly DatabaseViewRenderRow[],
+    target: {
+      readonly groupKey: string | null;
+      readonly subgroupKey: string | null;
+    },
+  ): void => {
+    const internalPageIds = readDraggedPageIds(event.dataTransfer);
+    const ignoredPageIds = new Set(internalPageIds);
+    const index = computeNativeDropIndexFromSurface(
+      event.currentTarget,
+      event.clientY,
+      { ignoredPageIds },
+    );
+    const remainingRows = rows.filter((row) => !ignoredPageIds.has(row.pageId));
+    dropOnBoardTarget(event, {
+      ...target,
+      ...(databaseViewSupportsSortedSlotInference(mutationModel) && remainingRows[index]
+        ? { beforePageId: remainingRows[index].pageId }
+        : {}),
+    });
+    setDropIndicator(null);
+  };
   const actionPageIds = resolveBoardKeyboardActionPageIds(
     keyboardBoard,
     highlightedPageId,
@@ -1003,7 +1051,7 @@ function BoardDatabaseViewSurface({
   const buildHorizontalMoveOperations = (
     commandId: "boardMoveLeft" | "boardMoveRight",
   ) => {
-    if (model.readOnlyReason) return null;
+    if (mutationModel.readOnlyReason) return null;
     const active = findBoardKeyboardLocation(keyboardBoard, highlightedPageId);
     if (!active || actionPageIds.length === 0) return null;
     const offset = commandId === "boardMoveRight" ? 1 : -1;
@@ -1027,7 +1075,7 @@ function BoardDatabaseViewSurface({
     );
     const beforePageId = remainingDestinationPageIds[newOrder];
     const operations = buildDatabaseViewBoardDropOperations({
-      model,
+      model: mutationModel,
       pageIds: actionPageIds,
       target: {
         groupKey: destinationColumn.groupKey,
@@ -1038,7 +1086,7 @@ function BoardDatabaseViewSurface({
     return operations.length > 0 ? operations : null;
   };
   const canMoveHighlightedPage = (commandId: CommandId): boolean => {
-    if (model.readOnlyReason) return false;
+    if (mutationModel.readOnlyReason) return false;
     if (commandId === "boardMoveLeft" || commandId === "boardMoveRight") {
       return buildHorizontalMoveOperations(commandId) !== null;
     }
@@ -1046,7 +1094,7 @@ function BoardDatabaseViewSurface({
     if (!direction || actionPageIds.length === 0) return false;
     try {
       return buildDatabaseViewMovePageRunOperations({
-        model,
+        model: mutationModel,
         pageIds: actionPageIds,
         direction,
         groupComplete: isPageRunGroupComplete(actionPageIds),
@@ -1162,25 +1210,27 @@ function BoardDatabaseViewSurface({
     }),
     [`value:${pageId}:${property.propertyId}`],
   );
-  const createOption = (
+  const createOption = async (
     pageId: string,
     property: DataSourcePropertyRecordV2,
     option: { readonly optionId: string; readonly name: string; readonly color?: string },
-  ) => commit(
-    buildDataSourceCreateOptionAndSelectOperations({
-      pageId,
-      dataSourceId: model.query.dataSource.dataSourceId,
-      property,
-      current: rowByPageId(model, pageId)?.values[property.propertyId],
-      option: {
-        id: option.optionId,
-        name: option.name,
-        ...(option.color === undefined ? {} : { color: option.color }),
-      },
-    }),
-    [`property:${property.propertyId}`, `value:${pageId}:${property.propertyId}`],
-    true,
-  );
+  ): Promise<void> => {
+    await commit(
+      buildDataSourceCreateOptionAndSelectOperations({
+        pageId,
+        dataSourceId: model.query.dataSource.dataSourceId,
+        property,
+        current: rowByPageId(model, pageId)?.values[property.propertyId],
+        option: {
+          id: option.optionId,
+          name: option.name,
+          ...(option.color === undefined ? {} : { color: option.color }),
+        },
+      }),
+      [`property:${property.propertyId}`, `value:${pageId}:${property.propertyId}`],
+      true,
+    );
+  };
   const loadRelationTargets = async (
     pageId: string,
     propertyId: string,
@@ -1216,27 +1266,30 @@ function BoardDatabaseViewSurface({
     property,
   });
   const pageProps = (row: DatabaseViewRenderRow) => ({
-    model,
+    model: mutationModel,
     row,
     trailingProperties: trailingBoardProperties,
+    groupPropertyId,
+    subgroupPropertyId,
     showPageKey: showBoardPageKey,
     showDescription: showBoardDescription,
     pendingMutationKeys,
     mutationErrors,
     canMoveUp: canMoveDatabaseViewPage({
-      model,
+      model: mutationModel,
       pageId: row.pageId,
       direction: "up",
       groupComplete: isPageRunGroupComplete([row.pageId]),
     }),
     canMoveDown: canMoveDatabaseViewPage({
-      model,
+      model: mutationModel,
       pageId: row.pageId,
       direction: "down",
       groupComplete: isPageRunGroupComplete([row.pageId]),
     }),
     onOpenPage,
     onSetValue: setValue,
+    onSetStructuralValue: setStructuralValue,
     onPatchOptions: patchOptions,
     onPatchRelation: patchRelation,
     onReplaceOneRelation: replaceRelation,
@@ -1258,17 +1311,27 @@ function BoardDatabaseViewSurface({
     presented: presentedPageIds?.has(row.pageId) ?? false,
     selected: selectedPageIds.has(row.pageId),
     onHighlight: highlightPage,
-    draggable: activeLayout === "board" && model.readOnlyReason === null,
+    onSelectOnly: (pageId: string) => {
+      setSelectedPageIds(new Set([pageId]));
+      highlightPage(pageId);
+    },
+    onToggleSelection: togglePageSelection,
+    // Keep the same single-flight DnD boundary as List: a second placement
+    // cannot start until the first optimistic projection has handed off to
+    // receipt-covered authority.
+    draggable: activeLayout === "board"
+      && model.readOnlyReason === null
+      && optimisticDrop === null,
+    pragmaticDragData: buildDatabaseViewPageDragData({
+      model: mutationModel,
+      row,
+      allRows,
+      selectedPageIds,
+      instanceId: boardDragInstanceId,
+    }),
     dragging: draggingPageIds.has(row.pageId),
     onDragStartPage: startPageDrag,
     onDragEndPage: endPageDrag,
-    onDropBefore: (targetRow: DatabaseViewRenderRow, event: ReactDragEvent<HTMLElement>) => {
-      dropOnBoardTarget(event, {
-        groupKey: targetRow.groupKey,
-        subgroupKey: targetRow.subgroupKey,
-        beforePageId: targetRow.pageId,
-      });
-    },
   } as const);
   const mutationHistoryProjectId = model.accessContext.kind === "project"
     ? model.accessContext.projectId
@@ -1350,100 +1413,410 @@ function BoardDatabaseViewSurface({
           </button>
         </div>
       ) : null}
-      {allRows.length === 0 ? (
+      {columns.length === 0
+        || (allRows.length === 0 && compiledSearchQuery.normalizedQuery.length > 0) ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-sm text-token-description-foreground">
           {compiledSearchQuery.normalizedQuery.length > 0
             ? "No matching Pages"
             : "This View has no Pages"}
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto p-3">
+        <div
+          className="min-h-0 flex-1 overflow-auto px-3 pb-3"
+          data-database-board-scroll="true"
+          data-page-create-surface-id={pageCreateSurfaceId}
+        >
           <div className="min-w-max">
-            <div className="flex gap-2">
-              {columns.map((column) => (
-                <div
-                  key={column.id}
-                  className="flex h-7 w-64 shrink-0 items-center gap-2 px-1 text-xs text-token-text-secondary"
-                >
-                  <span className="min-w-0 flex-1 truncate font-medium text-token-text-primary">
-                    {column.name}
-                  </span>
-                  <span className="tabular-nums">
-                    {(subgroupsByColumn.get(column.id) ?? []).reduce(
-                      (total, subgroup) =>
-                        total + (groupPagination?.get(subgroup.scopeKey)?.totalRows
-                          ?? subgroup.rows.length),
-                      0,
-                    )}
-                  </span>
-                </div>
-              ))}
+            <div
+              data-database-board-sticky-header="true"
+              className="sticky top-0 z-20 bg-(--background) pt-3"
+            >
+              <div className="flex items-stretch gap-3">
+                {columns.map((column) => {
+                const group = columnPresentations.get(column.id)!;
+                const layout = getDatabaseBoardColumnLayout(
+                  columnLayoutPrefs,
+                  group.pathKey,
+                );
+                const totalRows = columnTotalRows(column.id);
+                const autoCollapsed = totalRows === 0;
+                const collapsed = layout.collapsed || autoCollapsed;
+                const collapsedTargetSubgroup = boardSubgroups[0] ?? null;
+                const collapsedTargetRows = collapsedTargetSubgroup
+                  ? (subgroupsByColumn.get(column.id) ?? []).find(
+                    (candidate) => candidate.key === collapsedTargetSubgroup.key,
+                  )?.rows ?? []
+                  : [];
+                const collapsedTargetScopeKey = collapsedTargetSubgroup
+                  ? groupScopeKeyForPath(
+                    column.groupKey,
+                    collapsedTargetSubgroup.key,
+                  )
+                  : null;
+                const active = boardSubgroups.some((subgroupIdentity) =>
+                  dropIndicator?.scopeKey === groupScopeKeyForPath(
+                    column.groupKey,
+                    subgroupIdentity.key,
+                  )
+                );
+                  return (
+                    <div
+                      key={column.id}
+                      className="relative h-10 shrink-0"
+                      style={{
+                        width: databaseBoardColumnSurfaceWidth(
+                          layout.width,
+                          collapsed,
+                        ),
+                        "--column-accent": group.accentColor,
+                      } as React.CSSProperties}
+                    >
+                      {collapsed ? (
+                        <div
+                          data-database-board-collapsed-header-underlay="true"
+                          className="pointer-events-none absolute inset-x-0 top-0 z-10 rounded-t-lg bg-(--background)"
+                        >
+                          <div
+                            data-database-board-column-header="true"
+                            data-database-board-collapsed-header="true"
+                            title={`${column.name} — collapsed`}
+                            className="relative flex flex-col items-center rounded-t-lg px-1 pt-3 pb-2"
+                            onDragOver={collapsedTargetScopeKey
+                              ? (event) => handleBoardCellDragOver(
+                                event,
+                                collapsedTargetScopeKey,
+                                collapsedTargetRows,
+                                {
+                                  groupKey: column.groupKey,
+                                  subgroupKey: collapsedTargetSubgroup?.key ?? null,
+                                },
+                              )
+                              : undefined}
+                            onDragLeave={collapsedTargetScopeKey
+                              ? (event) => handleBoardCellDragLeave(
+                                event,
+                                collapsedTargetScopeKey,
+                              )
+                              : undefined}
+                            onDrop={collapsedTargetSubgroup && collapsedTargetScopeKey
+                              ? (event) => handleBoardCellDrop(
+                                event,
+                                collapsedTargetRows,
+                                {
+                                  groupKey: column.groupKey,
+                                  subgroupKey: collapsedTargetSubgroup.key,
+                                },
+                              )
+                              : undefined}
+                            style={{
+                              backgroundColor: active
+                                ? group.activeSurfaceColor
+                                : group.surfaceColor,
+                              boxShadow: active
+                                ? "inset 1.5px 1.5px 0 color-mix(in srgb, var(--column-accent) 38%, transparent), inset -1.5px 0 0 color-mix(in srgb, var(--column-accent) 38%, transparent)"
+                                : undefined,
+                            }}
+                          >
+                            <DatabaseBoardGroupMarker group={group} />
+                            <span
+                              data-database-board-collapsed-label="true"
+                              className="mt-2 text-base font-medium whitespace-nowrap opacity-70"
+                              style={{
+                                color: group.accentColor,
+                                writingMode: "vertical-lr",
+                              }}
+                            >
+                              {column.name}
+                            </span>
+                            <span
+                              className="mt-2 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-medium tabular-nums"
+                              style={{
+                                color: group.accentColor,
+                                background:
+                                  "color-mix(in srgb, var(--column-accent) 14%, transparent)",
+                              }}
+                            >
+                              {totalRows}
+                            </span>
+                            <div className="pointer-events-auto mt-2">
+                              <ColumnActionPopover
+                                columnName={column.name}
+                                collapsed={layout.collapsed}
+                                width={layout.width}
+                                accentColor={group.accentColor}
+                                alwaysVisible
+                                onCollapsedChange={(nextCollapsed) =>
+                                  patchColumnLayout(group.pathKey, {
+                                    collapsed: nextCollapsed,
+                                  })}
+                                onWidthChange={(width) =>
+                                  patchColumnLayout(group.pathKey, { width })}
+                              />
+                            </div>
+                            {active ? (
+                              <div
+                                data-board-collapsed-drop-indicator="true"
+                                className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5"
+                              >
+                                <DropIndicator
+                                  className="relative"
+                                  label={dropIndicator?.label}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          data-database-board-column-header="true"
+                          className="group/column flex h-10 items-center rounded-t-lg px-2"
+                          style={{
+                            backgroundColor: active
+                              ? group.activeSurfaceColor
+                              : group.surfaceColor,
+                            boxShadow: active
+                              ? "inset 0 0 0 1.5px color-mix(in srgb, var(--column-accent) 38%, transparent)"
+                              : undefined,
+                          }}
+                        >
+                          <DatabaseBoardGroupMarker group={group} />
+                          <span
+                            data-database-board-column-label="true"
+                            className="ml-1.5 min-w-0 truncate text-sm font-normal text-token-text-primary"
+                          >
+                            {column.name}
+                          </span>
+                          <span
+                            data-database-board-column-count="true"
+                            className="ml-1.5 text-sm tabular-nums text-token-description-foreground"
+                          >
+                            {totalRows}
+                          </span>
+                          <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/column:opacity-100 focus-within:opacity-100">
+                            <ColumnActionPopover
+                              columnName={column.name}
+                              collapsed={layout.collapsed}
+                              width={layout.width}
+                              accentColor={group.accentColor}
+                              alwaysVisible
+                              onCollapsedChange={(nextCollapsed) =>
+                                patchColumnLayout(group.pathKey, {
+                                  collapsed: nextCollapsed,
+                                })}
+                              onWidthChange={(width) =>
+                                patchColumnLayout(group.pathKey, { width })}
+                            />
+                            {!subgroupProperty
+                              && groupPropertyId === "status"
+                              && column.groupKey !== null
+                              && onRequestCreatePage ? (
+                              <button
+                                type="button"
+                                aria-label={`Create Page in ${column.name}`}
+                                data-page-create-trigger="header"
+                                data-page-create-column-id={column.groupKey}
+                                className="flex size-6 shrink-0 items-center justify-center rounded-xs text-(--column-accent) hover:bg-token-foreground/5"
+                                onClick={() => onRequestCreatePage(column.groupKey!)}
+                              >
+                                <PlusIcon className="size-3.5" />
+                              </button>
+                              ) : null}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             {boardSubgroups.map((subgroupIdentity) => (
               <section
                 key={subgroupIdentity.key === null
                   ? "subgroup:null"
                   : `subgroup:${subgroupIdentity.key}`}
-                className="mt-1"
+                className={subgroupIdentity.name ? "mt-1" : undefined}
               >
                 {subgroupIdentity.name ? (
-                  <div className="sticky left-0 z-10 flex h-7 w-64 items-center px-1 text-[11px] font-medium text-token-description-foreground">
-                    {subgroupIdentity.name}
+                  <div className="sticky left-0 z-10 flex h-8 w-72 items-center gap-1.5 px-1 text-xs font-medium text-token-text-secondary">
+                    <DatabaseBoardGroupMarker
+                      group={projectDatabaseBoardGroup({
+                        property: subgroupProperty,
+                        groupKey: subgroupIdentity.key,
+                        label: subgroupIdentity.name,
+                        pathKey: `subgroup:${subgroupIdentity.key ?? "unassigned"}`,
+                        options: subgroupOptions,
+                      })}
+                    />
+                    <span className="truncate">{subgroupIdentity.name}</span>
                   </div>
                 ) : null}
-                <div className="flex items-stretch gap-2">
+                <div className="flex items-stretch gap-3">
                   {columns.map((column) => {
+                    const group = columnPresentations.get(column.id)!;
+                    const layout = getDatabaseBoardColumnLayout(
+                      columnLayoutPrefs,
+                      group.pathKey,
+                    );
+                    const collapsed = layout.collapsed
+                      || columnTotalRows(column.id) === 0;
                     const subgroup = (subgroupsByColumn.get(column.id) ?? [])
                       .find((candidate) => candidate.key === subgroupIdentity.key);
                     const rows = subgroup?.rows ?? [];
+                    const cellScopeKey = subgroup?.scopeKey
+                      ?? groupScopeKeyForPath(column.groupKey, subgroupIdentity.key);
+                    const indicatorPlacement = resolveDropIndicatorPlacement(
+                      rows.map((row) => ({ id: row.pageId })),
+                      draggingPageIds,
+                      dropIndicator?.scopeKey === cellScopeKey
+                        ? dropIndicator.index
+                        : undefined,
+                    );
+                    const active = dropIndicator?.scopeKey === cellScopeKey;
+                    const handleCellDragOver = (
+                      event: ReactDragEvent<HTMLElement>,
+                    ): void => handleBoardCellDragOver(event, cellScopeKey, rows, {
+                      groupKey: column.groupKey,
+                      subgroupKey: subgroupIdentity.key,
+                    });
+                    const handleCellDragLeave = (
+                      event: ReactDragEvent<HTMLElement>,
+                    ): void => handleBoardCellDragLeave(event, cellScopeKey);
+                    const handleCellDrop = (
+                      event: ReactDragEvent<HTMLElement>,
+                    ): void => handleBoardCellDrop(event, rows, {
+                      groupKey: column.groupKey,
+                      subgroupKey: subgroupIdentity.key,
+                    });
                     return (
                       <div
                         key={`${column.id}:${subgroupIdentity.key ?? "null"}`}
+                        data-board-column-root="true"
+                        data-board-column-id={column.groupKey ?? "unassigned"}
+                        data-board-column-collapsed={collapsed ? "true" : "false"}
+                        data-board-column-drop-target-active={active ? "true" : undefined}
                         data-app-action-board-column-id={column.groupKey ?? "unassigned"}
                         data-database-view-subgroup-key={subgroupIdentity.key ?? "unassigned"}
                         className={cn(
-                          "flex min-h-14 w-64 shrink-0 flex-col gap-1 rounded-lg p-0.5 transition-colors",
-                          draggingPageIds.size > 0 && "bg-token-foreground/[0.025]",
+                          "flex min-h-14 shrink-0 flex-col gap-2 rounded-b-lg px-2 pb-2 pt-0.75",
+                          collapsed && "overflow-hidden px-1",
                         )}
-                        onDragOver={(event) => {
-                          const internal = event.dataTransfer.types.includes(
-                            DATABASE_VIEW_PAGE_DRAG_MIME,
-                          );
-                          const blocks = shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)
-                            && hasDragType(
-                              event.dataTransfer,
-                              NODEX_BLOCK_TRANSFER_DRAG_MIME,
-                            );
-                          if (!internal && !blocks) return;
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = event.altKey && blocks
-                            ? "copy"
-                            : "move";
-                        }}
-                        onDrop={(event) => {
-                          const internalPageIds = readDraggedPageIds(event.dataTransfer);
-                          const ignoredPageIds = new Set(internalPageIds);
-                          const index = computeNativeDropIndexFromSurface(
-                            event.currentTarget,
-                            event.clientY,
-                            { ignoredPageIds },
-                          );
-                          const remainingRows = rows.filter(
-                            (row) => !ignoredPageIds.has(row.pageId),
-                          );
-                          dropOnBoardTarget(event, {
-                            groupKey: column.groupKey,
-                            subgroupKey: subgroupIdentity.key,
-                            ...(remainingRows[index]
-                              ? { beforePageId: remainingRows[index].pageId }
-                              : {}),
-                          });
-                        }}
+                        style={{
+                          width: databaseBoardColumnSurfaceWidth(
+                            layout.width,
+                            collapsed,
+                          ),
+                          "--column-accent": group.accentColor,
+                          backgroundColor: active
+                            ? group.activeSurfaceColor
+                            : group.surfaceColor,
+                          boxShadow: active
+                            ? collapsed
+                              ? "inset 1.5px 0 0 color-mix(in srgb, var(--column-accent) 38%, transparent), inset -1.5px 0 0 color-mix(in srgb, var(--column-accent) 38%, transparent), inset 0 -1.5px 0 color-mix(in srgb, var(--column-accent) 38%, transparent)"
+                              : "inset 0 0 0 1.5px color-mix(in srgb, var(--column-accent) 38%, transparent)"
+                            : undefined,
+                        } as React.CSSProperties}
+                        onDragOver={collapsed ? undefined : handleCellDragOver}
+                        onDragLeave={collapsed ? undefined : handleCellDragLeave}
+                        onDrop={collapsed ? undefined : handleCellDrop}
                       >
-                        {rows.map((row) => (
-                          <BoardPageCardSurface key={row.pageId} {...pageProps(row)} />
-                        ))}
-                        {subgroup ? groupShowMore(subgroup.scopeKey) : null}
+                        {collapsed ? (() => {
+                          const canCreate = !layout.collapsed
+                            && !subgroupProperty
+                            && groupPropertyId === "status"
+                            && column.groupKey !== null
+                            && onRequestCreatePage !== undefined;
+                          const interactive = layout.collapsed || canCreate;
+                          return (
+                            <div
+                              role={interactive ? "button" : undefined}
+                              tabIndex={interactive ? 0 : undefined}
+                              aria-label={layout.collapsed
+                                ? `Expand ${column.name}`
+                                : canCreate
+                                  ? `Create Page in ${column.name}`
+                                  : undefined}
+                              aria-disabled={canCreate ? false : undefined}
+                              data-page-create-trigger={canCreate
+                                ? "auto-collapsed-column"
+                                : undefined}
+                              data-page-create-column-id={canCreate
+                                ? column.groupKey ?? undefined
+                                : undefined}
+                              className={cn(
+                                "flex min-h-32 flex-1 flex-col items-center rounded-b-lg px-1 pb-3 outline-none",
+                                interactive && "cursor-pointer focus-visible:ring-2 focus-visible:ring-token-focus",
+                              )}
+                              onDragOver={handleCellDragOver}
+                              onDragLeave={handleCellDragLeave}
+                              onDrop={handleCellDrop}
+                              onClick={interactive
+                                ? () => {
+                                    if (layout.collapsed) {
+                                      patchColumnLayout(group.pathKey, { collapsed: false });
+                                      return;
+                                    }
+                                    if (canCreate) onRequestCreatePage(column.groupKey!);
+                                  }
+                                : undefined}
+                              onKeyDown={interactive
+                                ? (event) => {
+                                    if (event.key !== "Enter" && event.key !== " ") return;
+                                    event.preventDefault();
+                                    if (layout.collapsed) {
+                                      patchColumnLayout(group.pathKey, { collapsed: false });
+                                      return;
+                                    }
+                                    if (canCreate) onRequestCreatePage(column.groupKey!);
+                                  }
+                                : undefined}
+                            >
+                            </div>
+                          );
+                        })() : (
+                          <>
+                            {rows.map((row) => (
+                              <div key={row.pageId} className="relative">
+                                {dropIndicator?.exactSlot
+                                  && indicatorPlacement.beforePageId === row.pageId ? (
+                                  <DropIndicator
+                                    className="absolute inset-x-0 top-0 -translate-y-1/2"
+                                    label={dropIndicator?.label}
+                                  />
+                                ) : null}
+                                <DatabaseBoardCard {...pageProps(row)} />
+                              </div>
+                            ))}
+                            {dropIndicator?.exactSlot && indicatorPlacement.atEnd ? (
+                              <div className="relative -mt-2 h-0">
+                                <DropIndicator
+                                  className="absolute inset-x-0 top-0"
+                                  label={dropIndicator?.label}
+                                />
+                              </div>
+                            ) : null}
+                            {subgroup ? groupShowMore(subgroup.scopeKey) : null}
+                            {!subgroupProperty
+                              && groupPropertyId === "status"
+                              && column.groupKey !== null
+                              && onRequestCreatePage ? (
+                                <button
+                                  type="button"
+                                  data-page-create-trigger="footer"
+                                  data-page-create-column-id={column.groupKey}
+                                  className="flex w-full items-center gap-2.25 rounded-md border px-2.5 py-2.5 text-sm outline-none hover:bg-[color-mix(in_srgb,var(--column-accent,#888)_15%,var(--card))] focus-visible:ring-2 focus-visible:ring-token-focus"
+                                  style={{
+                                    color: group.accentColor,
+                                    borderColor:
+                                      "color-mix(in srgb, var(--column-accent) 20%, transparent)",
+                                  }}
+                                  onClick={() => onRequestCreatePage(column.groupKey!)}
+                                >
+                                  <PlusIcon className="size-4" />
+                                  New page
+                                </button>
+                              ) : null}
+                          </>
+                        )}
                       </div>
                     );
                   })}

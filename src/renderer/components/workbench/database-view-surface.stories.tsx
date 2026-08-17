@@ -1061,6 +1061,141 @@ const withSubgroups = (layout: "board" | "list"): DatabaseViewRenderModel => {
   };
 };
 
+const withPriorityGrouping = (): DatabaseViewRenderModel => {
+  const next = withSubgroups("board");
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            group: { propertyId: priorityPropertyId },
+            subgroup: null,
+            layouts: {
+              ...next.query.view.config.presentation.layouts,
+              board: {
+                ...next.query.view.config.presentation.layouts.board,
+                fields: [
+                  { kind: "property", propertyId: priorityPropertyId },
+                  { kind: "property", propertyId: tagsPropertyId },
+                ],
+              },
+            },
+          },
+        },
+      },
+      rows: next.query.rows.map((row) => ({
+        ...row,
+        effectiveGroupKey: row.effectiveSubgroupKey,
+        effectiveSubgroupKey: null,
+      })),
+    },
+  };
+};
+
+const customGroupPropertyId = parseDataSourcePropertyId("p_GROUP001");
+
+const withCustomGrouping = (
+  valueType: "select" | "multi_select" | "checkbox",
+): DatabaseViewRenderModel => {
+  const next = withSubgroups("board");
+  const groupValues = valueType === "checkbox"
+    ? [true, false]
+    : valueType === "multi_select"
+      ? [["o_PLATFORM"], []]
+      : ["o_PLATFORM", null];
+  const groupKeys = valueType === "checkbox"
+    ? ["true", "false"]
+    : valueType === "multi_select"
+      ? ['["o_PLATFORM"]', null]
+      : ["o_PLATFORM", null];
+  const groupProperty: DataSourcePropertyRecordV2 = {
+    propertyId: customGroupPropertyId,
+    dataSourceId,
+    name: valueType === "checkbox" ? "Approved" : "Team",
+    ...testPropertySemantics(valueType, 1),
+    valueType,
+    config: valueType === "select" || valueType === "multi_select"
+      ? { options: [{ id: "o_PLATFORM", name: "Platform", color: "blue" }] }
+      : {},
+    rankKey: "d",
+    lifecycle: "active",
+    revision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            group: { propertyId: customGroupPropertyId },
+            subgroup: null,
+            layouts: {
+              ...next.query.view.config.presentation.layouts,
+              board: {
+                ...next.query.view.config.presentation.layouts.board,
+                fields: [
+                  { kind: "property", propertyId: customGroupPropertyId },
+                  { kind: "property", propertyId: tagsPropertyId },
+                ],
+              },
+            },
+          },
+        },
+      },
+      properties: [...next.query.properties, groupProperty],
+      rows: next.query.rows.map((row, index) => ({
+        ...row,
+        values: {
+          ...row.values,
+          [customGroupPropertyId]: {
+            propertyId: customGroupPropertyId,
+            valueType,
+            value: groupValues[index] ?? null,
+            revision: 1,
+          },
+        },
+        effectiveGroupKey: groupKeys[index] ?? null,
+        effectiveSubgroupKey: null,
+      })),
+    },
+  };
+};
+
+export const PriorityGroupedBoard: Story = {
+  args: { model: withPriorityGrouping() },
+};
+
+export const PriorityGroupedBoardDarkMode: Story = {
+  args: {
+    model: withPriorityGrouping(),
+    presentedPageIds: new Set(["page-1"]),
+  },
+  globals: { theme: "dark" },
+};
+
+export const CustomSelectGroupedBoard: Story = {
+  args: { model: withCustomGrouping("select") },
+};
+
+export const CheckboxGroupedBoard: Story = {
+  args: { model: withCustomGrouping("checkbox") },
+};
+
+export const MultiSelectGroupedBoard: Story = {
+  args: { model: withCustomGrouping("multi_select") },
+};
+
 export const SubgroupedBoard: Story = {
   args: { model: withSubgroups("board") },
 };

@@ -2338,7 +2338,71 @@ pub(crate) fn resolve_page_transfer_data_source_destination(
         group_key,
         before_page_id,
         true,
+        TransferGroupAxis::Durable,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_page_transfer_board_destination(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+    group_key: Option<&str>,
+    before_page_id: Option<&str>,
+    sorted_property_values: &[PageCopyValueDraft],
+) -> Result<PageCopyDataSourceDestination, StoreError> {
+    let source = require_source(connection, library_id, data_source_id)?;
+    authorize_write(
+        connection,
+        requesting_project_id,
+        &source.database_id,
+        DatabaseWriteAction::Write,
+        false,
+    )?;
+    crate::library::require_project_in_library(connection, requesting_project_id, library_id)?;
+    let drop_presentation = super::window::direct_drop_presentation(
+        connection,
+        library_id,
+        view_id,
+        presentation_override,
+    )?;
+    if sorted_property_values.len() > drop_presentation.writable_sort_property_ids.len()
+        || sorted_property_values
+            .iter()
+            .zip(&drop_presentation.writable_sort_property_ids)
+            .any(|(value, property_id)| value.property_id != *property_id)
+    {
+        return Err(invalid(
+            "Block transfer inferred Properties must match the presented Board sort prefix",
+        ));
+    }
+    let mut destination = resolve_page_transfer_data_source_destination_with_access(
+        connection,
+        library_id,
+        requesting_project_id,
+        data_source_id,
+        view_id,
+        group_key,
+        before_page_id,
+        false,
+        TransferGroupAxis::Effective(drop_presentation.group_property_id.as_deref()),
+    )?;
+    for value in sorted_property_values {
+        if destination
+            .values
+            .iter()
+            .any(|candidate| candidate.property_id == value.property_id)
+        {
+            return Err(invalid(
+                "Block transfer inferred the same Property as a presented Board axis",
+            ));
+        }
+        destination.values.push(value.clone());
+    }
+    Ok(destination)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2360,6 +2424,7 @@ pub(crate) fn resolve_page_transfer_data_source_destination_prevalidated(
         group_key,
         before_page_id,
         false,
+        TransferGroupAxis::Durable,
     )
 }
 
@@ -2434,11 +2499,11 @@ pub(crate) fn resolve_page_transfer_list_destination(
         ),
     ];
     let mut seen_property_ids = HashSet::new();
-    let values = axes
+    let mut values = axes
         .into_iter()
         .filter_map(|(property_id, key)| property_id.map(|property_id| (property_id, key)))
         .map(|(property_id, key)| {
-            if !seen_property_ids.insert(property_id) {
+            if !seen_property_ids.insert(property_id.to_owned()) {
                 return Err(invalid(
                     "A List cannot group and subgroup by the same Property",
                 ));
@@ -2450,14 +2515,22 @@ pub(crate) fn resolve_page_transfer_list_destination(
             })
         })
         .collect::<Result<Vec<_>, StoreError>>()?;
-    let manual_order = projection.graph.presentation.sort.is_empty()
-        || projection
-            .graph
-            .presentation
-            .sort
-            .first()
-            .is_some_and(|sort| sort.field == DatabaseViewSortField::Manual);
-    let before = if manual_order {
+    let ignored_page_ids = HashSet::new();
+    for (property_id, value) in super::list_drag::inferred_list_drop_sort_values(
+        connection,
+        &projection.graph,
+        &normalized,
+        &ignored_page_ids,
+    )? {
+        if !seen_property_ids.insert(property_id.clone()) {
+            continue;
+        }
+        values.push(PageCopyValueDraft { property_id, value });
+    }
+    let fractional_order =
+        super::view_contract::fractional_order_direction(&projection.graph.presentation.sort)
+            .is_some();
+    let before = if fractional_order {
         normalized
             .before_page_id
             .as_deref()
@@ -2519,6 +2592,7 @@ fn resolve_page_transfer_data_source_destination_with_access(
     group_key: Option<&str>,
     before_page_id: Option<&str>,
     require_access: bool,
+    group_axis: TransferGroupAxis<'_>,
 ) -> Result<PageCopyDataSourceDestination, StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
     if require_access {
@@ -2541,7 +2615,11 @@ fn resolve_page_transfer_data_source_destination_with_access(
     }
     let definition =
         super::view_contract::decode_definition_json(&view.config_json).map_err(corrupt)?;
-    let values = view_group_property(&definition)
+    let group_property_id = match group_axis {
+        TransferGroupAxis::Durable => view_group_property(&definition),
+        TransferGroupAxis::Effective(property_id) => property_id,
+    };
+    let values = group_property_id
         .map(|property_id| {
             let property = active_property(connection, data_source_id, property_id)?;
             Ok::<_, StoreError>(PageCopyValueDraft {
@@ -2566,6 +2644,11 @@ fn resolve_page_transfer_data_source_destination_with_access(
             before,
         }),
     })
+}
+
+enum TransferGroupAxis<'a> {
+    Durable,
+    Effective(Option<&'a str>),
 }
 
 pub(crate) fn validate_page_copy_data_source_destination(
@@ -4589,7 +4672,7 @@ fn position_pages(
     }
 
     let logical = read_logical_view(connection, &view, &page_ids)?;
-    let descending = view_manual_direction(&definition) == DatabaseViewSortDirection::Desc;
+    let descending = view_fractional_direction(&definition) == DatabaseViewSortDirection::Desc;
     let moved_page_ids = pages
         .iter()
         .map(|page| page.page_id.clone())
@@ -5441,13 +5524,9 @@ fn view_subgroup_property(definition: &DatabaseViewDefinition) -> Option<&str> {
         .map(|group| group.property_id.as_str())
 }
 
-fn view_manual_direction(definition: &DatabaseViewDefinition) -> DatabaseViewSortDirection {
-    definition
-        .presentation
-        .sort
-        .iter()
-        .find(|rule| rule.field == DatabaseViewSortField::Manual)
-        .map_or(DatabaseViewSortDirection::Asc, |rule| rule.direction)
+fn view_fractional_direction(definition: &DatabaseViewDefinition) -> DatabaseViewSortDirection {
+    super::view_contract::fractional_order_direction(&definition.presentation.sort)
+        .unwrap_or(DatabaseViewSortDirection::Asc)
 }
 
 fn read_logical_view(
@@ -5486,7 +5565,7 @@ fn read_logical_view(
     }
     let definition =
         super::view_contract::decode_definition_json(&view.config_json).map_err(corrupt)?;
-    if view_manual_direction(&definition) == DatabaseViewSortDirection::Desc {
+    if view_fractional_direction(&definition) == DatabaseViewSortDirection::Desc {
         result.reverse();
     }
     Ok(result)

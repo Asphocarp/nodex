@@ -582,7 +582,7 @@ fn property_adoption(
     let mut edits = Vec::new();
     let mut states = Vec::new();
     let mut seen_addresses = HashSet::new();
-    for (property_id, target_key, primary_axis) in axes {
+    for (property_id, target_key, primary_axis) in axes.iter().copied() {
         let Some(property_id) = property_id else {
             continue;
         };
@@ -664,27 +664,176 @@ fn property_adoption(
             });
         }
     }
+    if normalized.parent_page_id.is_some() {
+        return Ok((edits, states));
+    }
+    let moved = sources
+        .moved_page_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    for (property_id, target_json) in
+        inferred_list_drop_sort_values(connection, graph, normalized, &moved)?
+    {
+        let property = super::active_property(connection, &graph.data_source_id, &property_id)?;
+        let after_value = input_from_value(&property, &target_json)?;
+        for page_id in &sources.root_page_ids {
+            if !seen_addresses.insert((page_id.clone(), property_id.clone())) {
+                continue;
+            }
+            let occurrence = first_occurrence
+                .get(page_id.as_str())
+                .ok_or_else(|| corrupt("A List move root lost its source occurrence"))?;
+            let before_json = occurrence
+                .summary
+                .database_values
+                .get(&property_id)
+                .cloned()
+                .unwrap_or(Value::Null);
+            let before_value = input_from_value(&property, &before_json)?;
+            if before_value == after_value {
+                continue;
+            }
+            edits.push(DatabasePropertyValueMutation {
+                address: DatabasePagePropertyAddress {
+                    page_id: page_id.clone(),
+                    data_source_id: graph.data_source_id.clone(),
+                    property_id: property_id.clone(),
+                },
+                edit: DatabasePropertyValueEdit::Replace {
+                    expected_value_revision: occurrence
+                        .summary
+                        .database_value_revisions
+                        .get(&property_id)
+                        .copied()
+                        .unwrap_or(0),
+                    value: after_value.clone(),
+                },
+            });
+            states.push(DatabaseListMovePropertyState {
+                page_id: page_id.clone(),
+                property_id: property_id.clone(),
+                before_value,
+                after_value: after_value.clone(),
+            });
+        }
+    }
     Ok((edits, states))
 }
 
-fn manual_sort(graph: &ListProjectionGraph) -> bool {
-    graph.presentation.sort.is_empty()
-        || graph
+pub(crate) fn inferred_list_drop_sort_values(
+    connection: &Connection,
+    graph: &ListProjectionGraph,
+    normalized: &DatabaseListMoveNormalizedTarget,
+    ignored_page_ids: &HashSet<&str>,
+) -> Result<Vec<(String, Value)>, StoreError> {
+    if normalized.parent_page_id.is_some() || normalized.target_page_id.is_none() {
+        return Ok(Vec::new());
+    }
+    let (before, after) = sorted_target_neighbors(graph, normalized, ignored_page_ids)?;
+    let structural_property_ids = [
+        graph
             .presentation
-            .sort
-            .iter()
-            .any(|sort| sort.field == DatabaseViewSortField::Manual)
+            .group
+            .as_ref()
+            .map(|group| group.property_id.as_str()),
+        graph
+            .presentation
+            .subgroup
+            .as_ref()
+            .map(|group| group.property_id.as_str()),
+    ];
+    let mut values = Vec::new();
+    for sort in &graph.presentation.sort {
+        let DatabaseViewSortField::Property { property_id } = &sort.field else {
+            break;
+        };
+        if structural_property_ids.contains(&Some(property_id.as_str())) {
+            continue;
+        }
+        let property = super::active_property(connection, &graph.data_source_id, property_id)?;
+        if property.value_type == "relation" {
+            break;
+        }
+        let before_json = before
+            .and_then(|summary| summary.database_values.get(property_id))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let after_json = after
+            .and_then(|summary| summary.database_values.get(property_id))
+            .cloned()
+            .unwrap_or(Value::Null);
+        if before.is_none() && after.is_none() {
+            break;
+        }
+        values.push((
+            property_id.clone(),
+            if after.is_some() {
+                after_json.clone()
+            } else {
+                before_json.clone()
+            },
+        ));
+        if before.is_none() || after.is_none() || before_json != after_json {
+            break;
+        }
+    }
+    Ok(values)
 }
 
-fn manual_sort_descending(graph: &ListProjectionGraph) -> bool {
-    graph
-        .presentation
-        .sort
+fn sorted_target_neighbors<'a>(
+    graph: &'a ListProjectionGraph,
+    normalized: &DatabaseListMoveNormalizedTarget,
+    ignored_page_ids: &HashSet<&str>,
+) -> Result<
+    (
+        Option<&'a nodex_core_contracts::database::DatabaseRowSummary>,
+        Option<&'a nodex_core_contracts::database::DatabaseRowSummary>,
+    ),
+    StoreError,
+> {
+    let mut seen = HashSet::new();
+    let peers = graph
+        .rows
         .iter()
-        .find(|sort| sort.field == DatabaseViewSortField::Manual)
-        .is_some_and(|sort| {
-            sort.direction == nodex_core_contracts::database::DatabaseViewSortDirection::Desc
+        .enumerate()
+        .filter_map(|(index, _)| page_row(graph, index))
+        .filter(|(_, summary, group_path, ..)| {
+            let (group_key, subgroup_key) = group_path_parts(group_path);
+            !ignored_page_ids.contains(summary.page_id.as_str())
+                && summary.task_parent_page_id == normalized.parent_page_id
+                && group_key == normalized.group_key
+                && subgroup_key == normalized.subgroup_key
         })
+        .filter_map(|(_, summary, ..)| seen.insert(summary.page_id.as_str()).then_some(summary))
+        .collect::<Vec<_>>();
+    let after_index = normalized
+        .before_page_id
+        .as_deref()
+        .map(|page_id| {
+            peers
+                .iter()
+                .position(|summary| summary.page_id == page_id)
+                .ok_or_else(|| conflict("The List insertion anchor changed during this drag"))
+        })
+        .transpose()?
+        .unwrap_or(peers.len());
+    Ok((
+        after_index
+            .checked_sub(1)
+            .and_then(|index| peers.get(index).copied()),
+        peers.get(after_index).copied(),
+    ))
+}
+
+fn fractional_root_order(graph: &ListProjectionGraph) -> bool {
+    super::view_contract::fractional_order_direction(&graph.presentation.sort).is_some()
+}
+
+fn fractional_root_order_descending(graph: &ListProjectionGraph) -> bool {
+    super::view_contract::fractional_order_direction(&graph.presentation.sort).is_some_and(
+        |direction| direction == nodex_core_contracts::database::DatabaseViewSortDirection::Desc,
+    )
 }
 
 fn ordered_child_pages(
@@ -816,7 +965,7 @@ fn restore_runs(
                 connection,
                 &graph.data_source_id,
                 &graph.view_id,
-                manual_sort_descending(graph),
+                fractional_root_order_descending(graph),
             )?,
         };
         let selected = page_ids.iter().map(String::as_str).collect::<HashSet<_>>();
@@ -910,7 +1059,7 @@ pub(crate) fn plan_list_occurrence_move(
             connection,
             &graph.data_source_id,
             &graph.view_id,
-            manual_sort_descending(graph),
+            fractional_root_order_descending(graph),
         )?,
     };
     let order_unchanged = all_parent_unchanged
@@ -920,7 +1069,7 @@ pub(crate) fn plan_list_occurrence_move(
             normalized_target.before_page_id.as_deref(),
         );
     let hierarchy_ordered = normalized_target.parent_page_id.is_some();
-    let root_ordered = normalized_target.parent_page_id.is_none() && manual_sort(graph);
+    let root_ordered = normalized_target.parent_page_id.is_none() && fractional_root_order(graph);
     let parent_run =
         (!all_parent_unchanged || (hierarchy_ordered && !order_unchanged)).then(|| {
             DatabaseListParentRunPlan {
@@ -1073,14 +1222,13 @@ fn view_manual_descending(
         .optional()?
         .ok_or_else(|| not_found("The Database View is no longer active"))?;
     let definition = super::view_contract::decode_definition_json(&config_json).map_err(corrupt)?;
-    if definition.presentation.sort.is_empty() {
-        return Ok(Some(false));
-    }
-    Ok(definition.presentation.sort.iter().find_map(|sort| {
-        (sort.field == DatabaseViewSortField::Manual).then_some(
-            sort.direction == nodex_core_contracts::database::DatabaseViewSortDirection::Desc,
-        )
-    }))
+    Ok(
+        super::view_contract::fractional_order_direction(&definition.presentation.sort).map(
+            |direction| {
+                direction == nodex_core_contracts::database::DatabaseViewSortDirection::Desc
+            },
+        ),
+    )
 }
 
 fn order_guard_matches(

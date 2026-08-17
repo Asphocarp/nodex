@@ -225,6 +225,9 @@ export const setupBlockTransferDocumentDrop = (
     clientY: number,
     altKey: boolean,
   ) => {
+    // BlockNote owns ordinary editor drags. Once this typed Page transfer is
+    // accepted, its native cursor must yield to our one canonical insertion line.
+    dropCursor?.clearDropCursor?.();
     container.setAttribute("data-block-transfer-drop-hover", "");
     container.setAttribute(
       "data-block-transfer-drop-label",

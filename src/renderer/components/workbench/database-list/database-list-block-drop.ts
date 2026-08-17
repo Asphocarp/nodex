@@ -64,13 +64,13 @@ export const resolveDatabaseListBlockDropPreview = (input: {
   readonly pointerY: number;
   readonly rowTop: number;
   readonly rowBottom: number;
-  readonly manualOrder: boolean;
+  readonly exactSlot: boolean;
 }): DatabaseListBlockDropPreview | null => {
   if (input.overOccurrenceKey === null) {
     return {
       target: { kind: "root" },
       feedback: { kind: "surface", occurrenceKey: null },
-      message: input.manualOrder ? null : "Current sort decides the Page position",
+      message: input.exactSlot ? null : "Current sort decides the Page position",
     };
   }
   const rowIndex = input.rows.findIndex((row) => row.key === input.overOccurrenceKey);
@@ -81,17 +81,17 @@ export const resolveDatabaseListBlockDropPreview = (input: {
     return {
       target: groupTarget,
       feedback: { kind: "surface", occurrenceKey: row.key },
-      message: input.manualOrder ? null : "Current sort decides the Page position",
+      message: input.exactSlot ? null : "Current sort decides the Page position",
     };
   }
-  if (!input.manualOrder || row.depth > 0 || row.transientKind !== "none") {
+  if (!input.exactSlot || row.depth > 0 || row.transientKind !== "none") {
     return {
       target: groupTarget,
       feedback: {
         kind: "surface",
         occurrenceKey: groupTarget.kind === "group" ? groupTarget.occurrenceKey : null,
       },
-      message: !input.manualOrder
+      message: !input.exactSlot
         ? "Current sort decides the Page position"
         : "Drop into this group",
     };

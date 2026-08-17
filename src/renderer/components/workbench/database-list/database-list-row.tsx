@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from "react";
+import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
 
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
 import { NodexButton } from "@/components/ui/button";
@@ -19,6 +19,8 @@ import {
   DATABASE_LIST_DND_INTERACTIVE_SELECTOR,
   useDatabaseListPageDnd,
 } from "./database-list-dnd";
+import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
+import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
 
 export const DATABASE_LIST_INTERACTIVE_SELECTOR = DATABASE_LIST_DND_INTERACTIVE_SELECTOR;
 
@@ -47,6 +49,7 @@ export function DatabaseListRow({
   nestingContinuations,
   ariaRowIndex,
   externalDropEdge = null,
+  pragmaticDragData = null,
 }: {
   readonly item: DatabaseListPageRow;
   readonly libraryId: string;
@@ -72,8 +75,20 @@ export function DatabaseListRow({
   readonly nestingContinuations: readonly boolean[];
   readonly ariaRowIndex: number;
   readonly externalDropEdge?: "before" | "after" | null;
+  readonly pragmaticDragData?: BoardCardDragData | null;
 }) {
   const dnd = useDatabaseListPageDnd(item);
+  const setListDndNodeRef = dnd.setNodeRef;
+  const [pageDragHandle, setPageDragHandle] = useState<HTMLButtonElement | null>(null);
+  const { setElementRef: setPageDragSourceRef } =
+    useDatabaseViewPageDragSource(pragmaticDragData, {
+      dragHandle: pageDragHandle,
+      nativePreview: "source",
+    });
+  const setRowRef = useCallback((element: HTMLDivElement | null): void => {
+    setListDndNodeRef(element);
+    setPageDragSourceRef(element);
+  }, [setListDndNodeRef, setPageDragSourceRef]);
   const dropEdge = dnd.target?.kind === "page"
     ? dnd.target.indicatorEdge
     : externalDropEdge;
@@ -92,7 +107,7 @@ export function DatabaseListRow({
     <div
       {...dnd.attributes}
       {...dnd.listeners}
-      ref={dnd.setNodeRef}
+      ref={setRowRef}
       role="row"
       aria-rowindex={ariaRowIndex}
       aria-selected={selected}
@@ -315,7 +330,9 @@ export function DatabaseListRow({
       >
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           <button
+            ref={setPageDragHandle}
             type="button"
+            data-database-view-page-drag-handle="true"
             className="min-w-0 shrink truncate text-left text-sm font-medium leading-[normal] text-[var(--database-list-text-primary)] outline-none"
             aria-label={`Open Page ${presentedTitle}`}
             onClick={() => {

@@ -3256,6 +3256,8 @@ export interface components {
             readonly group_key?: string | null;
             /** @enum {string} */
             readonly kind: "direct";
+            readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+            readonly sorted_property_values?: readonly components["schemas"]["LibraryPageCopyValue"][];
             readonly view_id: string;
         } | {
             readonly expected_projection: components["schemas"]["DatabaseListProjectionExpectation"];

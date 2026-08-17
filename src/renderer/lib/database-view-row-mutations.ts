@@ -12,6 +12,7 @@ import {
   type LibraryDatabaseApplyV2,
 } from "../../shared/database-module-v2";
 import type { DatabaseJsonValue } from "../../shared/database-kernel";
+import { databaseViewPrimaryManualOrderDirection } from "../../shared/database-view-presentation";
 import { applyDatabaseModule, applyLibraryDatabaseModule } from "./api";
 import { buildDataSourcePropertyValueOperations } from "./data-source-property-value-operations";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
@@ -87,7 +88,9 @@ const hasEmptyAndFilter = (model: DatabaseViewRenderModel): boolean =>
 export const databaseViewSupportsManualReorder = (
   model: DatabaseViewRenderModel,
 ): boolean =>
-  model.query.view.config.presentation.sort[0]?.field.kind === "manual";
+  databaseViewPrimaryManualOrderDirection(
+    model.query.view.config.presentation.sort,
+  ) !== null;
 
 export const buildDatabaseViewMoveOperations = (input: {
   readonly model: DatabaseViewRenderModel;
@@ -124,7 +127,9 @@ export const buildDatabaseViewMoveOperations = (input: {
   if (!moving) return [];
   desired.splice(targetIndex, 0, moving);
   const authorityOrder =
-    input.model.query.view.config.presentation.sort[0]?.direction === "desc"
+    databaseViewPrimaryManualOrderDirection(
+      input.model.query.view.config.presentation.sort,
+    ) === "desc"
       ? [...desired].reverse()
       : desired;
 
@@ -254,7 +259,9 @@ export const buildDatabaseViewMovePageRunOperations = (input: {
 
   if (desired.every((row, index) => row === visibleGroup[index])) return [];
   const authorityOrder =
-    input.model.query.view.config.presentation.sort[0]?.direction === "desc"
+    databaseViewPrimaryManualOrderDirection(
+      input.model.query.view.config.presentation.sort,
+    ) === "desc"
     ? [...desired].reverse()
     : desired;
   return [{

@@ -1084,7 +1084,11 @@
 }
 
 .nfm-editor[data-block-transfer-drop-hover]
-  .prosemirror-dropcursor-block:not([data-block-transfer-drop-indicator]) {
+  :is(
+    .prosemirror-dropcursor-block,
+    .prosemirror-dropcursor-inline,
+    .prosemirror-dropcursor-vertical
+  ):not([data-block-transfer-drop-indicator]) {
   display: none !important;
 }
 
