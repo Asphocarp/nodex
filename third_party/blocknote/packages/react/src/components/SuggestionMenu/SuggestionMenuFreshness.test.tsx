@@ -268,11 +268,13 @@ describe("suggestion menu freshness", () => {
       />,
     );
 
-    target.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "Enter",
-      bubbles: true,
-      cancelable: true,
-    }));
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
 
     expect(clickedItems.length).toBe(0);
 
