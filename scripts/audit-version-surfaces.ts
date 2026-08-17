@@ -71,8 +71,6 @@ const VERSION_SURFACES: readonly Surface[] = [
   ["src/main/window-session-state.ts:WINDOW_SESSION_VERSION", "durableFormat", "window session state", "migrate persisted sessions"],
   ["src/main/worktree-worker/worktree-worker-protocol.ts:CODEX_WORKTREE_WORKER_PROTOCOL_VERSION", "runtimeCompatibility", "worktree worker", "reject mismatched processes"],
   ["src/renderer/lib/canvas-scene-outbox.ts:CANVAS_SCENE_OUTBOX_DATABASE_VERSION", "durableFormat", "Canvas outbox", "upgrade IndexedDB"],
-  ["src/renderer/lib/command-palette-page-search.ts:SEARCH_CACHE_VERSION", "algorithmIdentity", "Page search cache", "invalidate cache entries"],
-  ["src/renderer/lib/command-palette-page-search.ts:SEARCH_CACHE_DB_VERSION", "durableFormat", "Page search cache", "upgrade IndexedDB"],
   ["src/renderer/lib/document-local-checkpoint.ts:DATABASE_VERSION", "durableFormat", "Document checkpoint cache", "upgrade IndexedDB"],
   ["src/renderer/lib/git-worker-client.ts:GIT_WORKER_CLIENT_PROTOCOL_VERSION", "runtimeCompatibility", "Git worker client", "alias worker authority"],
   ["src/renderer/lib/owned-block-document.ts:PAGE_BLOCK_DOCUMENT_SCHEMA_VERSION", "durableFormat", "Page Document adapter", "alias schema authority"],

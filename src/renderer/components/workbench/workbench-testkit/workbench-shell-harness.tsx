@@ -2335,10 +2335,22 @@ export function renderWorkbench({
         return [{
           projectId: "beta",
           pageId: "card-beta",
+          pageKey: "BETA-1",
           title: "Beta Card",
           status: "build",
-          score: 1_000_000,
+          priority: null,
+          tags: [],
+          assignee: null,
+          locationLabel: "Beta / Build",
+          titleParts: [],
           excerpt: "Beta Card",
+          excerptParts: [],
+          matches: [{
+            source: "title",
+            quality: "exact",
+            parts: [{ text: "Beta Card", highlight: true }],
+          }],
+          updatedAt: "2026-08-14T00:00:00.000Z",
         }];
       }
       return [];

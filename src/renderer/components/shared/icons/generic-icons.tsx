@@ -65,7 +65,6 @@ import {
   ListFilter as LucideListFilter,
   ListTree as LucideListTree,
   Loader2 as LucideLoader2,
-  LoaderCircle as LucideLoaderCircle,
   LoaderCircleIcon as LucideLoaderCircleIcon,
   LockKeyhole as LucideLockKeyhole,
   Maximize2 as LucideMaximize2,
@@ -246,7 +245,6 @@ export const List: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideList
 export const ListFilter: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideListFilter, "ListFilter");
 export const ListTree: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideListTree, "ListTree");
 export const Loader2: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideLoader2, "Loader2");
-export const LoaderCircle: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideLoaderCircle, "LoaderCircle");
 export const LoaderCircleIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideLoaderCircleIcon, "LoaderCircleIcon");
 export const LockKeyhole: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideLockKeyhole, "LockKeyhole");
 export const Maximize2: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideMaximize2, "Maximize2");

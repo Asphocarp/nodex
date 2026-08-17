@@ -698,6 +698,14 @@ pub(super) struct ProjectSearchRequest<'a> {
     pub limit: Option<u32>,
 }
 
+pub(super) struct AgentSearchRequest<'a> {
+    pub context: &'a BoundModuleContext,
+    pub authorization: &'a AgentExecutionAuthorization,
+    pub query: &'a str,
+    pub scope: &'a LibraryAgentSearchScope,
+    pub include_archived: bool,
+}
+
 pub(super) fn search_projects(
     connection: &Connection,
     index: &PageSearchIndex,
@@ -863,28 +871,24 @@ pub(super) fn search_references(
 pub(super) fn search_agent_pages(
     connection: &Connection,
     index: &PageSearchIndex,
-    context: &BoundModuleContext,
     library_id: &str,
-    authorization: &AgentExecutionAuthorization,
-    query: &str,
-    scope: &LibraryAgentSearchScope,
-    include_archived: bool,
+    request: AgentSearchRequest<'_>,
 ) -> Result<Vec<LibraryAgentSearchResult>, StoreError> {
-    let query = normalize_query(query)?;
+    let query = normalize_query(request.query)?;
     let terms = unique_terms(&query)?;
     let aggregates = search_index(connection, index, library_id, &query, &terms)?;
     let candidate_ids = aggregates
         .iter()
         .filter_map(|aggregate| index.pages.get(&aggregate.page_id))
-        .filter(|page| include_archived || page.lifecycle == "active")
-        .filter(|page| page_in_agent_scope(index, page, scope))
+        .filter(|page| request.include_archived || page.lifecycle == "active")
+        .filter(|page| page_in_agent_scope(index, page, request.scope))
         .map(|page| page.id.clone())
         .collect::<Vec<_>>();
     let authorized = super::agent_authorization::authorized_page_ids(
         connection,
-        context,
+        request.context,
         library_id,
-        authorization,
+        request.authorization,
         &candidate_ids,
     )?;
     let mut outcomes = aggregates
@@ -892,8 +896,8 @@ pub(super) fn search_agent_pages(
         .filter(|aggregate| authorized.contains(&aggregate.page_id))
         .filter(|aggregate| {
             index.pages.get(&aggregate.page_id).is_some_and(|page| {
-                (include_archived || page.lifecycle == "active")
-                    && page_in_agent_scope(index, page, scope)
+                (request.include_archived || page.lifecycle == "active")
+                    && page_in_agent_scope(index, page, request.scope)
             })
         })
         .map(|aggregate| SearchOutcome {
@@ -935,7 +939,7 @@ fn search_index(
         };
         let parts = highlight_text(
             &resolution.matched_page_key,
-            &[resolution.matched_page_key.clone()],
+            std::slice::from_ref(&resolution.matched_page_key),
         );
         add_evidence(
             &mut aggregates,
@@ -980,7 +984,7 @@ fn search_index(
                         SearchTermMatchQuality::Prefix
                     },
                     edit_distance: 0,
-                    parts: highlight_text(&page.id, &[identity.clone()]),
+                    parts: highlight_text(&page.id, std::slice::from_ref(identity)),
                 },
                 0.0,
             );
@@ -999,7 +1003,7 @@ fn search_index(
                         kind: EvidenceKind::Title,
                         quality: matched.quality,
                         edit_distance: matched.edit_distance,
-                        parts: highlight_text(&page.title, &[matched.token.clone()]),
+                        parts: highlight_text(&page.title, std::slice::from_ref(&matched.token)),
                     },
                     0.0,
                 );
@@ -1034,7 +1038,7 @@ fn search_index(
                         },
                         quality: matched.quality,
                         edit_distance: matched.edit_distance,
-                        parts: highlight_text(&property.text, &[matched.token.clone()]),
+                        parts: highlight_text(&property.text, std::slice::from_ref(&matched.token)),
                     },
                     0.0,
                 );
@@ -1419,7 +1423,7 @@ fn aggregate_rank(aggregate: &Aggregate) -> (usize, usize, usize, usize, usize) 
             .unwrap_or(0),
         ranks.iter().map(|(rank, _)| *rank).sum(),
         ranks.iter().map(|(_, edit_distance)| *edit_distance).sum(),
-        usize::MAX - aggregate.evidence.len().min(usize::MAX),
+        usize::MAX - aggregate.evidence.len(),
     )
 }
 

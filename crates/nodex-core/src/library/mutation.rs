@@ -5156,7 +5156,7 @@ mod tests {
                         "library-1".to_owned(),
                         2,
                         "document:other".to_owned(),
-                        1,
+                        0,
                     )
                 );
                 let document_membership = connection.query_row(

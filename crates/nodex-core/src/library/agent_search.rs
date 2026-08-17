@@ -86,12 +86,14 @@ pub(super) fn read(
         super::page_search::search_agent_pages(
             connection,
             page_search_index,
-            context,
             library_id,
-            authorization,
-            query,
-            &scope,
-            include_archived,
+            super::page_search::AgentSearchRequest {
+                context,
+                authorization,
+                query,
+                scope: &scope,
+                include_archived,
+            },
         )?
     } else {
         let candidates = read_page_candidates(connection, library_id, &scope, include_archived)?;
