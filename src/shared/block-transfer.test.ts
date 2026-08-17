@@ -157,4 +157,38 @@ describe("BlockTransfer contract", () => {
       }).mode,
     ).toBe("copy");
   });
+
+  test("round-trips an exact List occurrence placement", () => {
+    const logical = blockTransferIntentFromRequest({
+      ...request(),
+      mode: "copy",
+      target: {
+        kind: "data_source",
+        dataSourceId: "data-source-b",
+        viewId: "view-b",
+        groupKey: null,
+      },
+    });
+    const listIntent = {
+      ...logical,
+      target: {
+        kind: "data_source" as const,
+        dataSourceId: "data-source-b",
+        placement: {
+          kind: "list_occurrence" as const,
+          viewId: "view-b",
+          presentationOverride: { layout: "list" as const },
+          expectedProjection: {
+            scopeKey: "list:view-b",
+            schemaVersion: 2,
+            revision: 4,
+            coveredCommitSeq: 9,
+            effectHash: null,
+          },
+          target: { kind: "root" as const },
+        },
+      },
+    };
+    expect(parseBlockTransferIntent(listIntent)).toEqual(listIntent);
+  });
 });

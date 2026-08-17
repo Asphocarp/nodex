@@ -1852,7 +1852,7 @@ export interface components {
             readonly group_key?: string | null;
             readonly parent_page_id?: string | null;
             readonly subgroup_key?: string | null;
-            readonly target_occurrence_key: string;
+            readonly target_occurrence_key?: string | null;
             readonly target_page_id?: string | null;
         };
         readonly DatabaseListMoveParentGuard: {
@@ -1902,6 +1902,9 @@ export interface components {
             /** @enum {string} */
             readonly kind: "group";
             readonly occurrence_key: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "root";
         };
         /**
          * @description Opaque-to-UI inverse recipe. Core validates the move's logical post-image
@@ -3248,6 +3251,20 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryBlockRelocationDirection: "into_page" | "out_of_page" | "within_page" | "unknown";
+        readonly LibraryBlockTransferDataSourcePlacement: {
+            readonly before_page_id?: string | null;
+            readonly group_key?: string | null;
+            /** @enum {string} */
+            readonly kind: "direct";
+            readonly view_id: string;
+        } | {
+            readonly expected_projection: components["schemas"]["DatabaseListProjectionExpectation"];
+            /** @enum {string} */
+            readonly kind: "list_occurrence";
+            readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+            readonly target: components["schemas"]["DatabaseListMoveTarget"];
+            readonly view_id: string;
+        };
         readonly LibraryBlockTransferDocumentCommit: {
             /** Format: int64 */
             readonly base_head_seq: number;
@@ -3374,12 +3391,10 @@ export interface components {
             readonly kind: "document";
             readonly parent_block_id?: string | null;
         } | {
-            readonly before_page_id?: string | null;
             readonly data_source_id: string;
-            readonly group_key?: string | null;
             /** @enum {string} */
             readonly kind: "data_source";
-            readonly view_id: string;
+            readonly placement: components["schemas"]["LibraryBlockTransferDataSourcePlacement"];
         };
         readonly LibraryBlockTransferTransformationEvidence: {
             readonly bodyRootBlockIds: readonly string[];

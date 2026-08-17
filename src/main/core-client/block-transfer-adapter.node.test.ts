@@ -139,8 +139,11 @@ describe("Core Block Transfer Adapter", () => {
       target: {
         kind: "data_source",
         dataSourceId: "source:target",
-        viewId: "view:target",
-        groupKey: "ship",
+        placement: {
+          kind: "direct",
+          viewId: "view:target",
+          groupKey: "ship",
+        },
       },
     };
     const dataSourceResult = {
@@ -210,8 +213,66 @@ describe("Core Block Transfer Adapter", () => {
         target: {
           kind: "data_source",
           data_source_id: "source:target",
-          view_id: "view:target",
-          group_key: "ship",
+          placement: {
+            kind: "direct",
+            view_id: "view:target",
+            group_key: "ship",
+          },
+        },
+      },
+    });
+  });
+
+  test("preserves a raw List occurrence and exact projection for Core", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    client.enqueueApply(committedApply());
+    await adapter.commit({
+      ...intent,
+      target: {
+        kind: "data_source",
+        dataSourceId: "source:target",
+        placement: {
+          kind: "list_occurrence",
+          viewId: "view:target",
+          presentationOverride: { layout: "list" },
+          expectedProjection: {
+            scopeKey: "list:view:target",
+            schemaVersion: 2,
+            revision: 7,
+            coveredCommitSeq: 11,
+            effectHash: "effect",
+          },
+          target: {
+            kind: "page",
+            occurrenceKey: "occurrence:target",
+            edge: "before",
+          },
+        },
+      },
+    });
+
+    expect(client.applies[0]?.intent).toMatchObject({
+      intent: {
+        target: {
+          kind: "data_source",
+          placement: {
+            kind: "list_occurrence",
+            view_id: "view:target",
+            presentation_override: { layout: "list" },
+            expected_projection: {
+              scope_key: "list:view:target",
+              schema_version: 2,
+              revision: 7,
+              covered_commit_seq: 11,
+              effect_hash: "effect",
+            },
+            target: {
+              kind: "page",
+              occurrence_key: "occurrence:target",
+              edge: "before",
+            },
+          },
         },
       },
     });

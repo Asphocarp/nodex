@@ -7,6 +7,18 @@ import type {
   DocumentCommitRef,
 } from "./block-documents/contracts";
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
+import {
+  parseDatabaseViewPresentationOverride,
+  type DatabaseViewPresentationOverride,
+} from "./database-kernel";
+import type {
+  DatabaseListMoveTargetV2,
+  DatabaseListProjectionExpectationV2,
+} from "./database-module-v2";
+import {
+  parseDatabaseListMoveTargetV2,
+  parseDatabaseListProjectionExpectationV2,
+} from "./database-module-v2-transport";
 
 export const MAX_BLOCK_TRANSFER_ROOTS = 10_000;
 export const MAX_BLOCK_TRANSFER_ID_LENGTH = 512;
@@ -41,9 +53,22 @@ export type BlockTransferIntentTarget =
   | {
       readonly kind: "data_source";
       readonly dataSourceId: string;
+      readonly placement: BlockTransferDataSourcePlacement;
+    };
+
+export type BlockTransferDataSourcePlacement =
+  | {
+      readonly kind: "direct";
       readonly viewId: string;
       readonly groupKey: string | null;
       readonly beforePageId?: BlockId;
+    }
+  | {
+      readonly kind: "list_occurrence";
+      readonly viewId: string;
+      readonly presentationOverride: DatabaseViewPresentationOverride;
+      readonly expectedProjection: DatabaseListProjectionExpectationV2;
+      readonly target: DatabaseListMoveTargetV2;
     };
 
 /**
@@ -813,24 +838,84 @@ const parseIntentTarget = (
     assertExactKeys(
       target,
       "blockTransferIntent.target",
-      ["kind", "dataSourceId", "viewId", "groupKey"],
-      ["beforePageId"],
+      ["kind", "dataSourceId", "placement"],
     );
-    if (target.groupKey !== null && typeof target.groupKey !== "string") {
-      throw new BlockTransferContractError(
-        "blockTransferIntent.target.groupKey must be a string or null",
-      );
-    }
-    const beforePageId = readOptionalString(
-      target,
-      "beforePageId",
-      "blockTransferIntent.target",
+    const placement = readRecord(
+      target.placement,
+      "blockTransferIntent.target.placement",
     );
-    if (beforePageId && rootBlockIds.includes(beforePageId)) {
+    const parsedPlacement: BlockTransferDataSourcePlacement = (() => {
+      if (placement.kind === "direct") {
+        assertExactKeys(
+          placement,
+          "blockTransferIntent.target.placement",
+          ["kind", "viewId", "groupKey"],
+          ["beforePageId"],
+        );
+        const groupKey = placement.groupKey === null
+          ? null
+          : readString(
+              placement,
+              "groupKey",
+              "blockTransferIntent.target.placement",
+            );
+        const beforePageId = readOptionalString(
+          placement,
+          "beforePageId",
+          "blockTransferIntent.target.placement",
+        );
+        if (beforePageId && rootBlockIds.includes(beforePageId)) {
+          throw new BlockTransferContractError(
+            "blockTransferIntent.target.placement.beforePageId cannot be a transferred root",
+          );
+        }
+        return {
+          kind: placement.kind,
+          viewId: readString(
+            placement,
+            "viewId",
+            "blockTransferIntent.target.placement",
+          ),
+          groupKey,
+          ...(beforePageId ? { beforePageId } : {}),
+        };
+      }
+      if (placement.kind === "list_occurrence") {
+        assertExactKeys(
+          placement,
+          "blockTransferIntent.target.placement",
+          [
+            "kind",
+            "viewId",
+            "presentationOverride",
+            "expectedProjection",
+            "target",
+          ],
+        );
+        return {
+          kind: placement.kind,
+          viewId: readString(
+            placement,
+            "viewId",
+            "blockTransferIntent.target.placement",
+          ),
+          presentationOverride: parseDatabaseViewPresentationOverride(
+            placement.presentationOverride,
+          ),
+          expectedProjection: parseDatabaseListProjectionExpectationV2(
+            placement.expectedProjection,
+            "blockTransferIntent.target.placement.expectedProjection",
+          ),
+          target: parseDatabaseListMoveTargetV2(
+            placement.target,
+            "blockTransferIntent.target.placement.target",
+          ),
+        };
+      }
       throw new BlockTransferContractError(
-        "blockTransferIntent.target.beforePageId cannot be a transferred root",
+        "blockTransferIntent.target.placement.kind must be direct or list_occurrence",
       );
-    }
+    })();
     return {
       kind: "data_source",
       dataSourceId: readString(
@@ -838,9 +923,7 @@ const parseIntentTarget = (
         "dataSourceId",
         "blockTransferIntent.target",
       ),
-      viewId: readString(target, "viewId", "blockTransferIntent.target"),
-      groupKey: target.groupKey,
-      ...(beforePageId ? { beforePageId } : {}),
+      placement: parsedPlacement,
     };
   }
   throw new BlockTransferContractError(
@@ -1035,11 +1118,14 @@ export const blockTransferIntentFromRequest = (
     return {
       kind: "data_source",
       dataSourceId: request.target.dataSourceId,
-      viewId: request.target.viewId,
-      groupKey: request.target.groupKey,
-      ...(request.target.beforePageId
-        ? { beforePageId: request.target.beforePageId }
-        : {}),
+      placement: {
+        kind: "direct",
+        viewId: request.target.viewId,
+        groupKey: request.target.groupKey,
+        ...(request.target.beforePageId
+          ? { beforePageId: request.target.beforePageId }
+          : {}),
+      },
     };
   })();
   return {

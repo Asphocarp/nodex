@@ -78,9 +78,12 @@ describe("cross-surface Block transfer drag", () => {
         storeEpoch: "epoch-a",
         payload,
         dataSourceId: "source-a",
-        viewId: "view-a",
-        groupKey: "in-progress",
-        beforePageId: "card-b",
+        placement: {
+          kind: "direct",
+          viewId: "view-a",
+          groupKey: "in-progress",
+          beforePageId: "card-b",
+        },
         altKey: true,
         promotionPolicy: "task_shorthand_v1",
       }),
@@ -95,9 +98,12 @@ describe("cross-surface Block transfer drag", () => {
       target: {
         kind: "data_source",
         dataSourceId: "source-a",
-        viewId: "view-a",
-        groupKey: "in-progress",
-        beforePageId: "card-b",
+        placement: {
+          kind: "direct",
+          viewId: "view-a",
+          groupKey: "in-progress",
+          beforePageId: "card-b",
+        },
       },
       promotionPolicy: "task_shorthand_v1",
     });

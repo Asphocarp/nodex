@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   beginLocalBlockDragSession,
   endLocalBlockDragSession,
-} from "../cross-surface-drag";
+} from "../../workbench/block-transfer/cross-surface-drag";
 import { setupBlockTransferDocumentDrop } from "./block-transfer-drop";
 
 describe("nested Block transfer targets in Chromium", () => {

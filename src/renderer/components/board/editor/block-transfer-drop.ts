@@ -19,7 +19,7 @@ import {
   resolveLocalBlockDragDropSession,
   resolveLocalBlockDragSession,
   resolveCrossSurfaceTransferMode,
-} from "../cross-surface-drag";
+} from "../../workbench/block-transfer/cross-surface-drag";
 import type {
   LibraryPageInsertion,
 } from "../../../../shared/library-module";

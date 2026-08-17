@@ -14,6 +14,7 @@ import { blockTransferFailure } from "../../shared/block-transfer-transport";
 import type { BlockLocation } from "../../shared/block-documents/contracts";
 import { CoreModuleResponseError } from "./core-client";
 import { applyResultCursor, rendererLocalCommitApply } from "./types";
+import { toCoreDatabaseViewPresentationOverride } from "./database-presentation-adapter";
 import type {
   CoreClientPort,
   LibraryIntent,
@@ -86,9 +87,40 @@ const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
         return {
           kind: "data_source" as const,
           data_source_id: intent.target.dataSourceId,
-          view_id: intent.target.viewId,
-          group_key: intent.target.groupKey,
-          before_page_id: intent.target.beforePageId ?? null,
+          placement: intent.target.placement.kind === "direct"
+            ? {
+                kind: intent.target.placement.kind,
+                view_id: intent.target.placement.viewId,
+                group_key: intent.target.placement.groupKey,
+                before_page_id: intent.target.placement.beforePageId ?? null,
+              }
+            : {
+                kind: intent.target.placement.kind,
+                view_id: intent.target.placement.viewId,
+                presentation_override: toCoreDatabaseViewPresentationOverride(
+                  intent.target.placement.presentationOverride,
+                ),
+                expected_projection: {
+                  scope_key: intent.target.placement.expectedProjection.scopeKey,
+                  schema_version: intent.target.placement.expectedProjection.schemaVersion,
+                  revision: intent.target.placement.expectedProjection.revision,
+                  covered_commit_seq:
+                    intent.target.placement.expectedProjection.coveredCommitSeq,
+                  effect_hash: intent.target.placement.expectedProjection.effectHash,
+                },
+                target: intent.target.placement.target.kind === "page"
+                  ? {
+                      kind: intent.target.placement.target.kind,
+                      occurrence_key: intent.target.placement.target.occurrenceKey,
+                      edge: intent.target.placement.target.edge,
+                    }
+                  : intent.target.placement.target.kind === "group"
+                    ? {
+                        kind: intent.target.placement.target.kind,
+                        occurrence_key: intent.target.placement.target.occurrenceKey,
+                      }
+                    : { kind: intent.target.placement.target.kind },
+              },
         };
     }
   })(),

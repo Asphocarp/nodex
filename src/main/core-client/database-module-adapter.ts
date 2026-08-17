@@ -518,10 +518,12 @@ export const toCoreDatabaseIntent = (
               occurrence_key: operation.target.occurrenceKey,
               edge: operation.target.edge,
             }
-          : {
-              kind: operation.target.kind,
-              occurrence_key: operation.target.occurrenceKey,
-            },
+          : operation.target.kind === "group"
+            ? {
+                kind: operation.target.kind,
+                occurrence_key: operation.target.occurrenceKey,
+              }
+            : { kind: operation.target.kind },
       };
     case "undo_list_occurrence_move":
       return {
@@ -650,7 +652,7 @@ const fromCoreDatabaseOperationOutcome = (
     movedPageIds: outcome.moved_page_ids,
     moveRootPageIds: outcome.move_root_page_ids,
     normalizedTarget: {
-      targetOccurrenceKey: outcome.normalized_target.target_occurrence_key,
+      targetOccurrenceKey: outcome.normalized_target.target_occurrence_key ?? null,
       targetPageId: outcome.normalized_target.target_page_id ?? null,
       parentPageId: outcome.normalized_target.parent_page_id ?? null,
       beforePageId: outcome.normalized_target.before_page_id ?? null,

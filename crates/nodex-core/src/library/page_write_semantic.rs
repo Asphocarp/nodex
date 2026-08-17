@@ -2,10 +2,11 @@ use std::path::Path;
 
 use nodex_core_contracts::database::DatabaseGroupScope;
 use nodex_core_contracts::library::{
-    LibraryAgentSiblingAnchor, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
-    LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryPageCopyDestination,
-    LibraryPageCopyPositionAnchor, LibraryPageCopyValue, LibraryPageCopyViewPlacement,
-    LibraryPageWriteDestination, LibraryResourceTarget,
+    LibraryAgentSiblingAnchor, LibraryBlockTransferDataSourcePlacement,
+    LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
+    LibraryBlockTransferTarget, LibraryPageCopyDestination, LibraryPageCopyPositionAnchor,
+    LibraryPageCopyValue, LibraryPageCopyViewPlacement, LibraryPageWriteDestination,
+    LibraryResourceTarget,
 };
 use nodex_core_contracts::{BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -618,9 +619,11 @@ fn transfer_target(
                 .ok_or_else(|| corrupt("Semantic Page destination has no resolved View"))?;
             Ok(LibraryBlockTransferTarget::DataSource {
                 data_source_id: data_source_id.clone(),
-                view_id: view.view_id.clone(),
-                group_key: view.group_key.clone(),
-                before_page_id: view.before.as_ref().map(|anchor| anchor.page_id.clone()),
+                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                    view_id: view.view_id.clone(),
+                    group_key: view.group_key.clone(),
+                    before_page_id: view.before.as_ref().map(|anchor| anchor.page_id.clone()),
+                },
             })
         }
     }

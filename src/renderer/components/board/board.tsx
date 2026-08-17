@@ -75,24 +75,17 @@ import { resolveBoardDropFeedback } from "./drop-feedback";
 import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import {
   blockTransferDropLabel,
-  buildBlockToDataSourceTransferIntent,
-  containsCanvasBlockDrag,
-  containsDatabaseBlockDrag,
-  endLocalBlockDragSession,
   hasDragType,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   resolveLocalBlockDragDropSession,
   resolveCrossSurfaceTransferMode,
   resolvePagePromotionPolicy,
   summarizeBlockPagePromotionPreview,
-  summarizeBlockPagePromotionReceipt,
   shouldHandleNativeCrossSurfaceDrag,
-} from "./cross-surface-drag";
+} from "../workbench/block-transfer/cross-surface-drag";
 import { readTaskShorthandPagePromotionEnabled } from "../../lib/page-promotion-preference";
 import { toast } from "@/components/ui/toast";
 import { useBoardElementDragMonitor } from "./use-board-element-drag-monitor";
-import { transferBlocks } from "@/lib/api";
-import { resolveBlockDocumentMutationBarrier } from "@/lib/block-document-mutation-registry";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import type { PageCreateOriginKind } from "@/lib/page-create-focus";
 import {
@@ -121,6 +114,7 @@ import {
   type DatabaseViewMutationHistory,
 } from "../workbench/database-view-mutation-history";
 import { undoDatabaseViewBlockTransfer } from "../workbench/database-view-block-transfer-undo";
+import { commitDatabaseViewBlockDrop } from "../workbench/database-view-block-drop-command";
 import {
   findBoardKeyboardLocation,
   resolveBoardKeyboardActionPageIds,
@@ -571,11 +565,8 @@ export function Board({
     async (columnId: WorkflowStatus, event: React.DragEvent<HTMLDivElement>) => {
       const session = resolveLocalBlockDragDropSession(event.dataTransfer);
       if (!session) return;
-      const authoritativePayload = session.payload;
-
       event.preventDefault();
       event.stopPropagation();
-      endLocalBlockDragSession({ sessionId: session.sessionId });
       const destinationIndex = computeNativeDropIndexFromSurface(
         event.currentTarget,
         event.clientY,
@@ -584,100 +575,27 @@ export function Board({
       setDropIndicator(null);
       setBlockedDropMessage(null);
 
-      if (
-        !databaseView ||
-        authoritativePayload.projectId !== projectId ||
-        authoritativePayload.storeEpoch !== databaseView.storeEpoch
-      ) {
-        toast.danger("Block transfer belongs to another Project or store generation.");
-        return;
-      }
-      if (containsCanvasBlockDrag(authoritativePayload)) {
-        toast.info("Canvas can only move between Page Documents, not into a Board.");
-        return;
-      }
-      if (containsDatabaseBlockDrag(authoritativePayload)) {
-        toast.info("Database blocks can only move through a typed Database action.");
-        return;
-      }
+      if (!databaseView) return;
       const destinationCards = filteredBoard?.columns.find(
         (column) => column.id === columnId,
       )?.cards ?? [];
       const beforePageId = destinationCards[destinationIndex]?.id;
-      const sourceBarrier = resolveBlockDocumentMutationBarrier(
-        authoritativePayload.sourceSurfaceId,
-      );
-      const sourceHead = await sourceBarrier?.flushAndFence();
-      if (sourceHead && sourceHead.storeEpoch !== databaseView.storeEpoch) {
-        toast.danger("The dragged Document belongs to another store generation.");
-        return;
-      }
-      const result = await transferBlocks(
+      await commitDatabaseViewBlockDrop({
+        session,
         projectId,
-        buildBlockToDataSourceTransferIntent({
-          operationId: crypto.randomUUID(),
-          projectId,
-          storeEpoch: databaseView.storeEpoch,
-          payload: authoritativePayload,
-          dataSourceId: databaseView.dataSourceId,
+        storeEpoch: databaseView.storeEpoch,
+        dataSourceId: databaseView.dataSourceId,
+        placement: {
+          kind: "direct",
           viewId: databaseView.databaseViewId,
           groupKey: columnId,
           ...(beforePageId ? { beforePageId } : {}),
-          altKey: event.altKey,
-          promotionPolicy: resolvePagePromotionPolicy({
-            preferenceEnabled: readTaskShorthandPagePromotionEnabled(),
-            shiftKey: event.shiftKey,
-          }),
-          ...(sourceHead
-            ? {
-                causalDependencies: [{
-                  documentId: sourceHead.documentId,
-                  generation: sourceHead.generation,
-                  expectedHeadSeq: sourceHead.expectedHeadSeq,
-                }],
-              }
-            : {}),
-        }),
-      );
-      if (!result.ok) {
-        toast.danger(result.error.message);
-        return;
-      }
-      if (result.value.undoToken) {
-        mutationHistory.registerBlockTransfer(result.value.undoToken);
-      }
-      const shorthandFeedback = summarizeBlockPagePromotionReceipt(result.value);
-      const feedbackMessage = shorthandFeedback?.message ?? "Block promoted to a Page.";
-      const feedbackOptions = result.value.undoToken && databaseView
-        ? {
-            action: {
-              label: "Undo",
-              onClick: () => {
-                void mutationHistory.undoLast({
-                  listMove: async () => false,
-                  blockTransfer: async (token) => await undoDatabaseViewBlockTransfer({
-                    projectId,
-                    storeEpoch: databaseView.storeEpoch,
-                    token,
-                  }),
-                });
-                return false;
-              },
-            },
-          }
-        : undefined;
-      if (shorthandFeedback?.tone === "info") toast.info(feedbackMessage, feedbackOptions);
-      else toast.success(feedbackMessage, feedbackOptions);
-      const commitCursor = result.localCommit.status === "committed"
-        ? {
-            storeEpoch: result.localCommit.commit.store_epoch,
-            commitSeq: result.localCommit.commit.commit_seq,
-          }
-        : {
-            storeEpoch: result.localCommit.observed.store_epoch,
-            commitSeq: result.localCommit.observed.commit_head,
-          };
-      await refresh(commitCursor);
+        },
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        mutationHistory,
+        onCommitted: async (cursor) => await refresh(cursor),
+      });
     },
     [databaseView, filteredBoard, mutationHistory, projectId, refresh],
   );
