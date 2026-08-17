@@ -10191,13 +10191,13 @@ DEALINGS IN THE SOFTWARE.
 - cc@1.2.67 (Rust crate) — MIT OR Apache-2.0 — https://github.com/rust-lang/cc-rs
 - cfg-if@1.0.4 (Rust crate) — MIT OR Apache-2.0 — https://github.com/rust-lang/cfg-if
 - find-msvc-tools@0.1.9 (Rust crate) — MIT OR Apache-2.0 — https://github.com/rust-lang/cc-rs
-- js-sys@0.3.103 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen/
+- js-sys@0.3.104 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen/
 - pkg-config@0.3.33 (Rust crate) — MIT OR Apache-2.0 — https://github.com/rust-lang/pkg-config-rs
 - socket2@0.6.5 (Rust crate) — MIT OR Apache-2.0 — https://github.com/rust-lang/socket2
-- wasm-bindgen-macro-support@0.2.126 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen/
-- wasm-bindgen-macro@0.2.126 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen/
-- wasm-bindgen-shared@0.2.126 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen/
-- wasm-bindgen@0.2.126 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen
+- wasm-bindgen-macro-support@0.2.127 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen/
+- wasm-bindgen-macro@0.2.127 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen/
+- wasm-bindgen-shared@0.2.127 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen/
+- wasm-bindgen@0.2.127 (Rust crate) — MIT OR Apache-2.0 — https://wasm-bindgen.github.io/wasm-bindgen
 ================================================================================
 
 --- LICENSE-APACHE ---

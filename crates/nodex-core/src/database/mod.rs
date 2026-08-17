@@ -41,8 +41,8 @@ pub(crate) use mutation::{
 };
 pub(crate) use page_key::{
     create_page_key_namespace, current_page_key_for_database_page, current_page_key_for_page,
-    ensure_database_page_key, page_key_namespace_settings, preview_page_key_prefix,
-    rename_page_key_prefix, resolve_page_key_matches_in_library,
+    current_page_keys_in_library, ensure_database_page_key, page_key_namespace_settings,
+    preview_page_key_prefix, rename_page_key_prefix, resolve_page_key_matches_in_library,
 };
 pub(crate) use projection_delta::{
     record_local_projection_delta, record_page_detail_projection_delta,

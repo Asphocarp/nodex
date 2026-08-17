@@ -470,6 +470,33 @@ pub(crate) fn current_page_key_for_page(
         .map_err(StoreError::from)
 }
 
+pub(crate) fn current_page_keys_in_library(
+    connection: &Connection,
+    library_id: &str,
+) -> Result<HashMap<String, String>, StoreError> {
+    connection
+        .prepare(
+            "SELECT page.block_id, prefix.normalized_prefix, assignment.number \
+             FROM pages page \
+             JOIN data_sources source ON page.parent_kind = 'data_source' AND source.id = page.parent_id \
+             JOIN page_key_namespaces namespace ON namespace.database_block_id = source.home_database_block_id \
+               AND namespace.library_id = page.library_id \
+             JOIN page_key_prefixes prefix ON prefix.database_block_id = namespace.database_block_id \
+               AND prefix.library_id = namespace.library_id AND prefix.retired_at IS NULL \
+             JOIN page_key_assignments assignment ON assignment.database_block_id = namespace.database_block_id \
+               AND assignment.page_block_id = page.block_id \
+             WHERE page.library_id = ?1 ORDER BY page.block_id",
+        )?
+        .query_map([library_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                format_page_key(&row.get::<_, String>(1)?, row.get::<_, i64>(2)?),
+            ))
+        })?
+        .collect::<rusqlite::Result<HashMap<_, _>>>()
+        .map_err(StoreError::from)
+}
+
 pub(crate) fn current_page_key_for_database_page(
     connection: &Connection,
     library_id: &str,

@@ -1,5 +1,4 @@
 import {
-  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -31,6 +30,10 @@ import type {
   LibraryResourceTarget,
   LibraryWriteParent,
 } from "../../../shared/library-module";
+import {
+  configuredPageSearchProjectIds,
+  useInteractivePageSearch,
+} from "@/lib/interactive-page-search";
 
 const ROOT_ROW_ID = "library-root";
 const LOAD_DELAY_MS = 400;
@@ -318,7 +321,7 @@ export function LibraryMoveDestinationPickerSurface({
       {showLoading ? (
         <NodexDestinationPickerStatus>
           <ActivitySpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
-          Loading…
+          {rows.length > 0 ? "Loading more Pages…" : "Loading Pages…"}
         </NodexDestinationPickerStatus>
       ) : null}
       {error ? <NodexDestinationPickerStatus>{error}</NodexDestinationPickerStatus> : null}
@@ -374,8 +377,7 @@ export function LibraryMoveDestinationPicker({
   readonly onMoved: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
-  const normalizedQuery = normalizeSearchText(deferredQuery);
+  const normalizedQuery = normalizeSearchText(query);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [acceptingRowId, setAcceptingRowId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
@@ -392,6 +394,13 @@ export function LibraryMoveDestinationPicker({
     scope: { kind: "search", query: normalizedQuery || "disabled" },
     limit: 100,
   }, Boolean(normalizedQuery));
+  const metadataSearch = useInteractivePageSearch({
+    projectIds: configuredPageSearchProjectIds(),
+    query: normalizedQuery,
+    excludePageIds: target.kind === "page" ? [target.pageId] : [],
+    limit: 100,
+    complete: false,
+  });
   const expandedPageIds = useMemo(() => [...expandedIds].sort(), [expandedIds]);
   const childQueries = useLibraryMoveDestinationChildren(
     target,
@@ -428,11 +437,23 @@ export function LibraryMoveDestinationPicker({
         ),
       ]
     : recent.data?.items ?? [];
+  const searchEntries = search.data?.items ?? (search.isPending
+    ? metadataSearch.rows.map((row): LibraryMoveDestinationEntry => ({
+        pageId: row.pageId,
+        title: row.title,
+        path: row.locationLabel.split(" / ").filter(Boolean),
+        hasChildren: false,
+        documentGeneration: 0,
+        documentHeadSeq: 0,
+        updatedAt: row.updatedAt,
+        isCurrent: false,
+      }))
+    : []);
   const sections = normalizedQuery
     ? [{
         key: "search" as const,
         label: "Search results",
-        rows: (search.data?.items ?? []).map((entry) => ({
+        rows: searchEntries.map((entry) => ({
           kind: "page" as const,
           id: `search:${entry.pageId}`,
           entry,
@@ -460,7 +481,7 @@ export function LibraryMoveDestinationPicker({
           rows: [rootRow, ...treeRows],
         },
       ];
-  const rowsStale = normalizeSearchText(query) !== normalizedQuery;
+  const rowsStale = Boolean(normalizedQuery && search.isPending);
   const activeQuery = normalizedQuery ? search : root;
   const loading = activeQuery.isPending
     || (!normalizedQuery && recent.isPending)

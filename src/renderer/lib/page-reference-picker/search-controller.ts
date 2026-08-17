@@ -10,6 +10,10 @@ import type {
   PageReferenceCandidate,
   PageReferencePickerRequest,
 } from "./types";
+import {
+  configuredPageSearchProjectIds,
+  searchPageMetadataSync,
+} from "../interactive-page-search";
 
 export function resolvePageReferenceSourcePageId(
   request: PageReferencePickerRequest,
@@ -49,6 +53,52 @@ export async function loadPageReferenceCandidates(
     })),
     request.limit,
   );
+}
+
+/** Same-frame metadata results from the prewarmed Core-authorized projection. */
+export function loadPageReferenceCandidatesSync(
+  request: PageReferencePickerRequest,
+): PageReferenceCandidate[] {
+  const projectIds = request.accessContext.kind === "project"
+    ? [request.accessContext.projectId]
+    : configuredPageSearchProjectIds();
+  const rows = searchPageMetadataSync({
+    projectIds,
+    query: request.query,
+    excludePageIds: resolvePageReferenceSourcePageId(request)
+      ? [resolvePageReferenceSourcePageId(request)!]
+      : [],
+    limit: request.limit,
+    complete: false,
+  });
+  return pageSearchResultsToReferenceCandidates(request, rows);
+}
+
+export function pageSearchResultsToReferenceCandidates(
+  request: PageReferencePickerRequest,
+  rows: readonly import("../../../shared/types").PageSearchResult[],
+): PageReferenceCandidate[] {
+  return deduplicatePageReferenceCandidates(rows.map((item) => ({
+    pageId: item.pageId,
+    title: item.title,
+    pageKey: item.pageKey,
+    status: item.status,
+    locationLabel: item.locationLabel,
+    lifecycle: "active" as const,
+    matchExcerpt: item.excerpt,
+    matchSource: item.matches.some((match) => match.source === "page_key")
+      ? "page_key" as const
+      : "title" as const,
+    titleParts: item.titleParts,
+    matchExcerptParts: item.excerptParts,
+    matches: item.matches,
+    disabledReason: resolvePageReferenceDisabledReason({
+      pageId: item.pageId,
+      hostPageId: request.hostPageId,
+      ancestorPageIds: request.ancestorPageIds,
+      intent: request.intent,
+    }),
+  })), request.limit);
 }
 
 export interface PageReferenceSearchController {

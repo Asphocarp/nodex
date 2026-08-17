@@ -39,7 +39,9 @@ import type {
   PageSearchInput,
   PageSearchMatch,
   PageSearchOption,
+  PageSearchMetadataSnapshot,
   PageSearchResult,
+  PageSearchSnapshot,
   PageSearchTextPart,
 } from "../../shared/types";
 import {
@@ -116,7 +118,11 @@ export interface CoreLibraryModuleAdapter {
   listPageHistory(
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
-  searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
+  searchPages(input: PageSearchInput): Promise<PageSearchSnapshot>;
+  pageSearchMetadata(
+    projectIds: string[],
+    pageIds?: string[],
+  ): Promise<PageSearchMetadataSnapshot>;
   pageSearchFacets(projectIds: string[]): Promise<PageSearchFacets>;
   resolvePageTarget(
     input: ResolvePageTargetInput,
@@ -1049,6 +1055,10 @@ type CoreProjectPageSearchValue = Extract<
 >;
 type CorePageSearchMatch = CoreProjectPageSearchValue["items"][number]["matches"][number];
 type CorePageSearchOption = CoreProjectPageSearchValue["items"][number]["tags"][number];
+type CoreProjectPageSearchMetadataValue = Extract<
+  LibraryReadSnapshot["value"],
+  { readonly kind: "project_page_search_metadata" }
+>;
 
 const mapPageSearchParts = (
   parts: readonly { readonly text: string; readonly highlighted: boolean }[],
@@ -1950,7 +1960,7 @@ export const createCoreLibraryModuleAdapter = (
       ) {
         throw new Error("Core Project Page search escaped its snapshot boundary");
       }
-      return snapshot.value.items.map((item): PageSearchResult => {
+      const results = snapshot.value.items.map((item): PageSearchResult => {
         if (
           !item.project_id
           || !item.page_id
@@ -1980,6 +1990,56 @@ export const createCoreLibraryModuleAdapter = (
           updatedAt: item.updated_at,
         };
       });
+      return {
+        libraryId: input.libraryId,
+        storeEpoch: snapshot.store_epoch,
+        commitSeq: snapshot.commit_head,
+        results,
+      };
+    },
+    pageSearchMetadata: async (projectIds, pageIds) => {
+      const snapshot = await input.client.libraryRead({
+        kind: "project_page_search_metadata",
+        project_ids: projectIds,
+        page_ids: pageIds ?? null,
+      });
+      if (
+        snapshot.store_epoch !== input.storeEpoch
+        || snapshot.value.kind !== "project_page_search_metadata"
+      ) {
+        throw new Error("Core Page search metadata escaped its snapshot boundary");
+      }
+      const value: CoreProjectPageSearchMetadataValue = snapshot.value;
+      return {
+        libraryId: input.libraryId,
+        storeEpoch: snapshot.store_epoch,
+        commitSeq: snapshot.commit_head,
+        authorization: {
+          libraryId: input.libraryId,
+          storeEpoch: snapshot.store_epoch,
+          coveredCommitSeq: snapshot.commit_head,
+          projectIds: [...projectIds],
+        },
+        documents: value.items.map((item) => ({
+          pageId: item.page_id,
+          pageKey: item.page_key ?? null,
+          title: item.title,
+          preview: item.preview,
+          status: item.status ?? null,
+          priority: item.priority && isPriority(item.priority) ? item.priority : null,
+          tags: item.tags.map(mapPageSearchOption),
+          assignee: item.assignee ?? null,
+          locationLabel: item.location_label,
+          updatedAt: item.updated_at,
+          properties: item.properties.map((property) => ({
+            propertyId: property.property_id,
+            propertyName: property.property_name,
+            text: property.text,
+          })),
+          authorizedProjectIds: [...item.authorized_project_ids],
+          dataSourceIds: [...item.data_source_ids],
+        })),
+      };
     },
     pageSearchFacets: async (projectIds) => {
       const snapshot = await input.client.libraryRead({

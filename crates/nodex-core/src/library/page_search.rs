@@ -8,20 +8,25 @@ use nodex_core_contracts::library::{
     LibraryAgentPageLocation, LibraryAgentPageSearchMatch, LibraryAgentSearchMatchQuality,
     LibraryAgentSearchResult, LibraryAgentSearchScope, LibraryPageReferenceCandidate,
     LibraryPageReferenceMatchSource, LibraryPageSearchMatch, LibraryPageSearchMatchQuality,
-    LibraryPageSearchOption, LibraryPageSearchOptionIdentity, LibraryPageSearchTagMode,
-    LibraryPageSearchTextPart, LibraryPageWorkflowStatus, LibraryProjectPageSearchFacets,
-    LibraryProjectPageSearchFilters, LibraryProjectPageSearchHit,
+    LibraryPageSearchMetadataDocument, LibraryPageSearchMetadataProperty, LibraryPageSearchOption,
+    LibraryPageSearchOptionIdentity, LibraryPageSearchTagMode, LibraryPageSearchTextPart,
+    LibraryPageWorkflowStatus, LibraryProjectPageSearchFacets, LibraryProjectPageSearchFilters,
+    LibraryProjectPageSearchHit,
+};
+use nodex_page_search_kernel::{
+    MatchQuality as KernelMatchQuality, MetadataDocument as KernelDocument,
+    MetadataMatchSource as KernelMatchSource, MetadataProperty as KernelProperty,
+    MetadataSearchIndex, SearchOption as KernelOption, TextPart as KernelTextPart,
+    WorkflowStatus as KernelWorkflowStatus,
 };
 use rusqlite::{Connection, params};
 use serde_json::Value;
 
-use crate::database::{self, current_page_key_for_page, resolve_page_key_matches_in_library};
+use crate::database::{self, current_page_keys_in_library, resolve_page_key_matches_in_library};
 use crate::domain::page_key::is_explicit_page_key_search;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::search_match::{
-    SearchTermMatchQuality, fuzzy_distance, normalize_search_text, search_tokens,
-};
+use super::search_match::{SearchTermMatchQuality, normalize_search_text, search_tokens};
 
 const MAX_QUERY_BYTES: usize = 512;
 const MAX_QUERY_TERMS: usize = 32;
@@ -66,194 +71,15 @@ struct IndexedPage {
     tags: Vec<LibraryPageSearchOption>,
     assignee: Option<String>,
     authorized_project_ids: BTreeSet<String>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum MetadataField {
-    Title,
-    Property {
-        property_id: String,
-        property_name: String,
-    },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Posting {
-    page_id: String,
-    field: MetadataField,
-}
-
-#[derive(Default)]
-struct TokenTrieNode {
-    children: BTreeMap<char, TokenTrieNode>,
-    postings: Vec<Posting>,
-}
-
-#[derive(Default)]
-struct TokenTrie {
-    root: TokenTrieNode,
-}
-
-impl TokenTrie {
-    fn insert(&mut self, token: &str, posting: Posting) {
-        if token.is_empty() {
-            return;
-        }
-        let mut node = &mut self.root;
-        for character in token.chars() {
-            node = node.children.entry(character).or_default();
-        }
-        if !node.postings.contains(&posting) {
-            node.postings.push(posting);
-        }
-    }
-
-    fn matches(&self, term: &str, allow_fuzzy: bool) -> Vec<TokenMatch> {
-        let mut matches = Vec::new();
-        if let Some(node) = self.node(term) {
-            if !node.postings.is_empty() {
-                matches.push(TokenMatch {
-                    token: term.to_owned(),
-                    quality: SearchTermMatchQuality::Exact,
-                    edit_distance: 0,
-                    postings: node.postings.clone(),
-                });
-            }
-            if term.chars().count() >= 2 {
-                let mut prefix = term.to_owned();
-                collect_descendant_matches(node, &mut prefix, term, &mut matches);
-            }
-        }
-        if allow_fuzzy {
-            let maximum = fuzzy_distance(term);
-            if maximum > 0 {
-                let initial = (0..=term.chars().count()).collect::<Vec<_>>();
-                let target = term.chars().collect::<Vec<_>>();
-                let mut token = String::new();
-                collect_fuzzy_matches(
-                    &self.root,
-                    &target,
-                    &initial,
-                    maximum,
-                    &mut token,
-                    &mut matches,
-                );
-            }
-        }
-        let mut best = BTreeMap::<(String, String, String), TokenMatch>::new();
-        for matched in matches {
-            for posting in &matched.postings {
-                let field_key = match &posting.field {
-                    MetadataField::Title => {
-                        (posting.page_id.clone(), "title".to_owned(), String::new())
-                    }
-                    MetadataField::Property {
-                        property_id,
-                        property_name,
-                    } => (
-                        posting.page_id.clone(),
-                        property_id.clone(),
-                        property_name.clone(),
-                    ),
-                };
-                let single = TokenMatch {
-                    token: matched.token.clone(),
-                    quality: matched.quality,
-                    edit_distance: matched.edit_distance,
-                    postings: vec![posting.clone()],
-                };
-                match best.get(&field_key) {
-                    Some(existing)
-                        if (quality_rank(existing.quality), existing.edit_distance)
-                            <= (quality_rank(single.quality), single.edit_distance) => {}
-                    _ => {
-                        best.insert(field_key, single);
-                    }
-                }
-            }
-        }
-        best.into_values().collect()
-    }
-
-    fn node(&self, token: &str) -> Option<&TokenTrieNode> {
-        let mut node = &self.root;
-        for character in token.chars() {
-            node = node.children.get(&character)?;
-        }
-        Some(node)
-    }
-}
-
-#[derive(Clone)]
-struct TokenMatch {
-    token: String,
-    quality: SearchTermMatchQuality,
-    edit_distance: usize,
-    postings: Vec<Posting>,
-}
-
-fn collect_descendant_matches(
-    node: &TokenTrieNode,
-    token: &mut String,
-    exact: &str,
-    matches: &mut Vec<TokenMatch>,
-) {
-    for (character, child) in &node.children {
-        token.push(*character);
-        if !child.postings.is_empty() && token != exact {
-            matches.push(TokenMatch {
-                token: token.clone(),
-                quality: SearchTermMatchQuality::Prefix,
-                edit_distance: 0,
-                postings: child.postings.clone(),
-            });
-        }
-        collect_descendant_matches(child, token, exact, matches);
-        token.pop();
-    }
-}
-
-fn collect_fuzzy_matches(
-    node: &TokenTrieNode,
-    target: &[char],
-    previous: &[usize],
-    maximum: usize,
-    token: &mut String,
-    matches: &mut Vec<TokenMatch>,
-) {
-    for (character, child) in &node.children {
-        let mut current = Vec::with_capacity(previous.len());
-        current.push(previous[0] + 1);
-        for (index, target_character) in target.iter().enumerate() {
-            current.push(
-                (previous[index + 1] + 1)
-                    .min(current[index] + 1)
-                    .min(previous[index] + usize::from(character != target_character)),
-            );
-        }
-        if current.iter().copied().min().unwrap_or(usize::MAX) > maximum {
-            continue;
-        }
-        token.push(*character);
-        if current.last().copied().unwrap_or(usize::MAX) <= maximum && !child.postings.is_empty() {
-            matches.push(TokenMatch {
-                token: token.clone(),
-                quality: SearchTermMatchQuality::Fuzzy,
-                edit_distance: current.last().copied().unwrap_or(maximum),
-                postings: child.postings.clone(),
-            });
-        }
-        collect_fuzzy_matches(child, target, &current, maximum, token, matches);
-        token.pop();
-    }
+    page_key: Option<String>,
+    location_label: String,
+    data_source_ids: BTreeSet<String>,
 }
 
 pub(super) struct PageSearchIndex {
     pages: BTreeMap<String, IndexedPage>,
-    identity_terms: BTreeMap<String, String>,
-    title_terms: TokenTrie,
-    property_terms: TokenTrie,
     data_source_databases: HashMap<String, String>,
+    metadata_index: MetadataSearchIndex,
 }
 
 impl PageSearchIndexRegistry {
@@ -291,13 +117,20 @@ fn build_index(connection: &Connection, library_id: &str) -> Result<PageSearchIn
              FROM page_read_model WHERE library_id = ?1 AND lifecycle <> 'deleted' ORDER BY page_block_id",
         )?
         .query_map([library_id], |row| {
+            let parent_kind: String = row.get(4)?;
+            let parent_id: String = row.get(5)?;
             Ok(IndexedPage {
                 id: row.get(0)?,
                 title: row.get(1)?,
                 preview: row.get(2)?,
                 lifecycle: row.get(3)?,
-                parent_kind: row.get(4)?,
-                parent_id: row.get(5)?,
+                data_source_ids: if parent_kind == "data_source" {
+                    BTreeSet::from([parent_id.clone()])
+                } else {
+                    BTreeSet::new()
+                },
+                parent_kind,
+                parent_id,
                 updated_at: row.get(6)?,
                 properties: Vec::new(),
                 status: None,
@@ -305,6 +138,8 @@ fn build_index(connection: &Connection, library_id: &str) -> Result<PageSearchIn
                 tags: Vec::new(),
                 assignee: None,
                 authorized_project_ids: BTreeSet::new(),
+                page_key: None,
+                location_label: String::new(),
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -351,6 +186,7 @@ fn build_index(connection: &Connection, library_id: &str) -> Result<PageSearchIn
         let Some(page) = pages.get_mut(&page_id) else {
             continue;
         };
+        page.data_source_ids.insert(data_source_id.clone());
         let value = serde_json::from_str::<Value>(&value_json)
             .map_err(|_| corrupt("Page search Property value is invalid"))?;
         let Some((text, options)) = property_display_value(
@@ -388,42 +224,125 @@ fn build_index(connection: &Connection, library_id: &str) -> Result<PageSearchIn
         .query_map([library_id], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<HashMap<_, _>>>()?;
     populate_authorized_projects(connection, library_id, &data_source_databases, &mut pages)?;
-    let mut title_terms = TokenTrie::default();
-    let mut property_terms = TokenTrie::default();
-    let mut identity_terms = BTreeMap::new();
-    for page in pages.values() {
-        identity_terms.insert(normalize_search_text(&page.id), page.id.clone());
-        for token in search_tokens(&page.title) {
-            title_terms.insert(
-                &token,
-                Posting {
-                    page_id: page.id.clone(),
-                    field: MetadataField::Title,
-                },
-            );
-        }
-        for property in &page.properties {
-            for token in search_tokens(&property.text) {
-                property_terms.insert(
-                    &token,
-                    Posting {
-                        page_id: page.id.clone(),
-                        field: MetadataField::Property {
-                            property_id: property.property_id.clone(),
-                            property_name: property.property_name.clone(),
-                        },
-                    },
-                );
-            }
-        }
+    let page_keys = current_page_keys_in_library(connection, library_id)?;
+    let data_source_names = connection
+        .prepare(
+            "SELECT source.id, container.name FROM data_sources source \
+             JOIN database_containers container ON container.block_id = source.home_database_block_id \
+             WHERE source.library_id = ?1",
+        )?
+        .query_map([library_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<HashMap<String, String>>>()?;
+    let locations = pages
+        .keys()
+        .map(|page_id| {
+            Ok((
+                page_id.clone(),
+                page_location_label(&pages, &data_source_names, library_id, page_id)?,
+            ))
+        })
+        .collect::<Result<HashMap<_, _>, StoreError>>()?;
+    for page in pages.values_mut() {
+        page.page_key = page_keys.get(&page.id).cloned();
+        page.location_label = locations.get(&page.id).cloned().unwrap_or_default();
     }
+    let metadata_documents = pages
+        .values()
+        .map(|page| {
+            Ok(KernelDocument {
+                page_id: page.id.clone(),
+                page_key: page.page_key.clone(),
+                title: page.title.clone(),
+                preview: page.preview.clone(),
+                status: page.status.map(kernel_workflow_status),
+                priority: page.priority.clone(),
+                tags: page.tags.iter().map(kernel_option).collect(),
+                assignee: page.assignee.clone(),
+                location_label: page.location_label.clone(),
+                updated_at: page.updated_at.clone(),
+                properties: page
+                    .properties
+                    .iter()
+                    .map(|property| KernelProperty {
+                        property_id: property.property_id.clone(),
+                        property_name: property.property_name.clone(),
+                        text: property.text.clone(),
+                    })
+                    .collect(),
+                authorized_project_ids: page.authorized_project_ids.iter().cloned().collect(),
+                data_source_ids: page.data_source_ids.iter().cloned().collect(),
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
     Ok(PageSearchIndex {
         pages,
-        identity_terms,
-        title_terms,
-        property_terms,
         data_source_databases,
+        metadata_index: MetadataSearchIndex::new(metadata_documents),
     })
+}
+
+fn page_location_label(
+    pages: &BTreeMap<String, IndexedPage>,
+    data_source_names: &HashMap<String, String>,
+    library_id: &str,
+    page_id: &str,
+) -> Result<String, StoreError> {
+    let mut current = pages
+        .get(page_id)
+        .ok_or_else(|| corrupt("Page search location is missing"))?;
+    let mut ancestors = Vec::new();
+    let mut seen = HashSet::new();
+    loop {
+        if !seen.insert(current.id.as_str()) {
+            return Err(corrupt("Page search location contains a cycle"));
+        }
+        match current.parent_kind.as_str() {
+            "page" => {
+                current = pages
+                    .get(&current.parent_id)
+                    .ok_or_else(|| corrupt("Page search parent is missing"))?;
+                ancestors.push(current.title.clone());
+            }
+            "library" if current.parent_id == library_id => {
+                ancestors.reverse();
+                return Ok(std::iter::once("Pages".to_owned())
+                    .chain(ancestors)
+                    .collect::<Vec<_>>()
+                    .join(" / "));
+            }
+            "data_source" => {
+                let boundary = data_source_names
+                    .get(&current.parent_id)
+                    .ok_or_else(|| corrupt("Page search Database boundary is missing"))?
+                    .clone();
+                ancestors.reverse();
+                return Ok(std::iter::once(boundary)
+                    .chain(ancestors)
+                    .collect::<Vec<_>>()
+                    .join(" / "));
+            }
+            _ => return Err(corrupt("Page search location has an invalid boundary")),
+        }
+    }
+}
+
+fn kernel_workflow_status(status: LibraryPageWorkflowStatus) -> KernelWorkflowStatus {
+    match status {
+        LibraryPageWorkflowStatus::Triage => KernelWorkflowStatus::Triage,
+        LibraryPageWorkflowStatus::Plan => KernelWorkflowStatus::Plan,
+        LibraryPageWorkflowStatus::Build => KernelWorkflowStatus::Build,
+        LibraryPageWorkflowStatus::Review => KernelWorkflowStatus::Review,
+        LibraryPageWorkflowStatus::Ship => KernelWorkflowStatus::Ship,
+    }
+}
+
+fn kernel_option(option: &LibraryPageSearchOption) -> KernelOption {
+    KernelOption {
+        data_source_id: option.data_source_id.clone(),
+        property_id: option.property_id.clone(),
+        option_id: option.option_id.clone(),
+        label: option.label.clone(),
+    }
 }
 
 /// Materializes the same Project read roots used by ordinary Page reads into
@@ -814,6 +733,67 @@ pub(super) fn project_facets(
     })
 }
 
+pub(super) fn project_metadata(
+    _connection: &Connection,
+    index: &PageSearchIndex,
+    _library_id: &str,
+    project_ids: &[String],
+    requested_page_ids: Option<&[String]>,
+) -> Result<Vec<LibraryPageSearchMetadataDocument>, StoreError> {
+    validate_project_ids(project_ids)?;
+    if requested_page_ids.is_some_and(|ids| ids.len() > 10_000) {
+        return Err(invalid("Page search metadata delta is out of range"));
+    }
+    if let Some(ids) = requested_page_ids {
+        validate_unique_identities(ids, "Page search metadata Page")?;
+    }
+    let requested =
+        requested_page_ids.map(|ids| ids.iter().map(String::as_str).collect::<HashSet<_>>());
+    index
+        .pages
+        .values()
+        .filter(|page| page.lifecycle == "active")
+        .filter(|page| {
+            requested
+                .as_ref()
+                .is_none_or(|ids| ids.contains(page.id.as_str()))
+        })
+        .filter_map(|page| {
+            let authorized_project_ids = project_ids
+                .iter()
+                .filter(|project_id| page.authorized_project_ids.contains(*project_id))
+                .cloned()
+                .collect::<Vec<_>>();
+            (!authorized_project_ids.is_empty()).then_some((page, authorized_project_ids))
+        })
+        .map(|(page, authorized_project_ids)| {
+            Ok(LibraryPageSearchMetadataDocument {
+                page_id: page.id.clone(),
+                page_key: page.page_key.clone(),
+                title: page.title.clone(),
+                preview: page.preview.clone(),
+                status: page.status,
+                priority: page.priority.clone(),
+                tags: page.tags.clone(),
+                assignee: page.assignee.clone(),
+                location_label: page.location_label.clone(),
+                updated_at: page.updated_at.clone(),
+                properties: page
+                    .properties
+                    .iter()
+                    .map(|property| LibraryPageSearchMetadataProperty {
+                        property_id: property.property_id.clone(),
+                        property_name: property.property_name.clone(),
+                        text: property.text.clone(),
+                    })
+                    .collect(),
+                authorized_project_ids,
+                data_source_ids: page.data_source_ids.iter().cloned().collect(),
+            })
+        })
+        .collect()
+}
+
 pub(super) fn search_references(
     connection: &Connection,
     index: &PageSearchIndex,
@@ -868,6 +848,7 @@ pub(super) fn search_references(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn search_agent_pages(
     connection: &Connection,
     index: &PageSearchIndex,
@@ -933,6 +914,42 @@ fn search_index(
             .collect());
     }
     let mut aggregates = HashMap::<String, Aggregate>::new();
+    for matched in index
+        .metadata_index
+        .match_documents(query)
+        .map_err(|message| invalid(&format!("Page search kernel rejected query: {message}")))?
+    {
+        for evidence in matched.evidence {
+            let kind = match evidence.source {
+                KernelMatchSource::PageKey { page_key } => EvidenceKind::PageKey {
+                    page_key,
+                    is_current: true,
+                },
+                KernelMatchSource::Identity => EvidenceKind::Identity,
+                KernelMatchSource::Title => EvidenceKind::Title,
+                KernelMatchSource::Property {
+                    property_id,
+                    property_name,
+                } => EvidenceKind::Property {
+                    property_id,
+                    property_name,
+                },
+            };
+            add_evidence(
+                &mut aggregates,
+                &matched.page_id,
+                Evidence {
+                    term: evidence.term,
+                    matched_token: evidence.matched_token,
+                    kind,
+                    quality: core_match_quality(evidence.quality),
+                    edit_distance: evidence.edit_distance,
+                    parts: evidence.parts.into_iter().map(core_text_part).collect(),
+                },
+                0.0,
+            );
+        }
+    }
     for resolution in resolve_page_key_matches_in_library(connection, library_id, query)? {
         let Some(page) = index.pages.get(&resolution.page_block_id) else {
             continue;
@@ -962,88 +979,6 @@ fn search_index(
         return Ok(aggregates.into_values().collect());
     }
     for term in terms {
-        let identity_matches = index
-            .identity_terms
-            .range(term.clone()..)
-            .take_while(|(identity, _)| identity.starts_with(term))
-            .filter(|(identity, _)| identity.as_str() == term || term.chars().count() >= 2);
-        for (identity, page_id) in identity_matches {
-            let Some(page) = index.pages.get(page_id) else {
-                continue;
-            };
-            add_evidence(
-                &mut aggregates,
-                &page.id,
-                Evidence {
-                    term: term.clone(),
-                    matched_token: identity.clone(),
-                    kind: EvidenceKind::Identity,
-                    quality: if identity == term {
-                        SearchTermMatchQuality::Exact
-                    } else {
-                        SearchTermMatchQuality::Prefix
-                    },
-                    edit_distance: 0,
-                    parts: highlight_text(&page.id, std::slice::from_ref(identity)),
-                },
-                0.0,
-            );
-        }
-        for matched in index.title_terms.matches(term, true) {
-            for posting in matched.postings {
-                let Some(page) = index.pages.get(&posting.page_id) else {
-                    continue;
-                };
-                add_evidence(
-                    &mut aggregates,
-                    &page.id,
-                    Evidence {
-                        term: term.clone(),
-                        matched_token: matched.token.clone(),
-                        kind: EvidenceKind::Title,
-                        quality: matched.quality,
-                        edit_distance: matched.edit_distance,
-                        parts: highlight_text(&page.title, std::slice::from_ref(&matched.token)),
-                    },
-                    0.0,
-                );
-            }
-        }
-        for matched in index.property_terms.matches(term, true) {
-            for posting in matched.postings {
-                let MetadataField::Property {
-                    property_id,
-                    property_name,
-                } = posting.field
-                else {
-                    continue;
-                };
-                let Some(page) = index.pages.get(&posting.page_id) else {
-                    continue;
-                };
-                let Some(property) = page.properties.iter().find(|property| {
-                    property.property_id == property_id && property.property_name == property_name
-                }) else {
-                    continue;
-                };
-                add_evidence(
-                    &mut aggregates,
-                    &page.id,
-                    Evidence {
-                        term: term.clone(),
-                        matched_token: matched.token.clone(),
-                        kind: EvidenceKind::Property {
-                            property_id,
-                            property_name,
-                        },
-                        quality: matched.quality,
-                        edit_distance: matched.edit_distance,
-                        parts: highlight_text(&property.text, std::slice::from_ref(&matched.token)),
-                    },
-                    0.0,
-                );
-            }
-        }
         for hit in search_body_term(connection, library_id, term)? {
             add_evidence(
                 &mut aggregates,
@@ -1067,6 +1002,21 @@ fn search_index(
         .into_values()
         .filter(|aggregate| terms.iter().all(|term| aggregate.terms.contains(term)))
         .collect())
+}
+
+fn core_match_quality(quality: KernelMatchQuality) -> SearchTermMatchQuality {
+    match quality {
+        KernelMatchQuality::Exact => SearchTermMatchQuality::Exact,
+        KernelMatchQuality::Prefix => SearchTermMatchQuality::Prefix,
+        KernelMatchQuality::Fuzzy => SearchTermMatchQuality::Fuzzy,
+    }
+}
+
+fn core_text_part(part: KernelTextPart) -> LibraryPageSearchTextPart {
+    LibraryPageSearchTextPart {
+        text: part.text,
+        highlighted: part.highlighted,
+    }
 }
 
 fn add_evidence(
@@ -1443,18 +1393,10 @@ fn evidence_rank(evidence: &Evidence) -> usize {
     }
 }
 
-fn quality_rank(quality: SearchTermMatchQuality) -> usize {
-    match quality {
-        SearchTermMatchQuality::Exact => 0,
-        SearchTermMatchQuality::Prefix => 1,
-        SearchTermMatchQuality::Fuzzy => 2,
-    }
-}
-
 fn project_hit(
-    connection: &Connection,
+    _connection: &Connection,
     index: &PageSearchIndex,
-    library_id: &str,
+    _library_id: &str,
     outcome: SearchOutcome,
 ) -> Result<LibraryProjectPageSearchHit, StoreError> {
     let page = index
@@ -1469,14 +1411,13 @@ fn project_hit(
             .project_id
             .ok_or_else(|| corrupt("Project Page search result has no access context"))?,
         page_id: page.id.clone(),
-        page_key: current_page_key_for_page(connection, library_id, &page.id)?,
+        page_key: page.page_key.clone(),
         title: page.title.clone(),
         status: page.status,
         priority: page.priority.clone(),
         tags: page.tags.clone(),
         assignee: page.assignee.clone(),
-        location_label: super::navigation::move_destination_path(connection, library_id, &page.id)?
-            .join(" / "),
+        location_label: page.location_label.clone(),
         title_parts,
         excerpt,
         excerpt_parts,
@@ -1486,9 +1427,9 @@ fn project_hit(
 }
 
 fn reference_hit(
-    connection: &Connection,
+    _connection: &Connection,
     index: &PageSearchIndex,
-    library_id: &str,
+    _library_id: &str,
     outcome: SearchOutcome,
 ) -> Result<LibraryPageReferenceCandidate, StoreError> {
     let page = index
@@ -1502,10 +1443,9 @@ fn reference_hit(
     Ok(LibraryPageReferenceCandidate {
         page_id: page.id.clone(),
         title: page.title.clone(),
-        page_key: current_page_key_for_page(connection, library_id, &page.id)?,
+        page_key: page.page_key.clone(),
         status: page.status,
-        location_label: super::navigation::move_destination_path(connection, library_id, &page.id)?
-            .join(" / "),
+        location_label: page.location_label.clone(),
         match_excerpt,
         match_source,
         title_parts,
@@ -1515,7 +1455,7 @@ fn reference_hit(
 }
 
 fn agent_hit(
-    connection: &Connection,
+    _connection: &Connection,
     index: &PageSearchIndex,
     library_id: &str,
     outcome: SearchOutcome,
@@ -1538,7 +1478,7 @@ fn agent_hit(
     };
     Ok(LibraryAgentSearchResult::Page {
         id: page.id.clone(),
-        page_key: current_page_key_for_page(connection, library_id, &page.id)?,
+        page_key: page.page_key.clone(),
         title: page.title.clone(),
         location,
         matches: representative_evidence(&outcome.aggregate.evidence)
@@ -1943,27 +1883,12 @@ mod tests {
     use nodex_core_contracts::library::{
         LibraryPageSearchTagMode, LibraryPageWorkflowStatus, LibraryProjectPageSearchFilters,
     };
+    use nodex_page_search_kernel::MetadataSearchIndex;
 
     use super::{
-        Aggregate, Evidence, EvidenceKind, IndexedPage, MetadataField, PageSearchIndex, Posting,
-        ProjectSearchRequest, SearchTermMatchQuality, TokenTrie, aggregate_rank, highlight_text,
-        rank_project_outcomes,
+        Aggregate, Evidence, EvidenceKind, IndexedPage, PageSearchIndex, ProjectSearchRequest,
+        SearchTermMatchQuality, aggregate_rank, highlight_text, rank_project_outcomes,
     };
-
-    #[test]
-    fn fuzzy_trie_returns_actual_title_token_without_scanning_pages() {
-        let mut trie = TokenTrie::default();
-        trie.insert(
-            "canonical",
-            Posting {
-                page_id: "page-1".to_owned(),
-                field: MetadataField::Title,
-            },
-        );
-        let matches = trie.matches("canoncal", true);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].token, "canonical");
-    }
 
     #[test]
     fn highlight_parts_preserve_original_unicode_text() {
@@ -2057,6 +1982,9 @@ mod tests {
                     priority: None,
                     tags: Vec::new(),
                     assignee: None,
+                    page_key: None,
+                    location_label: "Pages".to_owned(),
+                    data_source_ids: BTreeSet::new(),
                     authorized_project_ids: if index >= 3_000 {
                         BTreeSet::from(["project:test".to_owned()])
                     } else {
@@ -2080,10 +2008,8 @@ mod tests {
         }
         let index = PageSearchIndex {
             pages,
-            identity_terms: BTreeMap::new(),
-            title_terms: TokenTrie::default(),
-            property_terms: TokenTrie::default(),
             data_source_databases: HashMap::new(),
+            metadata_index: MetadataSearchIndex::default(),
         };
         let project_ids = vec!["project:test".to_owned()];
         let filters = LibraryProjectPageSearchFilters {

@@ -15,6 +15,7 @@ export function SuggestionMenuWrapper<Item>(props: {
   closeMenu: () => void;
   clearQuery: () => void;
   getItems: (query: string) => Promise<Item[]>;
+  getImmediateItems?: (query: string) => Item[];
   onItemClick?: (item: Item) => void;
   shouldCloseOnItemClick?: (item: Item) => boolean;
   autoCloseWhenNoItems?: boolean;
@@ -30,6 +31,7 @@ export function SuggestionMenuWrapper<Item>(props: {
 
   const {
     getItems,
+    getImmediateItems,
     suggestionMenuComponent,
     triggerCharacter,
     query,
@@ -43,6 +45,7 @@ export function SuggestionMenuWrapper<Item>(props: {
   const { items, usedQuery, loadingState } = useLoadSuggestionMenuItems(
     query,
     getItems,
+    getImmediateItems,
   );
   const { getLiveQuery, itemsFresh } = useSuggestionMenuFreshness({
     triggerCharacter,
@@ -71,6 +74,7 @@ export function SuggestionMenuWrapper<Item>(props: {
     3,
     itemsFresh,
     autoCloseWhenNoItems,
+    loadingState === "loaded",
   );
 
   const { selectedIndex } = useSuggestionMenuKeyboardNavigation(

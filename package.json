@@ -62,6 +62,7 @@
     "version-surfaces:audit": "tsx scripts/audit-version-surfaces.ts",
     "core:protocol:generate": "tsx scripts/core-protocol.ts generate",
     "core:protocol:verify": "tsx scripts/core-protocol.ts verify",
+    "page-search:wasm:generate": "tsx scripts/build-page-search-wasm.ts",
     "core:test:client": "pnpm run test:core-client",
     "core:test:electron-authority": "cargo build -p nodex-core-server --all-targets && node scripts/run-vitest-in-electron.mjs --config vitest.integration.config.ts src/main/rust-data-authority.integration.ts",
     "core:test:packaged-cli-electron": "node -e \"if (!process.env.NODEX_PACKAGED_CLI) throw new Error('NODEX_PACKAGED_CLI is required')\" && node scripts/run-vitest-in-electron.mjs --config vitest.integration.config.ts src/main/native-cli-electron.integration.ts",

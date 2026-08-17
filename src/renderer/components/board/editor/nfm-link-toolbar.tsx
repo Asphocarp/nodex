@@ -40,8 +40,12 @@ import {
 import { applyNfmLinkEditAtRange } from "./nfm-link-editing";
 import { normalizeNfmEditorLinkUrl } from "./nfm-link-url";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
-import { createPageReferenceSearchController } from "@/lib/page-reference-picker/search-controller";
+import { pageSearchResultsToReferenceCandidates } from "@/lib/page-reference-picker/search-controller";
 import type { PageReferenceCandidate } from "@/lib/page-reference-picker/types";
+import {
+  configuredPageSearchProjectIds,
+  useInteractivePageSearch,
+} from "@/lib/interactive-page-search";
 import { buildPageDeepLink } from "../../../../shared/nodex-deeplink";
 import { PageIcon } from "@/components/shared/icons";
 
@@ -69,38 +73,32 @@ function NfmPageLinkPicker({
   readonly onSelect: (candidate: PageReferenceCandidate) => void;
 }) {
   const hostRuntime = useBlockReferenceHostRuntime();
-  const controllerRef = useRef(createPageReferenceSearchController());
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<readonly PageReferenceCandidate[]>([]);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [selectedIndex, setSelectedIndex] = useState(0);
-
-  useEffect(() => {
-    if (!hostRuntime) {
-      setStatus("error");
-      return;
-    }
-    let active = true;
-    setStatus("loading");
-    void controllerRef.current.search({
-      accessContext: hostRuntime.contentAccessContext,
-      hostPageId: hostRuntime.hostPageId,
-      ancestorPageIds: hostRuntime.ancestorPageIds,
-      intent: "link",
-      query,
-      limit: 24,
-    }).then((result) => {
-      if (!active || result.status === "stale") return;
-      setItems(result.items);
-      setSelectedIndex(0);
-      setStatus("ready");
-    }).catch(() => {
-      if (active) setStatus("error");
-    });
-    return () => {
-      active = false;
-    };
-  }, [hostRuntime, query]);
+  const projectIds = hostRuntime?.contentAccessContext.kind === "project"
+    ? [hostRuntime.contentAccessContext.projectId]
+    : configuredPageSearchProjectIds();
+  const search = useInteractivePageSearch({
+    projectIds,
+    query,
+    excludePageIds: hostRuntime?.hostPageId ? [hostRuntime.hostPageId] : [],
+    limit: 24,
+    complete: Boolean(hostRuntime),
+  });
+  const request = hostRuntime ? {
+    accessContext: hostRuntime.contentAccessContext,
+    hostPageId: hostRuntime.hostPageId,
+    ancestorPageIds: hostRuntime.ancestorPageIds,
+    intent: "link" as const,
+    query,
+    limit: 24,
+  } : null;
+  const items = request
+    ? pageSearchResultsToReferenceCandidates(request, search.rows)
+    : [];
+  const status = !hostRuntime || search.enrichment === "unavailable"
+    ? "error" as const
+    : search.enrichment === "loading" ? "loading" as const : "ready" as const;
 
   return (
     <div
@@ -175,7 +173,7 @@ function NfmPageLinkPicker({
         ))}
         {status !== "ready" || items.length === 0 ? (
           <div className="px-2 py-3 text-center text-xs text-token-description-foreground">
-            {status === "loading" ? "Loading…" : status === "error" ? "Pages unavailable" : "No matching Pages"}
+            {status === "loading" ? "Loading more Pages…" : status === "error" ? "Full Page search is unavailable" : "No matching Pages"}
           </div>
         ) : null}
       </div>

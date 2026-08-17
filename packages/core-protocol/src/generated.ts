@@ -4297,6 +4297,31 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryPageSearchMatchQuality: "exact" | "prefix" | "fuzzy";
+        /**
+         * @description Core-authored, authorization-filtered metadata used by the renderer's
+         *     synchronous Page-search preview. It is always carried by a commit-fenced
+         *     Library read snapshot and is not a second durable authority.
+         */
+        readonly LibraryPageSearchMetadataDocument: {
+            readonly assignee?: string | null;
+            readonly authorized_project_ids: readonly string[];
+            readonly data_source_ids: readonly string[];
+            readonly location_label: string;
+            readonly page_id: string;
+            readonly page_key?: string | null;
+            readonly preview: string;
+            readonly priority?: string | null;
+            readonly properties: readonly components["schemas"]["LibraryPageSearchMetadataProperty"][];
+            readonly status?: null | components["schemas"]["LibraryPageWorkflowStatus"];
+            readonly tags: readonly components["schemas"]["LibraryPageSearchOption"][];
+            readonly title: string;
+            readonly updated_at: string;
+        };
+        readonly LibraryPageSearchMetadataProperty: {
+            readonly property_id: string;
+            readonly property_name: string;
+            readonly text: string;
+        };
         readonly LibraryPageSearchOption: {
             readonly data_source_id: string;
             readonly label: string;
@@ -5819,6 +5844,11 @@ export interface components {
             } | {
                 /** @enum {string} */
                 readonly kind: "project_page_search_facets";
+                readonly project_ids: readonly string[];
+            } | {
+                /** @enum {string} */
+                readonly kind: "project_page_search_metadata";
+                readonly page_ids?: readonly string[] | null;
                 readonly project_ids: readonly string[];
             } | {
                 /** @enum {string} */
@@ -7417,6 +7447,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "project_page_search_facets";
                     readonly value: components["schemas"]["LibraryProjectPageSearchFacets"];
+                } | {
+                    readonly items: readonly components["schemas"]["LibraryPageSearchMetadataDocument"][];
+                    /** @enum {string} */
+                    readonly kind: "project_page_search_metadata";
                 } | {
                     readonly items: readonly components["schemas"]["LibraryPageReferenceCandidate"][];
                     /** @enum {string} */

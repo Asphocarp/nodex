@@ -184,6 +184,25 @@ const projectPageSearchFacetsSnapshot = () => ({
   },
 });
 
+const projectPageSearchMetadataSnapshot = () => ({
+  contract_version: 28 as const,
+  store_epoch: identity.storeEpoch,
+  commit_head: 13,
+  authorization: null,
+  value: {
+    kind: "project_page_search_metadata" as const,
+    items: [{
+      page_id: "page:one", page_key: "NDX-1", title: "Page One",
+      preview: "Preview", status: "build" as const, priority: "p1-high",
+      tags: [], assignee: "Ada", location_label: "Product / Editor",
+      updated_at: "2026-07-19T18:12:00.000Z",
+      properties: [{ property_id: "summary", property_name: "Summary", text: "Canonical" }],
+      authorized_project_ids: ["project:test"],
+      data_source_ids: ["source:test"],
+    }],
+  },
+});
+
 const pageReferenceCandidatesSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
@@ -1228,7 +1247,11 @@ describe("Core Library Module Adapter", () => {
       projectIds: ["project:test", "project:other"],
       query: "page evidence",
       limit: 25,
-    })).resolves.toEqual([{
+    })).resolves.toEqual({
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      commitSeq: 13,
+      results: [{
       projectId: "project:test",
       pageId: "page:one",
       pageKey: null,
@@ -1247,7 +1270,8 @@ describe("Core Library Module Adapter", () => {
         parts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
       }],
       updatedAt: "2026-07-19T18:12:00.000Z",
-    }]);
+      }],
+    });
     expect(client.reads).toEqual([{
       kind: "project_page_search",
       project_ids: ["project:test", "project:other"],
@@ -1277,6 +1301,23 @@ describe("Core Library Module Adapter", () => {
       kind: "project_page_search_facets",
       project_ids: ["project:test"],
     }]);
+  });
+
+  test("keeps metadata projection authorization and revision in one snapshot", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead(projectPageSearchMetadataSnapshot());
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    const snapshot = await adapter.pageSearchMetadata(["project:test"]);
+
+    expect(snapshot.authorization).toEqual({
+      libraryId: "library:test", storeEpoch: "epoch:test",
+      coveredCommitSeq: 13, projectIds: ["project:test"],
+    });
+    expect(snapshot.documents[0]).toMatchObject({
+      pageId: "page:one", pageKey: "NDX-1", authorizedProjectIds: ["project:test"], dataSourceIds: ["source:test"],
+      properties: [{ propertyId: "summary", propertyName: "Summary", text: "Canonical" }],
+    });
   });
 
   test("maps contextual Page reference provenance and source identity", async () => {

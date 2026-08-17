@@ -46,10 +46,7 @@ import {
   useCommandPalettePageSearchFacets,
 } from "../../lib/command-palette-page-results";
 import {
-  areQueryFresh,
-  resolvePendingQueryFreshAccept,
   resolveQueryFreshAccept,
-  shouldConsumeStalePickerNavigation,
 } from "../../lib/query-fresh-picker";
 import { cn } from "../../lib/utils";
 import { ProjectMarker } from "./project-marker";
@@ -766,7 +763,7 @@ export function CommandPaletteSurface({
     const selectedProjectIds = new Set(normalizedPageFilters.projectIds);
     return allProjectIds.filter((projectId) => selectedProjectIds.has(projectId));
   }, [availableProjects, normalizedPageFilters.projectIds]);
-  const pageSearchPlan = getCommandPalettePageSearchPlan(mode, deferredQuery);
+  const pageSearchPlan = getCommandPalettePageSearchPlan(mode, query);
   const projectIdsForSearch = mode === "pages"
     ? filteredProjectIdsForSearch
     : allProjectIdsForSearch;
@@ -776,7 +773,7 @@ export function CommandPaletteSurface({
   );
   const fetchedPageSearchBatch = useCommandPalettePageSearch({
     enabled: open && pageSearchPlan !== null,
-    query: deferredQuery,
+    query,
     projectIds: projectIdsForSearch,
     filters: mode === "pages" ? toCorePageSearchFilters(normalizedPageFilters) : undefined,
     preferredProjectId: activeProjectId,
@@ -786,7 +783,7 @@ export function CommandPaletteSurface({
   const pageSearchBatch = injectedPageSearchBatch ?? fetchedPageSearchBatch;
   const visibleModel = useMemo(
     () => buildCommandPaletteSectionsModel({
-      query: deferredQuery,
+      query,
       mode,
       commands,
       projects,
@@ -804,7 +801,7 @@ export function CommandPaletteSurface({
       activeProjectId,
       pages,
       commands,
-      deferredQuery,
+      query,
       pageSearchBatch,
       mode,
       projects,
@@ -819,14 +816,12 @@ export function CommandPaletteSurface({
   const filterActive = hasActiveCommandPalettePageFilters(normalizedPageFilters);
   const showSubtitle = visibleModel.query.length > 0 || mode !== "root";
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [pendingAcceptQuery, setPendingAcceptQuery] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
 
     const nextQuery = initialQuery ?? "";
     setQuery(nextQuery);
-    setPendingAcceptQuery(null);
     setFilterOpen(false);
 
     const rafId = window.requestAnimationFrame(() => {
@@ -859,7 +854,6 @@ export function CommandPaletteSurface({
     previousModeRef.current = mode;
     setQuery(initialQuery ?? "");
     setSelectedIndex(0);
-    setPendingAcceptQuery(null);
     setFilterOpen(false);
   }, [initialQuery, mode, open]);
 
@@ -867,7 +861,6 @@ export function CommandPaletteSurface({
     if (open) return;
     setQuery("");
     setSelectedIndex(0);
-    setPendingAcceptQuery(null);
   }, [open]);
 
   useEffect(() => {
@@ -924,12 +917,6 @@ export function CommandPaletteSurface({
     threadSearchIndex,
     threads,
   ]);
-  const rowsStale = shouldConsumeStalePickerNavigation({
-    liveQuery: query,
-    rowsQuery: deferredQuery,
-    normalizeQuery: normalizeCommandPaletteSearchText,
-  });
-  const modeCanWaitForFreshRows = mode === "pages" || mode === "chats" || mode === "root";
   const visibleRowsLoading = mode === "pages"
     ? pagesLoading || visibleModel.pageSearchPending
     : mode === "chats"
@@ -939,7 +926,6 @@ export function CommandPaletteSurface({
         : loading;
 
   useEffect(() => {
-    if (rowsStale) return;
     if (flatItems.length === 0) {
       if (selectedIndex === -1) return;
       setSelectedIndex(-1);
@@ -950,7 +936,7 @@ export function CommandPaletteSurface({
     const nextIndex = resolveSelectableIndex(flatItems, preferredIndex, 1);
     if (selectedIndex === nextIndex) return;
     setSelectedIndex(nextIndex);
-  }, [flatItems, rowsStale, selectedIndex]);
+  }, [flatItems, selectedIndex]);
 
   useEffect(() => {
     if (selectedIndex < 0) return;
@@ -975,7 +961,6 @@ export function CommandPaletteSurface({
 
   const handleExecute = useCallback((item: PaletteItem) => {
     if (isPaletteItemDisabled(item)) return;
-    setPendingAcceptQuery(null);
     if (item.kind === "command" && item.id === "searchChats") {
       onChangeMode("chats");
       return;
@@ -995,38 +980,6 @@ export function CommandPaletteSurface({
     onExecute(item);
   }, [onChangeMode, onExecute, onRequestClose]);
 
-  useEffect(() => {
-    if (!pendingAcceptQuery) return;
-    const result = resolvePendingQueryFreshAccept({
-      pendingQuery: pendingAcceptQuery,
-      liveQuery: query,
-      rowsQuery: deferredQuery,
-      rows: flatItems,
-      getRowId: (item) => item.id,
-      isRowAcceptable: (item) => !isPaletteItemDisabled(item),
-      normalizeQuery: normalizeCommandPaletteSearchText,
-    });
-    if (result.status === "accepted") {
-      handleExecute(result.row);
-      return;
-    }
-
-    if (!areQueryFresh({ liveQuery: query, rowsQuery: deferredQuery, normalizeQuery: normalizeCommandPaletteSearchText })) {
-      return;
-    }
-
-    if (!visibleRowsLoading) {
-      setPendingAcceptQuery(null);
-    }
-  }, [
-    deferredQuery,
-    flatItems,
-    handleExecute,
-    pendingAcceptQuery,
-    query,
-    visibleRowsLoading,
-  ]);
-
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     const moveSelection = (direction: -1 | 1) => {
       if (flatItems.length === 0) return;
@@ -1040,21 +993,18 @@ export function CommandPaletteSurface({
 
     if (event.key === "ArrowDown" || (event.ctrlKey && (event.key === "j" || event.key === "n"))) {
       event.preventDefault();
-      if (rowsStale) return;
       moveSelection(1);
       return;
     }
 
     if (event.key === "ArrowUp" || (event.ctrlKey && (event.key === "k" || event.key === "p"))) {
       event.preventDefault();
-      if (rowsStale) return;
       moveSelection(-1);
       return;
     }
 
     if (event.key === "Home") {
       event.preventDefault();
-      if (rowsStale) return;
       if (flatItems.length === 0) return;
       setSelectedIndex(resolveSelectableIndex(flatItems, 0, 1));
       return;
@@ -1062,7 +1012,6 @@ export function CommandPaletteSurface({
 
     if (event.key === "End") {
       event.preventDefault();
-      if (rowsStale) return;
       if (flatItems.length === 0) return;
       setSelectedIndex(resolveSelectableIndex(flatItems, flatItems.length - 1, -1));
       return;
@@ -1072,21 +1021,16 @@ export function CommandPaletteSurface({
       event.preventDefault();
       const result = resolveQueryFreshAccept({
         liveQuery: query,
-        rowsQuery: deferredQuery,
+        rowsQuery: query,
         rows: flatItems,
         focusedIndex: selectedIndex,
         buildFreshRows: buildFlatItemsForQuery,
-        canWaitForFreshRows: modeCanWaitForFreshRows,
         getRowId: (item) => item.id,
         isRowAcceptable: (item) => !isPaletteItemDisabled(item),
         normalizeQuery: normalizeCommandPaletteSearchText,
       });
       if (result.status === "accepted") {
         handleExecute(result.row);
-        return;
-      }
-      if (result.status === "pending") {
-        setPendingAcceptQuery(result.query);
       }
       return;
     }
@@ -1098,8 +1042,8 @@ export function CommandPaletteSurface({
   const activeDescendantId = selectedIndex >= 0 && selectedIndex < flatItems.length
     ? getPaletteItemDomId(listId, selectedIndex)
     : undefined;
-  const showThreadSearchStatus = !rowsStale && visibleModel.showThreadSearchStatus;
-  const showPageSearchStatus = !rowsStale && visibleModel.showPageSearchStatus;
+  const showThreadSearchStatus = visibleModel.showThreadSearchStatus;
+  const showPageSearchStatus = visibleModel.showPageSearchStatus;
   const hasVisibleSearchStatus = showThreadSearchStatus || showPageSearchStatus;
 
   return (
@@ -1142,10 +1086,7 @@ export function CommandPaletteSurface({
           aria-labelledby={labelId}
           id={inputId}
           value={query}
-          onChange={(event) => {
-            setPendingAcceptQuery(null);
-            setQuery(event.target.value);
-          }}
+          onChange={(event) => setQuery(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={getModePlaceholder(mode)}
           aria-label="Command palette search"
@@ -1192,7 +1133,7 @@ export function CommandPaletteSurface({
         tabIndex={-1}
         aria-label="Suggestions"
         id={listId}
-        aria-busy={rowsStale || visibleRowsLoading || pendingAcceptQuery !== null}
+        aria-busy={visibleRowsLoading}
         className="scrollbar-token flex max-h-[min(440px,var(--cmdk-list-height,440px),75vh)] flex-col gap-[var(--spacing)] overflow-y-auto overscroll-contain transition-[max-height] duration-100"
       >
         {sections.map((section) => {
@@ -1208,20 +1149,14 @@ export function CommandPaletteSurface({
               listId={listId}
               selectedIndex={selectedIndex}
               startIndex={startIndex}
-              onSelectIndex={(nextIndex) => {
-                if (rowsStale) return;
-                setSelectedIndex(nextIndex);
-              }}
-              onExecute={(item) => {
-                if (rowsStale) return;
-                handleExecute(item);
-              }}
+              onSelectIndex={setSelectedIndex}
+              onExecute={handleExecute}
               showSubtitle={showSubtitle}
             />
           );
         })}
         {showThreadSearchStatus && visibleModel.threadSearchPending ? (
-          <SearchStatusRow>Searching chat history...</SearchStatusRow>
+          <SearchStatusRow>Loading chats…</SearchStatusRow>
         ) : null}
         {showThreadSearchStatus && visibleModel.threadSearchError ? (
           <SearchStatusRow>
@@ -1229,14 +1164,14 @@ export function CommandPaletteSurface({
           </SearchStatusRow>
         ) : null}
         {showPageSearchStatus && visibleModel.pageSearchPending ? (
-          <SearchStatusRow>Searching pages...</SearchStatusRow>
+          <SearchStatusRow>Loading more Pages…</SearchStatusRow>
         ) : null}
         {showPageSearchStatus && visibleModel.pageSearchError ? (
-          <SearchStatusRow>Page search is unavailable. Try again.</SearchStatusRow>
+          <SearchStatusRow>Full Page search is unavailable</SearchStatusRow>
         ) : null}
-        {flatItems.length === 0 && (rowsStale || !hasVisibleSearchStatus) ? (
+        {flatItems.length === 0 && !hasVisibleSearchStatus ? (
           <div data-cmdk-empty className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground">
-            {rowsStale ? "Updating..." : getEmptyMessage(mode, visibleModel.query, mode === "chats" ? chatsLoading : mode === "pages" ? pagesLoading : loading)}
+            {getEmptyMessage(mode, visibleModel.query, mode === "chats" ? chatsLoading : mode === "pages" ? pagesLoading : loading)}
           </div>
         ) : null}
       </div>

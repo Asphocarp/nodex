@@ -36,7 +36,9 @@ Arrow Right expands the focused tree Page and Arrow Left collapses it.
 Enter selects the focused destination, Arrow Left returns to the parent menu when the search field is not consuming it, and Escape closes the complete action menu.
 Pointer activation and Enter must not accept rows produced for an older search query.
 
-Loading feedback appears only after 400 milliseconds so fast local reads do not flash a spinner.
+Initial tree loading feedback appears only after 400 milliseconds so fast local reads do not flash a spinner.
+For a non-empty query, the picker immediately presents matching rows from the shared Core-stamped metadata projection while its authoritative move-destination read is pending; those preview rows remain disabled until Core supplies the exact destination fences.
+Pending completion uses one stable trailing `Loading more Pages…` status row and never clears query-fresh metadata rows.
 Empty and failed reads remain compact status rows inside the result region.
 When a bounded tree window has a continuation, the picker explains that search can reach destinations outside the visible window.
 

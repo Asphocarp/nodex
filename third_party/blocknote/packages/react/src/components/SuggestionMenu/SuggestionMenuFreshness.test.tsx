@@ -38,14 +38,16 @@ function createFakeEditor(domElement = document.createElement("div")): BlockNote
 
 function LoadItemsHarness<T>({
   getItems,
+  getImmediateItems,
   onSnapshot,
   query,
 }: {
   getItems: (query: string) => Promise<T[]>;
+  getImmediateItems?: (query: string) => T[];
   onSnapshot: (snapshot: ReturnType<typeof useLoadSuggestionMenuItems<T>>) => void;
   query: string;
 }) {
-  const snapshot = useLoadSuggestionMenuItems(query, getItems);
+  const snapshot = useLoadSuggestionMenuItems(query, getItems, getImmediateItems);
 
   useEffect(() => {
     onSnapshot(snapshot);
@@ -111,6 +113,25 @@ function GridNavigationHarness({
 }
 
 describe("suggestion menu freshness", () => {
+  test("publishes query-fresh synchronous items before async enrichment resolves", () => {
+    const deferred = createDeferred<string[]>();
+    let latest: ReturnType<typeof useLoadSuggestionMenuItems<string>> | undefined;
+    render(
+      <LoadItemsHarness
+        query="canon"
+        getItems={() => deferred.promise}
+        getImmediateItems={(query) => [`metadata:${query}`]}
+        onSnapshot={(snapshot) => {
+          latest = snapshot;
+        }}
+      />,
+    );
+
+    expect(latest?.items).toEqual(["metadata:canon"]);
+    expect(latest?.usedQuery).toBe("canon");
+    expect(latest?.loadingState).toBe("loading");
+  });
+
   test("ignores older same-query item requests when a newer request finishes first", async () => {
     const first = createDeferred<string[]>();
     const second = createDeferred<string[]>();

@@ -14,6 +14,10 @@ import {
   movePanelDestinationFocusedRowId,
   resolvePanelDestinationFocusedRowId,
 } from "./panel-destination-picker-model";
+import type {
+  NfmMoveToPageSearchHit,
+  NfmMoveToSearchResult,
+} from "@/components/board/editor/nfm-move-to-menu-search";
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
@@ -167,6 +171,51 @@ const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptorV2>([
   ])],
 ]);
 
+function pageHit(
+  projectId: "alpha" | "beta",
+  pageId: string,
+  pageTitle: string,
+  columnId: "triage" | "plan",
+  columnName: "Triage" | "Plan",
+  boardOrder: number,
+): NfmMoveToPageSearchHit {
+  const project = PROJECTS.find((candidate) => candidate.id === projectId)!;
+  return {
+    id: `page:${projectId}:${pageId}`,
+    projectId,
+    projectName: project.name,
+    projectAppearance: project.appearance,
+    columnId,
+    columnName,
+    pageId,
+    pageKey: null,
+    matchedPageKey: null,
+    matchedPageKeyIsCurrent: null,
+    pageTitle,
+    boardOrder,
+    score: 10 - boardOrder,
+  };
+}
+
+function searchResult(
+  query: string,
+  pageHits: readonly NfmMoveToPageSearchHit[],
+): NfmMoveToSearchResult {
+  return {
+    normalizedQuery: query,
+    matchedProjectIds: new Set(),
+    matchedColumnIdsByProjectId: new Map(),
+    pageHits: [...pageHits],
+  };
+}
+
+const COMMAND_PALETTE_HIT = pageHit(
+  "alpha", "command-palette", "Command palette polish", "triage", "Triage", 0,
+);
+const RUNTIME_HIT = pageHit(
+  "beta", "runtime", "Runtime polish", "plan", "Plan", 1,
+);
+
 describe("panel destination picker model", () => {
   test("keeps Database Views before Pages for the combined panel picker", () => {
     const sections = buildPanelDestinationSections({
@@ -228,6 +277,7 @@ describe("panel destination picker model", () => {
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "polish",
+      searchResult: searchResult("polish", [COMMAND_PALETTE_HIT, RUNTIME_HIT]),
       scope: "page-only",
       currentProjectId: "beta",
     });
@@ -245,6 +295,7 @@ describe("panel destination picker model", () => {
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "runtime",
+      searchResult: searchResult("runtime", [RUNTIME_HIT]),
       scope: "page-only",
       currentProjectId: "alpha",
     });
@@ -254,12 +305,13 @@ describe("panel destination picker model", () => {
     expect(rows.map((row) => row.id).join(",")).toBe("panel-page:beta:runtime");
   });
 
-  test("uses shared fuzzy search semantics for Page rows", () => {
+  test("renders Page rows ranked by the shared search kernel", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "commnd pal",
+      searchResult: searchResult("commnd pal", [COMMAND_PALETTE_HIT]),
       scope: "page-only",
     });
     const rows = flattenPanelDestinationRows(sections);
@@ -273,6 +325,7 @@ describe("panel destination picker model", () => {
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "beta",
+      searchResult: searchResult("beta", [RUNTIME_HIT]),
     }));
     const initial = resolvePanelDestinationFocusedRowId(null, "beta", rows);
 

@@ -16,7 +16,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 27;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 28;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -652,6 +652,10 @@ pub enum LibraryRead {
     },
     ProjectPageSearchFacets {
         project_ids: Vec<String>,
+    },
+    ProjectPageSearchMetadata {
+        project_ids: Vec<String>,
+        page_ids: Option<Vec<String>>,
     },
     PageReferenceCandidates {
         query: String,
@@ -1693,6 +1697,33 @@ pub struct LibraryProjectPageSearchHit {
     pub updated_at: String,
 }
 
+/// Core-authored, authorization-filtered metadata used by the renderer's
+/// synchronous Page-search preview. It is always carried by a commit-fenced
+/// Library read snapshot and is not a second durable authority.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageSearchMetadataDocument {
+    pub page_id: String,
+    pub page_key: Option<String>,
+    pub title: String,
+    pub preview: String,
+    pub status: Option<LibraryPageWorkflowStatus>,
+    pub priority: Option<String>,
+    pub tags: Vec<LibraryPageSearchOption>,
+    pub assignee: Option<String>,
+    pub location_label: String,
+    pub updated_at: String,
+    pub properties: Vec<LibraryPageSearchMetadataProperty>,
+    pub authorized_project_ids: Vec<String>,
+    pub data_source_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageSearchMetadataProperty {
+    pub property_id: String,
+    pub property_name: String,
+    pub text: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageSearchTextPart {
     pub text: String,
@@ -2077,6 +2108,9 @@ pub enum LibraryReadValue {
     },
     ProjectPageSearchFacets {
         value: LibraryProjectPageSearchFacets,
+    },
+    ProjectPageSearchMetadata {
+        items: Vec<LibraryPageSearchMetadataDocument>,
     },
     PageReferenceCandidates {
         items: Vec<LibraryPageReferenceCandidate>,

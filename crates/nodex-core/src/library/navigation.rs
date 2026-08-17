@@ -473,6 +473,32 @@ pub(super) fn read(
                 value: page_search::project_facets(&index, &project_ids)?,
             })
         }
+        LibraryRead::ProjectPageSearchMetadata {
+            project_ids,
+            page_ids,
+        } => {
+            if requesting_project_id.is_some()
+                || !matches!(
+                    requesting_adapter,
+                    AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+                )
+            {
+                return Err(unauthorized(
+                    "Project Page search metadata requires a trusted local root Adapter",
+                ));
+            }
+            let index =
+                page_search_registry.snapshot(connection, library_id, store_epoch, commit_head)?;
+            Ok(LibraryReadValue::ProjectPageSearchMetadata {
+                items: page_search::project_metadata(
+                    connection,
+                    &index,
+                    library_id,
+                    &project_ids,
+                    page_ids.as_deref(),
+                )?,
+            })
+        }
         LibraryRead::PageReferenceCandidates {
             query,
             limit,

@@ -19,6 +19,7 @@ import {
   type CommandPaletteShellCommandHandlers,
 } from "@/lib/command-palette-commands";
 import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-thread-search-index";
+import { configureInteractivePageSearch } from "@/lib/interactive-page-search";
 import type { Project } from "@/lib/types";
 import type { RecentPageSession } from "@/lib/use-workbench-profile-preferences";
 import { CommandPaletteSurface } from "./command-palette-surface";
@@ -70,6 +71,9 @@ export function CommandPalette({
     () => recentPageSessions.map((session) => session.pageId),
     [recentPageSessions],
   );
+  useEffect(() => {
+    configureInteractivePageSearch(projects.map((project) => project.id), "replace");
+  }, [projects]);
   const commands = useMemo(
     () => buildCommandPaletteCommands({
       ...commandContext,

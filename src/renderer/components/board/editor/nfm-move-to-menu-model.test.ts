@@ -10,6 +10,10 @@ import {
   moveNfmMoveToFocusedRowId,
   resolveNfmMoveToFocusedRowId,
 } from "./nfm-move-to-menu-model";
+import {
+  createNfmMoveToSearchIndex,
+  type NfmMoveToPageSearchHit,
+} from "./nfm-move-to-menu-search";
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
@@ -116,7 +120,14 @@ const BOARD_MAP = new Map<string, BoardSummary>([
 function buildSections(
   query = "",
   expandedProjectIds: ReadonlySet<string> = new Set(["alpha"]),
+  pageHits: readonly NfmMoveToPageSearchHit[] = [],
 ) {
+  const searchResult = createNfmMoveToSearchIndex({
+    projects: PROJECTS,
+    boardMap: BOARD_MAP,
+    sourceProjectId: "alpha",
+    sourcePageId: "source-page",
+  }).search(query);
   return buildNfmMoveToSections({
     projects: PROJECTS,
     pageBoardMap: BOARD_MAP,
@@ -124,7 +135,33 @@ function buildSections(
     sourcePageId: "source-page",
     expandedProjectIds,
     query,
+    searchResult: { ...searchResult, pageHits: [...pageHits] },
   });
+}
+
+function pageHit(
+  projectId: "alpha" | "beta",
+  pageId: string,
+  pageTitle: string,
+  columnId: string,
+  columnName: string,
+): NfmMoveToPageSearchHit {
+  const project = PROJECTS.find((candidate) => candidate.id === projectId)!;
+  return {
+    id: `page:${projectId}:${pageId}`,
+    projectId,
+    projectName: project.name,
+    projectAppearance: project.appearance,
+    columnId,
+    columnName,
+    pageId,
+    pageKey: null,
+    matchedPageKey: null,
+    matchedPageKeyIsCurrent: null,
+    pageTitle,
+    boardOrder: 0,
+    score: 1,
+  };
 }
 
 describe("nfm move-to menu model", () => {
@@ -194,9 +231,11 @@ describe("nfm move-to menu model", () => {
   });
 
   test("filters DB, column, and page rows while excluding the source page", () => {
-    const pageRows = flattenNfmMoveToRows(buildSections("runtime"));
-    const columnRows = flattenNfmMoveToRows(buildSections("ship"));
-    const projectRows = flattenNfmMoveToRows(buildSections("beta"));
+    const runtime = pageHit("beta", "runtime", "Runtime polish", "plan", "Plan");
+    const ship = pageHit("alpha", "ship-plan", "Ship plan", "ship", "Ship");
+    const pageRows = flattenNfmMoveToRows(buildSections("runtime", undefined, [runtime]));
+    const columnRows = flattenNfmMoveToRows(buildSections("ship", undefined, [ship]));
+    const projectRows = flattenNfmMoveToRows(buildSections("beta", undefined, [runtime]));
     const sourceRows = flattenNfmMoveToRows(buildSections("source"));
 
     expect(pageRows.map((row) => row.id).join(",")).toBe("page:beta:runtime");
@@ -238,8 +277,15 @@ describe("nfm move-to menu model", () => {
     );
   });
 
-  test("uses command-palette-style fuzzy and prefix page search without description-only fields", () => {
-    const fuzzyRows = flattenNfmMoveToRows(buildSections("commnd pal"));
+  test("renders shared-kernel Page hits without inspecting loaded Board metadata", () => {
+    const commandPalette = pageHit(
+      "alpha",
+      "command-palette",
+      "Command palette polish",
+      "triage",
+      "Triage",
+    );
+    const fuzzyRows = flattenNfmMoveToRows(buildSections("commnd pal", undefined, [commandPalette]));
     const descriptionRows = flattenNfmMoveToRows(buildSections("ocr pipeline"));
     const tagRows = flattenNfmMoveToRows(buildSections("secret-tag"));
     const assigneeRows = flattenNfmMoveToRows(buildSections("alex"));
@@ -250,18 +296,20 @@ describe("nfm move-to menu model", () => {
     expect(assigneeRows.map((row) => row.id).join(",")).toBe("");
   });
 
-  test.each([
-    { query: "lab-13", expectedRowIds: ["page:alpha:command-palette"] },
-    { query: "#lab-13", expectedRowIds: ["page:alpha:command-palette"] },
-    { query: "lab-1", expectedRowIds: ["page:alpha:command-palette"] },
-    { query: "#", expectedRowIds: [] },
-    { query: "##lab-13", expectedRowIds: [] },
-    { query: "lab-13 polish", expectedRowIds: [] },
-    { query: "#lab-13 polish", expectedRowIds: [] },
-    { query: "lxb-13", expectedRowIds: [] },
-  ])("keeps Page-key query policy for '$query'", ({ query, expectedRowIds }) => {
-    const rows = flattenNfmMoveToRows(buildSections(query));
-    expect(rows.map((row) => row.id)).toEqual(expectedRowIds);
+  test("does not duplicate Page-key policy in the renderer Move model", () => {
+    const commandPalette = {
+      ...pageHit("alpha", "command-palette", "Command palette polish", "triage", "Triage"),
+      pageKey: "LAB-13",
+      matchedPageKey: "LAB-13",
+      matchedPageKeyIsCurrent: true,
+    };
+    const kernelRows = flattenNfmMoveToRows(
+      buildSections("#lab-13", undefined, [commandPalette]),
+    );
+    const localRows = flattenNfmMoveToRows(buildSections("#lab-13"));
+
+    expect(kernelRows.map((row) => row.id)).toEqual(["page:alpha:command-palette"]);
+    expect(localRows).toEqual([]);
   });
 
   test("uses query focus reset and wrapping row-id navigation", () => {
