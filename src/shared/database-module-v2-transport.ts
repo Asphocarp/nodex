@@ -27,6 +27,8 @@ import {
   type DatabaseApplyOperationV2,
   type DatabaseApplyReceiptV2,
   type DatabaseListMoveUndoRecipeV2,
+  type DatabaseListMoveTargetV2,
+  type DatabaseListProjectionExpectationV2,
   type DatabaseOperationOutcomeV2,
   type DatabasePropertyValueInputV2,
   type DatabaseApplyResultV2,
@@ -366,6 +368,60 @@ const readRelationEdgeId = (value: unknown, label: string): string => {
   const edgeId = readString(value, label, 64);
   if (/^[0-9a-f]{64}$/.test(edgeId)) return edgeId;
   throw new TypeError(`${label} must be an opaque Relation edge handle`);
+};
+
+export const parseDatabaseListProjectionExpectationV2 = (
+  value: unknown,
+  label = "databaseListProjectionExpectation",
+): DatabaseListProjectionExpectationV2 => {
+  const expectation = readRecord(value, label);
+  assertExactKeys(expectation, label, [
+    "scopeKey",
+    "schemaVersion",
+    "revision",
+    "coveredCommitSeq",
+    "effectHash",
+  ]);
+  return {
+    scopeKey: readString(expectation.scopeKey, `${label}.scopeKey`, 1_024),
+    schemaVersion: readRevision(expectation.schemaVersion, `${label}.schemaVersion`),
+    revision: readRevision(expectation.revision, `${label}.revision`),
+    coveredCommitSeq: readRevision(
+      expectation.coveredCommitSeq,
+      `${label}.coveredCommitSeq`,
+    ),
+    effectHash: readNullableString(expectation.effectHash, `${label}.effectHash`, 256),
+  };
+};
+
+export const parseDatabaseListMoveTargetV2 = (
+  value: unknown,
+  label = "databaseListMoveTarget",
+): DatabaseListMoveTargetV2 => {
+  const target = readRecord(value, label);
+  if (target.kind === "page") {
+    assertExactKeys(target, label, ["kind", "occurrenceKey", "edge"]);
+    if (target.edge !== "before" && target.edge !== "after" && target.edge !== "inside") {
+      throw new TypeError(`${label}.edge is unsupported`);
+    }
+    return {
+      kind: target.kind,
+      occurrenceKey: readString(target.occurrenceKey, `${label}.occurrenceKey`, 1_024),
+      edge: target.edge,
+    };
+  }
+  if (target.kind === "group") {
+    assertExactKeys(target, label, ["kind", "occurrenceKey"]);
+    return {
+      kind: target.kind,
+      occurrenceKey: readString(target.occurrenceKey, `${label}.occurrenceKey`, 1_024),
+    };
+  }
+  if (target.kind === "root") {
+    assertExactKeys(target, label, ["kind"]);
+    return { kind: target.kind };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
 };
 
 const parseViewDisclosureTarget = (
@@ -1058,17 +1114,6 @@ const parseApplyOperation = (
       "target",
     ]);
     const expectedProjectionLabel = `${label}.expectedProjection`;
-    const expectedProjection = readRecord(
-      operation.expectedProjection,
-      expectedProjectionLabel,
-    );
-    assertExactKeys(expectedProjection, expectedProjectionLabel, [
-      "scopeKey",
-      "schemaVersion",
-      "revision",
-      "coveredCommitSeq",
-      "effectHash",
-    ]);
     const selectionLabel = `${label}.selection`;
     const selection = readRecord(operation.selection, selectionLabel);
     let parsedSelection: Extract<
@@ -1098,61 +1143,20 @@ const parseApplyOperation = (
     } else {
       throw new TypeError(`${selectionLabel}.kind is unsupported`);
     }
-    const targetLabel = `${label}.target`;
-    const target = readRecord(operation.target, targetLabel);
-    let parsedTarget: Extract<
-      DatabaseApplyOperationV2,
-      { readonly kind: "move_list_occurrences" }
-    >["target"];
-    if (target.kind === "page") {
-      assertExactKeys(target, targetLabel, ["kind", "occurrenceKey", "edge"]);
-      if (target.edge !== "before" && target.edge !== "after" && target.edge !== "inside") {
-        throw new TypeError(`${targetLabel}.edge is unsupported`);
-      }
-      parsedTarget = {
-        kind: target.kind,
-        occurrenceKey: readString(target.occurrenceKey, `${targetLabel}.occurrenceKey`, 1_024),
-        edge: target.edge,
-      };
-    } else if (target.kind === "group") {
-      assertExactKeys(target, targetLabel, ["kind", "occurrenceKey"]);
-      parsedTarget = {
-        kind: target.kind,
-        occurrenceKey: readString(target.occurrenceKey, `${targetLabel}.occurrenceKey`, 1_024),
-      };
-    } else {
-      throw new TypeError(`${targetLabel}.kind is unsupported`);
-    }
+    const parsedTarget = parseDatabaseListMoveTargetV2(
+      operation.target,
+      `${label}.target`,
+    );
     return {
       kind: operation.kind,
       viewId: readViewId(operation.viewId, `${label}.viewId`),
       presentationOverride: parseDatabaseViewPresentationOverride(
         operation.presentationOverride,
       ),
-      expectedProjection: {
-        scopeKey: readString(
-          expectedProjection.scopeKey,
-          `${expectedProjectionLabel}.scopeKey`,
-          1_024,
-        ),
-        schemaVersion: readRevision(
-          expectedProjection.schemaVersion,
-          `${expectedProjectionLabel}.schemaVersion`,
-        ),
-        revision: readRevision(
-          expectedProjection.revision,
-          `${expectedProjectionLabel}.revision`,
-        ),
-        coveredCommitSeq: readRevision(
-          expectedProjection.coveredCommitSeq,
-          `${expectedProjectionLabel}.coveredCommitSeq`,
-        ),
-        effectHash: readNullableString(
-          expectedProjection.effectHash,
-          `${expectedProjectionLabel}.effectHash`,
-          256,
-        ),
-      },
+      expectedProjection: parseDatabaseListProjectionExpectationV2(
+        operation.expectedProjection,
+        expectedProjectionLabel,
+      ),
       initiatorOccurrenceKey: readString(
         operation.initiatorOccurrenceKey,
         `${label}.initiatorOccurrenceKey`,

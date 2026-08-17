@@ -111,13 +111,14 @@ This post-removal contract must stay identical across:
 
 ## Editor Interop
 
-### NFM block -> Board
+### NFM block -> Database View
 - Task shorthand interpretation, literal fallback, modifiers, and authoring feedback follow [Task Shorthand Page Promotion Behavior](task-shorthand-page-promotion-behavior.md).
-- Native block drag from Card Stage and independently mounted owning/reference editors into Board targets the Database parent, not a serialized row snapshot. The custom side-menu starts one window-local drag session only after BlockNote has established the exact root Block selection. The default operation is move; holding Alt/Option at drop time copies instead.
+- Native block drag from Card Stage and independently mounted owning/reference editors into Board or List targets the Database parent, not a serialized row snapshot. The custom side-menu starts one window-local drag session only after BlockNote has established the exact root Block selection. The default operation is move; holding Alt/Option at drop time copies instead.
 - Move submits one logical `BlockTransfer`: text-like roots promote to Cards in place, while non-convertible roots receive deterministic wrapper Cards. Copy recursively clones ownership with fresh IDs and leaves the source unchanged. Neither path serializes NFM nor mutates a Card description projection.
 - Multi-block order follows the selected top-level document order. Nested selected blocks are represented only once through their selected ancestor.
-- Pointer position determines the Board insert slot when block-drop import is allowed.
-- The board shows truthful drag feedback for this import path.
+- Board and List interpret pointer geometry into their own raw placement intent, while one shared renderer command owns session validation, source fencing, transfer, receipt feedback, and Undo registration. Core resolves the final placement and Property adoption atomically.
+- Pointer position determines the Board insert slot when block-drop import is allowed. List-specific gaps, groups, derived-sort feedback, and search rejection follow [Database Pages and Views Behavior](database-pages-and-views-behavior.md).
+- The active Database View shows truthful drag feedback for this import path.
 - Empty target columns use whole-column drop feedback instead of a floating insertion line, because there is no sibling list for a truthful gap preview.
 - Auto-collapsed empty columns stay collapsed and express the target with the existing column-surface highlight.
 

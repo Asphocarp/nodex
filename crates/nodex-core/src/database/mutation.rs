@@ -405,9 +405,12 @@ fn validate_list_move_selection(selection: &DatabaseListMoveSelection) -> Result
 }
 
 fn validate_list_move_target(target: &DatabaseListMoveTarget) -> Result<(), StoreError> {
-    let occurrence_key = match target {
+    let Some(occurrence_key) = (match target {
         DatabaseListMoveTarget::Page { occurrence_key, .. }
-        | DatabaseListMoveTarget::Group { occurrence_key } => occurrence_key,
+        | DatabaseListMoveTarget::Group { occurrence_key } => Some(occurrence_key),
+        DatabaseListMoveTarget::Root => None,
+    }) else {
+        return Ok(());
     };
     validate_id(
         occurrence_key,
@@ -2361,6 +2364,152 @@ pub(crate) fn resolve_page_transfer_data_source_destination_prevalidated(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_page_transfer_list_destination(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+    expected_projection: &DatabaseListProjectionExpectation,
+    target: &DatabaseListMoveTarget,
+) -> Result<PageCopyDataSourceDestination, StoreError> {
+    let source = require_source(connection, library_id, data_source_id)?;
+    authorize_write(
+        connection,
+        requesting_project_id,
+        &source.database_id,
+        DatabaseWriteAction::Write,
+        false,
+    )?;
+    crate::library::require_project_in_library(connection, requesting_project_id, library_id)?;
+    let projection = super::window::presented_list_projection(
+        connection,
+        library_id,
+        view_id,
+        presentation_override,
+        &read_store_epoch(connection)?,
+        Some(requesting_project_id),
+    )?;
+    if projection.graph.database_id != source.database_id
+        || projection.graph.data_source_id != source.id
+    {
+        return Err(invalid(
+            "Block transfer List target belongs to another Data Source",
+        ));
+    }
+    let normalized =
+        super::list_drag::resolve_list_insertion_target(&projection, expected_projection, target)?;
+    if normalized.parent_page_id.is_some() || normalized.depth > 0 {
+        return Err(invalid(
+            "Block promotion cannot create a nested List Page without an explicit nesting action",
+        ));
+    }
+    let view = view_row(connection, view_id)?
+        .filter(|view| view.lifecycle == "active")
+        .ok_or_else(|| not_found("Block transfer target View is unavailable"))?;
+    if view.database_id != source.database_id || view.data_source_id != source.id {
+        return Err(invalid(
+            "Block transfer target View belongs to another Data Source",
+        ));
+    }
+    let axes = [
+        (
+            projection
+                .graph
+                .presentation
+                .group
+                .as_ref()
+                .map(|group| group.property_id.as_str()),
+            normalized.group_key.as_deref(),
+        ),
+        (
+            projection
+                .graph
+                .presentation
+                .subgroup
+                .as_ref()
+                .map(|group| group.property_id.as_str()),
+            normalized.subgroup_key.as_deref(),
+        ),
+    ];
+    let mut seen_property_ids = HashSet::new();
+    let values = axes
+        .into_iter()
+        .filter_map(|(property_id, key)| property_id.map(|property_id| (property_id, key)))
+        .map(|(property_id, key)| {
+            if !seen_property_ids.insert(property_id) {
+                return Err(invalid(
+                    "A List cannot group and subgroup by the same Property",
+                ));
+            }
+            let property = active_property(connection, data_source_id, property_id)?;
+            Ok(PageCopyValueDraft {
+                property_id: property_id.to_owned(),
+                value: database_group_value_from_key(&property.value_type, key),
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    let manual_order = projection.graph.presentation.sort.is_empty()
+        || projection
+            .graph
+            .presentation
+            .sort
+            .first()
+            .is_some_and(|sort| sort.field == DatabaseViewSortField::Manual);
+    let before = if manual_order {
+        normalized
+            .before_page_id
+            .as_deref()
+            .map(|page_id| page_copy_position_anchor(connection, view_id, data_source_id, page_id))
+            .transpose()?
+    } else {
+        None
+    };
+    Ok(PageCopyDataSourceDestination {
+        data_source_id: source.id,
+        expected_data_source_revision: source.revision,
+        values,
+        view: Some(PageCopyViewPlacement {
+            view_id: view.id,
+            expected_view_revision: view.revision,
+            group_key: normalized.group_key,
+            before,
+        }),
+    })
+}
+
+fn page_copy_position_anchor(
+    connection: &Connection,
+    view_id: &str,
+    data_source_id: &str,
+    page_id: &str,
+) -> Result<PageCopyPositionAnchor, StoreError> {
+    let expected_position_revision = connection
+        .query_row(
+            "SELECT COALESCE(position.revision, 0) \
+             FROM data_source_page_memberships membership \
+             JOIN pages page ON page.block_id = membership.page_block_id \
+             JOIN blocks block ON block.id = page.block_id \
+               AND block.library_id = page.library_id \
+             LEFT JOIN database_view_page_positions position \
+               ON position.view_id = ?1 AND position.page_block_id = page.block_id \
+             WHERE membership.data_source_id = ?2 \
+               AND membership.page_block_id = ?3 AND membership.removed_at IS NULL \
+               AND page.parent_kind = 'data_source' AND page.parent_id = ?2 \
+               AND block.lifecycle = 'active'",
+            params![view_id, data_source_id, page_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Block transfer View anchor is unavailable"))?;
+    Ok(PageCopyPositionAnchor {
+        page_id: page_id.to_owned(),
+        expected_position_revision,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn resolve_page_transfer_data_source_destination_with_access(
     connection: &Connection,
     library_id: &str,
@@ -2404,30 +2553,7 @@ fn resolve_page_transfer_data_source_destination_with_access(
         .into_iter()
         .collect();
     let before = before_page_id
-        .map(|page_id| {
-            let expected_position_revision = connection
-                .query_row(
-                    "SELECT COALESCE(position.revision, 0) \
-                     FROM data_source_page_memberships membership \
-                     JOIN pages page ON page.block_id = membership.page_block_id \
-                     JOIN blocks block ON block.id = page.block_id \
-                       AND block.library_id = page.library_id \
-                     LEFT JOIN database_view_page_positions position \
-                       ON position.view_id = ?1 AND position.page_block_id = page.block_id \
-                     WHERE membership.data_source_id = ?2 \
-                       AND membership.page_block_id = ?3 AND membership.removed_at IS NULL \
-                       AND page.parent_kind = 'data_source' AND page.parent_id = ?2 \
-                       AND block.lifecycle = 'active'",
-                    params![view_id, data_source_id, page_id],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()?
-                .ok_or_else(|| not_found("Block transfer View anchor is unavailable"))?;
-            Ok::<_, StoreError>(PageCopyPositionAnchor {
-                page_id: page_id.to_owned(),
-                expected_position_revision,
-            })
-        })
+        .map(|page_id| page_copy_position_anchor(connection, view_id, data_source_id, page_id))
         .transpose()?;
     Ok(PageCopyDataSourceDestination {
         data_source_id: source.id,

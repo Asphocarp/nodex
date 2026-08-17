@@ -306,8 +306,11 @@ export const moveNfmBlocks = async (
     target = {
       kind: "data_source",
       dataSourceId: view.dataSourceId,
-      viewId: view.viewId,
-      groupKey: request.destination.columnId,
+      placement: {
+        kind: "direct",
+        viewId: view.viewId,
+        groupKey: request.destination.columnId,
+      },
     };
   }
 

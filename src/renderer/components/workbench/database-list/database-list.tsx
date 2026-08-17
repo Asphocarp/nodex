@@ -6,12 +6,14 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 
 import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
 import type { ColumnPaginationState } from "@/lib/board-store";
 import {
@@ -39,6 +41,7 @@ import {
   buildDatabaseViewPropertyValueOperations,
   canMoveDatabaseViewPage,
   commitDatabaseViewOperations,
+  databaseViewSupportsManualReorder,
   DatabaseViewMutationError,
   type DatabaseViewMutationReceipt,
 } from "@/lib/database-view-row-mutations";
@@ -138,6 +141,20 @@ import {
 import { databaseListNestingContinuations } from "./database-list-nesting-lines";
 import { DATABASE_LIST_THEME_CLASS_NAME } from "./database-list-theme";
 import { undoDatabaseViewBlockTransfer } from "../database-view-block-transfer-undo";
+import {
+  endLocalBlockDragSession,
+  hasDragType,
+  NODEX_BLOCK_TRANSFER_DRAG_MIME,
+  resolveCrossSurfaceTransferMode,
+  resolveLocalBlockDragDropSession,
+  shouldHandleNativeCrossSurfaceDrag,
+} from "../block-transfer/cross-surface-drag";
+import { commitDatabaseViewBlockDrop } from "../database-view-block-drop-command";
+import {
+  resolveDatabaseListBlockDropRejection,
+  resolveDatabaseListBlockDropPreview,
+  type DatabaseListBlockDropPreview,
+} from "./database-list-block-drop";
 
 const INITIAL_OVERSCAN = 100;
 const EMPTY_DATABASE_LIST_PAGE_IDENTITY: DatabaseListPageIdentity = {
@@ -477,6 +494,8 @@ export function DatabaseList({
   const [overscan, setOverscan] = useState(INITIAL_OVERSCAN);
   const [pointerSuppressed, setPointerSuppressed] = useState(false);
   const [dndActive, setDndActive] = useState(false);
+  const [blockDropPreview, setBlockDropPreview] = useState<DatabaseListBlockDropPreview | null>(null);
+  const [blockDropMessage, setBlockDropMessage] = useState<string | null>(null);
   const [optimisticMove, setOptimisticMove] = useState<DatabaseListOptimisticMove | null>(null);
   const [pendingMutationCount, setPendingMutationCount] = useState(0);
   const [pendingMutationKeys, setPendingMutationKeys] = useState<ReadonlyMap<string, number>>(
@@ -1385,6 +1404,122 @@ export function DatabaseList({
   const mutationHistoryProjectId = model.accessContext.kind === "project"
     ? model.accessContext.projectId
     : null;
+
+  const blockDropRejection = (): string | null =>
+    resolveDatabaseListBlockDropRejection({
+      pageDragActive: dndActive,
+      readOnly: model.readOnlyReason !== null,
+      projectScoped: mutationHistoryProjectId !== null,
+      searchActive: compiledSearchQuery.normalizedQuery.length > 0,
+      projectionReady: coreWindow.active
+        && coreWindow.storeEpoch === model.storeEpoch
+        && coreWindow.projection !== null,
+    });
+
+  const previewBlockDrop = (
+    event: ReactDragEvent<HTMLDivElement>,
+  ): DatabaseListBlockDropPreview | null => {
+    const eventTarget = event.target instanceof Element ? event.target : null;
+    const rowElement = eventTarget?.closest<HTMLElement>("[data-list-key]") ?? null;
+    const bounds = rowElement?.getBoundingClientRect();
+    return resolveDatabaseListBlockDropPreview({
+      rows: projection,
+      overOccurrenceKey: rowElement?.dataset.listKey ?? null,
+      pointerY: event.clientY,
+      rowTop: bounds?.top ?? event.clientY,
+      rowBottom: bounds?.bottom ?? event.clientY,
+      manualOrder: presentation.sort.length === 0
+        || databaseViewSupportsManualReorder(mutationModel),
+    });
+  };
+
+  const handleBlockDragOver = (event: ReactDragEvent<HTMLDivElement>): void => {
+    if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
+    if (!hasDragType(event.dataTransfer, NODEX_BLOCK_TRANSFER_DRAG_MIME)) return;
+    const rejection = blockDropRejection();
+    if (rejection) {
+      event.dataTransfer.dropEffect = "none";
+      setBlockDropPreview(null);
+      setBlockDropMessage(rejection);
+      return;
+    }
+    const preview = previewBlockDrop(event);
+    if (!preview) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = resolveCrossSurfaceTransferMode(event);
+    setBlockDropPreview(preview);
+    setBlockDropMessage(preview.message);
+  };
+
+  const handleBlockDragLeave = (event: ReactDragEvent<HTMLDivElement>): void => {
+    if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setBlockDropPreview(null);
+    setBlockDropMessage(null);
+  };
+
+  const handleBlockDrop = async (event: ReactDragEvent<HTMLDivElement>): Promise<void> => {
+    const session = resolveLocalBlockDragDropSession(event.dataTransfer);
+    if (!session) return;
+    const rejection = blockDropRejection();
+    if (rejection) {
+      event.preventDefault();
+      event.stopPropagation();
+      endLocalBlockDragSession({ sessionId: session.sessionId });
+      setBlockDropPreview(null);
+      setBlockDropMessage(null);
+      toast.info(rejection);
+      return;
+    }
+    const preview = previewBlockDrop(event);
+    const expectedProjection = coreWindow.projection;
+    if (!preview || !expectedProjection) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setBlockDropPreview(null);
+    setBlockDropMessage(null);
+    await commitDatabaseViewBlockDrop({
+      session,
+      projectId: mutationHistoryProjectId,
+      storeEpoch: model.storeEpoch,
+      dataSourceId: model.dataSourceId,
+      placement: {
+        kind: "list_occurrence",
+        viewId: model.databaseViewId,
+        presentationOverride: databaseListPresentationOverride(effectiveRef.current),
+        expectedProjection,
+        target: preview.target,
+      },
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      mutationHistory,
+      onCommitted: async () => await onCommitted?.(),
+    });
+  };
+
+  useEffect(() => {
+    setBlockDropPreview(null);
+    setBlockDropMessage(null);
+  }, [coreWindow.projection, projection]);
+
+  useEffect(() => {
+    if (!blockDropPreview && !blockDropMessage) return;
+    const clear = (): void => {
+      setBlockDropPreview(null);
+      setBlockDropMessage(null);
+    };
+    window.addEventListener("dragend", clear, true);
+    window.addEventListener("drop", clear, true);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("dragend", clear, true);
+      window.removeEventListener("drop", clear, true);
+      window.removeEventListener("blur", clear);
+    };
+  }, [blockDropMessage, blockDropPreview]);
+
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.defaultPrevented || dndActive) return;
     if (handleDatabaseViewMutationHistoryKeyDown({
@@ -1553,6 +1688,12 @@ export function DatabaseList({
         identity={pageIdentityByOccurrenceKey.get(item.key)
           ?? EMPTY_DATABASE_LIST_PAGE_IDENTITY}
         nestingContinuations={nestingContinuationsByKey.get(item.key) ?? []}
+        externalDropEdge={
+          blockDropPreview?.feedback.kind === "line"
+          && blockDropPreview.feedback.occurrenceKey === item.key
+            ? blockDropPreview.feedback.edge
+            : null
+        }
       />
     );
     return (
@@ -1607,7 +1748,12 @@ export function DatabaseList({
       rows={projection}
       selection={selection}
       scrollerRef={scrollerRef}
-      disabled={model.readOnlyReason !== null || !coreWindow.active || optimisticMove !== null}
+      disabled={
+        model.readOnlyReason !== null
+        || !coreWindow.active
+        || optimisticMove !== null
+        || blockDropPreview !== null
+      }
       overlayColumns={{
         priority: coreColumnVisibility.priority,
         identifier: identityFields.length > 0,
@@ -1638,6 +1784,12 @@ export function DatabaseList({
             pointerSuppressed && !dndActive && "[&_[data-list-row=true]]:pointer-events-none",
           )}
           onKeyDown={handleKeyDown}
+          onDragEnter={handleBlockDragOver}
+          onDragOver={handleBlockDragOver}
+          onDragLeave={handleBlockDragLeave}
+          onDrop={(event) => {
+            void handleBlockDrop(event);
+          }}
           onScroll={(event) => {
           const nextTop = event.currentTarget.scrollTop;
           latestScrollTopRef.current = nextTop;
@@ -1736,11 +1888,22 @@ export function DatabaseList({
                     aria-rowindex={logicalIndex + 1}
                     data-list-row="true"
                     data-list-key={item.key}
+                    data-database-list-block-drop={
+                      blockDropPreview?.feedback.kind === "surface"
+                      && blockDropPreview.feedback.occurrenceKey === item.key
+                        ? "true"
+                        : undefined
+                    }
                     className="sticky top-[35.5px] z-[9] grid h-8 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
                   >
                     <div
                       role="gridcell"
-                      className="mx-2 grid h-8 items-center gap-x-2 rounded-lg bg-[var(--database-list-subgroup)] [grid-template-columns:subgrid] [grid-column:1/-1]"
+                      className={cn(
+                        "mx-2 grid h-8 items-center gap-x-2 rounded-lg bg-[var(--database-list-subgroup)] [grid-template-columns:subgrid] [grid-column:1/-1]",
+                        blockDropPreview?.feedback.kind === "surface"
+                          && blockDropPreview.feedback.occurrenceKey === item.key
+                          && "ring-1 ring-inset ring-[var(--database-list-drop-indicator)]",
+                      )}
                     >
                       <span aria-hidden="true" style={{ gridColumn: "indent" }} />
                       <span
@@ -1790,12 +1953,23 @@ export function DatabaseList({
                   aria-rowindex={logicalIndex + 1}
                   data-list-row="true"
                   data-list-key={item.key}
+                  data-database-list-block-drop={
+                    blockDropPreview?.feedback.kind === "surface"
+                    && blockDropPreview.feedback.occurrenceKey === item.key
+                      ? "true"
+                      : undefined
+                  }
                   className="sticky top-[-0.5px] z-10 mb-0.5 grid h-9 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
                 >
                   <div
                     role="gridcell"
                     data-list-group-divider="true"
-                    className="mx-2 grid h-9 items-center gap-x-2 overflow-hidden rounded-lg pr-2 [grid-template-columns:subgrid] [grid-column:1/-1]"
+                    className={cn(
+                      "mx-2 grid h-9 items-center gap-x-2 overflow-hidden rounded-lg pr-2 [grid-template-columns:subgrid] [grid-column:1/-1]",
+                      blockDropPreview?.feedback.kind === "surface"
+                        && blockDropPreview.feedback.occurrenceKey === item.key
+                        && "ring-1 ring-inset ring-[var(--database-list-drop-indicator)]",
+                    )}
                     style={{
                       background: "linear-gradient(90deg, var(--database-list-group-start) 0%, var(--database-list-group-end) 100%), var(--database-list-group-end)",
                     }}
@@ -1872,6 +2046,23 @@ export function DatabaseList({
           </div>
         ) : null}
         </div>
+        {blockDropPreview?.feedback.kind === "surface"
+          && blockDropPreview.feedback.occurrenceKey === null ? (
+          <div
+            aria-hidden="true"
+            data-database-list-block-drop-root="true"
+            className="pointer-events-none absolute inset-1 z-[18] rounded-lg ring-1 ring-inset ring-[var(--database-list-drop-indicator)]"
+          />
+        ) : null}
+        {blockDropMessage ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute right-3 top-2 z-20 bg-[var(--database-list-surface)] px-1.5 py-1 text-xs text-[var(--database-list-text-muted)] shadow-sm"
+          >
+            {blockDropMessage}
+          </div>
+        ) : null}
         <DatabaseListSelectionActionBar
           count={selectionCount}
           canMoveUp={canMoveSelectionUp}

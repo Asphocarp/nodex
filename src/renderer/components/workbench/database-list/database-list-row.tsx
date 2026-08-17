@@ -46,6 +46,7 @@ export function DatabaseListRow({
   identity,
   nestingContinuations,
   ariaRowIndex,
+  externalDropEdge = null,
 }: {
   readonly item: DatabaseListPageRow;
   readonly libraryId: string;
@@ -70,8 +71,12 @@ export function DatabaseListRow({
   readonly identity: DatabaseListPageIdentity;
   readonly nestingContinuations: readonly boolean[];
   readonly ariaRowIndex: number;
+  readonly externalDropEdge?: "before" | "after" | null;
 }) {
   const dnd = useDatabaseListPageDnd(item);
+  const dropEdge = dnd.target?.kind === "page"
+    ? dnd.target.indicatorEdge
+    : externalDropEdge;
   const presentedTitle = usePresentedPageTitle(
     item.pageId,
     item.row.title,
@@ -108,9 +113,7 @@ export function DatabaseListRow({
       data-last-in-group={item.lastInGroup || undefined}
       data-apply-background="true"
       data-raise-row={active || dnd.active || undefined}
-      data-drop-position={dnd.target?.kind === "page"
-        ? dnd.target.indicatorEdge
-        : undefined}
+      data-drop-position={dropEdge ?? undefined}
       data-database-view-page-presented={presented ? "true" : undefined}
       data-list-transient-kind={item.transientKind === "none"
         ? undefined
@@ -149,19 +152,21 @@ export function DatabaseListRow({
         onOpen(presentedTitle);
       }}
     >
-      {dnd.target?.kind === "page"
-        && (dnd.target.indicatorEdge === "before"
-          || dnd.target.indicatorEdge === "after") ? (
+      {dropEdge === "before" || dropEdge === "after" ? (
         <span
           aria-hidden="true"
           data-list-drop-indicator="true"
-          data-prospective-depth={dnd.target.prospectiveDepth}
+          data-prospective-depth={
+            dnd.target?.kind === "page" ? dnd.target.prospectiveDepth : 0
+          }
           className={cn(
             "pointer-events-none absolute right-2 z-[3] h-0.5 rounded-full bg-[var(--database-list-drop-indicator)]",
-            dnd.target.indicatorEdge === "before" ? "top-0" : "bottom-0",
+            dropEdge === "before" ? "top-0" : "bottom-0",
           )}
           style={{
-            left: databaseListDropIndicatorLeft(dnd.target.prospectiveDepth),
+            left: databaseListDropIndicatorLeft(
+              dnd.target?.kind === "page" ? dnd.target.prospectiveDepth : 0,
+            ),
           }}
         >
           <span

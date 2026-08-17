@@ -760,8 +760,11 @@ describe("Electron native data authority", () => {
         target: {
           kind: "data_source" as const,
           dataSourceId: primaryDataSource.dataSourceId,
-          viewId: primaryView.viewId,
-          groupKey: "ship",
+          placement: {
+            kind: "direct" as const,
+            viewId: primaryView.viewId,
+            groupKey: "ship",
+          },
         },
       };
       const copiedToDataSource = await transferAdapter.commit(
@@ -1221,8 +1224,11 @@ describe("Electron native data authority", () => {
         target: {
           kind: "data_source" as const,
           dataSourceId: primaryDataSource.dataSourceId,
-          viewId: primaryView.viewId,
-          groupKey: "ship",
+          placement: {
+            kind: "direct" as const,
+            viewId: primaryView.viewId,
+            groupKey: "ship",
+          },
         },
       };
       const returnedPageToDataSource = await transferAdapter.commit(

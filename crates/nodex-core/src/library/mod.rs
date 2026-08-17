@@ -938,9 +938,14 @@ mod tests {
         AgentProjectResourceAction, AgentResourceAccessPlan, AgentResourceGrantRoot,
         AgentResourceGrantSpec, AgentResourceIntent, AgentTurnProvenance,
     };
+    use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
-        DatabaseIntent, DatabasePagePropertyAddress, DatabasePropertyValueEdit,
-        DatabasePropertyValueInput, DatabasePropertyValueMutation,
+        DatabaseIntent, DatabaseListMoveTarget, DatabaseListProjectionExpectation,
+        DatabaseListProjectionRow, DatabasePagePropertyAddress, DatabasePropertyValueEdit,
+        DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseRead, DatabaseReadValue,
+        DatabaseViewGroupOverrideInput, DatabaseViewLayoutDisplayOverrideInput,
+        DatabaseViewLayoutInput, DatabaseViewLayoutsOverrideInput,
+        DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget,
     };
     use nodex_core_contracts::document::{
         DocumentBlockOperation as ContractDocumentBlockOperation, DocumentBlockUpdatePatch,
@@ -950,13 +955,14 @@ mod tests {
         LibraryAccess, LibraryAgentSearchResult, LibraryAgentSearchScope, LibraryAgentSearchTarget,
         LibraryBlockLocation, LibraryBlockPropertyFieldMutation, LibraryBlockPropertyMutation,
         LibraryBlockPropertyMutationErrorCode, LibraryBlockPropertyMutationOutcome,
-        LibraryBlockTransferDocumentHead, LibraryBlockTransferLogicalIntent,
-        LibraryBlockTransferMode, LibraryBlockTransferSource, LibraryBlockTransferTarget,
-        LibraryDocumentHead, LibraryMoveDestinationScope, LibraryNavigationParent,
-        LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
-        LibraryPageLifecycleTagOption, LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind,
-        LibraryPageReferenceMatchSource, LibraryPageWorkflowStatus, LibraryPageWriteDestination,
-        LibraryProjectAccessChange, LibraryWriteParent,
+        LibraryBlockTransferDataSourcePlacement, LibraryBlockTransferDocumentHead,
+        LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
+        LibraryBlockTransferTarget, LibraryDocumentHead, LibraryMoveDestinationScope,
+        LibraryNavigationParent, LibraryPageFileKind, LibraryPageLifecycleMutation,
+        LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
+        LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind, LibraryPageReferenceMatchSource,
+        LibraryPageWorkflowStatus, LibraryPageWriteDestination, LibraryProjectAccessChange,
+        LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -5211,9 +5217,11 @@ mod tests {
             },
             target: LibraryBlockTransferTarget::DataSource {
                 data_source_id: DATA_SOURCE.to_owned(),
-                view_id: VIEW.to_owned(),
-                group_key: Some("ship".to_owned()),
-                before_page_id: None,
+                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                    view_id: VIEW.to_owned(),
+                    group_key: Some("ship".to_owned()),
+                    before_page_id: None,
+                },
             },
             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
@@ -5254,6 +5262,469 @@ mod tests {
             2
         );
 
+        let database = DatabaseModule::new("profile-1", "library-1", &kernel);
+        let read_list = || {
+            let result = database
+                .read(
+                    &context,
+                    ModuleReadRequest {
+                        contract_version: DATABASE_CONTRACT_VERSION,
+                        read: DatabaseRead::ListWindow {
+                            target: DatabaseViewReadTarget::PresentedView {
+                                view_id: VIEW.to_owned(),
+                                presentation_override: DatabaseViewPresentationOverrideInput {
+                                    layout: Some(DatabaseViewLayoutInput::List),
+                                    ..Default::default()
+                                },
+                            },
+                            window: CollectionWindowRequest {
+                                after: None,
+                                first: Some(100),
+                            },
+                        },
+                    },
+                )
+                .expect("read Block transfer List projection");
+            let DatabaseReadValue::ListWindow { value } = result.value else {
+                panic!("List window result")
+            };
+            value
+        };
+        let list_before = read_list();
+        let ship_occurrence_key = list_before
+            .rows
+            .items
+            .iter()
+            .find_map(|row| match row {
+                DatabaseListProjectionRow::Group {
+                    occurrence_key,
+                    group_key: Some(group_key),
+                    ..
+                } if group_key == "ship" => Some(occurrence_key.clone()),
+                _ => None,
+            })
+            .expect("Ship List group");
+        let list_expectation = DatabaseListProjectionExpectation {
+            scope_key: list_before.projection.scope.canonical_key.clone(),
+            schema_version: list_before.projection.scope.schema_version,
+            revision: list_before.projection.revision,
+            covered_commit_seq: list_before.projection.covered_commit_seq,
+            effect_hash: list_before.projection.effect_hash.clone(),
+        };
+        let list_placement = LibraryBlockTransferDataSourcePlacement::ListOccurrence {
+            view_id: VIEW.to_owned(),
+            presentation_override: DatabaseViewPresentationOverrideInput {
+                layout: Some(DatabaseViewLayoutInput::List),
+                ..Default::default()
+            },
+            expected_projection: list_expectation.clone(),
+            target: DatabaseListMoveTarget::Group {
+                occurrence_key: ship_occurrence_key,
+            },
+        };
+        let list_transfer = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "copy-wrapper-to-list-occurrence".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: LibraryBlockTransferLogicalIntent {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            mode: LibraryBlockTransferMode::Copy,
+                            root_block_ids: vec![roots.1.clone()],
+                            causal_dependencies: Vec::new(),
+                            source: LibraryBlockTransferSource::Page {
+                                page_id: WRAP_PAGE.to_owned(),
+                            },
+                            target: LibraryBlockTransferTarget::DataSource {
+                                data_source_id: DATA_SOURCE.to_owned(),
+                                placement: list_placement.clone(),
+                            },
+                            promotion_policy:
+                                nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
+                        },
+                    },
+                },
+            )
+            .expect("copy wrapper into a List occurrence");
+        let list_result = list_transfer
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("List Block transfer result");
+        let list_page_id = list_result.result_root_block_ids[0].clone();
+        let list_undo_token = list_result
+            .undo_token
+            .clone()
+            .expect("List Block transfer Undo token");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let status = connection.query_row(
+                    "SELECT value.value_json FROM data_source_property_values value \
+                     JOIN data_source_page_memberships membership \
+                       ON membership.id = value.membership_id \
+                      AND membership.data_source_id = value.data_source_id \
+                     WHERE membership.page_block_id = ?1 AND value.property_id = 'status'",
+                    [&list_page_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(status, "\"ship\"");
+                Ok(())
+            })
+            .expect("List group Property adoption");
+
+        let page_count_before_stale = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row("SELECT count(*) FROM pages", [], |row| row.get::<_, i64>(0))
+                    .map_err(Into::into)
+            })
+            .expect("Page count before stale List transfer");
+        let stale_error = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "reject-stale-list-occurrence".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: LibraryBlockTransferLogicalIntent {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            mode: LibraryBlockTransferMode::Copy,
+                            root_block_ids: vec![roots.1.clone()],
+                            causal_dependencies: Vec::new(),
+                            source: LibraryBlockTransferSource::Page {
+                                page_id: WRAP_PAGE.to_owned(),
+                            },
+                            target: LibraryBlockTransferTarget::DataSource {
+                                data_source_id: DATA_SOURCE.to_owned(),
+                                placement: list_placement,
+                            },
+                            promotion_policy:
+                                nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
+                        },
+                    },
+                },
+            )
+            .expect_err("stale List projection must reject the whole transfer");
+        assert_eq!(stale_error.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(
+            kernel
+                .readers()
+                .read_default(|connection| {
+                    connection
+                        .query_row("SELECT count(*) FROM pages", [], |row| row.get::<_, i64>(0))
+                        .map_err(Into::into)
+                })
+                .expect("Page count after stale List transfer"),
+            page_count_before_stale
+        );
+
+        let list_undo = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "undo-list-occurrence-transfer".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::UndoBlockTransfer {
+                        token: list_undo_token,
+                    },
+                },
+            )
+            .expect("undo List occurrence transfer");
+        assert_eq!(
+            list_undo
+                .committed
+                .value
+                .block_transfer_undo
+                .as_ref()
+                .expect("List transfer Undo result")
+                .removed_page_ids,
+            [list_page_id]
+        );
+
+        let root_list = read_list();
+        let root_transfer = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "copy-multiple-blocks-to-list-root".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: LibraryBlockTransferLogicalIntent {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            mode: LibraryBlockTransferMode::Copy,
+                            root_block_ids: vec![roots.1.clone(), WRAP_SIBLING.to_owned()],
+                            causal_dependencies: Vec::new(),
+                            source: LibraryBlockTransferSource::Page {
+                                page_id: WRAP_PAGE.to_owned(),
+                            },
+                            target: LibraryBlockTransferTarget::DataSource {
+                                data_source_id: DATA_SOURCE.to_owned(),
+                                placement:
+                                    LibraryBlockTransferDataSourcePlacement::ListOccurrence {
+                                        view_id: VIEW.to_owned(),
+                                        presentation_override:
+                                            DatabaseViewPresentationOverrideInput {
+                                                layout: Some(DatabaseViewLayoutInput::List),
+                                                ..Default::default()
+                                            },
+                                        expected_projection: DatabaseListProjectionExpectation {
+                                            scope_key: root_list
+                                                .projection
+                                                .scope
+                                                .canonical_key
+                                                .clone(),
+                                            schema_version: root_list
+                                                .projection
+                                                .scope
+                                                .schema_version,
+                                            revision: root_list.projection.revision,
+                                            covered_commit_seq: root_list
+                                                .projection
+                                                .covered_commit_seq,
+                                            effect_hash: root_list.projection.effect_hash.clone(),
+                                        },
+                                        target: DatabaseListMoveTarget::Root,
+                                    },
+                            },
+                            promotion_policy:
+                                nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
+                        },
+                    },
+                },
+            )
+            .expect("copy ordered Blocks to the List root");
+        let root_result = root_transfer
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("root List transfer result");
+        assert_eq!(root_result.result_root_block_ids.len(), 2);
+        assert_eq!(
+            root_result
+                .transformation_evidence
+                .iter()
+                .map(|evidence| evidence.source_block_id.as_str())
+                .collect::<Vec<_>>(),
+            [roots.1.as_str(), WRAP_SIBLING]
+        );
+        let result_root_ids = root_result.result_root_block_ids.clone();
+        let visible_root_order = read_list()
+            .rows
+            .items
+            .into_iter()
+            .filter_map(|row| match row {
+                DatabaseListProjectionRow::Page {
+                    summary, depth: 0, ..
+                } if result_root_ids.contains(&summary.page_id) => Some(summary.page_id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(visible_root_order, result_root_ids);
+        for page_id in &root_result.result_root_block_ids {
+            let status = kernel
+                .readers()
+                .read_default(|connection| {
+                    connection
+                        .query_row(
+                            "SELECT value.value_json FROM data_source_property_values value \
+                             JOIN data_source_page_memberships membership \
+                               ON membership.id = value.membership_id \
+                              AND membership.data_source_id = value.data_source_id \
+                             WHERE membership.page_block_id = ?1 \
+                               AND value.property_id = 'status'",
+                            [page_id],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .map_err(Into::into)
+                })
+                .expect("root List status value");
+            assert_eq!(status, "null");
+        }
+        library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "undo-multiple-list-root-transfer".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::UndoBlockTransfer {
+                        token: root_result
+                            .undo_token
+                            .clone()
+                            .expect("root List transfer Undo token"),
+                    },
+                },
+            )
+            .expect("undo root List transfer");
+
+        let priority_presentation = DatabaseViewPresentationOverrideInput {
+            layout: Some(DatabaseViewLayoutInput::List),
+            group: Some(DatabaseViewGroupOverrideInput::Property {
+                property_id: "priority".to_owned(),
+            }),
+            layouts: Some(DatabaseViewLayoutsOverrideInput {
+                board: None,
+                list: Some(DatabaseViewLayoutDisplayOverrideInput {
+                    fields: None,
+                    show_empty_groups: Some(true),
+                    show_description: None,
+                }),
+            }),
+            ..Default::default()
+        };
+        let priority_window = database
+            .read(
+                &context,
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::ListWindow {
+                        target: DatabaseViewReadTarget::PresentedView {
+                            view_id: VIEW.to_owned(),
+                            presentation_override: priority_presentation.clone(),
+                        },
+                        window: CollectionWindowRequest {
+                            after: None,
+                            first: Some(100),
+                        },
+                    },
+                },
+            )
+            .expect("read Priority-grouped List");
+        let DatabaseReadValue::ListWindow {
+            value: priority_window,
+        } = priority_window.value
+        else {
+            panic!("Priority List window result")
+        };
+        let medium_priority_group = priority_window
+            .rows
+            .items
+            .iter()
+            .find_map(|row| match row {
+                DatabaseListProjectionRow::Group {
+                    occurrence_key,
+                    group_key: Some(group_key),
+                    ..
+                } if group_key == "p2-medium" => Some(occurrence_key.clone()),
+                _ => None,
+            })
+            .expect("empty P2 Priority group");
+        let priority_conflict = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "preserve-shorthand-on-list-group-conflict".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: LibraryBlockTransferLogicalIntent {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            mode: LibraryBlockTransferMode::Move,
+                            root_block_ids: vec![SHORTHAND_ROOT.to_owned()],
+                            causal_dependencies: document_heads(&kernel, &[PROMOTE_DOCUMENT]),
+                            source: LibraryBlockTransferSource::Document {
+                                document_id: PROMOTE_DOCUMENT.to_owned(),
+                            },
+                            target: LibraryBlockTransferTarget::DataSource {
+                                data_source_id: DATA_SOURCE.to_owned(),
+                                placement:
+                                    LibraryBlockTransferDataSourcePlacement::ListOccurrence {
+                                        view_id: VIEW.to_owned(),
+                                        presentation_override: priority_presentation,
+                                        expected_projection:
+                                            DatabaseListProjectionExpectation {
+                                                scope_key: priority_window
+                                                    .projection
+                                                    .scope
+                                                    .canonical_key
+                                                    .clone(),
+                                                schema_version: priority_window
+                                                    .projection
+                                                    .scope
+                                                    .schema_version,
+                                                revision: priority_window.projection.revision,
+                                                covered_commit_seq: priority_window
+                                                    .projection
+                                                    .covered_commit_seq,
+                                                effect_hash: priority_window
+                                                    .projection
+                                                    .effect_hash
+                                                    .clone(),
+                                            },
+                                        target: DatabaseListMoveTarget::Group {
+                                            occurrence_key: medium_priority_group,
+                                        },
+                                    },
+                            },
+                            promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
+                        },
+                    },
+                },
+            )
+            .expect("preserve conflicting shorthand in a Priority group");
+        let priority_conflict_result = priority_conflict
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("Priority conflict transfer result");
+        let priority_conflict_page_id = &priority_conflict_result.result_root_block_ids[0];
+        assert!(matches!(
+            priority_conflict_result.transformation_evidence[0].promotion,
+            nodex_core_contracts::library::LibraryBlockTransferPromotionEvidence::Preserved {
+                reason: nodex_core_contracts::library::LibraryTaskShorthandPreservedReason::TargetPropertyConflict,
+                ..
+            }
+        ));
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let (title, priority) = connection.query_row(
+                    "SELECT materialization.title, value.value_json FROM pages page \
+                     JOIN document_materializations materialization \
+                       ON materialization.document_id = page.document_id \
+                     JOIN data_source_page_memberships membership \
+                       ON membership.page_block_id = page.block_id \
+                     JOIN data_source_property_values value \
+                       ON value.membership_id = membership.id \
+                      AND value.data_source_id = membership.data_source_id \
+                      AND value.property_id = 'priority' \
+                     WHERE page.block_id = ?1",
+                    [priority_conflict_page_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                assert_eq!(title, "1XL(ui, unclear) Fix import");
+                assert_eq!(priority, "\"p2-medium\"");
+                Ok(())
+            })
+            .expect("literal conflict title and List group Priority");
+        library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "undo-list-priority-conflict".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::UndoBlockTransfer {
+                        token: priority_conflict_result
+                            .undo_token
+                            .clone()
+                            .expect("Priority conflict Undo token"),
+                    },
+                },
+            )
+            .expect("undo Priority conflict transfer");
+
         let shorthand_transfer = library
             .apply(
                 &context,
@@ -5272,9 +5743,11 @@ mod tests {
                             },
                             target: LibraryBlockTransferTarget::DataSource {
                                 data_source_id: DATA_SOURCE.to_owned(),
-                                view_id: VIEW.to_owned(),
-                                group_key: Some("ship".to_owned()),
-                                before_page_id: None,
+                                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                                    view_id: VIEW.to_owned(),
+                                    group_key: Some("ship".to_owned()),
+                                    before_page_id: None,
+                                },
                             },
                             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
                         },
@@ -5417,9 +5890,11 @@ mod tests {
                             },
                             target: LibraryBlockTransferTarget::DataSource {
                                 data_source_id: DATA_SOURCE.to_owned(),
-                                view_id: VIEW.to_owned(),
-                                group_key: Some("ship".to_owned()),
-                                before_page_id: None,
+                                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                                    view_id: VIEW.to_owned(),
+                                    group_key: Some("ship".to_owned()),
+                                    before_page_id: None,
+                                },
                             },
                             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::TaskShorthandV1,
                         },
@@ -5767,9 +6242,11 @@ mod tests {
             },
             target: LibraryBlockTransferTarget::DataSource {
                 data_source_id: DATA_SOURCE.to_owned(),
-                view_id: VIEW.to_owned(),
-                group_key: Some("ship".to_owned()),
-                before_page_id: None,
+                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                    view_id: VIEW.to_owned(),
+                    group_key: Some("ship".to_owned()),
+                    before_page_id: None,
+                },
             },
             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };
@@ -6381,9 +6858,11 @@ mod tests {
             },
             target: LibraryBlockTransferTarget::DataSource {
                 data_source_id: DATA_SOURCE.to_owned(),
-                view_id: VIEW.to_owned(),
-                group_key: Some("ship".to_owned()),
-                before_page_id: None,
+                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                    view_id: VIEW.to_owned(),
+                    group_key: Some("ship".to_owned()),
+                    before_page_id: None,
+                },
             },
             promotion_policy: nodex_core_contracts::library::LibraryPagePromotionPolicy::Literal,
         };

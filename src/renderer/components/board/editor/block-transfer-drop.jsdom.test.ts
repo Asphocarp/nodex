@@ -10,7 +10,7 @@ import type { BoardCardDragData } from "../pragmatic-drag-data";
 import {
   beginLocalBlockDragSession,
   endLocalBlockDragSession,
-} from "../cross-surface-drag";
+} from "../../workbench/block-transfer/cross-surface-drag";
 
 type ElementDropTargetArgs = Parameters<typeof dropTargetForElements>[0];
 

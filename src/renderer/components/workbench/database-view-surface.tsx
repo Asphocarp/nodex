@@ -79,20 +79,12 @@ import { PagePresenceRail } from "../board/page-presence-rail";
 import { BoardPageKey } from "../board/board-page-key";
 import { buildDatabaseViewBoardDropOperations } from "@/lib/database-view-drag-operations";
 import {
-  buildBlockToDataSourceTransferIntent,
-  containsCanvasBlockDrag,
-  containsDatabaseBlockDrag,
   endLocalBlockDragSession,
   hasDragType,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   resolveLocalBlockDragDropSession,
-  resolvePagePromotionPolicy,
-  summarizeBlockPagePromotionReceipt,
   shouldHandleNativeCrossSurfaceDrag,
-} from "../board/cross-surface-drag";
-import { readTaskShorthandPagePromotionEnabled } from "../../lib/page-promotion-preference";
-import { transferBlocks } from "@/lib/api";
-import { resolveBlockDocumentMutationBarrier } from "@/lib/block-document-mutation-registry";
+} from "./block-transfer/cross-surface-drag";
 import { toast } from "@/components/ui/toast";
 import { computeNativeDropIndexFromSurface } from "../board/native-drop-index";
 import { DatabaseList } from "./database-list/database-list";
@@ -102,6 +94,7 @@ import {
   type DatabaseViewMutationHistory,
 } from "./database-view-mutation-history";
 import { undoDatabaseViewBlockTransfer } from "./database-view-block-transfer-undo";
+import { commitDatabaseViewBlockDrop } from "./database-view-block-drop-command";
 
 const DATABASE_VIEW_PAGE_DRAG_MIME =
   "application/vnd.nodex.database-view-pages.v1+json";
@@ -950,26 +943,6 @@ function BoardDatabaseViewSurface({
     if (!session) return;
     event.preventDefault();
     event.stopPropagation();
-    endLocalBlockDragSession({ sessionId: session.sessionId });
-    if (model.accessContext.kind !== "project") {
-      toast.info("Blocks can only move into a Project Database View.");
-      return;
-    }
-    if (
-      session.payload.projectId !== model.accessContext.projectId
-      || session.payload.storeEpoch !== model.storeEpoch
-    ) {
-      toast.danger("Block transfer belongs to another Project or store generation.");
-      return;
-    }
-    if (containsCanvasBlockDrag(session.payload)) {
-      toast.info("Canvas can only move between Page Documents, not into a Board.");
-      return;
-    }
-    if (containsDatabaseBlockDrag(session.payload)) {
-      toast.info("Database blocks can only move through a typed Database action.");
-      return;
-    }
     if (
       !presentation.group
       || presentation.subgroup
@@ -977,76 +950,27 @@ function BoardDatabaseViewSurface({
       || target.subgroupKey !== null
     ) {
       toast.info("Block transfer requires a Board grouped by one assigned property.");
+      endLocalBlockDragSession({ sessionId: session.sessionId });
       return;
     }
-    const sourceBarrier = resolveBlockDocumentMutationBarrier(
-      session.payload.sourceSurfaceId,
-    );
-    const sourceHead = await sourceBarrier?.flushAndFence();
-    if (sourceHead && sourceHead.storeEpoch !== model.storeEpoch) {
-      toast.danger("The dragged Document belongs to another store generation.");
-      return;
-    }
-    const result = await transferBlocks(
-      model.accessContext.projectId,
-      buildBlockToDataSourceTransferIntent({
-        operationId: crypto.randomUUID(),
-        projectId: model.accessContext.projectId,
-        storeEpoch: model.storeEpoch,
-        payload: session.payload,
-        dataSourceId: model.dataSourceId,
+    await commitDatabaseViewBlockDrop({
+      session,
+      projectId: model.accessContext.kind === "project"
+        ? model.accessContext.projectId
+        : null,
+      storeEpoch: model.storeEpoch,
+      dataSourceId: model.dataSourceId,
+      placement: {
+        kind: "direct",
         viewId: model.databaseViewId,
         groupKey: target.groupKey,
         ...(target.beforePageId ? { beforePageId: target.beforePageId } : {}),
-        altKey: event.altKey,
-        promotionPolicy: resolvePagePromotionPolicy({
-          preferenceEnabled: readTaskShorthandPagePromotionEnabled(),
-          shiftKey: event.shiftKey,
-        }),
-        ...(sourceHead
-          ? {
-              causalDependencies: [{
-                documentId: sourceHead.documentId,
-                generation: sourceHead.generation,
-                expectedHeadSeq: sourceHead.expectedHeadSeq,
-              }],
-            }
-          : {}),
-      }),
-    );
-    if (!result.ok) {
-      toast.danger(result.error.message);
-      return;
-    }
-    if (result.value.undoToken) {
-      mutationHistory.registerBlockTransfer(result.value.undoToken);
-    }
-    const shorthandFeedback = summarizeBlockPagePromotionReceipt(result.value);
-    const feedbackMessage = shorthandFeedback?.message ?? "Block promoted to a Page.";
-    const feedbackOptions = result.value.undoToken
-      ? {
-          action: {
-            label: "Undo",
-            onClick: () => {
-              void mutationHistory.undoLast({
-                listMove: async () => false,
-                blockTransfer: async (token) => await undoDatabaseViewBlockTransfer({
-                  projectId: model.accessContext.kind === "project"
-                    ? model.accessContext.projectId
-                    : "",
-                  storeEpoch: model.storeEpoch,
-                  token,
-                  onCommitted,
-                }),
-              });
-              return false;
-            },
-          },
-        }
-      : undefined;
-    if (shorthandFeedback?.tone === "info") toast.info(feedbackMessage, feedbackOptions);
-    else toast.success(feedbackMessage, feedbackOptions);
-    await onCommitted?.();
+      },
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      mutationHistory,
+      onCommitted: async () => await onCommitted?.(),
+    });
   };
   const dropOnBoardTarget = (
     event: ReactDragEvent<HTMLElement>,

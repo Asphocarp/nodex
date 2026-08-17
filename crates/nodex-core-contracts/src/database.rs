@@ -1144,6 +1144,7 @@ pub enum DatabaseListMoveTarget {
     Group {
         occurrence_key: String,
     },
+    Root,
 }
 
 /// Renderer-visible causal coordinate. The canonical scope body is omitted
@@ -1160,7 +1161,7 @@ pub struct DatabaseListProjectionExpectation {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseListMoveNormalizedTarget {
-    pub target_occurrence_key: String,
+    pub target_occurrence_key: Option<String>,
     pub target_page_id: Option<String>,
     pub parent_page_id: Option<String>,
     pub before_page_id: Option<String>,
