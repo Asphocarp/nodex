@@ -3,7 +3,6 @@ import { hashKey, useInfiniteQuery, useQueryClient } from "@tanstack/react-query
 import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import type { ContentAccessContext } from "../../shared/content-access-context";
 import {
-  LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryPageBacklink,
 } from "../../shared/library-module";
 import type { ProjectionScope } from "../../shared/projection-stream";
@@ -69,7 +68,6 @@ export const usePageBacklinks = (
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }): Promise<PageBacklinksPage> => {
       const result = await readLibraryModule(accessContext, {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         read: {
           mode: "page_backlinks",
           targetPageId,

@@ -324,7 +324,6 @@ pub(super) fn page_history(
         .then(|| entries.last().map(cursor_for_entry))
         .flatten();
     Ok(LibraryPageHistoryPage {
-        version: 1,
         library_id: scope.library_id,
         page_id: scope.page_id,
         document_id: scope.document_id,

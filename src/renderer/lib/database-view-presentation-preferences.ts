@@ -6,7 +6,6 @@ import {
   type DatabaseViewPresentationOverride,
 } from "../../shared/database-kernel";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyReceiptV2,
   type DatabaseViewDisclosureTargetV2,
   type DatabaseViewPersonalPresentationV2,
@@ -109,7 +108,6 @@ const readCorePresentation = async (
   readonly value: DatabaseViewPersonalPresentationV2;
 }> => {
   const result = await readDatabaseModule(projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read: {
       target: { kind: "view", viewId },
@@ -136,7 +134,6 @@ const readCoreCollapsedOccurrences = async (
   readonly targets: readonly DatabaseViewDisclosureTargetV2[];
 }> => {
   const result = await readDatabaseModule(projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read: {
       target: { kind: "view", viewId },
@@ -161,7 +158,6 @@ const writeCorePresentation = async (input: {
   readonly value: DatabaseViewPersonalPresentationV2;
 }): Promise<{ readonly revision: number; readonly commitSeq: number }> => {
   const result = await applyDatabaseModule(input.projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: input.projectId,
     operationId: crypto.randomUUID(),
     storeEpoch: input.storeEpoch,
@@ -189,7 +185,6 @@ const writeCoreDisclosure = async (input: {
   readonly collapsed: boolean;
 }): Promise<number> => {
   const result = await applyDatabaseModule(input.projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: input.projectId,
     operationId: crypto.randomUUID(),
     storeEpoch: input.storeEpoch,

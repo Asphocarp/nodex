@@ -1,5 +1,4 @@
 import {
-  BLOCK_TRANSFER_CONTRACT_VERSION,
   parseBlockTransferIntent,
   parseBlockTransferUndoIntent,
   type BlockTransferCommandError,
@@ -203,7 +202,6 @@ const fromCoreResult = (
   committedAt: string,
 ): BlockTransferReceipt => {
   return {
-    version: BLOCK_TRANSFER_CONTRACT_VERSION,
     operationId: intent.operationId,
     projectId: intent.projectId,
     storeEpoch: intent.storeEpoch,
@@ -249,7 +247,6 @@ const fromCoreUndoResult = (
   commitSeq: number,
   committedAt: string,
 ): BlockTransferUndoReceipt => ({
-  version: BLOCK_TRANSFER_CONTRACT_VERSION,
   operationId: intent.operationId,
   projectId: intent.projectId,
   storeEpoch: intent.storeEpoch,

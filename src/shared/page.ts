@@ -4,7 +4,6 @@ import {
   type PortableRichText,
 } from "./block-documents/portable-rich-text";
 
-export const PAGE_CONTRACT_VERSION = 1 as const;
 
 export type PageLifecycle = "active" | "archived" | "deleted";
 

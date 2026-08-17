@@ -485,7 +485,6 @@ describe("Core Document sync adapter", () => {
     });
 
     const result = await adapter.applyAdditionalDocumentCommand({
-      version: 2,
       operationId: "owner:create",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -550,7 +549,6 @@ describe("Core Document sync adapter", () => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const checkpointRequest = {
-      version: 1 as const,
       projectId: "project:one",
       storeEpoch: "epoch:test",
       documentId: "document:one",
@@ -673,7 +671,6 @@ describe("Core Document sync adapter", () => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const request = {
-      version: 1 as const,
       mutationId: "restore:history",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -722,7 +719,6 @@ describe("Core Document sync adapter", () => {
       ok: true,
       localCommit: committedLocalCommit(request.storeEpoch, 9),
       value: {
-        version: 1,
         mutationKind: "document_version_restore",
         mutationId: request.mutationId,
         projectId: request.projectId,
@@ -796,7 +792,6 @@ describe("Core Document sync adapter", () => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const request = {
-      version: 1 as const,
       mutationId: "document-operation:batch",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -887,7 +882,6 @@ describe("Core Document sync adapter", () => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const request = {
-      version: 1 as const,
       mutationId: "restore:corrupt-effect",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -966,7 +960,6 @@ describe("Core Document sync adapter", () => {
     });
 
     await expect(adapter.applyAdditionalDocumentCommand({
-      version: 2,
       operationId: "owner:delete",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -1010,7 +1003,6 @@ describe("Core Document sync adapter", () => {
       }),
     );
     const request = {
-      version: 2 as const,
       operationId: "owner:create-conflict",
       projectId: "project:one",
       storeEpoch: "epoch:test",

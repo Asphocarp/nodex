@@ -15,7 +15,7 @@ use nodex_core_contracts::{
 };
 use tempfile::TempDir;
 
-use crate::infrastructure::schema::CORE_SCHEMA_VERSION;
+use crate::infrastructure::schema::CURRENT_STORE_REVISION;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::store::SqliteStoreKernel;
 
@@ -411,7 +411,7 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {
             readiness: StoreReadiness::Ready,
-            schema_version: u32::try_from(CORE_SCHEMA_VERSION).expect("schema version fits u32"),
+            schema_version: u32::try_from(CURRENT_STORE_REVISION).expect("schema version fits u32"),
             schema_owner: SchemaOwner::Rust,
             integrity: StoreIntegrity::Unknown,
         }
@@ -471,7 +471,7 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {
             readiness: StoreReadiness::Ready,
-            schema_version: u32::try_from(CORE_SCHEMA_VERSION).expect("schema version fits u32"),
+            schema_version: u32::try_from(CURRENT_STORE_REVISION).expect("schema version fits u32"),
             schema_owner: SchemaOwner::Rust,
             integrity: StoreIntegrity::Ok,
         }
@@ -1399,7 +1399,7 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {
             readiness: StoreReadiness::Ready,
-            schema_version: u32::try_from(CORE_SCHEMA_VERSION).expect("schema version fits u32"),
+            schema_version: u32::try_from(CURRENT_STORE_REVISION).expect("schema version fits u32"),
             schema_owner: SchemaOwner::Rust,
             integrity: StoreIntegrity::Ok,
         }
@@ -1488,7 +1488,7 @@ fn failed_foreign_key_maintenance_marks_integrity_failed_without_a_receipt() {
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {
             readiness: StoreReadiness::Ready,
-            schema_version: u32::try_from(CORE_SCHEMA_VERSION).expect("schema version fits u32"),
+            schema_version: u32::try_from(CURRENT_STORE_REVISION).expect("schema version fits u32"),
             schema_owner: SchemaOwner::Rust,
             integrity: StoreIntegrity::Failed,
         }

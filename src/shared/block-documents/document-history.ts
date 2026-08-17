@@ -10,7 +10,6 @@ import type { BlockId, DocumentId } from "./contracts";
 import type { DocumentBlockOperation } from "./document-operations";
 import type { PortableRichText } from "./portable-rich-text";
 
-export const DOCUMENT_VERSION_CONTRACT_VERSION = 1;
 export const MAX_DOCUMENT_VERSION_CAUSE_LENGTH = 128;
 export const MAX_DOCUMENT_VERSION_LABEL_LENGTH = 512;
 export const MAX_DOCUMENT_VERSION_HISTORY_LIMIT = 200;
@@ -25,7 +24,6 @@ export type DocumentRevisionKind =
   | "safety";
 
 export interface CreateDocumentVersionCheckpoint {
-  readonly version: typeof DOCUMENT_VERSION_CONTRACT_VERSION;
   readonly projectId: string;
   readonly storeEpoch: string;
   readonly documentId: DocumentId;
@@ -148,7 +146,6 @@ export interface GetDocumentVersion {
 }
 
 export interface PrepareDocumentVersionRestore {
-  readonly version: typeof DOCUMENT_VERSION_CONTRACT_VERSION;
   readonly mutationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -161,7 +158,6 @@ export interface PrepareDocumentVersionRestore {
 }
 
 interface DocumentVersionRestorePlanBase {
-  readonly version: typeof DOCUMENT_VERSION_CONTRACT_VERSION;
   readonly kind: "document_version_restore";
   readonly mutationId: string;
   readonly projectId: string;

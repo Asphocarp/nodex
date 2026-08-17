@@ -1,5 +1,4 @@
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   MAX_CANVAS_SCENE_MUTATION_BYTES,
   MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
   canonicalizeCanvasSceneMutationRequest,
@@ -98,11 +97,10 @@ const requireError = (value: unknown): CanvasSceneMutationError => {
 };
 
 const parseRealtimeValue = (value: unknown): CanvasSceneRealtimeEvent => {
-  if (!isRecord(value) || value.version !== CANVAS_SCENE_SYNC_VERSION) {
+  if (!isRecord(value)) {
     throw new TypeError("Canvas scene realtime event is invalid");
   }
   const common = {
-    version: CANVAS_SCENE_SYNC_VERSION,
     libraryId: requireCanvasSceneIdentity(value.libraryId, "libraryId"),
     accessContext: parseContentAccessContext(value.accessContext),
     documentId: requireCanvasSceneIdentity(value.documentId, "documentId"),
@@ -153,7 +151,7 @@ export const decodeCanvasSceneSyncRequestHttp = (
   routeDocumentId: string,
 ): CanvasSceneSyncRequest => {
   const value = parseBoundedJson(serialized, MAX_CANVAS_SCENE_MUTATION_BYTES);
-  if (!isRecord(value) || value.version !== CANVAS_SCENE_SYNC_VERSION) {
+  if (!isRecord(value)) {
     throw new TypeError("Canvas scene sync request is invalid");
   }
   const accessContext = parseContentAccessContext(value.accessContext);
@@ -184,7 +182,6 @@ export const decodeCanvasSceneSyncRequestHttp = (
     ? undefined
     : requireHash(value.knownSceneHash, "knownSceneHash");
   return {
-    version: CANVAS_SCENE_SYNC_VERSION,
     syncRequestId: requireCanvasSceneIdentity(
       value.syncRequestId,
       "syncRequestId",
@@ -241,11 +238,7 @@ export const decodeCanvasSceneSyncResultHttp = (
   );
   if (envelope.ok === false) return { ok: false, error: requireError(envelope.error) };
   if (!isRecord(envelope.value)) throw new TypeError("Canvas scene sync result is invalid");
-  if (envelope.value.version !== CANVAS_SCENE_SYNC_VERSION) {
-    throw new TypeError("Canvas scene sync result version is invalid");
-  }
   const common = {
-    version: CANVAS_SCENE_SYNC_VERSION,
     syncRequestId: requireCanvasSceneIdentity(
       envelope.value.syncRequestId,
       "syncRequestId",

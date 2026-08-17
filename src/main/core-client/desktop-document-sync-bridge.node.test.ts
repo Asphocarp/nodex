@@ -3,12 +3,9 @@ import { createHash } from "node:crypto";
 import { describe, expect, test, vi } from "vitest";
 
 import {
-  CANVAS_SCENE_MAINTENANCE_VERSION,
-  CANVAS_SCENE_SYNC_VERSION,
   materializePortableCanvasScene,
 } from "../../shared/block-documents";
 import {
-  BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
 import type {
@@ -312,7 +309,6 @@ const activateYjsSubscription = async (
 };
 
 const canvasSubscribeRequest = {
-  version: CANVAS_SCENE_SYNC_VERSION,
   accessContext: {
     kind: "project" as const,
     projectId: "project:canvas",
@@ -327,7 +323,6 @@ const canvasSyncSnapshot = (
     | { readonly kind: "library" } = canvasSubscribeRequest.accessContext,
 ) => ({
   kind: "snapshot" as const,
-  version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
   libraryId: "library:test",
   accessContext,
@@ -1448,7 +1443,6 @@ describe("Desktop Document sync bridge", () => {
     });
 
     await expect(bridge.applyAdditionalDocumentCommand({
-      version: 2,
       operationId: "owner:create",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -1513,7 +1507,6 @@ describe("Desktop Document sync bridge", () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     const request = {
-      version: 1 as const,
       mutationId: "restore:native",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -1582,7 +1575,6 @@ describe("Desktop Document sync bridge", () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     const request = {
-      version: 1 as const,
       mutationId: "document-operation:merge-friendly",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -1652,7 +1644,6 @@ describe("Desktop Document sync bridge", () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     const transferIntent: BlockTransferIntent = {
-      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
       operationId: "transfer:native",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -2074,7 +2065,6 @@ describe("Desktop Document sync bridge", () => {
       accessContext: requestA.accessContext,
       clientSessionId: requestA.clientSessionId,
       publication: {
-        version: 1,
         engine: "canvas_scene",
         documentId: requestA.documentId,
         generation: 1,
@@ -2150,7 +2140,6 @@ describe("Desktop Document sync bridge", () => {
     });
     const operationId = "canvas-compaction:bridge";
     const compactionValue = {
-      version: CANVAS_SCENE_MAINTENANCE_VERSION,
       kind: "tombstone_compaction" as const,
       operationId,
       libraryId: "library:test",
@@ -2196,7 +2185,6 @@ describe("Desktop Document sync bridge", () => {
     ).resolves.toEqual({ ok: true, value: { subscribed: true } });
     const result = await bridge.compactCanvasScene(target, {
       ...canvasSubscribeRequest,
-      version: CANVAS_SCENE_MAINTENANCE_VERSION,
       mutationId: operationId,
       trigger: "automatic_idle",
     });

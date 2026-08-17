@@ -4,7 +4,6 @@ import type {
   DatabaseApplyV2,
   DatabaseModuleReadResultV2,
 } from "../shared/database-module-v2";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
 import {
   parseDatabaseId,
   parseDataSourceId,
@@ -18,7 +17,6 @@ import {
 } from "./database-module-ipc";
 
 const applyRequest = (): DatabaseApplyV2 => ({
-  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   operationId: "database-module-retry-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -47,7 +45,6 @@ const applyRequest = (): DatabaseApplyV2 => ({
 });
 
 const readRequest = () => ({
-  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   projectId: "project-1",
   read: {
     target: { kind: "project_default" as const },
@@ -58,7 +55,6 @@ const readRequest = () => ({
 const readResult = (): DatabaseModuleReadResultV2 => ({
   ok: true,
   value: {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -97,7 +93,6 @@ describe("Database Module IPC", () => {
           observed: { store_epoch: request.storeEpoch, commit_head: 8 },
         },
         value: {
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           operationId: request.operationId,
           projectId: request.projectId,
           libraryId: "library-1",

@@ -517,7 +517,6 @@ function makePage(
   nextCursor: PageHistoryPage["nextCursor"] = null,
 ): PageHistoryPage {
   return {
-    version: 1,
     libraryId: "library-1",
     pageId: "card-1",
     documentId: "document-1",

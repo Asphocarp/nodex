@@ -11,7 +11,6 @@ import {
   type PortableCanvasScene,
 } from "../../../shared/block-documents/canvas-scene";
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   type CanvasSceneMutationRequest,
   type CanvasSceneRealtimeEvent,
 } from "../../../shared/block-documents/canvas-scene-sync";
@@ -139,7 +138,6 @@ function makePlacedElement(pageId: string, version = 1): MockCanvasElement {
 
 const syncResponse = (syncRequestId: string) => ({
   kind: "snapshot" as const,
-  version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
   libraryId: "library-1",
   accessContext: { kind: "project" as const, projectId: "project-1" },
@@ -197,7 +195,6 @@ const adapter: CanvasSceneSyncAdapter = {
       ok: true,
       localCommit: noOpLocalCommit(request.storeEpoch, serverHead),
       value: {
-        version: CANVAS_SCENE_SYNC_VERSION,
         mutationId: request.mutationId,
         libraryId: descriptor.libraryId,
         accessContext: request.accessContext,
@@ -624,7 +621,6 @@ describe("CanvasDocumentSurface", () => {
     serverHead += 1;
     act(() => realtimeListener?.({
       type: "canvas_scene_resync_required",
-      version: CANVAS_SCENE_SYNC_VERSION,
       libraryId: descriptor.libraryId,
       accessContext: descriptor.accessContext,
       documentId: descriptor.documentId,
@@ -651,11 +647,9 @@ describe("CanvasDocumentSurface", () => {
     const mutationCount = appliedMutations.length;
     act(() => presenceListener?.({
       type: "canvas_presence_updated",
-      version: 1,
       libraryId: descriptor.libraryId,
       accessContext: descriptor.accessContext,
       presence: {
-        version: 1,
         engine: "canvas_scene",
         documentId: descriptor.documentId,
         generation: descriptor.generation,

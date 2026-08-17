@@ -927,6 +927,7 @@ dependencies = [
  "hex",
  "nodex-core-contracts",
  "nodex-core-protocol",
+ "nodex-store-format",
  "regex",
  "rrule",
  "rusqlite",
@@ -958,6 +959,7 @@ dependencies = [
  "getrandom",
  "hex",
  "nodex-core-contracts",
+ "nodex-store-format",
  "rustix",
  "serde",
  "serde_json",
@@ -990,6 +992,10 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "nodex-store-format"
+version = "0.2.1"
 
 [[package]]
 name = "nu-ansi-term"

@@ -2989,7 +2989,6 @@ mod tests {
         else {
             panic!("Page lifecycle preflight");
         };
-        assert_eq!(value.version, 3);
         assert_eq!(value.tags_property["propertyId"], "tags");
         let page = value.page.expect("Page lifecycle authority");
         assert_eq!(page.page_id, ROW_PAGE);

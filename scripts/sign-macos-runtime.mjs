@@ -279,7 +279,6 @@ export const refreshSignedBrowserRuntimeManifest = (
   }
   if (
     manifest.schemaVersion !== browserRuntimeSchemaVersion
-    || manifest.contractVersion !== 1
     || !Array.isArray(manifest.artifacts)
   ) {
     throw new Error(`Unsupported Browser runtime manifest: ${manifestPath}`);

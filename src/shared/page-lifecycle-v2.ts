@@ -37,7 +37,6 @@ import {
   type PortableRichText,
 } from "./block-documents/portable-rich-text";
 
-export const PAGE_LIFECYCLE_V2_CONTRACT_VERSION = 2 as const;
 
 const MAX_ID_LENGTH = 512;
 const MAX_PATH_LENGTH = 32_768;
@@ -207,7 +206,6 @@ export type PageLifecycleOperationV2 =
   | MovePageInLibraryOperationV2;
 
 export interface PageLifecycleMutationRequestV2 {
-  readonly version: typeof PAGE_LIFECYCLE_V2_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -217,7 +215,6 @@ export interface PageLifecycleMutationRequestV2 {
 }
 
 export interface PageLifecycleMutationReceiptV2 {
-  readonly version: typeof PAGE_LIFECYCLE_V2_CONTRACT_VERSION;
   readonly operationKind: PageLifecycleOperationV2["kind"];
   readonly operationId: string;
   readonly projectId: string;
@@ -1084,14 +1081,9 @@ export const parsePageLifecycleMutationRequestV2 = (
   assertExactKeys(
     request,
     "pageLifecycleV2",
-    ["version", "operationId", "projectId", "storeEpoch", "actor", "operation"],
+    ["operationId", "projectId", "storeEpoch", "actor", "operation"],
     ["clientSessionId"],
   );
-  if (request.version !== PAGE_LIFECYCLE_V2_CONTRACT_VERSION) {
-    throw new PageLifecycleV2ContractError(
-      `pageLifecycleV2.version must be ${PAGE_LIFECYCLE_V2_CONTRACT_VERSION}`,
-    );
-  }
 
   const operation = parseOperationV2(request.operation);
   const clientSessionId = readOptionalId(
@@ -1100,7 +1092,6 @@ export const parsePageLifecycleMutationRequestV2 = (
     "pageLifecycleV2",
   );
   const parsed: PageLifecycleMutationRequestV2 = {
-    version: PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
     operationId: readId(request, "operationId", "pageLifecycleV2"),
     projectId: readId(request, "projectId", "pageLifecycleV2"),
     storeEpoch: readId(request, "storeEpoch", "pageLifecycleV2"),
@@ -1119,7 +1110,6 @@ const canonicalizeParsedRequest = (
   request: PageLifecycleMutationRequestV2,
 ): string =>
   stableStringifyBlockPropertyJson({
-    version: request.version,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -1131,7 +1121,6 @@ export const canonicalizePageLifecycleMutationRequestV2 = (
 ): string => canonicalizeParsedRequest(parsePageLifecycleMutationRequestV2(value));
 
 const RECEIPT_KEYS_V2 = [
-  "version",
   "operationId",
   "projectId",
   "storeEpoch",
@@ -1221,11 +1210,6 @@ export const parsePageLifecycleMutationReceiptV2 = (
   const receipt = readRecord(value, "pageLifecycleReceiptV2");
   const label = "pageLifecycleReceiptV2";
   assertExactKeys(receipt, label, RECEIPT_KEYS_V2);
-  if (receipt.version !== PAGE_LIFECYCLE_V2_CONTRACT_VERSION) {
-    throw new PageLifecycleV2ContractError(
-      `pageLifecycleReceiptV2.version must be ${PAGE_LIFECYCLE_V2_CONTRACT_VERSION}`,
-    );
-  }
   if (
     !PAGE_LIFECYCLE_OPERATION_KINDS_V2.has(
       receipt.operationKind as PageLifecycleOperationV2["kind"],
@@ -1268,7 +1252,6 @@ export const parsePageLifecycleMutationReceiptV2 = (
     );
   }
   return {
-    version: PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
     operationId: readId(receipt, "operationId", label),
     projectId: readId(receipt, "projectId", label),
     storeEpoch: readId(receipt, "storeEpoch", label),

@@ -1,5 +1,4 @@
 import {
-  PAGE_HISTORY_CONTRACT_VERSION,
   MAX_PAGE_HISTORY_PAGE_SIZE,
   type PageBlockMutationHistoryEntry,
   type PageBlockRelocationHistoryEntry,
@@ -204,14 +203,9 @@ export const parseListPageHistoryRequest = (
   assertExactKeys(
     record,
     label,
-    ["version", "requestingProjectId", "pageId"],
+    ["requestingProjectId", "pageId"],
     ["before", "pageSize"],
   );
-  if (record.version !== PAGE_HISTORY_CONTRACT_VERSION) {
-    throw new PageHistoryContractError(
-      `${label}.version must be ${PAGE_HISTORY_CONTRACT_VERSION}`,
-    );
-  }
   const before =
     record.before === undefined
       ? undefined
@@ -226,7 +220,6 @@ export const parseListPageHistoryRequest = (
           MAX_PAGE_HISTORY_PAGE_SIZE,
         );
   return {
-    version: PAGE_HISTORY_CONTRACT_VERSION,
     requestingProjectId: readStringValue(
       record.requestingProjectId,
       `${label}.requestingProjectId`,
@@ -569,18 +562,12 @@ export const parsePageHistoryPage = (value: unknown): PageHistoryPage => {
   const label = "pageHistoryPage";
   const record = readRecord(value, label);
   assertExactKeys(record, label, [
-    "version",
     "libraryId",
     "pageId",
     "documentId",
     "entries",
     "nextCursor",
   ]);
-  if (record.version !== PAGE_HISTORY_CONTRACT_VERSION) {
-    throw new PageHistoryContractError(
-      `${label}.version must be ${PAGE_HISTORY_CONTRACT_VERSION}`,
-    );
-  }
   if (!Array.isArray(record.entries)) {
     throw new PageHistoryContractError(`${label}.entries must be an array`);
   }
@@ -621,7 +608,6 @@ export const parsePageHistoryPage = (value: unknown): PageHistoryPage => {
     );
   }
   return {
-    version: PAGE_HISTORY_CONTRACT_VERSION,
     libraryId,
     pageId,
     documentId,

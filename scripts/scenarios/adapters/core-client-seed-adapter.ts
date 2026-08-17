@@ -87,7 +87,6 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
       clientSessionId: input.clientSessionId,
     }), `Prepare ${input.pageId}`);
     const mutation = requireSuccess(await documents.applyDocumentMutation({
-      version: 1,
       mutationId: input.mutationId,
       projectId: input.projectId,
       storeEpoch: descriptor.storeEpoch,

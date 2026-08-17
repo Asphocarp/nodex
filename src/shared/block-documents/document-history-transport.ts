@@ -8,7 +8,6 @@ import type {
 import { parsePortableCanvasScene } from "./canvas-scene";
 import type { RegisteredOwnedDocumentMaterialization } from "./document-schema-adapters";
 import {
-  DOCUMENT_VERSION_CONTRACT_VERSION,
   MAX_DOCUMENT_VERSION_CAUSE_LENGTH,
   MAX_DOCUMENT_VERSION_HISTORY_LIMIT,
   MAX_DOCUMENT_VERSION_LABEL_LENGTH,
@@ -152,7 +151,6 @@ export const parseCreateDocumentVersionCheckpoint = (
     record,
     label,
     [
-      "version",
       "projectId",
       "storeEpoch",
       "documentId",
@@ -163,11 +161,6 @@ export const parseCreateDocumentVersionCheckpoint = (
     ],
     ["label", "revisionKind", "sourceMutationId", "sourceChangeSeq"],
   );
-  if (record.version !== DOCUMENT_VERSION_CONTRACT_VERSION) {
-    throw new DocumentHistoryContractError(
-      `${label}.version must be ${DOCUMENT_VERSION_CONTRACT_VERSION}`,
-    );
-  }
   const optionalLabel =
     record.label === undefined
       ? undefined
@@ -210,7 +203,6 @@ export const parseCreateDocumentVersionCheckpoint = (
     );
   }
   return {
-    version: DOCUMENT_VERSION_CONTRACT_VERSION,
     projectId: readString(record, "projectId", label),
     storeEpoch: readString(record, "storeEpoch", label),
     documentId: readString(record, "documentId", label),

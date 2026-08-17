@@ -5,10 +5,8 @@ import {
   type ContentAccessContext,
 } from "../content-access-context";
 
-export const CANVAS_SCENE_MAINTENANCE_VERSION = 1 as const;
 
 export interface CanvasSceneCompactionReadRequest {
-  readonly version: typeof CANVAS_SCENE_MAINTENANCE_VERSION;
   readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly clientSessionId: string;
@@ -31,7 +29,6 @@ export interface CanvasSceneCompactionStats {
 }
 
 export interface CanvasSceneCompactionResult {
-  readonly version: typeof CANVAS_SCENE_MAINTENANCE_VERSION;
   readonly kind: "tombstone_compaction";
   readonly operationId: string;
   readonly libraryId: string;
@@ -115,8 +112,7 @@ export const parseCanvasSceneCompactionResult = (
 ): CanvasSceneCompactionResult => {
   if (!isRecord(value)) throw new Error("Canvas compaction result must be an object");
   if (
-    value.version !== CANVAS_SCENE_MAINTENANCE_VERSION
-    || value.kind !== "tombstone_compaction"
+    value.kind !== "tombstone_compaction"
     || (value.outcome !== "committed" && value.outcome !== "no_change")
     || typeof value.duplicate !== "boolean"
     || typeof value.committedAt !== "string"
@@ -129,7 +125,6 @@ export const parseCanvasSceneCompactionResult = (
     throw new Error("Canvas compaction result metadata is invalid");
   }
   const result: CanvasSceneCompactionResult = {
-    version: CANVAS_SCENE_MAINTENANCE_VERSION,
     kind: "tombstone_compaction",
     operationId: identity(value.operationId, "operationId"),
     libraryId: identity(value.libraryId, "libraryId"),

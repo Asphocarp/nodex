@@ -1,5 +1,4 @@
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   canonicalStringifyCanvasScene,
   canonicalizeCanvasPresencePublication,
   canonicalizeCanvasSceneMutationIntent,
@@ -402,7 +401,6 @@ export class CanvasSceneProvider {
         accessContext: this.options.accessContext,
         clientSessionId,
         publication: canonicalizeCanvasPresencePublication({
-          version: 1,
           engine: "canvas_scene",
           documentId: this.options.documentId,
           generation: this.generation,
@@ -675,7 +673,6 @@ export class CanvasSceneProvider {
     let result: CanvasSceneSyncCommandResult;
     try {
       result = await this.options.adapter.sync({
-        version: CANVAS_SCENE_SYNC_VERSION,
         syncRequestId,
         accessContext: this.options.accessContext,
         documentId: this.options.documentId,
@@ -722,8 +719,7 @@ export class CanvasSceneProvider {
       return;
     }
     if (
-      response.version !== CANVAS_SCENE_SYNC_VERSION
-      || (response.kind !== "up_to_date" && response.kind !== "snapshot")
+      response.kind !== "up_to_date" && response.kind !== "snapshot"
       || typeof response.storeEpoch !== "string"
       || response.storeEpoch.length === 0
       || !Number.isSafeInteger(response.generation)
@@ -850,7 +846,6 @@ export class CanvasSceneProvider {
     pending: PendingObservation,
   ): CanvasSceneMutationIntent {
     return canonicalizeCanvasSceneMutationIntent({
-      version: CANVAS_SCENE_SYNC_VERSION,
       mutationId: this.createMutationId(),
       accessContext: this.options.accessContext,
       documentId: this.options.documentId,
@@ -952,8 +947,7 @@ export class CanvasSceneProvider {
       return;
     }
     if (
-      result.value.version !== CANVAS_SCENE_SYNC_VERSION
-      || result.value.libraryId !== this.options.libraryId
+      result.value.libraryId !== this.options.libraryId
       || !sameAccessContext(
         result.value.accessContext,
         current.intent.accessContext,

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyResultV2,
   type DatabaseViewQueryResultV2,
   type DataSourcePageRowV2,
@@ -303,7 +302,6 @@ describe("selected Database View Page mutations", () => {
       ok: true,
       localCommit: noOpLocalCommit("epoch-1"),
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",
         projectId: "project-1",
         libraryId,
@@ -370,7 +368,6 @@ describe("selected Database View Page mutations", () => {
             ok: true,
             localCommit: noOpLocalCommit("epoch-1"),
             value: {
-              version: DATABASE_MODULE_V2_CONTRACT_VERSION,
               operationId: request.operationId,
               accessContext: { kind: "library" },
               libraryId,
@@ -392,7 +389,6 @@ describe("selected Database View Page mutations", () => {
     });
 
     expect(libraryRequests).toEqual([{
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "operation:library",
       storeEpoch: "epoch-1",
       operations,

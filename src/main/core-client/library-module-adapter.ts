@@ -48,7 +48,6 @@ import {
 import type { LocalCommitApply } from "../../shared/local-commit-delivery";
 import { parsePage } from "../../shared/page";
 import {
-  PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
   type PageLifecyclePreflightResultV2,
 } from "../../shared/page-lifecycle-v2-runtime";
 import { parsePageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-transport";
@@ -916,7 +915,6 @@ const mapPageDetail = (
   detail: CorePageDetail,
   authorization: NonNullable<LibraryReadSnapshot["authorization"]>,
 ): Readonly<Record<string, unknown>> => ({
-  version: detail.version,
   libraryId: detail.library_id,
   storeEpoch: detail.store_epoch,
   commitSeq: detail.commit_seq,
@@ -1026,7 +1024,6 @@ const mapPageHistoryEntry = (
 const mapPageHistory = (
   page: CorePageHistory,
 ): Readonly<Record<string, unknown>> => ({
-  version: page.version,
   libraryId: page.library_id,
   pageId: page.page_id,
   documentId: page.document_id,
@@ -1260,7 +1257,6 @@ const mapLifecyclePage = (
 const mapPageLifecyclePreflight = (
   input: CorePageLifecyclePreflight,
 ) => ({
-  version: input.version,
   defaultView: mapLifecycleDefaultView(input.default_view),
   tagsProperty: mapLifecycleTagsProperty(input.tags_property),
   reservedBlockType: input.reserved_block_type ?? null,
@@ -1675,7 +1671,6 @@ export const createCoreLibraryModuleAdapter = (
         ok: true,
         localCommit: rendererLocalCommitApply(committed),
         value: {
-          version: 2,
           mutationId: request.mutationId,
           storeEpoch,
           duplicate: committed.receipt.duplicate,
@@ -1709,7 +1704,6 @@ export const createCoreLibraryModuleAdapter = (
         return {
           ok: true,
           value: {
-            version: request.version,
             profileId: input.profileId,
             libraryId: input.libraryId,
             storeEpoch: snapshot.store_epoch,
@@ -1744,7 +1738,6 @@ export const createCoreLibraryModuleAdapter = (
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
           value: {
-            version: request.version,
             operationId: receipt.operation_id,
             storeEpoch,
             libraryId: input.libraryId,
@@ -1995,7 +1988,6 @@ export const createCoreLibraryModuleAdapter = (
         return parsePageLifecyclePreflightResultV2({
           ok: true,
           value: {
-            version: PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
             projectId,
             libraryId: input.libraryId,
             storeEpoch: snapshot.store_epoch,
@@ -2046,7 +2038,6 @@ export const createCoreLibraryModuleAdapter = (
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
           value: {
-            version: 2,
             operationKind: lifecycle.operation_kind,
             operationId: committed.receipt.operation_id,
             projectId: request.projectId,
@@ -2087,7 +2078,6 @@ export const createCoreLibraryModuleAdapter = (
         ok: true,
         localCommit: result.localCommit,
         value: {
-          version: result.value.version,
           mutationId: result.value.mutationId,
           accessContext: { kind: "library" },
           storeEpoch: result.value.storeEpoch,

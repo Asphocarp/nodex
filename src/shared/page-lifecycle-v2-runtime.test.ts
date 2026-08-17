@@ -12,7 +12,6 @@ import type {
 import {
   compilePageLifecycleRequestV2,
   executePageLifecycleIntentV2,
-  PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
   PageLifecycleRuntimeErrorV2,
   type PageLifecycleOwnedBlockAuthorityV2,
   type PageLifecyclePreflightSnapshotV2,
@@ -62,13 +61,11 @@ const authority = (
 const preflight = (
   page: PageLifecycleOwnedBlockAuthorityV2 | null,
 ): PageLifecyclePreflightSnapshotV2 => ({
-  version: PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch: "epoch-1",
   commitSeq: 21,
   value: {
-    version: PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
     reservedBlockType: null,
     page,
     tagsProperty: {
@@ -156,7 +153,6 @@ const preflight = (
 const receipt = (
   lifecycle: "active" | "archived" | "deleted" = "active",
 ): PageLifecycleMutationReceiptV2 => ({
-  version: 2,
   operationId: "operation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -214,7 +210,6 @@ describe("Page lifecycle v2 runtime", () => {
       },
       preflight: preflight(null),
     });
-    expect(request.version).toBe(2);
     expect(request.operation.kind).toBe("create_page");
     if (request.operation.kind !== "create_page") return;
     expect(request.operation.dataSourceId).toBe(dataSourceId);

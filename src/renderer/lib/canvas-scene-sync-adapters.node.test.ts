@@ -31,7 +31,6 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
           ok: true,
           value: {
             kind: "snapshot",
-            version: 1,
             syncRequestId: request.syncRequestId,
             libraryId: "library-1",
             accessContext: { kind: "project", projectId: "project-1" },
@@ -65,7 +64,6 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
     clientSessionId: "client-1",
   }, () => undefined, (event) => presenceEvents.push(event));
   const result = await adapter.sync({
-    version: 1,
     syncRequestId: "sync-1",
     accessContext,
     documentId: "canvas-1",
@@ -75,7 +73,6 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
   expect(calls.slice(0, 2)).toEqual(["canvas-scene:subscribe", "canvas-scene:sync"]);
   listeners.forEach((listener) => listener({
     type: "canvas_presence_snapshot",
-    version: 1,
     libraryId: "library-1",
     accessContext,
     documentId: "canvas-1",
@@ -85,7 +82,6 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
   expect(presenceEvents).toHaveLength(1);
   listeners.forEach((listener) => listener({
     type: "canvas_presence_snapshot",
-    version: 1,
     libraryId: "library-foreign",
     accessContext,
     documentId: "canvas-1",
@@ -97,7 +93,6 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
     accessContext,
     clientSessionId: "client-1",
     publication: {
-      version: 1,
       engine: "canvas_scene",
       documentId: "canvas-1",
       generation: 1,
@@ -127,7 +122,6 @@ test("Electron Canvas keeps a revived exact session ahead of stale teardown", as
           ok: true,
           value: {
             kind: "snapshot",
-            version: 1,
             syncRequestId: request.syncRequestId,
             libraryId: "library-1",
             accessContext: { kind: "project", projectId: "project-1" },
@@ -161,7 +155,6 @@ test("Electron Canvas keeps a revived exact session ahead of stale teardown", as
 
   resolveSubscription({ ok: true, value: { subscribed: true } });
   await expect(adapter.sync({
-    version: 1,
     syncRequestId: "sync-2",
     ...request,
   })).resolves.toMatchObject({

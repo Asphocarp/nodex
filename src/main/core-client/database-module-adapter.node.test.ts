@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
@@ -220,13 +219,11 @@ describe("Core Database Module Adapter", () => {
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: { target: { kind: "project_default" }, mode: "database" },
     })).resolves.toEqual({
       ok: true,
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: identity.projectId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
@@ -312,7 +309,6 @@ describe("Core Database Module Adapter", () => {
     const databaseId = parseDatabaseId("database:test");
 
     await expect(adapter.read({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
         target: { kind: "page_key_namespace", databaseId },
@@ -334,7 +330,6 @@ describe("Core Database Module Adapter", () => {
       },
     });
     await expect(adapter.read({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
         target: { kind: "database", databaseId },
@@ -354,7 +349,6 @@ describe("Core Database Module Adapter", () => {
       },
     });
     await expect(adapter.apply({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "operation:rename-page-key",
       projectId: identity.projectId,
       storeEpoch: identity.storeEpoch,
@@ -434,7 +428,6 @@ describe("Core Database Module Adapter", () => {
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
         target: { kind: "view", viewId: parseDatabaseViewId("view:test") },
@@ -443,7 +436,6 @@ describe("Core Database Module Adapter", () => {
     })).resolves.toEqual({
       ok: true,
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: identity.projectId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
@@ -515,7 +507,6 @@ describe("Core Database Module Adapter", () => {
       ...identity,
     });
     const catalog = await catalogAdapter.read({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
         target: { kind: "project_default" },
@@ -556,7 +547,6 @@ describe("Core Database Module Adapter", () => {
       ...identity,
     });
     await expect(candidateAdapter.read({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
         target: {
@@ -604,7 +594,6 @@ describe("Core Database Module Adapter", () => {
     });
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
     await adapter.read({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
         target: {
@@ -696,7 +685,6 @@ describe("Core Database Module Adapter", () => {
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
 
     const result = await adapter.read({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
         target: {
@@ -808,7 +796,6 @@ describe("Core Database Module Adapter", () => {
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
 
     await expect(adapter.apply({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "operation:test",
       projectId: identity.projectId,
       storeEpoch: identity.storeEpoch,
@@ -905,7 +892,6 @@ describe("Core Database Module Adapter", () => {
       ok: true,
       localCommit: committedLocalCommit(identity.storeEpoch, 41),
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation:test",
         projectId: identity.projectId,
         libraryId: identity.libraryId,
@@ -1175,7 +1161,6 @@ describe("Core Database Module Adapter", () => {
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
 
     await expect(adapter.apply({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "operation:list-subtree",
       projectId: identity.projectId,
       storeEpoch: identity.storeEpoch,
@@ -1243,7 +1228,6 @@ describe("Core Database Module Adapter", () => {
     });
 
     await expect(adapter.apply({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "operation:library",
       storeEpoch: identity.storeEpoch,
       operations: [{
@@ -1303,7 +1287,6 @@ describe("Core Database Module Adapter", () => {
       authority: Promise.resolve(runtime),
     });
     const request = {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: identity.projectId,
       read: {
         target: { kind: "project_default" as const },

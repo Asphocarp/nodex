@@ -1,5 +1,4 @@
 import {
-  BLOCK_TRANSFER_CONTRACT_VERSION,
   BlockTransferContractError,
   parseBlockTransferIntent,
   parseBlockTransferUndoIntent,
@@ -326,11 +325,6 @@ export const decodeBlockTransferHttpResult = (
     );
   }
   const receipt = value.value as unknown as BlockTransferReceiptWire;
-  if (receipt.version !== BLOCK_TRANSFER_CONTRACT_VERSION) {
-    throw new BlockTransferContractError(
-      "Block transfer receipt version is invalid",
-    );
-  }
   return {
     ok: true,
     localCommit: parseLocalCommitApply(value.localCommit),

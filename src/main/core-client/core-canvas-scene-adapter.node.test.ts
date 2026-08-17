@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  CANVAS_SCENE_MAINTENANCE_VERSION,
-  CANVAS_SCENE_SYNC_VERSION,
   materializePortableCanvasScene,
   type CanvasSceneRealtimeEvent,
 } from "../../shared/block-documents";
@@ -64,7 +62,6 @@ const emptyScene = materializePortableCanvasScene({ elements: [] });
 
 const syncSnapshot = (syncRequestId: string) => ({
   kind: "snapshot" as const,
-  version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
   libraryId: LIBRARY_ID,
   accessContext: ACCESS_CONTEXT,
@@ -77,7 +74,6 @@ const syncSnapshot = (syncRequestId: string) => ({
 });
 
 const mutationResult = {
-  version: CANVAS_SCENE_SYNC_VERSION,
   mutationId: "canvas-mutation:one",
   libraryId: LIBRARY_ID,
   accessContext: ACCESS_CONTEXT,
@@ -161,7 +157,6 @@ describe("Core Canvas scene adapter", () => {
     const client = new InvalidSnapshotCanvasClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const request = {
-      version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync:invalid",
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
@@ -191,7 +186,6 @@ describe("Core Canvas scene adapter", () => {
       { retryDelayMs: 0 },
     );
     const request = {
-      version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync:one",
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
@@ -213,7 +207,6 @@ describe("Core Canvas scene adapter", () => {
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const events: CanvasSceneRealtimeEvent[] = [];
     const subscription = {
-      version: CANVAS_SCENE_SYNC_VERSION,
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
@@ -260,7 +253,6 @@ describe("Core Canvas scene adapter", () => {
     client.emitDocument(DOCUMENT_ID, committedEvent());
     await expect.poll(() => events).toEqual([{
       type: "canvas_scene_committed",
-      version: CANVAS_SCENE_SYNC_VERSION,
       libraryId: LIBRARY_ID,
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
@@ -290,7 +282,6 @@ describe("Core Canvas scene adapter", () => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const subscription = {
-      version: CANVAS_SCENE_SYNC_VERSION,
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
@@ -347,7 +338,6 @@ describe("Core Canvas scene adapter", () => {
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const events: CanvasSceneRealtimeEvent[] = [];
     const subscription = {
-      version: CANVAS_SCENE_SYNC_VERSION,
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
@@ -371,7 +361,6 @@ describe("Core Canvas scene adapter", () => {
       },
     });
     const request = {
-      version: CANVAS_SCENE_MAINTENANCE_VERSION,
       mutationId: "canvas-compaction:one",
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
@@ -390,7 +379,6 @@ describe("Core Canvas scene adapter", () => {
     });
     if (!eligibility.ok) throw new Error("expected compaction eligibility");
     const compactionResult = {
-      version: CANVAS_SCENE_MAINTENANCE_VERSION,
       kind: "tombstone_compaction" as const,
       operationId: request.mutationId,
       libraryId: LIBRARY_ID,
@@ -466,7 +454,6 @@ describe("Core Canvas scene adapter", () => {
     });
     await expect.poll(() => events).toEqual([{
       type: "canvas_scene_resync_required",
-      version: CANVAS_SCENE_SYNC_VERSION,
       libraryId: LIBRARY_ID,
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,

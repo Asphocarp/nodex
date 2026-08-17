@@ -7,7 +7,6 @@ import type {
   LibraryBlockPropertyMutationCommandResultV2,
   LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import type {
   DatabaseApplyResultV2,
   DatabaseApplyV2,
@@ -22,7 +21,6 @@ import {
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import {
-  LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryModuleApplyRequest,
   type LibraryModuleApplyResult,
 } from "../../shared/library-module";
@@ -87,7 +85,6 @@ const detail = (member = true): PageDetail => {
     property("p_C0nf1d3n", "number"),
   ];
   return {
-    version: 4,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -204,7 +201,6 @@ const mutationSuccess = (
   ok: true,
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
-    version: 2,
     mutationId: request.mutationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -222,7 +218,6 @@ const metadataSuccess = (
   ok: true,
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: request.operationId,
     storeEpoch: request.storeEpoch,
     libraryId: "library-1",
@@ -263,7 +258,6 @@ const dependencies = (input: {
       ok: true,
       localCommit: noOpLocalCommit(request.storeEpoch),
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: request.operationId,
         projectId: request.projectId,
         libraryId: "library-1",
@@ -304,7 +298,6 @@ const libraryDependencies = (input: {
       ok: true,
       localCommit: noOpLocalCommit(request.storeEpoch),
       value: {
-        version: 2,
         mutationId: request.mutationId,
         accessContext: { kind: "library" },
         storeEpoch: request.storeEpoch,
@@ -322,7 +315,6 @@ const libraryDependencies = (input: {
       ok: true,
       localCommit: noOpLocalCommit(request.storeEpoch),
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: request.operationId,
         accessContext: { kind: "library" },
         libraryId: "library-1",
@@ -457,7 +449,6 @@ describe("Page Detail metadata runtime", () => {
     expect(requests).toHaveLength(0);
     expect(databaseRequests).toHaveLength(1);
     expect(databaseRequests[0]).toMatchObject({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "set-priority",
       projectId: "project-1",
       storeEpoch: "epoch-1",

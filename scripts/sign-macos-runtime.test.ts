@@ -204,7 +204,6 @@ describe("refreshSignedBrowserRuntimeManifest", () => {
     fs.writeFileSync(peerAuthorizationPath, "developer-id-signed-peer");
     const manifestPath = path.join(browserRoot, "browser-runtime-manifest.json");
     fs.writeFileSync(manifestPath, JSON.stringify({
-      contractVersion: 1,
       schemaVersion: 4,
       artifacts: [
         {

@@ -20,7 +20,6 @@ import {
   type LocalCommitCommandSuccess,
 } from "../local-commit-delivery";
 
-export const DOCUMENT_OPERATION_CONTRACT_VERSION = 1;
 export const MAX_DOCUMENT_OPERATION_BATCH_SIZE = 512;
 
 const MAX_SCOPE_ID_LENGTH = 512;
@@ -81,7 +80,6 @@ export type DocumentBlockOperation =
   | MoveDocumentBlockOperation;
 
 export interface DocumentOperationBatch {
-  readonly version: typeof DOCUMENT_OPERATION_CONTRACT_VERSION;
   readonly mutationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -94,7 +92,6 @@ export interface DocumentOperationBatch {
 }
 
 export interface ReplaceDocumentFromNfm {
-  readonly version: typeof DOCUMENT_OPERATION_CONTRACT_VERSION;
   readonly mutationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -121,7 +118,6 @@ export type DocumentMutationKind =
 export type DocumentMutationCoordination = "merge_friendly" | "write_fence";
 
 export interface DocumentOperationResult {
-  readonly version: typeof DOCUMENT_OPERATION_CONTRACT_VERSION;
   readonly mutationKind: DocumentMutationKind;
   readonly mutationId: string;
   readonly projectId: string;
@@ -621,7 +617,6 @@ const parseMutationEnvelope = (
     record,
     label,
     [
-      "version",
       "mutationId",
       "projectId",
       "storeEpoch",
@@ -633,11 +628,6 @@ const parseMutationEnvelope = (
     ],
     ["clientSessionId", ...extraOptionalKeys],
   );
-  if (record.version !== DOCUMENT_OPERATION_CONTRACT_VERSION) {
-    throw new DocumentOperationContractError(
-      `${label}.version must be ${DOCUMENT_OPERATION_CONTRACT_VERSION}`,
-    );
-  }
   const clientSessionId = readOptionalBlockId(record, "clientSessionId", label);
   return {
     record,
@@ -678,7 +668,6 @@ export const parseDocumentOperationBatch = (
     );
   }
   return {
-    version: DOCUMENT_OPERATION_CONTRACT_VERSION,
     mutationId: envelope.mutationId,
     projectId: envelope.projectId,
     storeEpoch: envelope.storeEpoch,
@@ -731,7 +720,6 @@ export const parseReplaceDocumentFromNfm = (
     }
   }
   return {
-    version: DOCUMENT_OPERATION_CONTRACT_VERSION,
     mutationId: envelope.mutationId,
     projectId: envelope.projectId,
     storeEpoch: envelope.storeEpoch,
@@ -758,7 +746,6 @@ export const parseDocumentVersionRestore = (
     budget,
   );
   return {
-    version: DOCUMENT_OPERATION_CONTRACT_VERSION,
     mutationId: envelope.mutationId,
     projectId: envelope.projectId,
     storeEpoch: envelope.storeEpoch,
@@ -808,7 +795,6 @@ export const parseDocumentOperationResult = (
   const label = "documentOperationResult";
   const result = readRecord(value, label);
   assertExactKeys(result, label, [
-    "version",
     "mutationKind",
     "mutationId",
     "projectId",
@@ -829,11 +815,6 @@ export const parseDocumentOperationResult = (
     "committedAt",
     "duplicate",
   ]);
-  if (result.version !== DOCUMENT_OPERATION_CONTRACT_VERSION) {
-    throw new DocumentOperationContractError(
-      `${label}.version must be ${DOCUMENT_OPERATION_CONTRACT_VERSION}`,
-    );
-  }
   if (
     result.mutationKind !== "document_operation_batch" &&
     result.mutationKind !== "replace_document_from_nfm" &&
@@ -878,7 +859,6 @@ export const parseDocumentOperationResult = (
     );
   }
   return {
-    version: DOCUMENT_OPERATION_CONTRACT_VERSION,
     mutationKind: result.mutationKind,
     mutationId: readBoundedString(result, "mutationId", label),
     projectId: readBoundedString(result, "projectId", label),

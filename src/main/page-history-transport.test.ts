@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  PAGE_HISTORY_CONTRACT_VERSION,
   type PageHistoryPage,
 } from "../shared/page-history";
 import type { PageHistoryCommandResult } from "../shared/page-history-transport";
@@ -11,7 +10,6 @@ import {
 } from "./page-history-ipc";
 
 const page: PageHistoryPage = {
-  version: PAGE_HISTORY_CONTRACT_VERSION,
   libraryId: "library/one",
   pageId: "card/one",
   documentId: "document/one",
@@ -41,7 +39,6 @@ describe("canonical Page history IPC", () => {
       },
     });
     const request = {
-      version: PAGE_HISTORY_CONTRACT_VERSION,
       requestingProjectId: "project/one",
       pageId: page.pageId,
       pageSize: 10,

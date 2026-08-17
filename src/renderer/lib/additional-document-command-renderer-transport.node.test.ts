@@ -10,7 +10,6 @@ import {
 } from "./electron-renderer-transport";
 
 const request: PublicAdditionalDocumentCommandRequest = {
-  version: 2,
   operationId: "renderer-additional-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -30,7 +29,6 @@ const result: AdditionalDocumentCommandResult = {
   ok: true,
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
-    version: 2,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,

@@ -1,6 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseContainerDescriptorV2,
   type DatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
@@ -102,7 +101,6 @@ const descriptor = (): DatabaseContainerDescriptorV2 => ({
 const databaseRead = (): DatabaseModuleReadResultV2 => ({
   ok: true,
   value: {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     libraryId,
     storeEpoch,
@@ -153,7 +151,6 @@ const committed = (
   ok: true,
   localCommit: noOpLocalCommit(intent.storeEpoch),
   value: {
-    version: 3,
     operationId: intent.operationId,
     projectId: intent.projectId,
     storeEpoch: intent.storeEpoch,
@@ -235,7 +232,6 @@ describe("NFM Block move runtime", () => {
     });
 
     expect(readDatabase).toHaveBeenCalledWith(projectId, {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId,
       read: { target: { kind: "project_default" }, mode: "database" },
     });

@@ -9,7 +9,7 @@ export const CORE_CLIENT_REQUIREMENTS = {
   "modules": [
     {
       "module": "library",
-      "contract_version": 24
+      "contract_version": 25
     },
     {
       "module": "database",
@@ -35,8 +35,8 @@ export const CORE_CLIENT_REQUIREMENTS = {
   "accepted_store_formats": [
     {
       "lineage": "nodex-rust-core",
-      "version": 128,
-      "schema_fingerprint": "50026726a0257d6e2197d596641627b240e83f33256d1a327abf34864894a66c"
+      "version": 129,
+      "schema_fingerprint": "b27c7503d28ea3bc4f0a5ba452b881eaae006d59ed5a37131b2841a8bb296138"
     }
   ]
 } as const satisfies components["schemas"]["CoreClientRequirements"];

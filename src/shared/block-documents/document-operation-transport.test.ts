@@ -3,10 +3,8 @@ import {
   bindTrustedDocumentMutation,
   documentMutationHttpStatus,
 } from "./document-operation-transport";
-import { DOCUMENT_OPERATION_CONTRACT_VERSION } from "./document-operations";
 
 const request = () => ({
-  version: DOCUMENT_OPERATION_CONTRACT_VERSION,
   mutationId: "mutation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",

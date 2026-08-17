@@ -206,7 +206,6 @@ describe("packaged build provenance", () => {
     });
     writeJson(browserManifestPath, {
       codexCompatibilityVersion: "0.146.0",
-      contractVersion: 1,
       schemaVersion: 1,
       targetArch: "arm64",
       targetPlatform: "darwin",

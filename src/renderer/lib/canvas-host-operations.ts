@@ -11,7 +11,6 @@ import type {
   ContentAccessIdentity,
 } from "../../shared/content-access-context";
 import {
-  LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryModuleApplyReceipt,
   type LibraryModuleApplyRequest,
   type LibraryCanvasDestination,
@@ -203,7 +202,6 @@ async function readAvailableCanvas(
   readonly summary: LibraryCanvasSummary;
 }> {
   const result = await readLibraryModule(accessContext, {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "canvas_target", canvasId },
   });
   if (!result.ok) throw new Error(result.error.message);
@@ -248,7 +246,6 @@ export async function createCanvasInHostPage(input: {
     documentId: createUuidV7(),
   };
   const request = {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: identities.operationId,
     storeEpoch: host.storeEpoch,
     operation: {
@@ -287,7 +284,6 @@ export async function renameCanvasOwner(input: {
     input.canvasBlockId,
   );
   return applyLibraryRequestWithExactRetry(input.accessContext, {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,
     operation: {
@@ -333,7 +329,6 @@ export async function deleteCanvasOwner(input: {
     };
   }
   const receipt = await applyLibraryRequestWithExactRetry(input.accessContext, {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,
     operation: {
@@ -385,7 +380,6 @@ export async function duplicateCanvasInHostPage(input: {
     documentId: createUuidV7(),
   };
   const receipt = await applyLibraryRequestWithExactRetry(input.accessContext, {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: identities.operationId,
     storeEpoch: target.storeEpoch,
     operation: {
@@ -430,7 +424,6 @@ export async function moveCanvasOwnerToPage(input: {
   requireCanvasHostOwner(sourceHost, target.summary.location.pageId);
   requireCanvasHostDocument(sourceHost, target.summary.location.documentId);
   return applyLibraryRequestWithExactRetry(input.accessContext, {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,
     operation: {
@@ -476,7 +469,6 @@ export async function moveCanvasOwnerBetweenHostPages(input: {
   requireCanvasHostDocument(sourceHost, target.summary.location.documentId);
   requireCanvasHostOwner(targetHost, input.targetPageId);
   return applyLibraryRequestWithExactRetry(input.accessContext, {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,
     operation: {

@@ -229,7 +229,6 @@ const toDocumentOperationResult = (
     throw new Error("Core Agent Page update omitted its commit timestamp");
   }
   return {
-    version: 1,
     mutationKind: pending.request.tool === "update_page"
       && (pending.request.input.body?.kind === "replace"
         || pending.request.input.body?.kind === "patch")
@@ -435,7 +434,6 @@ export class NativeNodexAgentPageUpdateRuntime {
       };
       this.retain(pending);
       const fakeMutation: DocumentMutationRequest = {
-        version: 1,
         mutationId: operationId,
         projectId: request.projectId,
         storeEpoch: request.authority.storeEpoch,

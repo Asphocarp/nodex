@@ -22,7 +22,6 @@ import {
   MAX_DATA_SOURCE_PROPERTY_OPTIONS,
 } from "./data-source-option-registry";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
   MAX_DATABASE_MODULE_V2_OPERATIONS,
   type DatabaseApplyOperationV2,
@@ -1218,9 +1217,6 @@ const parseDatabaseApplyRequestBody = (
   request: Readonly<Record<string, unknown>>,
   label: string,
 ): Omit<DatabaseApplyV2, "projectId" | "actor"> => {
-  if (request.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
-    throw new TypeError("Unsupported Database Module v2 contract version");
-  }
   if (
     !Array.isArray(request.operations) ||
     request.operations.length < 1 ||
@@ -1231,7 +1227,6 @@ const parseDatabaseApplyRequestBody = (
     );
   }
   return {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: readString(request.operationId, `${label}.operationId`),
     storeEpoch: readString(request.storeEpoch, `${label}.storeEpoch`),
     operations: request.operations.map(parseApplyOperation),
@@ -1245,7 +1240,6 @@ export const bindDatabaseApplyV2 = (
 ): DatabaseApplyV2 => {
   const request = readRecord(raw, "databaseApplyV2");
   assertExactKeys(request, "databaseApplyV2", [
-    "version",
     "operationId",
     "projectId",
     "storeEpoch",
@@ -1268,7 +1262,6 @@ export const bindLibraryDatabaseApplyV2 = (
 ): LibraryDatabaseApplyV2 => {
   const request = readRecord(raw, "libraryDatabaseApplyV2");
   assertExactKeys(request, "libraryDatabaseApplyV2", [
-    "version",
     "operationId",
     "storeEpoch",
     "operations",
@@ -1542,16 +1535,12 @@ export const bindDatabaseModuleReadV2 = (
   routeProjectId: unknown,
 ): DatabaseModuleReadRequestV2 => {
   const request = readRecord(raw, "databaseModuleReadV2");
-  assertExactKeys(request, "databaseModuleReadV2", ["version", "projectId", "read"]);
-  if (request.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
-    throw new TypeError("Unsupported Database Module v2 read contract version");
-  }
+  assertExactKeys(request, "databaseModuleReadV2", ["projectId", "read"]);
   const projectId = readString(routeProjectId, "projectId");
   if (readString(request.projectId, "databaseModuleReadV2.projectId") !== projectId) {
     throw new TypeError("Database read v2 does not match its Project route scope");
   }
   return {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read: parseDatabaseReadV2(request.read),
   };
@@ -1590,10 +1579,7 @@ export const bindLibraryDatabaseModuleReadV2 = (
   raw: unknown,
 ): LibraryDatabaseModuleReadRequestV2 => {
   const request = readRecord(raw, "libraryDatabaseModuleReadV2");
-  assertExactKeys(request, "libraryDatabaseModuleReadV2", ["version", "read"]);
-  if (request.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
-    throw new TypeError("Unsupported Database Module v2 read contract version");
-  }
+  assertExactKeys(request, "libraryDatabaseModuleReadV2", ["read"]);
   const read = parseDatabaseReadV2(request.read);
   if (isProjectDefaultDatabaseRead(read)) {
     throw new TypeError(
@@ -1601,7 +1587,6 @@ export const bindLibraryDatabaseModuleReadV2 = (
     );
   }
   return {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     read,
   };
 };
@@ -2485,11 +2470,7 @@ const parseDatabaseModuleReadSnapshotBody = (
   snapshot: Readonly<Record<string, unknown>>,
   label: string,
 ): Omit<DatabaseModuleReadSnapshotV2, "projectId"> => {
-  if (snapshot.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
-    throw new TypeError(`${label} version is invalid`);
-  }
   return {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     libraryId: readString(snapshot.libraryId, `${label}.libraryId`),
     storeEpoch: readString(snapshot.storeEpoch, `${label}.storeEpoch`),
     commitSeq: readRevision(snapshot.commitSeq, `${label}.commitSeq`),
@@ -2512,7 +2493,6 @@ export const parseDatabaseModuleReadResultV2 = (
   }
   const snapshot = readRecord(result.value, "databaseModuleReadV2.snapshot");
   assertExactKeys(snapshot, "databaseModuleReadV2.snapshot", [
-    "version",
     "projectId",
     "libraryId",
     "storeEpoch",
@@ -2650,9 +2630,6 @@ const parseDatabaseApplyReceiptBody = (
   receipt: Readonly<Record<string, unknown>>,
   label: string,
 ): Omit<DatabaseApplyReceiptV2, "projectId"> => {
-  if (receipt.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
-    throw new TypeError(`${label} version is invalid`);
-  }
   if (!Array.isArray(receipt.operationKinds)) {
     throw new TypeError(`${label}.operationKinds must be an array`);
   }
@@ -2682,7 +2659,6 @@ const parseDatabaseApplyReceiptBody = (
     ]),
   );
   return {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: readString(receipt.operationId, `${label}.operationId`),
     libraryId: readString(receipt.libraryId, `${label}.libraryId`),
     storeEpoch: readString(receipt.storeEpoch, `${label}.storeEpoch`),
@@ -2727,7 +2703,6 @@ export const parseDatabaseApplyResultV2 = (
   }
   const receipt = readRecord(result.value, "databaseApplyV2.receipt");
   assertExactKeys(receipt, "databaseApplyV2.receipt", [
-    "version",
     "operationId",
     "projectId",
     "libraryId",
@@ -2773,7 +2748,6 @@ export const parseLibraryDatabaseModuleReadResultV2 = (
   }
   const snapshot = readRecord(result.value, "libraryDatabaseModuleReadV2.snapshot");
   assertExactKeys(snapshot, "libraryDatabaseModuleReadV2.snapshot", [
-    "version",
     "accessContext",
     "libraryId",
     "storeEpoch",
@@ -2813,7 +2787,6 @@ export const parseLibraryDatabaseApplyResultV2 = (
   }
   const receipt = readRecord(result.value, "libraryDatabaseApplyV2.receipt");
   assertExactKeys(receipt, "libraryDatabaseApplyV2.receipt", [
-    "version",
     "operationId",
     "accessContext",
     "libraryId",

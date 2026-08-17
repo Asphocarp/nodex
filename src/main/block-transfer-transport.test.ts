@@ -19,7 +19,6 @@ import {
 } from "./block-transfer-ipc";
 
 const intent: PublicBlockTransferIntent = {
-  version: 3,
   operationId: "transfer-public-1",
   projectId: "project-a",
   storeEpoch: "epoch-a",
@@ -38,7 +37,6 @@ const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
     observed: { store_epoch: bound.storeEpoch, commit_head: 9 },
   },
   value: {
-    version: 3,
     operationId: bound.operationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,
@@ -71,7 +69,6 @@ const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
 });
 
 const undoIntent: PublicBlockTransferUndoIntent = {
-  version: 3,
   operationId: "undo-transfer-public-1",
   projectId: "project-a",
   storeEpoch: "epoch-a",
@@ -91,7 +88,6 @@ const undone = (
     observed: { store_epoch: bound.storeEpoch, commit_head: 10 },
   },
   value: {
-    version: 3,
     operationId: bound.operationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,

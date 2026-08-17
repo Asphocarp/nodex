@@ -51,7 +51,6 @@ import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import { LayoutGrid } from "@/components/shared/icons/generic-icons";
 import { CanvasDocumentState } from "../board/canvas-document-state";
-import { CANVAS_SCENE_MAINTENANCE_VERSION } from "../../../shared/block-documents/canvas-scene-maintenance";
 import {
   createCanvasPresenceController,
   type CanvasPresenceController,
@@ -400,7 +399,6 @@ function CanvasEditor({
       releaseDocumentSession: documentSession.release,
       maintainIfIdle: async () => {
         const request = {
-          version: CANVAS_SCENE_MAINTENANCE_VERSION,
           accessContext: descriptor.accessContext,
           documentId: descriptor.documentId,
           clientSessionId: documentClientSessionIdRef.current,

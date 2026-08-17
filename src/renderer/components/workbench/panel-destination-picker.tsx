@@ -26,7 +26,6 @@ import {
 import { readDatabaseModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseContainerDescriptorV2,
 } from "../../../shared/database-module-v2";
 import {
@@ -130,7 +129,6 @@ function useProjectDatabaseDescriptors(
     const projectIds = projectKey ? projectKey.split("\u0000") : [];
     void Promise.all(projectIds.map(async (projectId) => {
       const result = await readDatabaseModule(projectId, {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId,
         read: { target: { kind: "project_default" }, mode: "database" },
       });

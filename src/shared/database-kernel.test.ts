@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  DATABASE_MUTATION_CONTRACT_VERSION,
   canonicalizeDatabaseMutationIntent,
   evaluateDatabaseViewFilter,
   normalizeDatabasePropertyValue,
@@ -22,7 +21,6 @@ const viewConfig = (): DatabaseViewConfig => ({
 });
 
 const request = (): DatabaseMutationRequest => ({
-  version: DATABASE_MUTATION_CONTRACT_VERSION,
   operationId: "operation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",

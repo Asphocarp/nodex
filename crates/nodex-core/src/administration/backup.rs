@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::infrastructure::migration::{
     validate_codex_thread_timestamp_invariants, validate_database_priority_invariants,
 };
-use crate::infrastructure::schema::CORE_SCHEMA_VERSION;
+use crate::infrastructure::schema::CURRENT_STORE_REVISION;
 use crate::infrastructure::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store,
 };
@@ -711,7 +711,8 @@ fn validate_backup_database(path: &Path) -> Result<(u32, String), StoreError> {
         validate_database_priority_invariants(&connection)?;
         let schema_version =
             connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?;
-        if schema_version != u32::try_from(CORE_SCHEMA_VERSION).expect("schema version fits u32") {
+        if schema_version != u32::try_from(CURRENT_STORE_REVISION).expect("schema version fits u32")
+        {
             return Err(StoreError::new(
                 StoreErrorCode::UnsupportedSchema,
                 format!("Backup uses unsupported store schema v{schema_version}"),

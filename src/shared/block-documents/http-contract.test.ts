@@ -24,7 +24,6 @@ import {
   encodeLibraryAccessedDocumentDescriptorHttp,
 } from "./http-contract";
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
 } from "./canvas-scene-sync";
 import {
@@ -286,7 +285,6 @@ describe("Document HTTP contract", () => {
   test("round-trips discriminated Canvas sync with raw canonical snapshot bytes", () => {
     const scene = materializePortableCanvasScene({ elements: [] });
     const request = {
-      version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync-1",
       accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
@@ -306,7 +304,6 @@ describe("Document HTTP contract", () => {
 
     const snapshot = encodeCanvasSceneSyncHttpResponse({
       kind: "snapshot",
-      version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: request.syncRequestId,
       libraryId: "library-1",
       accessContext: request.accessContext,
@@ -327,7 +324,6 @@ describe("Document HTTP contract", () => {
     );
     expect(decodeCanvasSceneSyncHttpResponse(snapshot)).toEqual({
       kind: "snapshot",
-      version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: request.syncRequestId,
       libraryId: "library-1",
       accessContext: request.accessContext,
@@ -341,7 +337,6 @@ describe("Document HTTP contract", () => {
 
     const current = encodeCanvasSceneSyncHttpResponse({
       kind: "up_to_date",
-      version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync-2",
       libraryId: "library-1",
       accessContext: request.accessContext,
