@@ -4250,16 +4250,70 @@ export interface components {
         readonly LibraryPageReferenceCandidate: {
             readonly location_label: string;
             readonly match_excerpt?: string | null;
+            readonly match_excerpt_parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
             readonly match_source: components["schemas"]["LibraryPageReferenceMatchSource"];
+            readonly matches: readonly components["schemas"]["LibraryPageSearchMatch"][];
             readonly page_id: string;
             readonly page_key?: string | null;
             readonly status?: null | components["schemas"]["LibraryPageWorkflowStatus"];
             readonly title: string;
+            readonly title_parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
         };
         /** @enum {string} */
         readonly LibraryPageReferenceMatchSource: "recent" | "page_key" | "title" | "content";
         /** @enum {string} */
         readonly LibraryPageReferencePresentation: "mention" | "reference_block" | "link";
+        readonly LibraryPageSearchMatch: {
+            readonly is_current: boolean;
+            readonly page_key: string;
+            readonly parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
+            readonly quality: components["schemas"]["LibraryPageSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "page_key";
+        } | {
+            readonly parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
+            readonly quality: components["schemas"]["LibraryPageSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "identity";
+        } | {
+            readonly parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
+            readonly quality: components["schemas"]["LibraryPageSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "title";
+        } | {
+            readonly parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
+            readonly property_id: string;
+            readonly property_name: string;
+            readonly quality: components["schemas"]["LibraryPageSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "property";
+        } | {
+            readonly block_id: string;
+            readonly block_type: string;
+            readonly parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
+            readonly quality: components["schemas"]["LibraryPageSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "body";
+        };
+        /** @enum {string} */
+        readonly LibraryPageSearchMatchQuality: "exact" | "prefix" | "fuzzy";
+        readonly LibraryPageSearchOption: {
+            readonly data_source_id: string;
+            readonly label: string;
+            readonly option_id: string;
+            readonly property_id: string;
+        };
+        readonly LibraryPageSearchOptionIdentity: {
+            readonly data_source_id: string;
+            readonly option_id: string;
+            readonly property_id: string;
+        };
+        /** @enum {string} */
+        readonly LibraryPageSearchTagMode: "any" | "all" | "none";
+        readonly LibraryPageSearchTextPart: {
+            readonly highlighted: boolean;
+            readonly text: string;
+        };
         readonly LibraryPageTarget: {
             /** @enum {string} */
             readonly status: "missing";
@@ -4331,17 +4385,33 @@ export interface components {
             /** Format: int64 */
             readonly revision: number;
         };
+        readonly LibraryProjectPageSearchFacets: {
+            readonly assignees: readonly string[];
+            readonly tags: readonly components["schemas"]["LibraryPageSearchOption"][];
+        };
+        readonly LibraryProjectPageSearchFilters: {
+            readonly assignees: readonly string[];
+            readonly include_empty_priority: boolean;
+            readonly priorities?: readonly string[] | null;
+            readonly statuses?: readonly components["schemas"]["LibraryPageWorkflowStatus"][] | null;
+            readonly tag_mode: components["schemas"]["LibraryPageSearchTagMode"];
+            readonly tags: readonly components["schemas"]["LibraryPageSearchOptionIdentity"][];
+        };
         readonly LibraryProjectPageSearchHit: {
-            readonly excerpt: string;
-            readonly matched_page_key?: string | null;
-            readonly matched_page_key_is_current?: boolean | null;
+            readonly assignee?: string | null;
+            readonly excerpt?: string | null;
+            readonly excerpt_parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
+            readonly location_label: string;
+            readonly matches: readonly components["schemas"]["LibraryPageSearchMatch"][];
             readonly page_id: string;
             readonly page_key?: string | null;
+            readonly priority?: string | null;
             readonly project_id: string;
-            /** Format: int64 */
-            readonly score: number;
-            readonly status: components["schemas"]["LibraryPageWorkflowStatus"];
+            readonly status?: null | components["schemas"]["LibraryPageWorkflowStatus"];
+            readonly tags: readonly components["schemas"]["LibraryPageSearchOption"][];
             readonly title: string;
+            readonly title_parts: readonly components["schemas"]["LibraryPageSearchTextPart"][];
+            readonly updated_at: string;
         };
         readonly LibraryReadRequest: components["schemas"]["ModuleReadRequest_LibraryRead"];
         readonly LibraryReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue"];
@@ -5737,12 +5807,19 @@ export interface components {
                 readonly query: string;
                 readonly source_kinds?: readonly components["schemas"]["LibrarySearchSourceKind"][] | null;
             } | {
+                readonly filters?: null | components["schemas"]["LibraryProjectPageSearchFilters"];
                 /** @enum {string} */
                 readonly kind: "project_page_search";
                 /** Format: int32 */
                 readonly limit?: number | null;
+                readonly preferred_project_id?: string | null;
                 readonly project_ids: readonly string[];
                 readonly query: string;
+                readonly recent_page_ids: readonly string[];
+            } | {
+                /** @enum {string} */
+                readonly kind: "project_page_search_facets";
+                readonly project_ids: readonly string[];
             } | {
                 /** @enum {string} */
                 readonly kind: "page_reference_candidates";
@@ -7336,6 +7413,10 @@ export interface components {
                     readonly items: readonly components["schemas"]["LibraryProjectPageSearchHit"][];
                     /** @enum {string} */
                     readonly kind: "project_page_search";
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "project_page_search_facets";
+                    readonly value: components["schemas"]["LibraryProjectPageSearchFacets"];
                 } | {
                     readonly items: readonly components["schemas"]["LibraryPageReferenceCandidate"][];
                     /** @enum {string} */

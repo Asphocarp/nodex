@@ -318,6 +318,7 @@ import type {
   PageOccurrenceUpdateInput,
   DatabasePage,
   DatabasePageSummary,
+  PageSearchFacets,
   PageSearchInput,
   PageSearchResult,
   CommandPaletteThreadSearchInput,
@@ -967,6 +968,10 @@ export interface IpcApi {
   "pages:search": {
     args: [input: PageSearchInput];
     result: PageSearchResult[];
+  };
+  "pages:search-facets": {
+    args: [projectIds: string[]];
+    result: PageSearchFacets;
   };
   "database-row:get": {
     args: [

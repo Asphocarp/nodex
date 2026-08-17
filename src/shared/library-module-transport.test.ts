@@ -82,6 +82,23 @@ describe("Library Module transport", () => {
         locationLabel: "Product / Editor",
         matchExcerpt: "The projection stays bounded.",
         matchSource: "content",
+        titleParts: [
+          { text: "Projection", highlighted: true },
+          { text: " notes", highlighted: false },
+        ],
+        matchExcerptParts: [
+          { text: "The ", highlighted: false },
+          { text: "projection", highlighted: true },
+          { text: " stays bounded.", highlighted: false },
+        ],
+        matches: [{
+          source: "title",
+          quality: "exact",
+          parts: [
+            { text: "Projection", highlighted: true },
+            { text: " notes", highlighted: false },
+          ],
+        }],
       }],
     }))).toMatchObject({
       ok: true,
@@ -93,6 +110,24 @@ describe("Library Module transport", () => {
             matchSource: "content",
           }],
         },
+      },
+    });
+  });
+
+  test("preserves a typed Page-search candidate-budget failure", () => {
+    expect(parseLibraryModuleReadResult({
+      ok: false,
+      error: {
+        code: "resource_exhausted",
+        message: "Page search term matches too many body units",
+        retryable: false,
+      },
+    })).toEqual({
+      ok: false,
+      error: {
+        code: "resource_exhausted",
+        message: "Page search term matches too many body units",
+        retryable: false,
       },
     });
   });

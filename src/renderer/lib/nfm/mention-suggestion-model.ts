@@ -78,6 +78,9 @@ function compareWithinSection<Value>(
   left: RankedMentionSuggestion<Value>,
   right: RankedMentionSuggestion<Value>,
 ): number {
+  if (left.rank.family === "page") {
+    return left.rank.sourceOrder - right.rank.sourceOrder;
+  }
   const scoreDifference = mentionSuggestionScore(right.rank)
     - mentionSuggestionScore(left.rank);
   if (scoreDifference !== 0) return scoreDifference;
@@ -87,7 +90,8 @@ function compareWithinSection<Value>(
 /**
  * Produces bounded semantic sections from independently ranked providers.
  * Empty mentions advertise Date first; queried sections follow their strongest
- * result, while each provider retains its own source order for equal matches.
+ * result. Page rows retain Core order; local providers use their own relevance
+ * class and source order.
  */
 export function selectMentionSuggestionSections<Value>(input: {
   readonly query: string;

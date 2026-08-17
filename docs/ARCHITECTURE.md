@@ -99,6 +99,8 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 
 Authority and presentation are intentionally different. A Scene can present a Page without owning it; a renderer cache can display a Database window without authorizing it; Main can relay a Codex document without becoming its visible writer.
 
+Page discovery is one Core-owned capability across Page references, Command Palette search, Agent search, and transport clients. Core maintains any derived search projection, applies lifecycle, scope, authorization, and typed filters before the result bound, and returns final ordering plus typed match evidence. Adapters translate that contract mechanically; renderers may group and present results but do not rebuild a Page index, infer matches from excerpts, or re-rank Page candidates. User-visible policy belongs to [Command Palette Behavior](product-specs/command-palette-behavior.md) and [NFM Editor Page Connection Behavior](product-specs/nfm-editor-page-reference-behavior.md).
+
 ## Runtime boundaries
 
 ### Native Core

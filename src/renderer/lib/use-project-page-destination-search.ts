@@ -79,9 +79,11 @@ export function buildRemoteDestinationSearchResult({
     pageHits: results.flatMap((result, index) => {
       const project = projectById.get(result.projectId);
       if (!project) return [];
+      if (!result.status) return [];
       if (result.projectId === sourceProjectId && result.pageId === sourcePageId) {
         return [];
       }
+      const pageKeyMatch = result.matches.find((match) => match.source === "page_key");
       return [{
         id: `page:${result.projectId}:${result.pageId}`,
         projectId: result.projectId,
@@ -91,11 +93,11 @@ export function buildRemoteDestinationSearchResult({
         columnName: WORKFLOW_STATUS_LABELS[result.status],
         pageId: result.pageId,
         pageKey: result.pageKey ?? null,
-        matchedPageKey: result.matchedPageKey,
-        matchedPageKeyIsCurrent: result.matchedPageKeyIsCurrent,
+        matchedPageKey: pageKeyMatch?.pageKey ?? null,
+        matchedPageKeyIsCurrent: pageKeyMatch?.isCurrent ?? null,
         pageTitle: result.title || "Untitled",
         boardOrder: index,
-        score: result.score,
+        score: results.length - index,
       }];
     }),
   };

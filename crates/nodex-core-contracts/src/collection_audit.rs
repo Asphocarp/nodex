@@ -131,6 +131,7 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
             ReadBudgetPolicy::FixedDomain
         }
         LibraryRead::ProjectPageSearch { .. }
+        | LibraryRead::ProjectPageSearchFacets { .. }
         | LibraryRead::PageReferenceCandidates { .. }
         | LibraryRead::PlanAgentResourceAccess { .. }
         | LibraryRead::PrepareAgentPageCopy { .. }

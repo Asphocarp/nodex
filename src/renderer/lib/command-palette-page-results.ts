@@ -1,61 +1,91 @@
 import { useEffect, useMemo, useState } from "react";
+import { isPriority, PRIORITY_VALUES } from "../../shared/priority";
+import { WORKFLOW_STATUS_ORDER } from "../../shared/workflow-status";
 import { invoke } from "./api";
-import {
-  filterCommandPaletteItems,
-  getDefaultCommandPalettePageFilters,
-  matchesCommandPalettePageFilters,
-  prioritizeActiveProjectItems,
-  type CommandMenuMode,
-  type CommandPalettePage,
-  type CommandPalettePageFilters,
-} from "./command-palette";
-import {
-  normalizeCommandPaletteSearchText,
-  type CommandPalettePageSearchIndex,
-} from "./command-palette-page-search";
-import {
-  buildCommandPaletteQueryHighlightPreview,
-} from "./command-palette-highlight";
 import type {
-  BoardSummary,
+  CommandMenuMode,
+  CommandPalettePage,
+  CommandPalettePageFilters,
+  CommandPalettePageSearchBadge,
+  CommandPalettePageSearchDecorations,
+  CommandPalettePageSearchPreview,
+  CommandPalettePageSearchPreviewSegment,
+} from "./command-palette";
+import type {
+  PageSearchFacets,
+  PageSearchFilters,
+  PageSearchMatch,
+  PageSearchOption,
+  PageSearchOptionIdentity,
   PageSearchResult,
+  PageSearchTextPart,
   Project,
 } from "./types";
+import { normalizeSearchText } from "./search-text";
 
-const DEFAULT_METADATA_PAGE_LIMIT = 12;
-const DEFAULT_MERGED_PAGE_LIMIT = 24;
-const DEFAULT_DESCRIPTION_SEARCH_LIMIT = 60;
-const ROOT_DESCRIPTION_SEARCH_LIMIT = 12;
+const DEFAULT_PAGE_SEARCH_LIMIT = 60;
+const ROOT_PAGE_SEARCH_LIMIT = 12;
 const PAGE_SEARCH_DEBOUNCE_MS = 150;
-const PAGE_SEARCH_CACHE_TTL_MS = 30_000;
+const inFlightPageSearches = new Map<string, Promise<PageSearchResult[]>>();
 
-type CommandPalettePageDescriptionSearchStatus = "idle" | "pending" | "success" | "error";
+export type CommandPalettePageSearchStatus = "idle" | "pending" | "success" | "error";
 
-interface PageDescriptionSearchCacheEntry {
-  readonly expiresAt: number;
-  readonly results: readonly PageSearchResult[];
-}
-
-const pageDescriptionSearchCache = new Map<string, PageDescriptionSearchCacheEntry>();
-const pageDescriptionSearchInFlight = new Map<string, Promise<readonly PageSearchResult[]>>();
-
-export interface CommandPalettePageDescriptionSearchBatch {
+export interface CommandPalettePageSearchBatch {
   query: string;
   scopeKey: string;
   results: readonly PageSearchResult[];
-  status: CommandPalettePageDescriptionSearchStatus;
+  status: CommandPalettePageSearchStatus;
   error: string | null;
 }
 
 export interface CommandPalettePageSearchPlan {
-  includeContentResults: boolean;
   searchLimit: number;
 }
 
-export function buildCommandPalettePageDescriptionSearchScopeKey(
+export interface CommandPalettePageFacetBatch {
+  facets: PageSearchFacets;
+  status: CommandPalettePageSearchStatus;
+  error: string | null;
+}
+
+export const pageSearchOptionIdentityKey = (
+  option: PageSearchOptionIdentity,
+): string => JSON.stringify([
+  option.dataSourceId,
+  option.propertyId,
+  option.optionId,
+]);
+
+export const parsePageSearchOptionIdentityKey = (
+  value: string,
+): PageSearchOptionIdentity | null => {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      !Array.isArray(parsed)
+      || parsed.length !== 3
+      || parsed.some((part) => typeof part !== "string")
+    ) {
+      return null;
+    }
+    return {
+      dataSourceId: parsed[0] as string,
+      propertyId: parsed[1] as string,
+      optionId: parsed[2] as string,
+    };
+  } catch {
+    return null;
+  }
+};
+
+export function normalizeCommandPaletteSearchText(value: string): string {
+  return normalizeSearchText(value);
+}
+
+export function buildCommandPalettePageSearchScopeKey(
   projectIds: readonly string[],
 ): string {
-  return Array.from(new Set(projectIds)).sort((left, right) => left.localeCompare(right)).join("\n");
+  return [...new Set(projectIds)].sort((left, right) => left.localeCompare(right)).join("\n");
 }
 
 export function getCommandPalettePageSearchPlan(
@@ -64,396 +94,403 @@ export function getCommandPalettePageSearchPlan(
 ): CommandPalettePageSearchPlan | null {
   const queryLength = Array.from(normalizeCommandPaletteSearchText(query)).length;
   if (mode === "pages") {
-    return {
-      includeContentResults: queryLength > 0,
-      searchLimit: DEFAULT_DESCRIPTION_SEARCH_LIMIT,
-    };
+    return { searchLimit: DEFAULT_PAGE_SEARCH_LIMIT };
   }
-
   if (mode === "root" && queryLength >= 2) {
-    return {
-      includeContentResults: true,
-      searchLimit: ROOT_DESCRIPTION_SEARCH_LIMIT,
-    };
+    return { searchLimit: ROOT_PAGE_SEARCH_LIMIT };
   }
-
   return null;
 }
 
-function buildPageDescriptionSearchCacheKey({
-  projectIds,
-  query,
-  limit,
-}: {
-  projectIds: readonly string[];
-  query: string;
-  limit: number;
-}): string {
-  return [
-    buildCommandPalettePageDescriptionSearchScopeKey(projectIds),
-    normalizeCommandPaletteSearchText(query),
-    limit,
-  ].join("\u0000");
+export function toCorePageSearchFilters(
+  filters: CommandPalettePageFilters,
+): PageSearchFilters | undefined {
+  const statuses = filters.statuses.length === WORKFLOW_STATUS_ORDER.length
+    ? undefined
+    : [...filters.statuses];
+  const priorities = filters.priorities.length === PRIORITY_VALUES.length && filters.includeEmptyPriority
+    ? undefined
+    : [...filters.priorities];
+  const tags = filters.tags.flatMap((tag) => {
+    const identity = parsePageSearchOptionIdentityKey(tag);
+    return identity ? [identity] : [];
+  });
+  const hasFilters = statuses !== undefined
+    || priorities !== undefined
+    || tags.length > 0
+    || filters.assignees.length > 0;
+  if (!hasFilters) return undefined;
+  return {
+    statuses,
+    priorities,
+    includeEmptyPriority: filters.includeEmptyPriority,
+    tags,
+    tagMode: filters.tagMode,
+    assignees: [...filters.assignees],
+  };
 }
 
-function readCachedPageDescriptionSearch(
-  key: string,
-  now = Date.now(),
-): readonly PageSearchResult[] | null {
-  const cached = pageDescriptionSearchCache.get(key);
-  if (!cached) return null;
-  if (cached.expiresAt > now) return cached.results;
-  pageDescriptionSearchCache.delete(key);
-  return null;
-}
+const toSegments = (
+  parts: readonly PageSearchTextPart[],
+): CommandPalettePageSearchPreviewSegment[] => parts.map((part) => ({
+  text: part.text,
+  highlight: part.highlighted,
+}));
 
-export function buildCommandPalettePageItemsFromBoardSummaries({
+const highlightedSegments = (
+  parts: readonly PageSearchTextPart[],
+): CommandPalettePageSearchPreviewSegment[] | null =>
+  parts.some((part) => part.highlighted) ? toSegments(parts) : null;
+
+const matchBadge = (
+  match: Extract<PageSearchMatch, { source: "property" }>,
+  index: number,
+): CommandPalettePageSearchBadge => ({
+  id: `property:${match.propertyId}:${index}`,
+  label: match.propertyName,
+  segments: toSegments(match.parts),
+});
+
+const searchDecorations = (
+  result: PageSearchResult,
+): CommandPalettePageSearchDecorations | null => {
+  const pageKey = result.matches.find((match) => match.source === "page_key");
+  const propertyMatches = result.matches.filter(
+    (match): match is Extract<PageSearchMatch, { source: "property" }> =>
+      match.source === "property",
+  );
+  const decorations: CommandPalettePageSearchDecorations = {
+    pageKeySegments: pageKey ? highlightedSegments(pageKey.parts) : null,
+    titleSegments: highlightedSegments(result.titleParts),
+    projectNameSegments: null,
+    columnNameSegments: null,
+    badges: propertyMatches.map(matchBadge),
+  };
+  return decorations.pageKeySegments
+      || decorations.titleSegments
+      || decorations.badges.length > 0
+    ? decorations
+    : null;
+};
+
+const searchPreview = (result: PageSearchResult): CommandPalettePageSearchPreview | null => {
+  if (!result.excerpt || result.excerptParts.length === 0) return null;
+  const hasBodyOrProperty = result.matches.some(
+    (match) => match.source === "body" || match.source === "property",
+  );
+  if (!hasBodyOrProperty) return null;
+  return { excerpt: result.excerpt, segments: toSegments(result.excerptParts) };
+};
+
+export function buildCommandPalettePagesFromSearchResults({
+  results,
   projects,
-  boardMap,
   activeProjectId,
-  recentIndexByKey,
+  recentPageIds,
+  existingPages = [],
 }: {
+  results: readonly PageSearchResult[];
   projects: readonly Project[];
-  boardMap: ReadonlyMap<string, BoardSummary>;
-  activeProjectId: string;
-  recentIndexByKey?: ReadonlyMap<string, number>;
+  activeProjectId: string | null;
+  recentPageIds: readonly string[];
+  existingPages?: readonly CommandPalettePage[];
 }): CommandPalettePage[] {
-  return projects.flatMap((project) => {
-    const board = boardMap.get(project.id);
-    if (!board) return [];
-
-    return board.columns.flatMap((column, columnIndex) => (
-      column.cards.map((page, pageIndex) => ({
-        kind: "page" as const,
-        id: `${project.id}:${page.id}`,
-        projectId: project.id,
-        projectName: project.name,
-        projectAppearance: project.appearance,
-        columnName: column.name,
-        page,
-        tagLabels: [],
-        inActiveProject: project.id === activeProjectId,
-        recentIndex: recentIndexByKey?.get(`${project.id}:${page.id}`) ?? null,
-        boardIndex: columnIndex * 100_000 + pageIndex,
-      }))
-    ));
+  const projectById = new Map(projects.map((project) => [project.id, project] as const));
+  const existingById = new Map(
+    existingPages.map((page) => [`${page.projectId}:${page.page.id}`, page] as const),
+  );
+  const recentIndex = new Map(recentPageIds.map((pageId, index) => [pageId, index] as const));
+  return results.flatMap((result, index) => {
+    const project = projectById.get(result.projectId);
+    const existing = existingById.get(`${result.projectId}:${result.pageId}`);
+    if (!project && !existing) return [];
+    const pageKeyMatch = result.matches.find((match) => match.source === "page_key");
+    const priority = result.priority && isPriority(result.priority) ? result.priority : null;
+    return [{
+      kind: "page" as const,
+      id: `${result.projectId}:${result.pageId}`,
+      projectId: result.projectId,
+      projectName: project?.name ?? existing?.projectName ?? "Untitled",
+      projectAppearance: project?.appearance ?? existing!.projectAppearance,
+      columnName: result.locationLabel || existing?.columnName || "Pages",
+      page: {
+        id: result.pageId,
+        title: result.title,
+        pageKey: result.pageKey,
+        status: result.status,
+        priority,
+        tags: result.tags.map(pageSearchOptionIdentityKey),
+        assignee: result.assignee,
+      },
+      tagLabels: result.tags.map((tag) => tag.label),
+      inActiveProject: result.projectId === activeProjectId,
+      recentIndex: recentIndex.get(result.pageId) ?? null,
+      boardIndex: index,
+      searchPreview: searchPreview(result),
+      searchDecorations: searchDecorations(result),
+      pageKeyMatch: pageKeyMatch
+        ? { matchedPageKey: pageKeyMatch.pageKey, isCurrent: pageKeyMatch.isCurrent }
+        : null,
+    }];
   });
 }
 
-export async function searchCommandPalettePageDescriptions({
+export async function searchCommandPalettePages({
   projectIds,
   query,
-  limit = DEFAULT_DESCRIPTION_SEARCH_LIMIT,
+  filters,
+  preferredProjectId,
+  recentPageIds = [],
+  limit = DEFAULT_PAGE_SEARCH_LIMIT,
 }: {
   projectIds: readonly string[];
   query: string;
+  filters?: PageSearchFilters;
+  preferredProjectId?: string | null;
+  recentPageIds?: readonly string[];
   limit?: number;
 }): Promise<PageSearchResult[]> {
-  const queryText = query.trimStart().trim();
-  const scopedProjectIds = Array.from(new Set(projectIds));
-  if (queryText.length === 0 || scopedProjectIds.length === 0) {
-    return [];
-  }
-
-  const normalizedLimit = Math.max(1, Math.floor(limit));
-  const cacheKey = buildPageDescriptionSearchCacheKey({
+  const scopedProjectIds = [...new Set(projectIds)];
+  if (scopedProjectIds.length === 0) return [];
+  const request = {
     projectIds: scopedProjectIds,
-    query: queryText,
-    limit: normalizedLimit,
-  });
-  const cached = readCachedPageDescriptionSearch(cacheKey);
-  if (cached) return [...cached];
-  const existing = pageDescriptionSearchInFlight.get(cacheKey);
-  if (existing) return [...await existing];
-
-  const request = (async () => {
-    const results = await invoke("pages:search", {
-      projectIds: scopedProjectIds,
-      query: queryText,
-      limit: normalizedLimit,
-    });
-    const normalizedResults = Array.isArray(results) ? results : [];
-    pageDescriptionSearchCache.set(cacheKey, {
-      expiresAt: Date.now() + PAGE_SEARCH_CACHE_TTL_MS,
-      results: normalizedResults,
-    });
-    return normalizedResults;
-  })().finally(() => {
-    pageDescriptionSearchInFlight.delete(cacheKey);
-  });
-  pageDescriptionSearchInFlight.set(cacheKey, request);
-  return [...await request];
+    query: query.trimStart(),
+    filters,
+    preferredProjectId: preferredProjectId ?? undefined,
+    recentPageIds: [...recentPageIds],
+    limit: Math.max(1, Math.floor(limit)),
+  };
+  const requestKey = JSON.stringify(request);
+  const existing = inFlightPageSearches.get(requestKey);
+  if (existing) return await existing;
+  const pending = invoke("pages:search", request)
+    .then((results) => Array.isArray(results) ? results : []);
+  inFlightPageSearches.set(requestKey, pending);
+  try {
+    return await pending;
+  } finally {
+    if (inFlightPageSearches.get(requestKey) === pending) {
+      inFlightPageSearches.delete(requestKey);
+    }
+  }
 }
 
-export function isCommandPalettePageDescriptionSearchPending({
+export function isCommandPalettePageSearchPending({
   batch,
   enabled,
   query,
   scopeKey,
 }: {
-  batch: CommandPalettePageDescriptionSearchBatch | null | undefined;
+  batch: CommandPalettePageSearchBatch | null | undefined;
   enabled: boolean;
   query: string;
   scopeKey: string;
 }): boolean {
-  const normalizedQuery = normalizeCommandPaletteSearchText(query);
-  if (!enabled || normalizedQuery.length === 0 || scopeKey.length === 0) return false;
-  if (!batch) return true;
-  if (batch.query !== normalizedQuery || batch.scopeKey !== scopeKey) return true;
-  return batch.status === "idle" || batch.status === "pending";
+  if (!enabled || scopeKey.length === 0) return false;
+  return !batch
+    || batch.scopeKey !== scopeKey
+    || batch.query !== normalizeCommandPaletteSearchText(query)
+    || batch.status === "idle"
+    || batch.status === "pending";
 }
 
-export function getCommandPalettePageDescriptionSearchError({
+export function getCommandPalettePageSearchError({
   batch,
   query,
   scopeKey,
 }: {
-  batch: CommandPalettePageDescriptionSearchBatch | null | undefined;
+  batch: CommandPalettePageSearchBatch | null | undefined;
   query: string;
   scopeKey: string;
 }): string | null {
   if (!batch || batch.status !== "error") return null;
   if (batch.query !== normalizeCommandPaletteSearchText(query)) return null;
-  if (batch.scopeKey !== scopeKey) return null;
-  return batch.error ?? "Page content search is unavailable";
-}
-
-export function buildCommandPalettePageDescriptionSearchPreview(
-  excerpt: string,
-  query: string,
-): CommandPalettePage["searchPreview"] {
-  return buildCommandPaletteQueryHighlightPreview(excerpt, query);
+  return batch.scopeKey === scopeKey ? batch.error ?? "Page search is unavailable" : null;
 }
 
 export function selectCommandPalettePageResults({
   query,
-  pages,
-  pageFilters,
-  pageSearchIndex,
-  pageDescriptionSearchBatch,
-  pageDescriptionSearchScopeKey,
-  metadataPageLimit = DEFAULT_METADATA_PAGE_LIMIT,
-  mergedPageLimit = DEFAULT_MERGED_PAGE_LIMIT,
-  preferActiveProject = false,
+  projects,
+  activeProjectId,
+  recentPageIds,
+  pages = [],
+  pageSearchBatch,
+  pageSearchScopeKey,
+  mergedPageLimit = DEFAULT_PAGE_SEARCH_LIMIT,
 }: {
   query: string;
-  pages: CommandPalettePage[];
-  pageFilters?: CommandPalettePageFilters | null;
-  pageSearchIndex?: CommandPalettePageSearchIndex | null;
-  pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch | null;
-  pageDescriptionSearchScopeKey?: string | null;
-  metadataPageLimit?: number;
+  projects?: readonly Project[];
+  activeProjectId?: string | null;
+  recentPageIds?: readonly string[];
+  pages?: CommandPalettePage[];
+  pageSearchBatch?: CommandPalettePageSearchBatch | null;
+  pageSearchScopeKey?: string | null;
   mergedPageLimit?: number;
-  preferActiveProject?: boolean;
 }): CommandPalettePage[] {
-  const filters = pageFilters ?? getDefaultCommandPalettePageFilters();
-  const results = filterCommandPaletteItems({
-    query,
-    mode: "pages",
-    commands: [],
-    pages,
-    pageFilters: filters,
-    pageSearchIndex,
-    pageLimit: metadataPageLimit,
-    preferActiveProject,
-  });
-
-  const descriptionResults = pageDescriptionSearchBatch
-    && pageDescriptionSearchBatch.status === "success"
-    && normalizeCommandPaletteSearchText(pageDescriptionSearchBatch.query) === results.query
-    && (
-      pageDescriptionSearchScopeKey === undefined
-      || pageDescriptionSearchScopeKey === null
-      || pageDescriptionSearchBatch.scopeKey === pageDescriptionSearchScopeKey
-    )
-    ? pageDescriptionSearchBatch.results
-    : [];
-
-  if (results.query.length === 0 || descriptionResults.length === 0) {
-    return results.pages;
+  if (
+    !pageSearchBatch
+    || pageSearchBatch.status !== "success"
+    || pageSearchBatch.query !== normalizeCommandPaletteSearchText(query)
+    || (pageSearchScopeKey
+      && pageSearchBatch.scopeKey !== pageSearchScopeKey)
+  ) {
+    return [];
   }
-
-  const pageByProjectAndId = new Map(pages.map((item) => [`${item.projectId}:${item.page.id}`, item] as const));
-  const descriptionSearchPages = descriptionResults.flatMap((result) => {
-    const item = pageByProjectAndId.get(`${result.projectId}:${result.pageId}`);
-    if (!item || !matchesCommandPalettePageFilters(item, filters)) {
-      return [];
-    }
-
-    return [{
-      ...item,
-      searchPreview: buildCommandPalettePageDescriptionSearchPreview(result.excerpt, results.query) ?? item.searchPreview,
-      pageKeyMatch: result.matchedPageKey
-        ? {
-            matchedPageKey: result.matchedPageKey,
-            isCurrent: result.matchedPageKeyIsCurrent === true,
-          }
-        : item.pageKeyMatch,
-    }];
-  });
-
-  if (descriptionSearchPages.length === 0) {
-    return results.pages;
-  }
-
-  const serverMatchesById = new Map(descriptionSearchPages.map((item) => [item.id, item] as const));
-  const merged = results.pages.map((item) => {
-    const serverMatch = serverMatchesById.get(item.id);
-    if (!serverMatch) return item;
-
-    return {
-      ...item,
-      searchPreview: item.searchPreview ?? serverMatch.searchPreview,
-      pageKeyMatch: serverMatch.pageKeyMatch ?? item.pageKeyMatch,
-    };
-  });
-  const seenIds = new Set(merged.map((item) => item.id));
-  descriptionSearchPages.forEach((item) => {
-    if (seenIds.has(item.id)) return;
-    seenIds.add(item.id);
-    merged.push(item);
-  });
-
-  return (preferActiveProject ? prioritizeActiveProjectItems(merged) : merged)
-    .slice(0, mergedPageLimit);
+  return buildCommandPalettePagesFromSearchResults({
+    results: pageSearchBatch.results,
+    projects: projects ?? [],
+    activeProjectId: activeProjectId ?? null,
+    recentPageIds: recentPageIds ?? [],
+    existingPages: pages,
+  }).slice(0, mergedPageLimit);
 }
 
-export function useCommandPalettePageDescriptionSearch({
+export function useCommandPalettePageSearch({
   enabled,
   query,
   projectIds,
-  limit = DEFAULT_DESCRIPTION_SEARCH_LIMIT,
+  filters,
+  preferredProjectId,
+  recentPageIds,
+  limit = DEFAULT_PAGE_SEARCH_LIMIT,
 }: {
   enabled: boolean;
   query: string;
   projectIds: readonly string[];
+  filters?: PageSearchFilters;
+  preferredProjectId?: string | null;
+  recentPageIds?: readonly string[];
   limit?: number;
-}): CommandPalettePageDescriptionSearchBatch {
-  const [batch, setBatch] = useState<CommandPalettePageDescriptionSearchBatch>({
+}): CommandPalettePageSearchBatch {
+  const scopeKey = useMemo(
+    () => buildCommandPalettePageSearchScopeKey(projectIds),
+    [projectIds],
+  );
+  const requestKey = useMemo(
+    () => JSON.stringify({
+      scopeKey,
+      query: normalizeCommandPaletteSearchText(query),
+      filters,
+      preferredProjectId,
+      recentPageIds,
+      limit,
+    }),
+    [filters, limit, preferredProjectId, query, recentPageIds, scopeKey],
+  );
+  const [batch, setBatch] = useState<CommandPalettePageSearchBatch>({
     query: "",
     scopeKey: "",
     results: [],
     status: "idle",
     error: null,
   });
-  const projectIdsKey = useMemo(
-    () => buildCommandPalettePageDescriptionSearchScopeKey(projectIds),
-    [projectIds],
-  );
 
   useEffect(() => {
-    const queryText = query.trimStart();
-    const normalizedQuery = normalizeCommandPaletteSearchText(queryText);
-    const scopedProjectIds = projectIdsKey ? projectIdsKey.split("\n") : [];
-    if (!enabled || normalizedQuery.length === 0 || scopedProjectIds.length === 0) {
-      setBatch((current) => (
-        current.query === ""
-          && current.scopeKey === ""
-          && current.results.length === 0
-          && current.status === "idle"
-          ? current
-          : { query: "", scopeKey: "", results: [], status: "idle", error: null }
-      ));
+    const request = JSON.parse(requestKey) as {
+      scopeKey: string;
+      query: string;
+      filters?: PageSearchFilters;
+      preferredProjectId?: string | null;
+      recentPageIds: string[];
+      limit: number;
+    };
+    if (!enabled || !request.scopeKey) {
+      setBatch({ query: "", scopeKey: "", results: [], status: "idle", error: null });
       return;
     }
-
     let cancelled = false;
-    setBatch((current) => current.status === "pending"
-      && current.query === normalizedQuery
-      && current.scopeKey === projectIdsKey
-      ? current
-      : {
-          query: normalizedQuery,
-          scopeKey: projectIdsKey,
-          results: [],
-          status: "pending",
-          error: null,
-        });
+    setBatch({
+      query: request.query,
+      scopeKey: request.scopeKey,
+      results: [],
+      status: "pending",
+      error: null,
+    });
     const timer = setTimeout(() => {
-      void searchCommandPalettePageDescriptions({
-        projectIds: scopedProjectIds,
-        query: queryText,
-        limit,
-      })
-        .then((nextResults) => {
-          if (cancelled) return;
+      void searchCommandPalettePages({
+        projectIds: request.scopeKey.split("\n"),
+        query: request.query,
+        filters: request.filters,
+        preferredProjectId: request.preferredProjectId,
+        recentPageIds: request.recentPageIds,
+        limit: request.limit,
+      }).then((results) => {
+        if (!cancelled) {
           setBatch({
-            query: normalizedQuery,
-            scopeKey: projectIdsKey,
-            results: nextResults,
+            query: request.query,
+            scopeKey: request.scopeKey,
+            results,
             status: "success",
             error: null,
           });
-        })
-        .catch((error: unknown) => {
-          if (cancelled) return;
+        }
+      }).catch((error: unknown) => {
+        if (!cancelled) {
           setBatch({
-            query: normalizedQuery,
-            scopeKey: projectIdsKey,
+            query: request.query,
+            scopeKey: request.scopeKey,
             results: [],
             status: "error",
-            error: error instanceof Error ? error.message : "Page content search is unavailable",
+            error: error instanceof Error ? error.message : "Page search is unavailable",
           });
-        });
+        }
+      });
     }, PAGE_SEARCH_DEBOUNCE_MS);
-
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [enabled, limit, projectIdsKey, query]);
-
+  }, [enabled, requestKey]);
   return batch;
 }
 
-export function clearCommandPalettePageDescriptionSearchCacheForTests(): void {
-  pageDescriptionSearchCache.clear();
-  pageDescriptionSearchInFlight.clear();
+export function useCommandPalettePageSearchFacets({
+  enabled,
+  projectIds,
+}: {
+  enabled: boolean;
+  projectIds: readonly string[];
+}): CommandPalettePageFacetBatch {
+  const scopeKey = useMemo(
+    () => buildCommandPalettePageSearchScopeKey(projectIds),
+    [projectIds],
+  );
+  const [batch, setBatch] = useState<CommandPalettePageFacetBatch>({
+    facets: { tags: [], assignees: [] },
+    status: "idle",
+    error: null,
+  });
+  useEffect(() => {
+    if (!enabled || !scopeKey) {
+      setBatch({ facets: { tags: [], assignees: [] }, status: "idle", error: null });
+      return;
+    }
+    let cancelled = false;
+    setBatch((current) => ({ ...current, status: "pending", error: null }));
+    void invoke("pages:search-facets", scopeKey.split("\n"))
+      .then((facets) => {
+        if (!cancelled) setBatch({ facets, status: "success", error: null });
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setBatch({
+            facets: { tags: [], assignees: [] },
+            status: "error",
+            error: error instanceof Error ? error.message : "Page filters are unavailable",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, scopeKey]);
+  return batch;
 }
 
-export function useSelectedCommandPalettePageResults({
-  query,
-  pages,
-  pageFilters,
-  pageSearchIndex,
-  pageDescriptionSearchBatch,
-  pageDescriptionSearchScopeKey,
-  metadataPageLimit,
-  mergedPageLimit,
-  preferActiveProject,
-}: {
-  query: string;
-  pages: CommandPalettePage[];
-  pageFilters?: CommandPalettePageFilters | null;
-  pageSearchIndex?: CommandPalettePageSearchIndex | null;
-  pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch | null;
-  pageDescriptionSearchScopeKey?: string | null;
-  metadataPageLimit?: number;
-  mergedPageLimit?: number;
-  preferActiveProject?: boolean;
-}): CommandPalettePage[] {
-  return useMemo(
-    () => selectCommandPalettePageResults({
-      query,
-      pages,
-      pageFilters,
-      pageSearchIndex,
-      pageDescriptionSearchBatch,
-      pageDescriptionSearchScopeKey,
-      metadataPageLimit,
-      mergedPageLimit,
-      preferActiveProject,
-    }),
-    [
-      pageDescriptionSearchBatch,
-      pageDescriptionSearchScopeKey,
-      pageFilters,
-      pageSearchIndex,
-      pages,
-      mergedPageLimit,
-      metadataPageLimit,
-      preferActiveProject,
-      query,
-    ],
-  );
-}
+export const pageSearchFacetOptions = (
+  facets: PageSearchFacets,
+): Array<{ id: string; label: string; option: PageSearchOption }> => facets.tags.map((option) => ({
+  id: pageSearchOptionIdentityKey(option),
+  label: option.label,
+  option,
+}));

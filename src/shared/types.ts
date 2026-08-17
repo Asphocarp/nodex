@@ -398,7 +398,69 @@ export interface PageSearchInput {
   /** Project access contexts whose effective grants define the search scope. */
   projectIds: string[];
   query: string;
+  filters?: PageSearchFilters;
+  preferredProjectId?: string;
+  recentPageIds?: string[];
   limit?: number;
+}
+
+export interface PageSearchTextPart {
+  text: string;
+  highlighted: boolean;
+}
+
+export type PageSearchMatchQuality = "exact" | "prefix" | "fuzzy";
+
+export type PageSearchMatch =
+  | {
+      source: "page_key";
+      quality: PageSearchMatchQuality;
+      pageKey: string;
+      isCurrent: boolean;
+      parts: PageSearchTextPart[];
+    }
+  | {
+      source: "identity" | "title";
+      quality: PageSearchMatchQuality;
+      parts: PageSearchTextPart[];
+    }
+  | {
+      source: "property";
+      quality: PageSearchMatchQuality;
+      propertyId: string;
+      propertyName: string;
+      parts: PageSearchTextPart[];
+    }
+  | {
+      source: "body";
+      quality: PageSearchMatchQuality;
+      blockId: string;
+      blockType: string;
+      parts: PageSearchTextPart[];
+    };
+
+export interface PageSearchOptionIdentity {
+  dataSourceId: string;
+  propertyId: string;
+  optionId: string;
+}
+
+export interface PageSearchOption extends PageSearchOptionIdentity {
+  label: string;
+}
+
+export interface PageSearchFilters {
+  statuses?: WorkflowStatus[];
+  priorities?: Priority[];
+  includeEmptyPriority: boolean;
+  tags: PageSearchOptionIdentity[];
+  tagMode: "any" | "all" | "none";
+  assignees: string[];
+}
+
+export interface PageSearchFacets {
+  tags: PageSearchOption[];
+  assignees: string[];
 }
 
 export interface PageSearchResult {
@@ -406,12 +468,17 @@ export interface PageSearchResult {
   projectId: string;
   pageId: string;
   pageKey: string | null;
-  matchedPageKey: string | null;
-  matchedPageKeyIsCurrent: boolean | null;
   title: string;
-  status: WorkflowStatus;
-  score: number;
-  excerpt: string;
+  status: WorkflowStatus | null;
+  priority: Priority | null;
+  tags: PageSearchOption[];
+  assignee: string | null;
+  locationLabel: string;
+  titleParts: PageSearchTextPart[];
+  excerpt: string | null;
+  excerptParts: PageSearchTextPart[];
+  matches: PageSearchMatch[];
+  updatedAt: string;
 }
 
 export interface CommandPaletteThreadSummary {

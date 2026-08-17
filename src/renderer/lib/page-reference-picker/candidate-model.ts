@@ -1,22 +1,10 @@
+import type { MentionSuggestionMatch } from "../nfm/mention-suggestion-model";
+import type { CommandPaletteHighlightSegment } from "../command-palette-highlight";
 import type {
   PageReferenceCandidate,
   PageReferenceIntent,
   PageReferenceSelection,
 } from "./types";
-import type { SearchResult } from "minisearch";
-import type { MentionSuggestionMatch } from "../nfm/mention-suggestion-model";
-import {
-  buildCommandPaletteCharacterHighlightSegments,
-  buildCommandPaletteHighlightedSegments,
-  buildSearchTermHighlightPreview,
-  type CommandPaletteHighlightSegment,
-} from "../command-palette-highlight";
-import {
-  collectPageSearchMatchedTerms,
-  createPageSearchMiniSearch,
-  searchPageSearchMiniSearch,
-  type PageSearchDocument,
-} from "../page-search";
 
 export interface PageReferenceCandidatePresentation {
   readonly candidate: PageReferenceCandidate;
@@ -30,78 +18,30 @@ function normalizeCandidateText(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 }
 
+const toSegments = (
+  parts: readonly { readonly text: string; readonly highlighted: boolean }[],
+): readonly CommandPaletteHighlightSegment[] | null => {
+  if (!parts.some((part) => part.highlighted)) return null;
+  return parts.map((part) => ({ text: part.text, highlight: part.highlighted }));
+};
+
 function classifyPageCandidateMatch(
   candidate: PageReferenceCandidate,
-  query: string,
 ): MentionSuggestionMatch {
-  const normalizedQuery = normalizeCandidateText(query);
-  if (candidate.matchSource === "recent" || !normalizedQuery) return "recent";
-
-  const title = normalizeCandidateText(candidate.title);
-  if (title === normalizedQuery) return "exact_title";
-  if (candidate.matchSource === "page_key") {
-    return "page_key";
+  if (candidate.matchSource === "recent" || candidate.matches.length === 0) return "recent";
+  const strongest = candidate.matches[0];
+  if (strongest.source === "page_key") return "page_key";
+  if (strongest.source === "body" || strongest.source === "property") return "content";
+  if (strongest.source === "title") {
+    if (strongest.quality === "exact") return "exact_title";
+    if (strongest.quality === "prefix") return "prefix_title";
   }
-  if (title.startsWith(normalizedQuery)) return "prefix_title";
-  if (title.includes(normalizedQuery)) return "title";
-  return candidate.matchSource === "content" ? "content" : "title";
+  return "title";
 }
 
-function highlightedTitle(
-  title: string,
-  query: string,
-  searchResult: SearchResult | null,
-): readonly CommandPaletteHighlightSegment[] | null {
-  if (!query.trim()) return null;
-  const matchedTerms = searchResult
-    ? collectPageSearchMatchedTerms(searchResult, "title")
-    : [];
-  const indexedSegments = buildCommandPaletteHighlightedSegments(
-    title,
-    matchedTerms,
-  );
-  if (indexedSegments) return indexedSegments;
-
-  const segments = buildCommandPaletteCharacterHighlightSegments(title, query, "fuzzy");
-  return segments.some(({ highlight }) => highlight) ? segments : null;
-}
-
-function candidateSearchDocument(
-  candidate: PageReferenceCandidate,
-): PageSearchDocument {
-  return {
-    id: candidate.pageId,
-    title: candidate.title,
-    description: candidate.matchExcerpt ?? "",
-    tags: "",
-    assignee: "",
-    columnName: "",
-    projectName: "",
-    pageId: candidate.pageId,
-  };
-}
-
-function indexCandidateMatches(
-  candidates: readonly PageReferenceCandidate[],
-  query: string,
-): ReadonlyMap<string, SearchResult> {
-  if (!query.trim() || candidates.length === 0) return new Map();
-
-  const index = createPageSearchMiniSearch();
-  index.addAll(candidates.map(candidateSearchDocument));
-  return new Map(
-    searchPageSearchMiniSearch(index, query).map((result) => [
-      String(result.id),
-      result,
-    ]),
-  );
-}
-
-/** Derives only the context needed to explain or disambiguate each Page row. */
+/** Presents Core-ranked candidates without local matching, inference, or reordering. */
 export function presentPageReferenceCandidates(
   candidates: readonly PageReferenceCandidate[],
-  query: string,
-  options: { readonly rank?: boolean } = {},
 ): PageReferenceCandidatePresentation[] {
   const titleCounts = new Map<string, number>();
   const titleLocationCounts = new Map<string, number>();
@@ -115,66 +55,33 @@ export function presentPageReferenceCandidates(
     );
   }
 
-  const indexedMatches = indexCandidateMatches(candidates, query);
-  const orderedCandidates = options.rank
-    ? candidates
-        .map((candidate, sourceOrder) => ({
-          candidate,
-          sourceOrder,
-          score: indexedMatches.get(candidate.pageId)?.score ?? 0,
-        }))
-        .sort((left, right) => (
-          right.score - left.score || left.sourceOrder - right.sourceOrder
-        ))
-        .map(({ candidate }) => candidate)
-    : candidates;
-
-  return orderedCandidates.map((candidate) => {
-    const searchResult = indexedMatches.get(candidate.pageId) ?? null;
-    const match = classifyPageCandidateMatch(candidate, query);
+  return candidates.map((candidate) => {
+    const match = classifyPageCandidateMatch(candidate);
     const title = candidate.title || "Untitled";
-    const titleSegments = highlightedTitle(title, query, searchResult);
-    if (match === "content" && candidate.matchExcerpt) {
-      const indexedTerms = searchResult
-        ? collectPageSearchMatchedTerms(searchResult, "description")
-        : [];
-      const preview = buildSearchTermHighlightPreview(
-        candidate.matchExcerpt,
-        indexedTerms.length > 0
-          ? indexedTerms
-          : query.trim().split(/\s+/).filter(Boolean),
-        { maxCharacters: 88, leadingContextCharacters: 18 },
-      );
+    const titleSegments = toSegments(candidate.titleParts);
+    if (match === "page_key") {
+      const pageKeyMatch = candidate.matches.find((entry) => entry.source === "page_key");
       return {
         candidate,
         match,
         titleSegments,
-        detail: preview?.excerpt ?? null,
-        detailSegments: preview?.segments ?? null,
+        detail: candidate.pageKey,
+        detailSegments: pageKeyMatch ? toSegments(pageKeyMatch.parts) : null,
       };
     }
-    if (match === "page_key") {
-      const detail = candidate.pageKey;
+    if (match === "content" && candidate.matchExcerpt) {
       return {
         candidate,
         match,
         titleSegments,
-        detail,
-        detailSegments: detail
-          ? buildCommandPaletteCharacterHighlightSegments(detail, query)
-          : null,
+        detail: candidate.matchExcerpt,
+        detailSegments: toSegments(candidate.matchExcerptParts),
       };
     }
 
     const normalizedTitle = normalizeCandidateText(title);
     if ((titleCounts.get(normalizedTitle) ?? 0) < 2) {
-      return {
-        candidate,
-        match,
-        titleSegments,
-        detail: null,
-        detailSegments: null,
-      };
+      return { candidate, match, titleSegments, detail: null, detailSegments: null };
     }
 
     const titleLocation = `${normalizedTitle}\u0000${normalizeCandidateText(candidate.locationLabel)}`;
@@ -201,19 +108,14 @@ export function resolvePageReferenceDisabledReason(input: {
 }): PageReferenceCandidate["disabledReason"] {
   if (input.intent !== "reference_block") return null;
   if (input.pageId === input.hostPageId) return "self";
-  return input.ancestorPageIds.includes(input.pageId)
-    ? "ancestor_cycle"
-    : null;
+  return input.ancestorPageIds.includes(input.pageId) ? "ancestor_cycle" : null;
 }
 
 export function selectPageReferenceCandidate(
   candidate: PageReferenceCandidate,
 ): PageReferenceSelection | null {
   if (candidate.lifecycle !== "active" || candidate.disabledReason) return null;
-  return {
-    pageId: candidate.pageId,
-    titleSnapshot: candidate.title,
-  };
+  return { pageId: candidate.pageId, titleSnapshot: candidate.title };
 }
 
 export function deduplicatePageReferenceCandidates(

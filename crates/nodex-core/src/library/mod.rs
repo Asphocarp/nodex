@@ -22,6 +22,7 @@ use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 mod page_projection;
+mod page_search;
 mod projection_authorization;
 mod read_authorization;
 mod resource_access;
@@ -108,6 +109,7 @@ pub struct LibraryModule {
     writer: Option<StoreWriter>,
     assets_root: Option<PathBuf>,
     search_snapshots: Option<LibrarySearchSnapshotLeaseRegistry>,
+    page_search: page_search::PageSearchIndexRegistry,
     prepared_agent_operations: PreparedAgentOperationRegistry,
     document_runtime_cache: Option<Arc<Mutex<crate::document::DocumentRuntimeCache>>>,
 }
@@ -123,6 +125,7 @@ impl LibraryModule {
             writer: None,
             assets_root: None,
             search_snapshots: None,
+            page_search: page_search::PageSearchIndexRegistry::default(),
             prepared_agent_operations: PreparedAgentOperationRegistry::new(),
             document_runtime_cache: None,
         }
@@ -154,6 +157,7 @@ impl LibraryModule {
             writer: Some(kernel.writer()),
             assets_root: Some(profile_home.join("assets")),
             search_snapshots: Some(LibrarySearchSnapshotLeaseRegistry::new(search_snapshots)),
+            page_search: page_search::PageSearchIndexRegistry::default(),
             prepared_agent_operations: PreparedAgentOperationRegistry::new(),
             document_runtime_cache: Some(kernel.document_runtime_cache()),
         }
@@ -393,6 +397,7 @@ impl LibraryModule {
             let profile_id = self.profile_id.clone();
             let library_id = self.library_id.clone();
             let context = context.clone();
+            let page_search = self.page_search.clone();
             return readers
                 .read_default(move |connection| {
                     let transaction = connection.unchecked_transaction()?;
@@ -472,6 +477,7 @@ impl LibraryModule {
                             &store_epoch,
                             commit_seq,
                             &context,
+                            &page_search,
                             read,
                         )?,
                     };
@@ -962,7 +968,8 @@ mod tests {
         LibraryNavigationParent, LibraryPageCopyValue, LibraryPageFileKind,
         LibraryPageLifecycleMutation, LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
         LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind, LibraryPageReferenceMatchSource,
-        LibraryPageWorkflowStatus, LibraryPageWriteDestination, LibraryProjectAccessChange,
+        LibraryPageSearchMatch, LibraryPageSearchTagMode, LibraryPageWorkflowStatus,
+        LibraryPageWriteDestination, LibraryProjectAccessChange, LibraryProjectPageSearchFilters,
         LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
@@ -2787,6 +2794,9 @@ mod tests {
                     read: LibraryRead::ProjectPageSearch {
                         project_ids: vec!["missing-project".to_owned(), "project-1".to_owned()],
                         query: "say hi".to_owned(),
+                        filters: None,
+                        preferred_project_id: None,
+                        recent_page_ids: Vec::new(),
                         limit: Some(10),
                     },
                 },
@@ -2800,8 +2810,83 @@ mod tests {
         assert_eq!(items[0].project_id, "project-1");
         assert_eq!(items[0].page_id, ROW_PAGE);
         assert_eq!(items[0].title, "Say hi");
-        assert_eq!(items[0].status, LibraryPageWorkflowStatus::Triage);
-        assert_eq!(items[0].score, 1_000_000);
+        assert_eq!(items[0].status, Some(LibraryPageWorkflowStatus::Triage));
+        assert!(items[0].title_parts.iter().any(|part| part.highlighted));
+        assert!(
+            items[0]
+                .matches
+                .iter()
+                .any(|evidence| matches!(evidence, LibraryPageSearchMatch::Title { .. }))
+        );
+        let LibraryReadValue::ProjectPageSearch { items } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearch {
+                        project_ids: vec!["project-1".to_owned()],
+                        query: "say hi".to_owned(),
+                        filters: Some(LibraryProjectPageSearchFilters {
+                            statuses: Some(vec![LibraryPageWorkflowStatus::Ship]),
+                            priorities: None,
+                            include_empty_priority: true,
+                            tags: Vec::new(),
+                            tag_mode: LibraryPageSearchTagMode::Any,
+                            assignees: Vec::new(),
+                        }),
+                        preferred_project_id: Some("project-1".to_owned()),
+                        recent_page_ids: vec![ROW_PAGE.to_owned()],
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("filtered Project Page search")
+            .value
+        else {
+            panic!("filtered Project Page search");
+        };
+        assert!(items.is_empty());
+        let LibraryReadValue::ProjectPageSearch { items } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearch {
+                        project_ids: vec!["project-1".to_owned()],
+                        query: String::new(),
+                        filters: None,
+                        preferred_project_id: Some("project-1".to_owned()),
+                        recent_page_ids: vec![ROW_PAGE.to_owned()],
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("empty-query Project Page suggestions")
+            .value
+        else {
+            panic!("empty-query Project Page suggestions");
+        };
+        assert_eq!(
+            items.first().map(|item| item.page_id.as_str()),
+            Some(ROW_PAGE)
+        );
+        let LibraryReadValue::ProjectPageSearchFacets { value } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearchFacets {
+                        project_ids: vec!["project-1".to_owned()],
+                    },
+                },
+            )
+            .expect("Project Page search facets")
+            .value
+        else {
+            panic!("Project Page search facets");
+        };
+        assert!(value.tags.is_empty());
+        assert!(value.assignees.is_empty());
         let LibraryReadValue::PageReferenceCandidates { items } = module
             .read(
                 &root_context,
@@ -2834,6 +2919,9 @@ mod tests {
                     read: LibraryRead::ProjectPageSearch {
                         project_ids: vec!["project-1".to_owned()],
                         query: "#say hi".to_owned(),
+                        filters: None,
+                        preferred_project_id: None,
+                        recent_page_ids: Vec::new(),
                         limit: Some(10),
                     },
                 },
@@ -2852,6 +2940,9 @@ mod tests {
                     read: LibraryRead::ProjectPageSearch {
                         project_ids: vec!["project-1".to_owned()],
                         query: "say hi".to_owned(),
+                        filters: None,
+                        preferred_project_id: None,
+                        recent_page_ids: Vec::new(),
                         limit: None,
                     },
                 },
@@ -2892,6 +2983,9 @@ mod tests {
                     read: LibraryRead::ProjectPageSearch {
                         project_ids: vec!["project-1".to_owned()],
                         query: "say hi".to_owned(),
+                        filters: None,
+                        preferred_project_id: None,
+                        recent_page_ids: Vec::new(),
                         limit: None,
                     },
                 },
@@ -7768,20 +7862,75 @@ mod tests {
             )
             .expect("create nested Page candidate");
 
-        kernel
-            .writer()
-            .call(|connection| {
-                connection.execute(
-                    "UPDATE document_materializations SET preview = ?1 WHERE document_id = ?2",
-                    params!["The self-only projection note", "document:local"],
-                )?;
-                connection.execute(
-                    "UPDATE document_materializations SET preview = ?1 WHERE document_id = ?2",
-                    params!["Another self-only projection note", "document:target"],
-                )?;
-                Ok(())
+        let document_roots = kernel
+            .readers()
+            .read_default(|connection| {
+                let root = |document_id: &str| {
+                    connection.query_row(
+                        "SELECT block.block_id, document.generation, document.head_seq \
+                         FROM document_block_index block \
+                         JOIN documents document ON document.id = block.document_id \
+                         WHERE block.document_id = ?1 ORDER BY block.ordinal LIMIT 1",
+                        [document_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                };
+                Ok((root("document:local")?, root("document:target")?))
             })
-            .expect("seed Page description preview");
+            .expect("Page document roots");
+        let documents = OwnedDocumentModule::new("profile-1", "library-1", &kernel);
+        for (operation_id, document_id, document, text) in [
+            (
+                "seed-local-reference-content",
+                "document:local",
+                document_roots.0,
+                "The selfonly projection note",
+            ),
+            (
+                "seed-target-reference-content",
+                "document:target",
+                document_roots.1,
+                "Another selfonly projection note",
+            ),
+        ] {
+            documents
+                .apply(
+                    &local_context,
+                    ModuleApplyRequest {
+                        contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent: OwnedDocumentIntent::ApplyOperationBatch {
+                            document_id: document_id.to_owned(),
+                            generation: document.1,
+                            expected_head_seq: document.2,
+                            operations: vec![ContractDocumentBlockOperation::UpdateBlock {
+                                block_id: document.0,
+                                patch: DocumentBlockUpdatePatch {
+                                    block_type: None,
+                                    props: None,
+                                    content: DocumentOptionalValue::Value {
+                                        value: serde_json::json!([{
+                                            "type": "text",
+                                            "text": text,
+                                            "styles": {}
+                                        }]),
+                                    },
+                                    unset_content: false,
+                                },
+                            }],
+                            actor: serde_json::json!({ "kind": "test" }),
+                        },
+                    },
+                )
+                .expect("seed Page body search content");
+        }
 
         let content_only_self = module
             .read(
@@ -7789,7 +7938,7 @@ mod tests {
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PageReferenceCandidates {
-                        query: "self-only".to_owned(),
+                        query: "selfonly".to_owned(),
                         limit: Some(1),
                         source_page_id: Some("page:local".to_owned()),
                     },

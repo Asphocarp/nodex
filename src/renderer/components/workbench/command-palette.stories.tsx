@@ -6,8 +6,7 @@ import type {
   CommandPaletteCommand,
   CommandPaletteThread,
 } from "@/lib/command-palette";
-import { createCommandPalettePageSearchIndex } from "@/lib/command-palette-page-search";
-import type { CommandPalettePageDescriptionSearchBatch } from "@/lib/command-palette-page-results";
+import type { CommandPalettePageSearchBatch } from "@/lib/command-palette-page-results";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import type { CommandPaletteThreadSearchBatch } from "@/lib/command-palette-chat-search";
 import { buildCommandPaletteCommands } from "@/lib/command-palette-commands";
@@ -89,13 +88,13 @@ function CommandPaletteStory({
   initialQuery,
   mode,
   includeThreads = false,
-  pageDescriptionSearchBatch,
+  pageSearchBatch,
   threadSearchBatch,
 }: {
   initialQuery: string;
   mode: CommandMenuMode;
   includeThreads?: boolean;
-  pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch;
+  pageSearchBatch?: CommandPalettePageSearchBatch;
   threadSearchBatch?: CommandPaletteThreadSearchBatch;
 }) {
   const [open, setOpen] = useState(true);
@@ -195,7 +194,6 @@ function CommandPaletteStory({
       gitBranch: "修复/unicode-search",
     }),
   ] : [], [includeThreads]);
-  const pageSearchIndex = useMemo(() => createCommandPalettePageSearchIndex(pages), [pages]);
   const threadSearchIndex = useMemo(() => createCommandPaletteThreadSearchIndex(threads), [threads]);
 
   return (
@@ -209,9 +207,8 @@ function CommandPaletteStory({
           commands={commands}
           pages={pages}
           threads={threads}
-          pageSearchIndex={pageSearchIndex}
           threadSearchIndex={threadSearchIndex}
-          pageDescriptionSearchBatch={pageDescriptionSearchBatch}
+          pageSearchBatch={pageSearchBatch}
           threadSearchBatch={threadSearchBatch}
           loading={false}
           pagesLoading={false}
@@ -250,7 +247,7 @@ export const RootCommandsChatsAndPages: Story = {
       mode="root"
       initialQuery="palette"
       includeThreads
-      pageDescriptionSearchBatch={{
+      pageSearchBatch={{
         query: "palette",
         scopeKey: "codex\nnodex",
         results: [],
@@ -333,7 +330,7 @@ export const PageSearchPending: Story = {
     <CommandPaletteStory
       mode="pages"
       initialQuery="vector clocks"
-      pageDescriptionSearchBatch={{
+      pageSearchBatch={{
         query: "previous query",
         scopeKey: "codex\nnodex",
         results: [],
@@ -349,19 +346,30 @@ export const HistoricalPageKeyMatch: Story = {
     <CommandPaletteStory
       mode="pages"
       initialQuery="old-13"
-      pageDescriptionSearchBatch={{
+      pageSearchBatch={{
         query: "old-13",
         scopeKey: "codex\nnodex",
         results: [{
           projectId: "nodex",
           pageId: "palette-page",
           pageKey: "LAB-13",
-          matchedPageKey: "OLD-13",
-          matchedPageKeyIsCurrent: false,
           title: "Command palette shell refresh",
           status: "build",
-          score: 2_000_000,
+          priority: null,
+          tags: [],
+          assignee: null,
+          locationLabel: "Nodex / Build",
+          titleParts: [],
           excerpt: "Command palette shell refresh",
+          excerptParts: [],
+          matches: [{
+            source: "page_key",
+            quality: "exact",
+            pageKey: "OLD-13",
+            isCurrent: false,
+            parts: [],
+          }],
+          updatedAt: "2026-08-17T00:00:00.000Z",
         }],
         status: "success",
         error: null,

@@ -23,10 +23,6 @@ import {
   writeCommandPalettePageFilters,
 } from "../../lib/command-palette";
 import {
-  normalizeCommandPaletteSearchText,
-  type CommandPalettePageSearchIndex,
-} from "../../lib/command-palette-page-search";
-import {
   type CommandPaletteHighlightSegment,
 } from "../../lib/command-palette-highlight";
 import type { CommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
@@ -37,13 +33,17 @@ import {
   useCommandPaletteThreadSearch,
 } from "../../lib/command-palette-chat-search";
 import {
-  buildCommandPalettePageDescriptionSearchScopeKey,
-  getCommandPalettePageDescriptionSearchError,
+  buildCommandPalettePageSearchScopeKey,
+  getCommandPalettePageSearchError,
   getCommandPalettePageSearchPlan,
-  isCommandPalettePageDescriptionSearchPending,
+  isCommandPalettePageSearchPending,
+  normalizeCommandPaletteSearchText,
+  pageSearchFacetOptions,
   selectCommandPalettePageResults,
-  type CommandPalettePageDescriptionSearchBatch,
-  useCommandPalettePageDescriptionSearch,
+  toCorePageSearchFilters,
+  type CommandPalettePageSearchBatch,
+  useCommandPalettePageSearch,
+  useCommandPalettePageSearchFacets,
 } from "../../lib/command-palette-page-results";
 import {
   areQueryFresh,
@@ -68,6 +68,7 @@ import {
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../../shared/window-navigation";
 import { OPEN_DB_VIEW_TAB_COMMAND_ID } from "@/lib/command-palette-commands";
+import type { Project } from "@/lib/types";
 
 type PaletteItem = CommandPaletteCommand | CommandPalettePage | CommandPaletteThread;
 type PaletteSectionModel = { title: string; items: PaletteItem[] };
@@ -78,11 +79,13 @@ interface CommandPaletteSurfaceProps {
   mode: CommandMenuMode;
   initialQuery?: string;
   commands: CommandPaletteCommand[];
-  pages: CommandPalettePage[];
+  pages?: CommandPalettePage[];
+  projects?: Project[];
+  activeProjectId?: string | null;
+  recentPageIds?: string[];
   threads?: CommandPaletteThread[];
-  pageSearchIndex?: CommandPalettePageSearchIndex | null;
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
-  pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch;
+  pageSearchBatch?: CommandPalettePageSearchBatch;
   loading: boolean;
   pagesLoading: boolean;
   chatsLoading: boolean;
@@ -156,12 +159,13 @@ interface CommandPaletteSectionsInput {
   mode: CommandMenuMode;
   commands: CommandPaletteCommand[];
   pages: CommandPalettePage[];
+  projects: Project[];
+  activeProjectId: string | null;
+  recentPageIds: string[];
   threads: CommandPaletteThread[];
-  pageFilters: CommandPalettePageFilters;
-  pageSearchIndex?: CommandPalettePageSearchIndex | null;
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
-  pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch | null;
-  pageDescriptionSearchScopeKey?: string | null;
+  pageSearchBatch?: CommandPalettePageSearchBatch | null;
+  pageSearchScopeKey?: string | null;
   threadSearchBatch?: CommandPaletteThreadSearchBatch | null;
 }
 
@@ -182,12 +186,13 @@ function buildCommandPaletteSectionsModel({
   mode,
   commands,
   pages,
+  projects,
+  activeProjectId,
+  recentPageIds,
   threads,
-  pageFilters,
-  pageSearchIndex,
   threadSearchIndex,
-  pageDescriptionSearchBatch,
-  pageDescriptionSearchScopeKey,
+  pageSearchBatch,
+  pageSearchScopeKey,
   threadSearchBatch,
 }: CommandPaletteSectionsInput): CommandPaletteSectionsModel {
   const results = filterCommandPaletteItems({
@@ -196,19 +201,17 @@ function buildCommandPaletteSectionsModel({
     commands,
     pages,
     threads,
-    pageFilters,
-    pageSearchIndex,
     threadSearchIndex,
   });
 
   const visiblePages = selectCommandPalettePageResults({
     query,
+    projects,
+    activeProjectId,
+    recentPageIds,
     pages,
-    pageFilters: mode === "pages" ? pageFilters : undefined,
-    pageSearchIndex,
-    pageDescriptionSearchBatch,
-    pageDescriptionSearchScopeKey,
-    metadataPageLimit: mode === "root" ? ROOT_DISCOVERY_ROW_BUDGET : undefined,
+    pageSearchBatch,
+    pageSearchScopeKey,
     mergedPageLimit: mode === "root" ? ROOT_DISCOVERY_ROW_BUDGET : undefined,
   });
   const threadSearchPlan = getCommandPaletteThreadSearchPlan(mode, query);
@@ -234,16 +237,16 @@ function buildCommandPaletteSectionsModel({
       })
     : [];
   const pageSearchPlan = getCommandPalettePageSearchPlan(mode, query);
-  const pageSearchPending = isCommandPalettePageDescriptionSearchPending({
-    batch: pageDescriptionSearchBatch,
-    enabled: pageSearchPlan?.includeContentResults === true,
+  const pageSearchPending = isCommandPalettePageSearchPending({
+    batch: pageSearchBatch,
+    enabled: pageSearchPlan !== null,
     query,
-    scopeKey: pageDescriptionSearchScopeKey ?? "",
+    scopeKey: pageSearchScopeKey ?? "",
   });
-  const pageSearchError = getCommandPalettePageDescriptionSearchError({
-    batch: pageDescriptionSearchBatch,
+  const pageSearchError = getCommandPalettePageSearchError({
+    batch: pageSearchBatch,
     query,
-    scopeKey: pageDescriptionSearchScopeKey ?? "",
+    scopeKey: pageSearchScopeKey ?? "",
   });
   let showPageSearchStatus = false;
   const sections: PaletteSectionModel[] = (() => {
@@ -670,11 +673,13 @@ export function CommandPaletteSurface({
   mode,
   initialQuery,
   commands,
-  pages,
+  pages = [],
+  projects = [],
+  activeProjectId = null,
+  recentPageIds = [],
   threads = [],
-  pageSearchIndex,
   threadSearchIndex,
-  pageDescriptionSearchBatch: injectedPageDescriptionSearchBatch,
+  pageSearchBatch: injectedPageSearchBatch,
   loading,
   pagesLoading,
   chatsLoading,
@@ -700,35 +705,57 @@ export function CommandPaletteSurface({
     limit: threadSearchPlan?.maxResults ?? 9,
   });
   const threadSearchBatch = injectedThreadSearchBatch ?? fetchedThreadSearchBatch;
-  const availableTags = useMemo(
-    () => Array.from(new Set(pages.flatMap((item) => item.tagLabels))).sort((left, right) => left.localeCompare(right)),
-    [pages],
-  );
-  const availableAssignees = useMemo(
-    () => Array.from(new Set(
-      pages
-        .map((item) => item.page.assignee?.trim() ?? "")
-        .filter((value) => value.length > 0),
-    )).sort((left, right) => left.localeCompare(right)),
-    [pages],
-  );
   const availableProjects = useMemo(
-    () => Array.from(new Map(
-      pages.map((item) => [item.projectId, { id: item.projectId, label: item.projectName }] as const),
-    ).values()).sort((left, right) => left.label.localeCompare(right.label)),
-    [pages],
+    () => projects.length > 0
+      ? projects.map((project) => ({ id: project.id, label: project.name || "Untitled" }))
+      : Array.from(new Map(
+          pages.map((item) => [item.projectId, { id: item.projectId, label: item.projectName }] as const),
+        ).values()),
+    [pages, projects],
+  );
+  const allProjectIdsForSearch = useMemo(
+    () => availableProjects.map((project) => project.id),
+    [availableProjects],
+  );
+  const facetBatch = useCommandPalettePageSearchFacets({
+    enabled: open && projects.length > 0,
+    projectIds: allProjectIdsForSearch,
+  });
+  const availableTags = useMemo(() => {
+    if (projects.length > 0) return pageSearchFacetOptions(facetBatch.facets);
+    return Array.from(new Set(pages.flatMap((item) => item.tagLabels)))
+      .sort((left, right) => left.localeCompare(right))
+      .map((label) => ({ id: label, label, option: null }));
+  }, [facetBatch.facets, pages, projects.length]);
+  const availableAssignees = useMemo(
+    () => projects.length > 0
+      ? [...facetBatch.facets.assignees]
+      : Array.from(new Set(
+          pages
+            .map((item) => item.page.assignee?.trim() ?? "")
+            .filter((value) => value.length > 0),
+        )).sort((left, right) => left.localeCompare(right)),
+    [facetBatch.facets.assignees, pages, projects.length],
   );
   const projectNameById = useMemo(
     () => new Map(availableProjects.map((project) => [project.id, project.label] as const)),
     [availableProjects],
   );
+  const tagNameById = useMemo(
+    () => new Map(availableTags.map((tag) => [tag.id, tag.label] as const)),
+    [availableTags],
+  );
   const normalizedPageFilters = useMemo(
     () => normalizeCommandPalettePageFilters(pageFilters, {
-      allowedTags: availableTags,
-      allowedAssignees: availableAssignees,
+      allowedTags: projects.length === 0 || facetBatch.status === "success"
+        ? availableTags.map((tag) => tag.id)
+        : undefined,
+      allowedAssignees: projects.length === 0 || facetBatch.status === "success"
+        ? availableAssignees
+        : undefined,
       allowedProjectIds: availableProjects.map((project) => project.id),
     }),
-    [availableAssignees, availableProjects, availableTags, pageFilters],
+    [availableAssignees, availableProjects, availableTags, facetBatch.status, pageFilters, projects.length],
   );
   const filteredProjectIdsForSearch = useMemo(() => {
     const allProjectIds = availableProjects.map((project) => project.id);
@@ -739,48 +766,49 @@ export function CommandPaletteSurface({
     const selectedProjectIds = new Set(normalizedPageFilters.projectIds);
     return allProjectIds.filter((projectId) => selectedProjectIds.has(projectId));
   }, [availableProjects, normalizedPageFilters.projectIds]);
-  const allProjectIdsForSearch = useMemo(
-    () => availableProjects.map((project) => project.id),
-    [availableProjects],
-  );
   const pageSearchPlan = getCommandPalettePageSearchPlan(mode, deferredQuery);
   const projectIdsForSearch = mode === "pages"
     ? filteredProjectIdsForSearch
     : allProjectIdsForSearch;
-  const pageDescriptionSearchScopeKey = useMemo(
-    () => buildCommandPalettePageDescriptionSearchScopeKey(projectIdsForSearch),
+  const pageSearchScopeKey = useMemo(
+    () => buildCommandPalettePageSearchScopeKey(projectIdsForSearch),
     [projectIdsForSearch],
   );
-  const fetchedDescriptionSearchBatch = useCommandPalettePageDescriptionSearch({
-    enabled: open && pageSearchPlan?.includeContentResults === true,
+  const fetchedPageSearchBatch = useCommandPalettePageSearch({
+    enabled: open && pageSearchPlan !== null,
     query: deferredQuery,
     projectIds: projectIdsForSearch,
+    filters: mode === "pages" ? toCorePageSearchFilters(normalizedPageFilters) : undefined,
+    preferredProjectId: activeProjectId,
+    recentPageIds,
     limit: pageSearchPlan?.searchLimit,
   });
-  const descriptionSearchBatch = injectedPageDescriptionSearchBatch ?? fetchedDescriptionSearchBatch;
+  const pageSearchBatch = injectedPageSearchBatch ?? fetchedPageSearchBatch;
   const visibleModel = useMemo(
     () => buildCommandPaletteSectionsModel({
       query: deferredQuery,
       mode,
       commands,
+      projects,
+      activeProjectId,
+      recentPageIds,
       pages,
       threads,
-      pageFilters: normalizedPageFilters,
-      pageSearchIndex,
       threadSearchIndex,
-      pageDescriptionSearchBatch: descriptionSearchBatch,
-      pageDescriptionSearchScopeKey,
+      pageSearchBatch: pageSearchBatch,
+      pageSearchScopeKey,
       threadSearchBatch,
     }),
     [
-      pageDescriptionSearchScopeKey,
-      pageSearchIndex,
+      pageSearchScopeKey,
+      activeProjectId,
       pages,
       commands,
       deferredQuery,
-      descriptionSearchBatch,
+      pageSearchBatch,
       mode,
-      normalizedPageFilters,
+      projects,
+      recentPageIds,
       threadSearchBatch,
       threadSearchIndex,
       threads,
@@ -873,23 +901,25 @@ export function CommandPaletteSurface({
       query: nextQuery,
       mode,
       commands,
+      projects,
+      activeProjectId,
+      recentPageIds,
       pages,
       threads,
-      pageFilters: normalizedPageFilters,
-      pageSearchIndex,
       threadSearchIndex,
-      pageDescriptionSearchBatch: descriptionSearchBatch,
-      pageDescriptionSearchScopeKey,
+      pageSearchBatch: pageSearchBatch,
+      pageSearchScopeKey,
       threadSearchBatch,
     }).flatItems
   ), [
-    pageDescriptionSearchScopeKey,
-    pageSearchIndex,
+    pageSearchScopeKey,
+    activeProjectId,
     pages,
     commands,
-    descriptionSearchBatch,
+    pageSearchBatch,
     mode,
-    normalizedPageFilters,
+    projects,
+    recentPageIds,
     threadSearchBatch,
     threadSearchIndex,
     threads,
@@ -1149,6 +1179,7 @@ export function CommandPaletteSurface({
           <CommandPalettePageFiltersSummaryRow
             filters={pageFilters}
             projectNameById={projectNameById}
+            tagNameById={tagNameById}
             onOpenFilter={() => setFilterOpen(true)}
           />
         </div>
@@ -1198,12 +1229,10 @@ export function CommandPaletteSurface({
           </SearchStatusRow>
         ) : null}
         {showPageSearchStatus && visibleModel.pageSearchPending ? (
-          <SearchStatusRow>Searching page contents...</SearchStatusRow>
+          <SearchStatusRow>Searching pages...</SearchStatusRow>
         ) : null}
         {showPageSearchStatus && visibleModel.pageSearchError ? (
-          <SearchStatusRow>
-            Page content search is unavailable. Metadata matches are still shown.
-          </SearchStatusRow>
+          <SearchStatusRow>Page search is unavailable. Try again.</SearchStatusRow>
         ) : null}
         {flatItems.length === 0 && (rowsStale || !hasVisibleSearchStatus) ? (
           <div data-cmdk-empty className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground">

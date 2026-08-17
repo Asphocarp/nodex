@@ -12,10 +12,9 @@ import {
   OPEN_DB_VIEW_TAB_COMMAND_ID,
   type CommandPaletteShellCommandContext,
 } from "@/lib/command-palette-commands";
-import type { DatabasePageSummary } from "@/lib/types";
+import type { DatabasePageSummary, PageSearchResult } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
-import { createCommandPalettePageSearchIndex } from "../../lib/command-palette-page-search";
-import type { CommandPalettePageDescriptionSearchBatch } from "../../lib/command-palette-page-results";
+import type { CommandPalettePageSearchBatch } from "../../lib/command-palette-page-results";
 import { createCommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { createCommandKeymapState } from "../../../shared/command-keybindings";
@@ -348,15 +347,46 @@ function makePaletteCommand(overrides: Partial<CommandPaletteCommand> = {}): Com
   };
 }
 
-function makePageDescriptionSearchBatch(
-  overrides: Partial<CommandPalettePageDescriptionSearchBatch> = {},
-): CommandPalettePageDescriptionSearchBatch {
+function makePageSearchBatch(
+  overrides: Partial<CommandPalettePageSearchBatch> = {},
+): CommandPalettePageSearchBatch {
   return {
     query: overrides.query ?? "page",
     scopeKey: overrides.scopeKey ?? "default",
     results: overrides.results ?? [],
     status: overrides.status ?? "success",
     error: overrides.error ?? null,
+  };
+}
+
+function makePageSearchResult(
+  item: CommandPalettePage,
+  overrides: Partial<PageSearchResult> = {},
+): PageSearchResult {
+  const page = item.page as DatabasePageSummary;
+  return {
+    projectId: item.projectId,
+    pageId: page.id,
+    pageKey: page.pageKey,
+    title: page.title,
+    status: page.status,
+    priority: page.priority ?? null,
+    tags: page.tags.map((label) => ({
+      dataSourceId: `source:${item.projectId}`,
+      propertyId: "tags",
+      optionId: label,
+      label,
+    })),
+    assignee: page.assignee ?? null,
+    locationLabel: `${item.projectName} / ${item.columnName}`,
+    titleParts: [],
+    excerpt: page.descriptionPreview || null,
+    excerptParts: page.descriptionPreview
+      ? [{ text: page.descriptionPreview, highlighted: false }]
+      : [],
+    matches: [],
+    updatedAt: "2026-08-17T00:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -382,7 +412,27 @@ describe("CommandPaletteSurface", () => {
         initialQuery="search indexer"
         commands={[]}
         pages={pages}
-        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
+        pageSearchBatch={makePageSearchBatch({
+          query: "search indexer",
+          results: [makePageSearchResult(pages[0]!, {
+            excerptParts: [
+              { text: "Rebuild the fuzzy ", highlighted: false },
+              { text: "search indxer", highlighted: true },
+              { text: " for the palette.", highlighted: false },
+            ],
+            matches: [{
+              source: "body",
+              quality: "fuzzy",
+              blockId: "block:page-1",
+              blockType: "paragraph",
+              parts: [
+                { text: "Rebuild the fuzzy ", highlighted: false },
+                { text: "search indxer", highlighted: true },
+                { text: " for the palette.", highlighted: false },
+              ],
+            }],
+          })],
+        })}
         loading={false}
         pagesLoading={false}
         chatsLoading={false}
@@ -436,7 +486,6 @@ describe("CommandPaletteSurface", () => {
             }),
           }),
         ]}
-        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         loading={false}
         pagesLoading={false}
         chatsLoading={false}
@@ -473,8 +522,7 @@ describe("CommandPaletteSurface", () => {
         initialQuery="vector clocks"
         commands={[]}
         pages={pages}
-        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
-        pageDescriptionSearchBatch={makePageDescriptionSearchBatch({
+        pageSearchBatch={makePageSearchBatch({
           query: "previous query",
         })}
         loading={false}
@@ -488,7 +536,45 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(container)).toContain("Searching page contents");
+    expect(textContent(container)).toContain("Searching pages");
+    expect(textContent(container)).not.toContain("Release checklist");
+    expect(textContent(container)).not.toContain("No matching pages");
+  });
+
+  test("surfaces Core Page-search failures without falling back to local Pages", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const pages = [makePalettePage({
+      page: makePage({
+        id: "local-only-page",
+        title: "Incomplete local result",
+      }),
+    })];
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={211}
+        mode="pages"
+        initialQuery="authority"
+        commands={[]}
+        pages={pages}
+        pageSearchBatch={makePageSearchBatch({
+          query: "authority",
+          status: "error",
+          error: "projection unavailable",
+        })}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container)).toContain("Page search is unavailable. Try again.");
+    expect(textContent(container)).not.toContain("Incomplete local result");
     expect(textContent(container)).not.toContain("No matching pages");
   });
 
@@ -509,8 +595,7 @@ describe("CommandPaletteSurface", () => {
         initialQuery="vector clocks"
         commands={[]}
         pages={pages}
-        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
-        pageDescriptionSearchBatch={makePageDescriptionSearchBatch({
+        pageSearchBatch={makePageSearchBatch({
           query: "vector clocks",
         })}
         loading={false}
@@ -525,7 +610,7 @@ describe("CommandPaletteSurface", () => {
     await settleAsyncRender();
 
     expect(textContent(container)).toContain("No matching pages");
-    expect(textContent(container)).not.toContain("Searching page contents");
+    expect(textContent(container)).not.toContain("Searching pages");
   });
 
   test("fills the root discovery budget with Pages without an independent Page cap", async () => {
@@ -548,9 +633,10 @@ describe("CommandPaletteSurface", () => {
         commands={[]}
         pages={pages}
         threads={[]}
-        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
         threadSearchIndex={createCommandPaletteThreadSearchIndex([])}
-        pageDescriptionSearchBatch={makePageDescriptionSearchBatch()}
+        pageSearchBatch={makePageSearchBatch({
+          results: pages.map((page) => makePageSearchResult(page)),
+        })}
         threadSearchBatch={{ query: "page", results: [], loading: false, error: null }}
         loading={false}
         pagesLoading={false}
@@ -587,20 +673,38 @@ describe("CommandPaletteSurface", () => {
         commands={[]}
         pages={pages}
         threads={[]}
-        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
         threadSearchIndex={createCommandPaletteThreadSearchIndex([])}
-        pageDescriptionSearchBatch={makePageDescriptionSearchBatch({
+        pageSearchBatch={makePageSearchBatch({
           query: "vector clocks",
           results: [{
             projectId: "default",
             pageId: "body-only-page",
             pageKey: null,
-            matchedPageKey: null,
-            matchedPageKeyIsCurrent: null,
             title: "Body-only page",
             status: "build",
-            score: -1,
+            priority: null,
+            tags: [],
+            assignee: null,
+            locationLabel: "Default / Build",
+            titleParts: [],
             excerpt: "Document vector clocks and replicated queue recovery.",
+            excerptParts: [
+              { text: "Document ", highlighted: false },
+              { text: "vector clocks", highlighted: true },
+              { text: " and replicated queue recovery.", highlighted: false },
+            ],
+            matches: [{
+              source: "body",
+              quality: "exact",
+              blockId: "block:vector-clocks",
+              blockType: "paragraph",
+              parts: [
+                { text: "Document ", highlighted: false },
+                { text: "vector clocks", highlighted: true },
+                { text: " and replicated queue recovery.", highlighted: false },
+              ],
+            }],
+            updatedAt: "2026-08-17T00:00:00.000Z",
           }],
         })}
         threadSearchBatch={{ query: "vector clocks", results: [], loading: false, error: null }}
@@ -615,7 +719,7 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(container)).toContain("Replication design note");
+    expect(textContent(container)).toContain("Body-only page");
     expect(textContent(container)).toContain("vector clocks");
     expect(textContent(container)).toContain("Pages");
   });
@@ -649,9 +753,10 @@ describe("CommandPaletteSurface", () => {
         commands={commands}
         pages={pages}
         threads={threads}
-        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
-        pageDescriptionSearchBatch={makePageDescriptionSearchBatch()}
+        pageSearchBatch={makePageSearchBatch({
+          results: pages.map((page) => makePageSearchResult(page)),
+        })}
         threadSearchBatch={{ query: "page", results: [], loading: false, error: null }}
         loading={false}
         pagesLoading={false}
@@ -695,7 +800,6 @@ describe("CommandPaletteSurface", () => {
         commands={[]}
         pages={[]}
         threads={threads}
-        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
         loading={false}
         pagesLoading={false}
@@ -751,8 +855,11 @@ describe("CommandPaletteSurface", () => {
         commands={[]}
         pages={pages}
         threads={threads}
-        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        pageSearchBatch={makePageSearchBatch({
+          query: "thread transcript",
+          results: pages.map((page) => makePageSearchResult(page)),
+        })}
         loading={false}
         pagesLoading={false}
         chatsLoading={false}
@@ -818,7 +925,6 @@ describe("CommandPaletteSurface", () => {
           commands={[]}
           pages={[]}
           threads={threads}
-          pageSearchIndex={createCommandPalettePageSearchIndex([])}
           threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
           loading={false}
           pagesLoading={false}
@@ -852,7 +958,6 @@ describe("CommandPaletteSurface", () => {
         commands={[makePaletteCommand({ title: "Open settings", keywords: ["open"] })]}
         pages={[]}
         threads={threads}
-        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
         threadSearchBatch={{ query: "open", results: [], loading: false, error: null }}
         loading={false}
@@ -887,7 +992,6 @@ describe("CommandPaletteSurface", () => {
         commands={[]}
         pages={[]}
         threads={threads}
-        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
         threadSearchBatch={{ query: "common", results: [], loading: true, error: null }}
         loading={false}
@@ -917,7 +1021,6 @@ describe("CommandPaletteSurface", () => {
         commands={[]}
         pages={[]}
         threads={threads}
-        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
         threadSearchBatch={{ query: "fallback", results: [], loading: false, error: "offline" }}
         loading={false}
@@ -963,11 +1066,8 @@ describe("CommandPaletteSurface", () => {
     apiMock.invokeImplementation = async () => [];
   });
 
-  test("deduplicates concurrent Page body searches and reuses the short-lived cache", async () => {
-    const {
-      clearCommandPalettePageDescriptionSearchCacheForTests,
-      searchCommandPalettePageDescriptions,
-    } = await import("../../lib/command-palette-page-results");
+  test("deduplicates only concurrent Page requests and keeps no renderer result cache", async () => {
+    const { searchCommandPalettePages } = await import("../../lib/command-palette-page-results");
     const searchedQueries: string[] = [];
     apiMock.invokeImplementation = async (channel: unknown, input: unknown) => {
       if (channel === "pages:search") {
@@ -979,15 +1079,13 @@ describe("CommandPaletteSurface", () => {
       }
       return [];
     };
-    clearCommandPalettePageDescriptionSearchCacheForTests();
-
     await Promise.all([
-      searchCommandPalettePageDescriptions({ projectIds: ["default"], query: "page cache" }),
-      searchCommandPalettePageDescriptions({ projectIds: ["default"], query: "page cache" }),
+      searchCommandPalettePages({ projectIds: ["default"], query: "page cache" }),
+      searchCommandPalettePages({ projectIds: ["default"], query: "page cache" }),
     ]);
-    await searchCommandPalettePageDescriptions({ projectIds: ["default"], query: "page cache" });
+    await searchCommandPalettePages({ projectIds: ["default"], query: "page cache" });
 
-    expect(searchedQueries).toEqual(["page cache"]);
+    expect(searchedQueries).toEqual(["page cache", "page cache"]);
     apiMock.invokeImplementation = async () => [];
   });
 
@@ -1025,7 +1123,6 @@ describe("CommandPaletteSurface", () => {
           }),
         ]}
         pages={[]}
-        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         loading={false}
         pagesLoading={false}
         chatsLoading={false}
@@ -1091,7 +1188,6 @@ describe("CommandPaletteSurface", () => {
           }),
         ]}
         pages={[]}
-        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         loading={false}
         pagesLoading={false}
         chatsLoading={false}
@@ -1153,7 +1249,11 @@ describe("CommandPaletteSurface", () => {
         initialQuery="queue"
         commands={[]}
         pages={pages}
-        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
+        pageSearchBatch={makePageSearchBatch({
+          query: "queue",
+          scopeKey: "design\nops",
+          results: pages.map((page) => makePageSearchResult(page)),
+        })}
         loading={false}
         pagesLoading={false}
         chatsLoading={false}

@@ -57,7 +57,7 @@ The mention references a Codex app-server thread/session id as an opaque string.
 - Mention tooltips show only compact context, such as project, column, actionable state, and an optional search snippet. They do not concatenate raw thread ids, Page ids, cwd paths, or long mixed metadata strings.
 - Idle and unknown-state threads do not show `Ready` or `Thread` as row state labels.
 - Choosing a thread row inserts `threadMention` inline content and a trailing space.
-- Page rows use the same command-palette Page search model: summary metadata is searched with MiniSearch ranking, and full-content hits come from bounded `pages:search` excerpts. Choosing a Page row inserts the current reference Block shape.
+- Page rows preserve the same final Core Page-search order and typed match evidence as the command palette. Choosing a Page row inserts the current reference Block shape.
 
 ## Prompt And Clipboard Behavior
 

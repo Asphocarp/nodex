@@ -943,6 +943,7 @@ interface RegisterIpcHandlersOptions {
     | "readLibraryPageDetail"
     | "listPageHistory"
     | "searchPages"
+    | "pageSearchFacets"
     | "resolvePageTarget"
     | "resolvePageOwnershipPath"
     | "readPageLifecyclePreflight"
@@ -2466,6 +2467,9 @@ export function registerIpcHandlers(
     });
     return results;
   });
+
+  registerHandle("pages:search-facets", async (_, projectIds) =>
+    await libraryModule.pageSearchFacets(projectIds));
 
   registerHandle(
     "database-row:get",
