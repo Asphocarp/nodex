@@ -20,7 +20,7 @@ The palette is a transient overlay and does not become part of durable navigatio
 - `Cmd/Ctrl+P` opens page mode.
 - The sidebar `Search` row opens page mode and shows the `Cmd/Ctrl+P` shortcut.
 - A leading `>` is plain query text and no longer switches modes.
-- The palette reads Pages visible through every loaded Project context, not just the active Project.
+- The palette searches the complete authorized Page corpus of every available Project context, not only Pages already loaded by a Board or the active Project.
 - The palette combines the current non-archived local chat catalog with eligible root chats returned by app-server search. A server-only result is materialized locally only when opened.
 - The palette closes after executing a result.
 - Closing the palette clears the query and resets the selection index.
@@ -34,7 +34,7 @@ Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 - Root mode always searches command/action rows.
 - A root query shorter than `2` characters remains command-only.
 - At `2` Unicode characters, matching local chat and Page metadata appears in trailing `Chats` and `Pages` sections while commands remain visible.
-- At `2` Unicode characters, root mode also starts a bounded Page-body search. At `3` characters, the `Chats` section additionally merges bounded app-server chat-history results.
+- At `2` Unicode characters, root mode starts one bounded Core Page search across metadata and body text. At `3` characters, the `Chats` section additionally merges bounded app-server chat-history results.
 - Chats and Pages are represented as explicit command rows such as `Search chats` and `Search Pages`.
 - Executing `Search chats` switches to chats mode. Executing `Search Pages` switches to page mode.
 - `Search files` appears only in development as a disabled mock row until real file search exists.
@@ -64,7 +64,8 @@ Page mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode 
 - Commands and chats are hidden entirely in page mode.
 - Empty query shows default Page suggestions.
 - Page mode keeps a trailing `Filter` button on the search-input row.
-- Local Page metadata matches remain visible while Page-body search is pending. A fixed-height `Searching page contents...` status occupies the async result slot, and `No matching pages.` appears only after the current query and Project scope have settled with no matches.
+- A fixed-height `Searching pages...` status occupies the async result slot while the authoritative Core result is pending, and `No matching pages.` appears only after the current query, filters, and Project scope have settled with no matches.
+- A failed request shows `Page search is unavailable. Try again.` and never falls back to the renderer's incomplete set of already loaded Pages.
 - Clicking `Filter` opens a transient popover with property filters for status, priority, tags, assignee, and project.
 - When any palette filters are active, the palette shows a compact summary row directly under the input, using the same compact pill language as the DB view toolbar.
 - Palette Page filters persist across palette reopen and app reload, but the free-text query still clears on close.
@@ -77,65 +78,56 @@ Files mode is a reference-shell placeholder.
 
 ## Page Search Model
 
-### Indexed fields
-Page search indexes the following normalized fields:
+### Search fields
+Core Page search matches the following normalized fields:
 
 - title
-- plain-text description
-- tags
-- assignee
-- column name
-- project name
+- Page key and historical Page-key prefixes
 - Page id
+- typed Property display text, including tags, assignee, status, and priority
+- indexed Page body text
 
-Normalization is lowercasing plus whitespace compaction.
+Normalization is Unicode NFKC normalization, lowercasing, and whitespace tokenization. A multi-term query requires every term to match somewhere on the same Page.
 
 ### Ranking
-Page search uses a MiniSearch index with a persisted cache plus a runtime reuse layer.
-Field boosts are:
+Core produces the final Page order. Match classes are ordered by specificity:
 
-- title: `8`
-- tags: `5`
-- assignee: `4`
-- column name: `2`
-- project name: `2`
-- description: `1`
-- Page id: `1`
+- current or historical Page key
+- exact Page id, then Page-id prefix
+- exact, prefix, then typo-tolerant title token
+- exact, prefix, then typo-tolerant Property token
+- exact or token-prefix body match
 
-Query semantics:
+Short terms do not use typo tolerance. Longer terms permit a bounded edit distance, and fewer edits rank first inside the same match class. Free-text search stays separate from palette filters; lifecycle, authorization, Project scope, and filters narrow the eligible corpus before Core applies the result bound.
 
-- multiple terms combine with `AND`
-- prefix matching is enabled for terms with length `>= 2`
-- fuzzy matching uses term-length-sensitive thresholds
-  - length `<= 3`: `0`
-  - length `4-5`: `0.1`
-  - length `> 5`: `0.2`
-- free-text search stays separate from palette filters; filters narrow the final Page result set after search ranking
+Filter semantics:
+
 - status, priority, assignee, and project filters are multi-select unions
 - tag filters support `Any`, `All`, and `None` matching modes
+- tag identity includes Data Source, Property, and option IDs so equal labels from different schemas do not collapse
 
 ### Ordering
-For non-empty queries, Page results sort by:
+For non-empty queries, Core sorts by:
 
-1. MiniSearch relevance score
+1. match specificity across all query terms
 2. active-project preference
-3. recency preference (`recentIndex`)
-4. board order (`boardIndex`)
-5. title
+3. explicit recent-Page preference
+4. body-search rank when metadata evidence is otherwise equal
+5. Page update time and stable Page identity
 
-For empty queries, Page results skip MiniSearch and sort by:
+For empty queries, Core returns suggestions ordered by:
 
 1. active-project preference
-2. recency preference
-3. board order
-4. title
+2. explicit recent-Page preference
+3. Page update time
+4. stable Page identity
 
-### Index lifecycle
-- The renderer keeps one serialized Page-search index in IndexedDB for the palette.
-- The app also keeps an in-memory copy of the most recent palette index so reopening the palette in the same session does not rebuild it.
-- When the current Page set changes, the palette hydrates the cached MiniSearch index and diffs Pages by per-Page search signature instead of rebuilding everything from scratch.
-- Signature changes include all indexed text, so Page edits plus project-name or column-name changes invalidate the affected cached entries.
-- Bounded Page-body searches use a 150 ms debounce, deduplicate identical in-flight requests, and reuse successful results for 30 seconds. Root mode requests at most `12` body candidates; focused Page mode requests at most `60`.
+### Projection lifecycle
+- SQLite remains the durable source of Page metadata, Properties, body-search rows, and authorization roots.
+- Core may reuse a derived in-memory Page-search projection only while both Store epoch and commit head still match the read snapshot. The first read after a committed change rebuilds it before answering.
+- The renderer issues one typed Core request per settled query and filter scope, deduplicates only identical concurrent requests, and does not persist, cache, or re-score Page results.
+- Root mode requests at most `12` Page results; focused Page mode requests at most `60`.
+- Filter facets come from the same authorized Core projection as search results.
 
 ## Page Result Presentation
 
@@ -146,10 +138,10 @@ Each Page result renders:
 - Page title
 - project and column subtitle
 
-If the query matched the title, project name, or column name, those matched spans are highlighted inline inside the rendered text rather than rendered as a separate badge.
+If the query matched the title, Core returns the exact display-text segments to highlight inline rather than asking the renderer to reconstruct a match.
 
 ### Secondary match indicators
-If the query matched other indexed fields, the result may render compact indicator chips for:
+If the query matched other fields, the result may render compact indicator chips from Core's typed evidence for:
 
 - `tag`
 - `assignee`
@@ -160,15 +152,15 @@ These chips render only for fields that actually matched.
 They are intentionally compact and subdued so they explain why a result appeared without overpowering the title.
 
 ### Description preview
-If the query matched description text, the result renders a contextual preview below the subtitle:
+If the query matched body or Property text, the result renders a contextual preview below the subtitle:
 
-- preview is extracted from the plain-text description
-- excerpt centers around the first matched description term
-- excerpt is trimmed with leading/trailing ellipses when taken from the middle of the description
+- excerpt is selected by Core from the authoritative matched source
+- excerpt centers around an actual matched term
+- excerpt is trimmed with leading/trailing ellipses when taken from the middle of the source
 - preview is clamped to `3` lines
-- matched spans are highlighted inline
+- Core-provided matched spans are highlighted inline
 
-If a result matched only non-description fields, no description preview is shown.
+If a result has no body or Property excerpt, no preview is shown.
 
 In root mode, Page rows stay compact: metadata badges are omitted and a body excerpt is clamped to one line. Focused Page mode retains the full Page row treatment above.
 

@@ -1001,12 +1001,9 @@ export function buildPageReferenceCandidateSuggestionItems(
   editor: unknown,
   candidates: readonly PageReferenceCandidate[],
   intent: PageReferenceIntent,
-  query: string,
   beforeSelect?: () => boolean,
 ): NfmSuggestionItem[] {
-  return presentPageReferenceCandidates(candidates, query, {
-    rank: intent === "mention",
-  }).map(
+  return presentPageReferenceCandidates(candidates).map(
     ({
       candidate,
       detail,
@@ -1078,6 +1075,26 @@ export function buildPageReferenceCandidateSuggestionItems(
   );
 }
 
+export function buildPageSearchUnavailableSuggestionItem(
+  intent: PageReferenceIntent,
+): NfmSuggestionItem {
+  return {
+    key: "page-search-unavailable",
+    title: "Pages unavailable",
+    subtext: "Page search is unavailable. Try again.",
+    group: intent === "mention" ? "Mention a page" : "Pages",
+    icon: <PageIcon className="size-4" />,
+    disabled: true,
+    mentionRank: {
+      family: "page",
+      match: "recent",
+      activeContext: false,
+      sourceOrder: 0,
+    },
+    onItemClick: () => {},
+  };
+}
+
 function usePageReferenceGetItems(
   intent: PageReferenceIntent,
   beforeSelect?: () => boolean,
@@ -1087,22 +1104,25 @@ function usePageReferenceGetItems(
   const controllerRef = useRef(createPageReferenceSearchController());
   return useCallback(async (query: string) => {
     if (!hostRuntime) return [];
-    const result = await controllerRef.current.search({
-      accessContext: hostRuntime.contentAccessContext,
-      hostPageId: hostRuntime.hostPageId,
-      ancestorPageIds: hostRuntime.ancestorPageIds,
-      intent,
-      query,
-      limit: 24,
-    });
-    if (result.status === "stale") return [];
-    return buildPageReferenceCandidateSuggestionItems(
-      editor,
-      result.items,
-      intent,
-      query,
-      beforeSelect,
-    );
+    try {
+      const result = await controllerRef.current.search({
+        accessContext: hostRuntime.contentAccessContext,
+        hostPageId: hostRuntime.hostPageId,
+        ancestorPageIds: hostRuntime.ancestorPageIds,
+        intent,
+        query,
+        limit: 24,
+      });
+      if (result.status === "stale") return [];
+      return buildPageReferenceCandidateSuggestionItems(
+        editor,
+        result.items,
+        intent,
+        beforeSelect,
+      );
+    } catch {
+      return [buildPageSearchUnavailableSuggestionItem(intent)];
+    }
   }, [beforeSelect, editor, hostRuntime, intent]);
 }
 

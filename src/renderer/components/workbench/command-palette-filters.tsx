@@ -45,6 +45,11 @@ export interface CommandPaletteProjectFilterOption {
   label: string;
 }
 
+export interface CommandPaletteTagFilterOption {
+  id: string;
+  label: string;
+}
+
 function ToolbarPopoverContent({
   children,
 }: {
@@ -133,7 +138,7 @@ export function CommandPalettePageFilterPopover({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   filters: CommandPalettePageFilters;
-  availableTags: string[];
+  availableTags: CommandPaletteTagFilterOption[];
   availableAssignees: string[];
   availableProjects: CommandPaletteProjectFilterOption[];
   disabled: boolean;
@@ -220,13 +225,13 @@ export function CommandPalettePageFilterPopover({
           ) : (
             availableTags.map((tag) => (
               <FilterChip
-                key={`tag:${tag}`}
-                active={filters.tags.includes(tag)}
-                label={tag}
+                key={`tag:${tag.id}`}
+                active={filters.tags.includes(tag.id)}
+                label={tag.label}
                 onClick={() =>
                   onChange((prev) => ({
                     ...cloneCommandPalettePageFilters(prev),
-                    tags: toggleString(prev.tags, tag),
+                    tags: toggleString(prev.tags, tag.id),
                   }))}
               />
             ))
@@ -278,13 +283,19 @@ export function CommandPalettePageFilterPopover({
 export function CommandPalettePageFiltersSummaryRow({
   filters,
   projectNameById,
+  tagNameById,
   onOpenFilter,
 }: {
   filters: CommandPalettePageFilters;
   projectNameById: ReadonlyMap<string, string>;
+  tagNameById?: ReadonlyMap<string, string>;
   onOpenFilter: () => void;
 }) {
-  const summaries = summarizeCommandPalettePageFilters(filters, projectNameById);
+  const summaries = summarizeCommandPalettePageFilters(
+    filters,
+    projectNameById,
+    tagNameById,
+  );
   if (summaries.length === 0) {
     return null;
   }

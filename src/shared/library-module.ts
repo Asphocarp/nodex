@@ -11,6 +11,7 @@ import type { DatabaseApplyOperationV2 } from "./database-module-v2";
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import type { WorkflowStatus } from "./workflow-status";
+import type { PageSearchMatch, PageSearchTextPart } from "./types";
 
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
@@ -111,6 +112,9 @@ export interface LibraryPageReferenceCandidate {
   readonly locationLabel: string;
   readonly matchExcerpt: string | null;
   readonly matchSource: LibraryPageReferenceMatchSource;
+  readonly titleParts: readonly PageSearchTextPart[];
+  readonly matchExcerptParts: readonly PageSearchTextPart[];
+  readonly matches: readonly PageSearchMatch[];
 }
 
 export type LibraryPageReferenceMatchSource =
@@ -593,6 +597,7 @@ export type LibraryModuleErrorCode =
   | "primary_database_bound"
   | "document_conflict"
   | "stale_cursor"
+  | "resource_exhausted"
   | "state_corrupt"
   | "unknown";
 

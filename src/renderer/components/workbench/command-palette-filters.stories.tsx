@@ -32,7 +32,12 @@ function CommandPaletteFiltersStory() {
           open={open}
           onOpenChange={setOpen}
           filters={filters}
-          availableTags={["sidebar", "thread", "manual", "simple"]}
+          availableTags={[
+            { id: "sidebar", label: "sidebar" },
+            { id: "thread", label: "thread" },
+            { id: "manual", label: "manual" },
+            { id: "simple", label: "simple" },
+          ]}
           availableAssignees={["Annie", "John", "Sam"]}
           availableProjects={[
             { id: "default", label: "Nodex" },

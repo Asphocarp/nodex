@@ -16,7 +16,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 26;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 27;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -645,7 +645,13 @@ pub enum LibraryRead {
     ProjectPageSearch {
         project_ids: Vec<String>,
         query: String,
+        filters: Option<LibraryProjectPageSearchFilters>,
+        preferred_project_id: Option<String>,
+        recent_page_ids: Vec<String>,
         limit: Option<u32>,
+    },
+    ProjectPageSearchFacets {
+        project_ids: Vec<String>,
     },
     PageReferenceCandidates {
         query: String,
@@ -1674,12 +1680,101 @@ pub struct LibraryProjectPageSearchHit {
     pub project_id: String,
     pub page_id: String,
     pub page_key: Option<String>,
-    pub matched_page_key: Option<String>,
-    pub matched_page_key_is_current: Option<bool>,
     pub title: String,
-    pub status: LibraryPageWorkflowStatus,
-    pub score: i64,
-    pub excerpt: String,
+    pub status: Option<LibraryPageWorkflowStatus>,
+    pub priority: Option<String>,
+    pub tags: Vec<LibraryPageSearchOption>,
+    pub assignee: Option<String>,
+    pub location_label: String,
+    pub title_parts: Vec<LibraryPageSearchTextPart>,
+    pub excerpt: Option<String>,
+    pub excerpt_parts: Vec<LibraryPageSearchTextPart>,
+    pub matches: Vec<LibraryPageSearchMatch>,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageSearchTextPart {
+    pub text: String,
+    pub highlighted: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageSearchOptionIdentity {
+    pub data_source_id: String,
+    pub property_id: String,
+    pub option_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageSearchOption {
+    pub data_source_id: String,
+    pub property_id: String,
+    pub option_id: String,
+    pub label: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageSearchTagMode {
+    Any,
+    All,
+    None,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryProjectPageSearchFilters {
+    pub statuses: Option<Vec<LibraryPageWorkflowStatus>>,
+    pub priorities: Option<Vec<String>>,
+    pub include_empty_priority: bool,
+    pub tags: Vec<LibraryPageSearchOptionIdentity>,
+    pub tag_mode: LibraryPageSearchTagMode,
+    pub assignees: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageSearchMatchQuality {
+    Exact,
+    Prefix,
+    Fuzzy,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum LibraryPageSearchMatch {
+    PageKey {
+        quality: LibraryPageSearchMatchQuality,
+        page_key: String,
+        is_current: bool,
+        parts: Vec<LibraryPageSearchTextPart>,
+    },
+    Identity {
+        quality: LibraryPageSearchMatchQuality,
+        parts: Vec<LibraryPageSearchTextPart>,
+    },
+    Title {
+        quality: LibraryPageSearchMatchQuality,
+        parts: Vec<LibraryPageSearchTextPart>,
+    },
+    Property {
+        quality: LibraryPageSearchMatchQuality,
+        property_id: String,
+        property_name: String,
+        parts: Vec<LibraryPageSearchTextPart>,
+    },
+    Body {
+        quality: LibraryPageSearchMatchQuality,
+        block_id: String,
+        block_type: String,
+        parts: Vec<LibraryPageSearchTextPart>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryProjectPageSearchFacets {
+    pub tags: Vec<LibraryPageSearchOption>,
+    pub assignees: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1691,6 +1786,9 @@ pub struct LibraryPageReferenceCandidate {
     pub location_label: String,
     pub match_excerpt: Option<String>,
     pub match_source: LibraryPageReferenceMatchSource,
+    pub title_parts: Vec<LibraryPageSearchTextPart>,
+    pub match_excerpt_parts: Vec<LibraryPageSearchTextPart>,
+    pub matches: Vec<LibraryPageSearchMatch>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1976,6 +2074,9 @@ pub enum LibraryReadValue {
     },
     ProjectPageSearch {
         items: Vec<LibraryProjectPageSearchHit>,
+    },
+    ProjectPageSearchFacets {
+        value: LibraryProjectPageSearchFacets,
     },
     PageReferenceCandidates {
         items: Vec<LibraryPageReferenceCandidate>,

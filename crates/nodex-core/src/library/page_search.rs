@@ -1,0 +1,2109 @@
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+
+use nodex_core_contracts::BoundModuleContext;
+use nodex_core_contracts::agent::AgentExecutionAuthorization;
+use nodex_core_contracts::library::{
+    LibraryAgentPageLocation, LibraryAgentPageSearchMatch, LibraryAgentSearchMatchQuality,
+    LibraryAgentSearchResult, LibraryAgentSearchScope, LibraryPageReferenceCandidate,
+    LibraryPageReferenceMatchSource, LibraryPageSearchMatch, LibraryPageSearchMatchQuality,
+    LibraryPageSearchOption, LibraryPageSearchOptionIdentity, LibraryPageSearchTagMode,
+    LibraryPageSearchTextPart, LibraryPageWorkflowStatus, LibraryProjectPageSearchFacets,
+    LibraryProjectPageSearchFilters, LibraryProjectPageSearchHit,
+};
+use rusqlite::{Connection, params};
+use serde_json::Value;
+
+use crate::database::{self, current_page_key_for_page, resolve_page_key_matches_in_library};
+use crate::domain::page_key::is_explicit_page_key_search;
+use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
+
+use super::search_match::{
+    SearchTermMatchQuality, fuzzy_distance, normalize_search_text, search_tokens,
+};
+
+const MAX_QUERY_BYTES: usize = 512;
+const MAX_QUERY_TERMS: usize = 32;
+const MAX_PROJECT_SCOPES: usize = 256;
+const MAX_RECENT_HINTS: usize = 100;
+const MAX_PAGE_RESULTS: usize = 100;
+const MAX_FTS_HITS_PER_TERM: usize = 20_000;
+const MAX_FILTER_VALUES: usize = 64;
+const MAX_IDENTITY_BYTES: usize = 512;
+
+#[derive(Clone, Default)]
+pub(super) struct PageSearchIndexRegistry {
+    state: Arc<Mutex<Option<CachedIndex>>>,
+}
+
+#[derive(Clone)]
+struct CachedIndex {
+    store_epoch: String,
+    commit_head: i64,
+    index: Arc<PageSearchIndex>,
+}
+
+#[derive(Clone, Debug)]
+struct IndexedProperty {
+    property_id: String,
+    property_name: String,
+    text: String,
+}
+
+#[derive(Clone, Debug)]
+struct IndexedPage {
+    id: String,
+    title: String,
+    preview: String,
+    lifecycle: String,
+    parent_kind: String,
+    parent_id: String,
+    updated_at: String,
+    properties: Vec<IndexedProperty>,
+    status: Option<LibraryPageWorkflowStatus>,
+    priority: Option<String>,
+    tags: Vec<LibraryPageSearchOption>,
+    assignee: Option<String>,
+    authorized_project_ids: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum MetadataField {
+    Title,
+    Property {
+        property_id: String,
+        property_name: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Posting {
+    page_id: String,
+    field: MetadataField,
+}
+
+#[derive(Default)]
+struct TokenTrieNode {
+    children: BTreeMap<char, TokenTrieNode>,
+    postings: Vec<Posting>,
+}
+
+#[derive(Default)]
+struct TokenTrie {
+    root: TokenTrieNode,
+}
+
+impl TokenTrie {
+    fn insert(&mut self, token: &str, posting: Posting) {
+        if token.is_empty() {
+            return;
+        }
+        let mut node = &mut self.root;
+        for character in token.chars() {
+            node = node.children.entry(character).or_default();
+        }
+        if !node.postings.contains(&posting) {
+            node.postings.push(posting);
+        }
+    }
+
+    fn matches(&self, term: &str, allow_fuzzy: bool) -> Vec<TokenMatch> {
+        let mut matches = Vec::new();
+        if let Some(node) = self.node(term) {
+            if !node.postings.is_empty() {
+                matches.push(TokenMatch {
+                    token: term.to_owned(),
+                    quality: SearchTermMatchQuality::Exact,
+                    edit_distance: 0,
+                    postings: node.postings.clone(),
+                });
+            }
+            if term.chars().count() >= 2 {
+                let mut prefix = term.to_owned();
+                collect_descendant_matches(node, &mut prefix, term, &mut matches);
+            }
+        }
+        if allow_fuzzy {
+            let maximum = fuzzy_distance(term);
+            if maximum > 0 {
+                let initial = (0..=term.chars().count()).collect::<Vec<_>>();
+                let target = term.chars().collect::<Vec<_>>();
+                let mut token = String::new();
+                collect_fuzzy_matches(
+                    &self.root,
+                    &target,
+                    &initial,
+                    maximum,
+                    &mut token,
+                    &mut matches,
+                );
+            }
+        }
+        let mut best = BTreeMap::<(String, String, String), TokenMatch>::new();
+        for matched in matches {
+            for posting in &matched.postings {
+                let field_key = match &posting.field {
+                    MetadataField::Title => {
+                        (posting.page_id.clone(), "title".to_owned(), String::new())
+                    }
+                    MetadataField::Property {
+                        property_id,
+                        property_name,
+                    } => (
+                        posting.page_id.clone(),
+                        property_id.clone(),
+                        property_name.clone(),
+                    ),
+                };
+                let single = TokenMatch {
+                    token: matched.token.clone(),
+                    quality: matched.quality,
+                    edit_distance: matched.edit_distance,
+                    postings: vec![posting.clone()],
+                };
+                match best.get(&field_key) {
+                    Some(existing)
+                        if (quality_rank(existing.quality), existing.edit_distance)
+                            <= (quality_rank(single.quality), single.edit_distance) => {}
+                    _ => {
+                        best.insert(field_key, single);
+                    }
+                }
+            }
+        }
+        best.into_values().collect()
+    }
+
+    fn node(&self, token: &str) -> Option<&TokenTrieNode> {
+        let mut node = &self.root;
+        for character in token.chars() {
+            node = node.children.get(&character)?;
+        }
+        Some(node)
+    }
+}
+
+#[derive(Clone)]
+struct TokenMatch {
+    token: String,
+    quality: SearchTermMatchQuality,
+    edit_distance: usize,
+    postings: Vec<Posting>,
+}
+
+fn collect_descendant_matches(
+    node: &TokenTrieNode,
+    token: &mut String,
+    exact: &str,
+    matches: &mut Vec<TokenMatch>,
+) {
+    for (character, child) in &node.children {
+        token.push(*character);
+        if !child.postings.is_empty() && token != exact {
+            matches.push(TokenMatch {
+                token: token.clone(),
+                quality: SearchTermMatchQuality::Prefix,
+                edit_distance: 0,
+                postings: child.postings.clone(),
+            });
+        }
+        collect_descendant_matches(child, token, exact, matches);
+        token.pop();
+    }
+}
+
+fn collect_fuzzy_matches(
+    node: &TokenTrieNode,
+    target: &[char],
+    previous: &[usize],
+    maximum: usize,
+    token: &mut String,
+    matches: &mut Vec<TokenMatch>,
+) {
+    for (character, child) in &node.children {
+        let mut current = Vec::with_capacity(previous.len());
+        current.push(previous[0] + 1);
+        for (index, target_character) in target.iter().enumerate() {
+            current.push(
+                (previous[index + 1] + 1)
+                    .min(current[index] + 1)
+                    .min(previous[index] + usize::from(character != target_character)),
+            );
+        }
+        if current.iter().copied().min().unwrap_or(usize::MAX) > maximum {
+            continue;
+        }
+        token.push(*character);
+        if current.last().copied().unwrap_or(usize::MAX) <= maximum && !child.postings.is_empty() {
+            matches.push(TokenMatch {
+                token: token.clone(),
+                quality: SearchTermMatchQuality::Fuzzy,
+                edit_distance: current.last().copied().unwrap_or(maximum),
+                postings: child.postings.clone(),
+            });
+        }
+        collect_fuzzy_matches(child, target, &current, maximum, token, matches);
+        token.pop();
+    }
+}
+
+pub(super) struct PageSearchIndex {
+    pages: BTreeMap<String, IndexedPage>,
+    identity_terms: BTreeMap<String, String>,
+    title_terms: TokenTrie,
+    property_terms: TokenTrie,
+    data_source_databases: HashMap<String, String>,
+}
+
+impl PageSearchIndexRegistry {
+    pub(super) fn snapshot(
+        &self,
+        connection: &Connection,
+        library_id: &str,
+        store_epoch: &str,
+        commit_head: i64,
+    ) -> Result<Arc<PageSearchIndex>, StoreError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| internal("Page search index lock is unavailable"))?;
+        if let Some(cached) = state.as_ref()
+            && cached.store_epoch == store_epoch
+            && cached.commit_head == commit_head
+        {
+            return Ok(cached.index.clone());
+        }
+        let index = Arc::new(build_index(connection, library_id)?);
+        *state = Some(CachedIndex {
+            store_epoch: store_epoch.to_owned(),
+            commit_head,
+            index: index.clone(),
+        });
+        Ok(index)
+    }
+}
+
+fn build_index(connection: &Connection, library_id: &str) -> Result<PageSearchIndex, StoreError> {
+    let pages = connection
+        .prepare(
+            "SELECT page_block_id, title, description_preview, lifecycle, parent_kind, parent_id, updated_at \
+             FROM page_read_model WHERE library_id = ?1 AND lifecycle <> 'deleted' ORDER BY page_block_id",
+        )?
+        .query_map([library_id], |row| {
+            Ok(IndexedPage {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                preview: row.get(2)?,
+                lifecycle: row.get(3)?,
+                parent_kind: row.get(4)?,
+                parent_id: row.get(5)?,
+                updated_at: row.get(6)?,
+                properties: Vec::new(),
+                status: None,
+                priority: None,
+                tags: Vec::new(),
+                assignee: None,
+                authorized_project_ids: BTreeSet::new(),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut pages = pages
+        .into_iter()
+        .map(|page| (page.id.clone(), page))
+        .collect::<BTreeMap<_, _>>();
+    let rows = connection
+        .prepare(
+            "SELECT membership.page_block_id, membership.data_source_id, property.id, property.name, \
+                    property.value_type, property.config_json, value.value_json \
+             FROM data_source_page_memberships membership \
+             JOIN data_source_properties property ON property.data_source_id = membership.data_source_id \
+               AND property.lifecycle = 'active' \
+             JOIN data_source_property_values value ON value.membership_id = membership.id \
+               AND value.property_id = property.id AND value.data_source_id = membership.data_source_id \
+             JOIN page_read_model page ON page.page_block_id = membership.page_block_id \
+               AND page.library_id = ?1 AND page.lifecycle <> 'deleted' \
+             WHERE membership.removed_at IS NULL \
+             ORDER BY membership.page_block_id, property.rank_key, property.id",
+        )?
+        .query_map([library_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (
+        page_id,
+        data_source_id,
+        property_id,
+        property_name,
+        value_type,
+        config_json,
+        value_json,
+    ) in rows
+    {
+        let Some(page) = pages.get_mut(&page_id) else {
+            continue;
+        };
+        let value = serde_json::from_str::<Value>(&value_json)
+            .map_err(|_| corrupt("Page search Property value is invalid"))?;
+        let Some((text, options)) = property_display_value(
+            &data_source_id,
+            &property_id,
+            &value_type,
+            &config_json,
+            &value,
+        )?
+        else {
+            continue;
+        };
+        if text.is_empty() {
+            continue;
+        }
+        let owns_membership = page.parent_kind == "data_source" && page.parent_id == data_source_id;
+        if owns_membership && property_id == "status" {
+            page.status = workflow_status(value.as_str());
+        } else if owns_membership && property_id == "priority" {
+            page.priority = value.as_str().map(ToOwned::to_owned);
+        } else if owns_membership && property_id == "tags" {
+            page.tags = options.clone();
+        } else if owns_membership && property_id == "assignee" {
+            page.assignee = value.as_str().map(ToOwned::to_owned);
+        }
+        page.properties.push(IndexedProperty {
+            property_id,
+            property_name,
+            text,
+        });
+    }
+
+    let data_source_databases = connection
+        .prepare("SELECT id, home_database_block_id FROM data_sources WHERE library_id = ?1")?
+        .query_map([library_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<HashMap<_, _>>>()?;
+    populate_authorized_projects(connection, library_id, &data_source_databases, &mut pages)?;
+    let mut title_terms = TokenTrie::default();
+    let mut property_terms = TokenTrie::default();
+    let mut identity_terms = BTreeMap::new();
+    for page in pages.values() {
+        identity_terms.insert(normalize_search_text(&page.id), page.id.clone());
+        for token in search_tokens(&page.title) {
+            title_terms.insert(
+                &token,
+                Posting {
+                    page_id: page.id.clone(),
+                    field: MetadataField::Title,
+                },
+            );
+        }
+        for property in &page.properties {
+            for token in search_tokens(&property.text) {
+                property_terms.insert(
+                    &token,
+                    Posting {
+                        page_id: page.id.clone(),
+                        field: MetadataField::Property {
+                            property_id: property.property_id.clone(),
+                            property_name: property.property_name.clone(),
+                        },
+                    },
+                );
+            }
+        }
+    }
+    Ok(PageSearchIndex {
+        pages,
+        identity_terms,
+        title_terms,
+        property_terms,
+        data_source_databases,
+    })
+}
+
+/// Materializes the same Project read roots used by ordinary Page reads into
+/// the commit-fenced search projection. Queries can then authorize the whole
+/// corpus before top-K selection without issuing SQL once per Page.
+fn populate_authorized_projects(
+    connection: &Connection,
+    library_id: &str,
+    data_source_databases: &HashMap<String, String>,
+    pages: &mut BTreeMap<String, IndexedPage>,
+) -> Result<(), StoreError> {
+    let mut database_projects = HashMap::<String, BTreeSet<String>>::new();
+    for (project_id, primary_database_id) in connection
+        .prepare("SELECT id, database_block_id FROM projects WHERE library_id = ?1 ORDER BY id")?
+        .query_map([library_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+    {
+        if let Some(database_id) = primary_database_id {
+            database_projects
+                .entry(database_id)
+                .or_default()
+                .insert(project_id);
+        }
+    }
+
+    let mut page_grants = HashMap::<String, BTreeSet<String>>::new();
+    for (project_id, root_kind, root_id) in connection
+        .prepare(
+            "SELECT grant_row.project_id, grant_row.root_kind, grant_row.root_id \
+             FROM project_resource_grants grant_row \
+             JOIN projects project ON project.id = grant_row.project_id \
+               AND project.library_id = grant_row.library_id \
+               AND project.library_id = ?1 \
+             WHERE grant_row.lifecycle = 'active' ORDER BY grant_row.project_id, grant_row.id",
+        )?
+        .query_map([library_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+    {
+        match root_kind.as_str() {
+            "database" => {
+                database_projects
+                    .entry(root_id)
+                    .or_default()
+                    .insert(project_id);
+            }
+            "page" => {
+                page_grants.entry(root_id).or_default().insert(project_id);
+            }
+            _ => {}
+        }
+    }
+
+    let page_ids = pages.keys().cloned().collect::<Vec<_>>();
+    for page_id in page_ids {
+        let Some((ancestors, database_id)) =
+            page_access_coordinates(pages, data_source_databases, library_id, &page_id)
+        else {
+            continue;
+        };
+        let mut authorized = BTreeSet::new();
+        if let Some(database_id) = database_id
+            && let Some(projects) = database_projects.get(&database_id)
+        {
+            authorized.extend(projects.iter().cloned());
+        }
+        for ancestor_id in ancestors {
+            if let Some(projects) = page_grants.get(&ancestor_id) {
+                authorized.extend(projects.iter().cloned());
+            }
+        }
+        if let Some(page) = pages.get_mut(&page_id) {
+            page.authorized_project_ids = authorized;
+        }
+    }
+    Ok(())
+}
+
+fn page_access_coordinates(
+    pages: &BTreeMap<String, IndexedPage>,
+    data_source_databases: &HashMap<String, String>,
+    library_id: &str,
+    page_id: &str,
+) -> Option<(Vec<String>, Option<String>)> {
+    let mut current = pages.get(page_id)?;
+    let mut ancestors = Vec::new();
+    let mut seen = HashSet::new();
+    loop {
+        if !seen.insert(current.id.clone()) {
+            return None;
+        }
+        ancestors.push(current.id.clone());
+        match current.parent_kind.as_str() {
+            "page" => current = pages.get(&current.parent_id)?,
+            "library" if current.parent_id == library_id => return Some((ancestors, None)),
+            "data_source" => {
+                let database_id = data_source_databases.get(&current.parent_id)?.clone();
+                return Some((ancestors, Some(database_id)));
+            }
+            _ => return None,
+        }
+    }
+}
+
+fn property_display_value(
+    data_source_id: &str,
+    property_id: &str,
+    value_type: &str,
+    config_json: &str,
+    value: &Value,
+) -> Result<Option<(String, Vec<LibraryPageSearchOption>)>, StoreError> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    if matches!(value_type, "select" | "multi_select") {
+        let config = database::property_semantics::option_config_from_storage(
+            property_id,
+            value_type,
+            config_json,
+        )?;
+        let registry = config
+            .options
+            .iter()
+            .map(|option| (option.id.as_str(), option.name.as_str()))
+            .collect::<HashMap<_, _>>();
+        let ids = if value_type == "select" {
+            vec![
+                value
+                    .as_str()
+                    .ok_or_else(|| corrupt("Page search select Property value is invalid"))?,
+            ]
+        } else {
+            value
+                .as_array()
+                .ok_or_else(|| corrupt("Page search multi-select Property value is invalid"))?
+                .iter()
+                .map(|item| {
+                    item.as_str().ok_or_else(|| {
+                        corrupt("Page search multi-select Property contains a non-string option")
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut selected = HashSet::new();
+        let options = ids
+            .into_iter()
+            .map(|option_id| {
+                if !selected.insert(option_id) {
+                    return Err(corrupt("Page search Property repeats an option"));
+                }
+                let label = registry
+                    .get(option_id)
+                    .copied()
+                    .ok_or_else(|| corrupt("Page search Property option is not registered"))?;
+                Ok(LibraryPageSearchOption {
+                    data_source_id: data_source_id.to_owned(),
+                    property_id: property_id.to_owned(),
+                    option_id: option_id.to_owned(),
+                    label: label.to_owned(),
+                })
+            })
+            .collect::<Result<Vec<_>, StoreError>>()?;
+        return Ok(Some((
+            options
+                .iter()
+                .map(|option| option.label.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            options,
+        )));
+    }
+    let config = serde_json::from_str::<Value>(config_json)
+        .map_err(|_| corrupt("Page search Property config is invalid"))?;
+    if !config.is_object() {
+        return Err(corrupt("Page search Property config is not an object"));
+    }
+    let display = match value_type {
+        "checkbox" => Some(
+            value
+                .as_bool()
+                .ok_or_else(|| corrupt("Page search checkbox Property value is invalid"))?
+                .to_string(),
+        ),
+        "number" => {
+            let value = value
+                .as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or_else(|| corrupt("Page search number Property value is invalid"))?;
+            Some(if value.fract() == 0.0 {
+                format!("{value:.0}")
+            } else {
+                value.to_string()
+            })
+        }
+        "text" | "date" | "datetime" => Some(
+            value
+                .as_str()
+                .ok_or_else(|| corrupt("Page search textual Property value is invalid"))?
+                .to_owned(),
+        ),
+        "relation" => None,
+        _ => return Err(corrupt("Page search Property type is unsupported")),
+    };
+    Ok(display.map(|text| (text, Vec::new())))
+}
+
+fn workflow_status(value: Option<&str>) -> Option<LibraryPageWorkflowStatus> {
+    match value {
+        Some("triage") => Some(LibraryPageWorkflowStatus::Triage),
+        Some("plan") => Some(LibraryPageWorkflowStatus::Plan),
+        Some("build") => Some(LibraryPageWorkflowStatus::Build),
+        Some("review") => Some(LibraryPageWorkflowStatus::Review),
+        Some("ship") => Some(LibraryPageWorkflowStatus::Ship),
+        _ => None,
+    }
+}
+
+#[derive(Clone)]
+struct Evidence {
+    term: String,
+    matched_token: String,
+    kind: EvidenceKind,
+    quality: SearchTermMatchQuality,
+    edit_distance: usize,
+    parts: Vec<LibraryPageSearchTextPart>,
+}
+
+#[derive(Clone)]
+enum EvidenceKind {
+    PageKey {
+        page_key: String,
+        is_current: bool,
+    },
+    Identity,
+    Title,
+    Property {
+        property_id: String,
+        property_name: String,
+    },
+    Body {
+        block_id: String,
+        block_type: String,
+    },
+}
+
+struct Aggregate {
+    page_id: String,
+    terms: HashSet<String>,
+    evidence: Vec<Evidence>,
+    body_rank: f64,
+}
+
+struct SearchOutcome {
+    aggregate: Aggregate,
+    project_id: Option<String>,
+    recent_index: Option<usize>,
+}
+
+pub(super) struct ProjectSearchRequest<'a> {
+    pub project_ids: &'a [String],
+    pub query: &'a str,
+    pub filters: Option<&'a LibraryProjectPageSearchFilters>,
+    pub preferred_project_id: Option<&'a str>,
+    pub recent_page_ids: &'a [String],
+    pub limit: Option<u32>,
+}
+
+pub(super) fn search_projects(
+    connection: &Connection,
+    index: &PageSearchIndex,
+    library_id: &str,
+    request: ProjectSearchRequest<'_>,
+) -> Result<Vec<LibraryProjectPageSearchHit>, StoreError> {
+    validate_project_request(&request)?;
+    let query = normalize_query(request.query)?;
+    let terms = unique_terms(&query)?;
+    let aggregates = search_index(connection, index, library_id, &query, &terms)?;
+    let outcomes = rank_project_outcomes(index, aggregates, &request);
+    let limit = result_limit(request.limit)?;
+    outcomes
+        .into_iter()
+        .take(limit)
+        .map(|outcome| project_hit(connection, index, library_id, outcome))
+        .collect()
+}
+
+fn rank_project_outcomes(
+    index: &PageSearchIndex,
+    aggregates: Vec<Aggregate>,
+    request: &ProjectSearchRequest<'_>,
+) -> Vec<SearchOutcome> {
+    let projects = preferred_projects(request.project_ids, request.preferred_project_id);
+    let recent = request
+        .recent_page_ids
+        .iter()
+        .enumerate()
+        .map(|(index, page_id)| (page_id.as_str(), index))
+        .collect::<HashMap<_, _>>();
+    let mut outcomes = Vec::new();
+    for aggregate in aggregates {
+        let Some(page) = index.pages.get(&aggregate.page_id) else {
+            continue;
+        };
+        if page.lifecycle != "active" || !matches_filters(page, request.filters) {
+            continue;
+        }
+        let mut project_id = None;
+        for candidate_project_id in &projects {
+            if page.authorized_project_ids.contains(candidate_project_id) {
+                project_id = Some(candidate_project_id.clone());
+                break;
+            }
+        }
+        let Some(project_id) = project_id else {
+            continue;
+        };
+        outcomes.push(SearchOutcome {
+            recent_index: recent.get(page.id.as_str()).copied(),
+            aggregate,
+            project_id: Some(project_id),
+        });
+    }
+    outcomes
+        .sort_by(|left, right| compare_outcomes(left, right, index, request.preferred_project_id));
+    outcomes
+}
+
+pub(super) fn project_facets(
+    index: &PageSearchIndex,
+    project_ids: &[String],
+) -> Result<LibraryProjectPageSearchFacets, StoreError> {
+    validate_project_ids(project_ids)?;
+    let mut tags = BTreeMap::<(String, String, String), LibraryPageSearchOption>::new();
+    let mut assignees = BTreeSet::new();
+    for page in index
+        .pages
+        .values()
+        .filter(|page| page.lifecycle == "active")
+    {
+        if !project_ids
+            .iter()
+            .any(|project_id| page.authorized_project_ids.contains(project_id))
+        {
+            continue;
+        }
+        for tag in &page.tags {
+            tags.insert(
+                (
+                    tag.data_source_id.clone(),
+                    tag.property_id.clone(),
+                    tag.option_id.clone(),
+                ),
+                tag.clone(),
+            );
+        }
+        if let Some(assignee) = page
+            .assignee
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            assignees.insert(assignee.clone());
+        }
+    }
+    let mut tags = tags.into_values().collect::<Vec<_>>();
+    tags.sort_by(|left, right| {
+        left.label
+            .cmp(&right.label)
+            .then_with(|| left.option_id.cmp(&right.option_id))
+    });
+    Ok(LibraryProjectPageSearchFacets {
+        tags,
+        assignees: assignees.into_iter().collect(),
+    })
+}
+
+pub(super) fn search_references(
+    connection: &Connection,
+    index: &PageSearchIndex,
+    library_id: &str,
+    context: &BoundModuleContext,
+    query: &str,
+    requested_limit: Option<u32>,
+    source_page_id: Option<&str>,
+) -> Result<Vec<LibraryPageReferenceCandidate>, StoreError> {
+    let query = normalize_query(query)?;
+    let terms = unique_terms(&query)?;
+    let mut aggregates = search_index(connection, index, library_id, &query, &terms)?;
+    aggregates.retain_mut(|aggregate| {
+        if source_page_id != Some(aggregate.page_id.as_str()) {
+            return true;
+        }
+        aggregate
+            .evidence
+            .retain(|evidence| !matches!(evidence.kind, EvidenceKind::Body { .. }));
+        aggregate.terms = aggregate
+            .evidence
+            .iter()
+            .map(|evidence| evidence.term.clone())
+            .collect();
+        terms.iter().all(|term| aggregate.terms.contains(term)) || terms.is_empty()
+    });
+    let mut outcomes = Vec::new();
+    for aggregate in aggregates {
+        let Some(page) = index.pages.get(&aggregate.page_id) else {
+            continue;
+        };
+        if page.lifecycle != "active" {
+            continue;
+        }
+        if let Some(project_id) = context.project_id.as_ref()
+            && !page.authorized_project_ids.contains(&project_id.0)
+        {
+            continue;
+        }
+        outcomes.push(SearchOutcome {
+            aggregate,
+            project_id: None,
+            recent_index: None,
+        });
+    }
+    outcomes.sort_by(|left, right| compare_outcomes(left, right, index, None));
+    let limit = result_limit(requested_limit)?.min(60);
+    outcomes
+        .into_iter()
+        .take(limit)
+        .map(|outcome| reference_hit(connection, index, library_id, outcome))
+        .collect()
+}
+
+pub(super) fn search_agent_pages(
+    connection: &Connection,
+    index: &PageSearchIndex,
+    context: &BoundModuleContext,
+    library_id: &str,
+    authorization: &AgentExecutionAuthorization,
+    query: &str,
+    scope: &LibraryAgentSearchScope,
+    include_archived: bool,
+) -> Result<Vec<LibraryAgentSearchResult>, StoreError> {
+    let query = normalize_query(query)?;
+    let terms = unique_terms(&query)?;
+    let aggregates = search_index(connection, index, library_id, &query, &terms)?;
+    let candidate_ids = aggregates
+        .iter()
+        .filter_map(|aggregate| index.pages.get(&aggregate.page_id))
+        .filter(|page| include_archived || page.lifecycle == "active")
+        .filter(|page| page_in_agent_scope(index, page, scope))
+        .map(|page| page.id.clone())
+        .collect::<Vec<_>>();
+    let authorized = super::agent_authorization::authorized_page_ids(
+        connection,
+        context,
+        library_id,
+        authorization,
+        &candidate_ids,
+    )?;
+    let mut outcomes = aggregates
+        .into_iter()
+        .filter(|aggregate| authorized.contains(&aggregate.page_id))
+        .filter(|aggregate| {
+            index.pages.get(&aggregate.page_id).is_some_and(|page| {
+                (include_archived || page.lifecycle == "active")
+                    && page_in_agent_scope(index, page, scope)
+            })
+        })
+        .map(|aggregate| SearchOutcome {
+            aggregate,
+            project_id: None,
+            recent_index: None,
+        })
+        .collect::<Vec<_>>();
+    outcomes.sort_by(|left, right| compare_outcomes(left, right, index, None));
+    outcomes
+        .into_iter()
+        .map(|outcome| agent_hit(connection, index, library_id, outcome))
+        .collect()
+}
+
+fn search_index(
+    connection: &Connection,
+    index: &PageSearchIndex,
+    library_id: &str,
+    query: &str,
+    terms: &[String],
+) -> Result<Vec<Aggregate>, StoreError> {
+    if terms.is_empty() {
+        return Ok(index
+            .pages
+            .values()
+            .map(|page| Aggregate {
+                page_id: page.id.clone(),
+                terms: HashSet::new(),
+                evidence: Vec::new(),
+                body_rank: 0.0,
+            })
+            .collect());
+    }
+    let mut aggregates = HashMap::<String, Aggregate>::new();
+    for resolution in resolve_page_key_matches_in_library(connection, library_id, query)? {
+        let Some(page) = index.pages.get(&resolution.page_block_id) else {
+            continue;
+        };
+        let parts = highlight_text(
+            &resolution.matched_page_key,
+            &[resolution.matched_page_key.clone()],
+        );
+        add_evidence(
+            &mut aggregates,
+            &page.id,
+            Evidence {
+                term: terms.join(" "),
+                matched_token: resolution.matched_page_key.clone(),
+                kind: EvidenceKind::PageKey {
+                    page_key: resolution.matched_page_key,
+                    is_current: resolution.is_current,
+                },
+                quality: SearchTermMatchQuality::Exact,
+                edit_distance: 0,
+                parts,
+            },
+            0.0,
+        );
+    }
+    if is_explicit_page_key_search(query) {
+        return Ok(aggregates.into_values().collect());
+    }
+    for term in terms {
+        let identity_matches = index
+            .identity_terms
+            .range(term.clone()..)
+            .take_while(|(identity, _)| identity.starts_with(term))
+            .filter(|(identity, _)| identity.as_str() == term || term.chars().count() >= 2);
+        for (identity, page_id) in identity_matches {
+            let Some(page) = index.pages.get(page_id) else {
+                continue;
+            };
+            add_evidence(
+                &mut aggregates,
+                &page.id,
+                Evidence {
+                    term: term.clone(),
+                    matched_token: identity.clone(),
+                    kind: EvidenceKind::Identity,
+                    quality: if identity == term {
+                        SearchTermMatchQuality::Exact
+                    } else {
+                        SearchTermMatchQuality::Prefix
+                    },
+                    edit_distance: 0,
+                    parts: highlight_text(&page.id, &[identity.clone()]),
+                },
+                0.0,
+            );
+        }
+        for matched in index.title_terms.matches(term, true) {
+            for posting in matched.postings {
+                let Some(page) = index.pages.get(&posting.page_id) else {
+                    continue;
+                };
+                add_evidence(
+                    &mut aggregates,
+                    &page.id,
+                    Evidence {
+                        term: term.clone(),
+                        matched_token: matched.token.clone(),
+                        kind: EvidenceKind::Title,
+                        quality: matched.quality,
+                        edit_distance: matched.edit_distance,
+                        parts: highlight_text(&page.title, &[matched.token.clone()]),
+                    },
+                    0.0,
+                );
+            }
+        }
+        for matched in index.property_terms.matches(term, true) {
+            for posting in matched.postings {
+                let MetadataField::Property {
+                    property_id,
+                    property_name,
+                } = posting.field
+                else {
+                    continue;
+                };
+                let Some(page) = index.pages.get(&posting.page_id) else {
+                    continue;
+                };
+                let Some(property) = page.properties.iter().find(|property| {
+                    property.property_id == property_id && property.property_name == property_name
+                }) else {
+                    continue;
+                };
+                add_evidence(
+                    &mut aggregates,
+                    &page.id,
+                    Evidence {
+                        term: term.clone(),
+                        matched_token: matched.token.clone(),
+                        kind: EvidenceKind::Property {
+                            property_id,
+                            property_name,
+                        },
+                        quality: matched.quality,
+                        edit_distance: matched.edit_distance,
+                        parts: highlight_text(&property.text, &[matched.token.clone()]),
+                    },
+                    0.0,
+                );
+            }
+        }
+        for hit in search_body_term(connection, library_id, term)? {
+            add_evidence(
+                &mut aggregates,
+                &hit.page_id,
+                Evidence {
+                    term: term.clone(),
+                    matched_token: hit.matched_token,
+                    kind: EvidenceKind::Body {
+                        block_id: hit.block_id,
+                        block_type: hit.block_type,
+                    },
+                    quality: hit.quality,
+                    edit_distance: 0,
+                    parts: hit.parts,
+                },
+                hit.rank,
+            );
+        }
+    }
+    Ok(aggregates
+        .into_values()
+        .filter(|aggregate| terms.iter().all(|term| aggregate.terms.contains(term)))
+        .collect())
+}
+
+fn add_evidence(
+    aggregates: &mut HashMap<String, Aggregate>,
+    page_id: &str,
+    evidence: Evidence,
+    body_rank: f64,
+) {
+    let aggregate = aggregates
+        .entry(page_id.to_owned())
+        .or_insert_with(|| Aggregate {
+            page_id: page_id.to_owned(),
+            terms: HashSet::new(),
+            evidence: Vec::new(),
+            body_rank,
+        });
+    aggregate.terms.insert(evidence.term.clone());
+    aggregate.body_rank = aggregate.body_rank.min(body_rank);
+    let duplicate = aggregate.evidence.iter().any(|existing| {
+        existing.term == evidence.term
+            && existing.matched_token == evidence.matched_token
+            && evidence_kind_key(&existing.kind) == evidence_kind_key(&evidence.kind)
+    });
+    if !duplicate {
+        aggregate.evidence.push(evidence);
+    }
+}
+
+fn evidence_kind_key(kind: &EvidenceKind) -> String {
+    match kind {
+        EvidenceKind::PageKey { page_key, .. } => format!("page_key:{page_key}"),
+        EvidenceKind::Identity => "identity".to_owned(),
+        EvidenceKind::Title => "title".to_owned(),
+        EvidenceKind::Property { property_id, .. } => format!("property:{property_id}"),
+        EvidenceKind::Body { block_id, .. } => format!("body:{block_id}"),
+    }
+}
+
+struct BodyHit {
+    page_id: String,
+    block_id: String,
+    block_type: String,
+    quality: SearchTermMatchQuality,
+    matched_token: String,
+    parts: Vec<LibraryPageSearchTextPart>,
+    rank: f64,
+}
+
+fn search_body_term(
+    connection: &Connection,
+    library_id: &str,
+    term: &str,
+) -> Result<Vec<BodyHit>, StoreError> {
+    let match_query = if term.chars().count() >= 2 {
+        format!("{}*", quote_fts_term(term))
+    } else {
+        quote_fts_term(term)
+    };
+    let mut hits = connection
+        .prepare(
+            "SELECT unit.owner_block_id, unit.block_id, source.type, \
+                    snippet(block_search_units_fts, 0, char(2), char(3), '…', 32), \
+                    bm25(block_search_units_fts) AS rank \
+             FROM block_search_units_fts \
+             JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
+             JOIN documents document ON document.id = unit.document_id AND document.library_id = unit.library_id \
+             JOIN blocks source ON source.id = unit.block_id AND source.library_id = unit.library_id \
+             JOIN blocks owner ON owner.id = unit.owner_block_id AND owner.library_id = unit.library_id \
+             WHERE block_search_units_fts MATCH ?1 AND unit.library_id = ?2 \
+               AND unit.source_kind = 'document_block' AND unit.document_id IS NOT NULL \
+               AND document.readiness = 'ready' \
+               AND document.generation = unit.document_generation \
+               AND document.head_seq = unit.projected_seq \
+               AND source.lifecycle <> 'deleted' AND owner.lifecycle <> 'deleted' \
+             ORDER BY rank, unit.owner_block_id, unit.block_id LIMIT ?3",
+        )?
+        .query_map(
+            params![match_query, library_id, (MAX_FTS_HITS_PER_TERM + 1) as i64],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, f64>(4)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if hits.len() > MAX_FTS_HITS_PER_TERM {
+        return Err(StoreError::new(
+            StoreErrorCode::ResourceExhausted,
+            "Page search term matches too many body units",
+            false,
+        ));
+    }
+    hits.drain(..)
+        .map(|(page_id, block_id, block_type, excerpt, rank)| {
+            if !rank.is_finite() {
+                return Err(corrupt("Page search FTS rank is invalid"));
+            }
+            let (parts, matched_tokens) = parse_fts_parts(&excerpt);
+            let matched_token = matched_tokens
+                .first()
+                .cloned()
+                .unwrap_or_else(|| term.to_owned());
+            let quality = if matched_tokens
+                .iter()
+                .any(|token| normalize_search_text(token) == term)
+            {
+                SearchTermMatchQuality::Exact
+            } else {
+                SearchTermMatchQuality::Prefix
+            };
+            Ok(BodyHit {
+                page_id,
+                block_id,
+                block_type,
+                quality,
+                matched_token,
+                parts,
+                rank,
+            })
+        })
+        .collect()
+}
+
+fn quote_fts_term(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn parse_fts_parts(excerpt: &str) -> (Vec<LibraryPageSearchTextPart>, Vec<String>) {
+    let mut parts = Vec::new();
+    let mut matched = Vec::new();
+    let mut buffer = String::new();
+    let mut highlighted = false;
+    for character in excerpt.chars() {
+        if character == '\u{2}' || character == '\u{3}' {
+            if !buffer.is_empty() {
+                if highlighted {
+                    matched.push(buffer.clone());
+                }
+                push_part(&mut parts, std::mem::take(&mut buffer), highlighted);
+            }
+            highlighted = character == '\u{2}';
+            continue;
+        }
+        buffer.push(character);
+    }
+    if !buffer.is_empty() {
+        if highlighted {
+            matched.push(buffer.clone());
+        }
+        push_part(&mut parts, buffer, highlighted);
+    }
+    (parts, matched)
+}
+
+fn highlight_text(text: &str, matched_tokens: &[String]) -> Vec<LibraryPageSearchTextPart> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let matched = matched_tokens
+        .iter()
+        .map(|token| normalize_search_text(token))
+        .collect::<HashSet<_>>();
+    let mut parts = Vec::new();
+    let mut buffer = String::new();
+    let mut current_highlight = None;
+    for token in split_preserving_whitespace(text) {
+        let normalized = normalize_search_text(token);
+        let highlight = !normalized.is_empty() && matched.contains(&normalized);
+        if current_highlight == Some(highlight) || current_highlight.is_none() {
+            buffer.push_str(token);
+            current_highlight = Some(highlight);
+            continue;
+        }
+        push_part(
+            &mut parts,
+            std::mem::take(&mut buffer),
+            current_highlight.unwrap_or(false),
+        );
+        buffer.push_str(token);
+        current_highlight = Some(highlight);
+    }
+    if !buffer.is_empty() {
+        push_part(&mut parts, buffer, current_highlight.unwrap_or(false));
+    }
+    parts
+}
+
+fn split_preserving_whitespace(value: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut whitespace = None;
+    for (index, character) in value.char_indices() {
+        let next = character.is_whitespace();
+        if whitespace.is_some_and(|current| current != next) {
+            parts.push(&value[start..index]);
+            start = index;
+        }
+        whitespace = Some(next);
+    }
+    if start < value.len() {
+        parts.push(&value[start..]);
+    }
+    parts
+}
+
+fn push_part(parts: &mut Vec<LibraryPageSearchTextPart>, text: String, highlighted: bool) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(last) = parts.last_mut()
+        && last.highlighted == highlighted
+    {
+        last.text.push_str(&text);
+        return;
+    }
+    parts.push(LibraryPageSearchTextPart { text, highlighted });
+}
+
+fn matches_filters(page: &IndexedPage, filters: Option<&LibraryProjectPageSearchFilters>) -> bool {
+    let Some(filters) = filters else {
+        return true;
+    };
+    if let Some(statuses) = filters.statuses.as_ref()
+        && !page.status.is_some_and(|status| statuses.contains(&status))
+    {
+        return false;
+    }
+    if let Some(priorities) = filters.priorities.as_ref() {
+        match page.priority.as_ref() {
+            Some(priority) if priorities.contains(priority) => {}
+            None if filters.include_empty_priority => {}
+            _ => return false,
+        }
+    }
+    if !filters.assignees.is_empty()
+        && !page
+            .assignee
+            .as_ref()
+            .is_some_and(|assignee| filters.assignees.contains(assignee))
+    {
+        return false;
+    }
+    if filters.tags.is_empty() {
+        return true;
+    }
+    let selected = page
+        .tags
+        .iter()
+        .map(option_identity)
+        .collect::<HashSet<_>>();
+    let requested = filters.tags.iter().map(filter_identity).collect::<Vec<_>>();
+    match filters.tag_mode {
+        LibraryPageSearchTagMode::Any => {
+            requested.iter().any(|identity| selected.contains(identity))
+        }
+        LibraryPageSearchTagMode::All => {
+            requested.iter().all(|identity| selected.contains(identity))
+        }
+        LibraryPageSearchTagMode::None => requested
+            .iter()
+            .all(|identity| !selected.contains(identity)),
+    }
+}
+
+fn option_identity(option: &LibraryPageSearchOption) -> (String, String, String) {
+    (
+        option.data_source_id.clone(),
+        option.property_id.clone(),
+        option.option_id.clone(),
+    )
+}
+
+fn filter_identity(option: &LibraryPageSearchOptionIdentity) -> (String, String, String) {
+    (
+        option.data_source_id.clone(),
+        option.property_id.clone(),
+        option.option_id.clone(),
+    )
+}
+
+fn compare_outcomes(
+    left: &SearchOutcome,
+    right: &SearchOutcome,
+    index: &PageSearchIndex,
+    preferred_project_id: Option<&str>,
+) -> Ordering {
+    let left_page = index
+        .pages
+        .get(&left.aggregate.page_id)
+        .expect("indexed Page");
+    let right_page = index
+        .pages
+        .get(&right.aggregate.page_id)
+        .expect("indexed Page");
+    if left.aggregate.evidence.is_empty() && right.aggregate.evidence.is_empty() {
+        return compare_context(left, right, preferred_project_id)
+            .then_with(|| right_page.updated_at.cmp(&left_page.updated_at))
+            .then_with(|| left_page.id.cmp(&right_page.id));
+    }
+    aggregate_rank(&left.aggregate)
+        .cmp(&aggregate_rank(&right.aggregate))
+        .then_with(|| compare_context(left, right, preferred_project_id))
+        .then_with(|| {
+            left.aggregate
+                .body_rank
+                .total_cmp(&right.aggregate.body_rank)
+        })
+        .then_with(|| right_page.updated_at.cmp(&left_page.updated_at))
+        .then_with(|| left_page.id.cmp(&right_page.id))
+}
+
+fn compare_context(
+    left: &SearchOutcome,
+    right: &SearchOutcome,
+    preferred: Option<&str>,
+) -> Ordering {
+    let preferred_rank = |outcome: &SearchOutcome| {
+        usize::from(outcome.project_id.as_deref() != preferred || preferred.is_none())
+    };
+    preferred_rank(left)
+        .cmp(&preferred_rank(right))
+        .then_with(|| {
+            left.recent_index
+                .unwrap_or(usize::MAX)
+                .cmp(&right.recent_index.unwrap_or(usize::MAX))
+        })
+}
+
+fn aggregate_rank(aggregate: &Aggregate) -> (usize, usize, usize, usize, usize) {
+    let mut best_by_term = HashMap::<&str, (usize, usize)>::new();
+    for evidence in &aggregate.evidence {
+        let candidate = (evidence_rank(evidence), evidence.edit_distance);
+        best_by_term
+            .entry(&evidence.term)
+            .and_modify(|best| *best = (*best).min(candidate))
+            .or_insert(candidate);
+    }
+    let mut ranks = best_by_term.values().copied().collect::<Vec<_>>();
+    ranks.sort_unstable();
+    (
+        ranks
+            .iter()
+            .map(|(rank, _)| *rank)
+            .max()
+            .unwrap_or(usize::MAX),
+        ranks
+            .iter()
+            .map(|(_, edit_distance)| *edit_distance)
+            .max()
+            .unwrap_or(0),
+        ranks.iter().map(|(rank, _)| *rank).sum(),
+        ranks.iter().map(|(_, edit_distance)| *edit_distance).sum(),
+        usize::MAX - aggregate.evidence.len().min(usize::MAX),
+    )
+}
+
+fn evidence_rank(evidence: &Evidence) -> usize {
+    match (&evidence.kind, evidence.quality) {
+        (EvidenceKind::PageKey { .. }, _) => 0,
+        (EvidenceKind::Identity, SearchTermMatchQuality::Exact) => 1,
+        (EvidenceKind::Identity, _) => 2,
+        (EvidenceKind::Title, SearchTermMatchQuality::Exact) => 3,
+        (EvidenceKind::Title, SearchTermMatchQuality::Prefix) => 4,
+        (EvidenceKind::Title, SearchTermMatchQuality::Fuzzy) => 5,
+        (EvidenceKind::Property { .. }, SearchTermMatchQuality::Exact) => 6,
+        (EvidenceKind::Property { .. }, SearchTermMatchQuality::Prefix) => 7,
+        (EvidenceKind::Property { .. }, SearchTermMatchQuality::Fuzzy) => 8,
+        (EvidenceKind::Body { .. }, SearchTermMatchQuality::Exact) => 9,
+        (EvidenceKind::Body { .. }, _) => 10,
+    }
+}
+
+fn quality_rank(quality: SearchTermMatchQuality) -> usize {
+    match quality {
+        SearchTermMatchQuality::Exact => 0,
+        SearchTermMatchQuality::Prefix => 1,
+        SearchTermMatchQuality::Fuzzy => 2,
+    }
+}
+
+fn project_hit(
+    connection: &Connection,
+    index: &PageSearchIndex,
+    library_id: &str,
+    outcome: SearchOutcome,
+) -> Result<LibraryProjectPageSearchHit, StoreError> {
+    let page = index
+        .pages
+        .get(&outcome.aggregate.page_id)
+        .ok_or_else(|| corrupt("Page search result disappeared"))?;
+    let matches = representative_evidence(&outcome.aggregate.evidence);
+    let title_parts = title_parts(page, &outcome.aggregate.evidence);
+    let (excerpt, excerpt_parts) = excerpt_parts(page, &outcome.aggregate.evidence);
+    Ok(LibraryProjectPageSearchHit {
+        project_id: outcome
+            .project_id
+            .ok_or_else(|| corrupt("Project Page search result has no access context"))?,
+        page_id: page.id.clone(),
+        page_key: current_page_key_for_page(connection, library_id, &page.id)?,
+        title: page.title.clone(),
+        status: page.status,
+        priority: page.priority.clone(),
+        tags: page.tags.clone(),
+        assignee: page.assignee.clone(),
+        location_label: super::navigation::move_destination_path(connection, library_id, &page.id)?
+            .join(" / "),
+        title_parts,
+        excerpt,
+        excerpt_parts,
+        matches,
+        updated_at: page.updated_at.clone(),
+    })
+}
+
+fn reference_hit(
+    connection: &Connection,
+    index: &PageSearchIndex,
+    library_id: &str,
+    outcome: SearchOutcome,
+) -> Result<LibraryPageReferenceCandidate, StoreError> {
+    let page = index
+        .pages
+        .get(&outcome.aggregate.page_id)
+        .ok_or_else(|| corrupt("Page reference result disappeared"))?;
+    let matches = representative_evidence(&outcome.aggregate.evidence);
+    let title_parts = title_parts(page, &outcome.aggregate.evidence);
+    let (match_excerpt, match_excerpt_parts) = excerpt_parts(page, &outcome.aggregate.evidence);
+    let match_source = strongest_source(&outcome.aggregate.evidence);
+    Ok(LibraryPageReferenceCandidate {
+        page_id: page.id.clone(),
+        title: page.title.clone(),
+        page_key: current_page_key_for_page(connection, library_id, &page.id)?,
+        status: page.status,
+        location_label: super::navigation::move_destination_path(connection, library_id, &page.id)?
+            .join(" / "),
+        match_excerpt,
+        match_source,
+        title_parts,
+        match_excerpt_parts,
+        matches,
+    })
+}
+
+fn agent_hit(
+    connection: &Connection,
+    index: &PageSearchIndex,
+    library_id: &str,
+    outcome: SearchOutcome,
+) -> Result<LibraryAgentSearchResult, StoreError> {
+    let page = index
+        .pages
+        .get(&outcome.aggregate.page_id)
+        .ok_or_else(|| corrupt("Agent Page search result disappeared"))?;
+    let location = match page.parent_kind.as_str() {
+        "library" => LibraryAgentPageLocation::Library {
+            library_id: library_id.to_owned(),
+        },
+        "page" => LibraryAgentPageLocation::Page {
+            page_id: page.parent_id.clone(),
+        },
+        "data_source" => LibraryAgentPageLocation::DataSource {
+            data_source_id: page.parent_id.clone(),
+        },
+        _ => return Err(corrupt("Agent Page search result has an invalid location")),
+    };
+    Ok(LibraryAgentSearchResult::Page {
+        id: page.id.clone(),
+        page_key: current_page_key_for_page(connection, library_id, &page.id)?,
+        title: page.title.clone(),
+        location,
+        matches: representative_evidence(&outcome.aggregate.evidence)
+            .into_iter()
+            .take(3)
+            .map(agent_evidence)
+            .collect(),
+    })
+}
+
+fn representative_evidence(evidence: &[Evidence]) -> Vec<LibraryPageSearchMatch> {
+    let mut evidence = evidence.to_vec();
+    evidence.sort_by(|left, right| {
+        evidence_rank(left)
+            .cmp(&evidence_rank(right))
+            .then_with(|| left.term.cmp(&right.term))
+            .then_with(|| evidence_kind_key(&left.kind).cmp(&evidence_kind_key(&right.kind)))
+    });
+    let mut seen = HashSet::new();
+    evidence
+        .into_iter()
+        .filter(|evidence| seen.insert((evidence.term.clone(), evidence_kind_key(&evidence.kind))))
+        .map(contract_evidence)
+        .collect()
+}
+
+fn contract_evidence(evidence: Evidence) -> LibraryPageSearchMatch {
+    let quality = contract_quality(evidence.quality);
+    match evidence.kind {
+        EvidenceKind::PageKey {
+            page_key,
+            is_current,
+        } => LibraryPageSearchMatch::PageKey {
+            quality,
+            page_key,
+            is_current,
+            parts: evidence.parts,
+        },
+        EvidenceKind::Identity => LibraryPageSearchMatch::Identity {
+            quality,
+            parts: evidence.parts,
+        },
+        EvidenceKind::Title => LibraryPageSearchMatch::Title {
+            quality,
+            parts: evidence.parts,
+        },
+        EvidenceKind::Property {
+            property_id,
+            property_name,
+        } => LibraryPageSearchMatch::Property {
+            quality,
+            property_id,
+            property_name,
+            parts: evidence.parts,
+        },
+        EvidenceKind::Body {
+            block_id,
+            block_type,
+        } => LibraryPageSearchMatch::Body {
+            quality,
+            block_id,
+            block_type,
+            parts: evidence.parts,
+        },
+    }
+}
+
+fn agent_evidence(evidence: LibraryPageSearchMatch) -> LibraryAgentPageSearchMatch {
+    match evidence {
+        LibraryPageSearchMatch::PageKey {
+            quality,
+            page_key,
+            is_current,
+            ..
+        } => LibraryAgentPageSearchMatch::PageKey {
+            quality: agent_quality(quality),
+            page_key,
+            is_current,
+        },
+        LibraryPageSearchMatch::Identity { quality, parts } => {
+            LibraryAgentPageSearchMatch::Identity {
+                quality: agent_quality(quality),
+                excerpt: join_parts(&parts),
+            }
+        }
+        LibraryPageSearchMatch::Title { quality, parts } => LibraryAgentPageSearchMatch::Title {
+            quality: agent_quality(quality),
+            excerpt: join_parts(&parts),
+        },
+        LibraryPageSearchMatch::Property {
+            quality,
+            property_id,
+            property_name,
+            parts,
+        } => LibraryAgentPageSearchMatch::Property {
+            quality: agent_quality(quality),
+            property_id,
+            property_name,
+            excerpt: join_parts(&parts),
+        },
+        LibraryPageSearchMatch::Body {
+            quality,
+            block_id,
+            block_type,
+            parts,
+        } => LibraryAgentPageSearchMatch::Body {
+            quality: agent_quality(quality),
+            block_id,
+            block_type,
+            excerpt: join_parts(&parts),
+        },
+    }
+}
+
+fn join_parts(parts: &[LibraryPageSearchTextPart]) -> String {
+    parts.iter().map(|part| part.text.as_str()).collect()
+}
+
+fn title_parts(page: &IndexedPage, evidence: &[Evidence]) -> Vec<LibraryPageSearchTextPart> {
+    let tokens = evidence
+        .iter()
+        .filter(|evidence| matches!(evidence.kind, EvidenceKind::Title))
+        .map(|evidence| evidence.matched_token.clone())
+        .collect::<Vec<_>>();
+    highlight_text(&page.title, &tokens)
+}
+
+fn excerpt_parts(
+    page: &IndexedPage,
+    evidence: &[Evidence],
+) -> (Option<String>, Vec<LibraryPageSearchTextPart>) {
+    if let Some(body) = evidence
+        .iter()
+        .filter(|evidence| matches!(evidence.kind, EvidenceKind::Body { .. }))
+        .min_by_key(|evidence| evidence_rank(evidence))
+    {
+        let excerpt = join_parts(&body.parts);
+        return (Some(excerpt), body.parts.clone());
+    }
+    if let Some(property) = evidence
+        .iter()
+        .filter(|evidence| matches!(evidence.kind, EvidenceKind::Property { .. }))
+        .min_by_key(|evidence| evidence_rank(evidence))
+    {
+        let excerpt = join_parts(&property.parts);
+        return (Some(excerpt), property.parts.clone());
+    }
+    if evidence.iter().any(|evidence| {
+        matches!(
+            evidence.kind,
+            EvidenceKind::Title | EvidenceKind::PageKey { .. } | EvidenceKind::Identity
+        )
+    }) {
+        return (Some(page.title.clone()), title_parts(page, evidence));
+    }
+    if page.preview.is_empty() {
+        return (None, Vec::new());
+    }
+    (
+        Some(page.preview.clone()),
+        vec![LibraryPageSearchTextPart {
+            text: page.preview.clone(),
+            highlighted: false,
+        }],
+    )
+}
+
+fn strongest_source(evidence: &[Evidence]) -> LibraryPageReferenceMatchSource {
+    let Some(strongest) = evidence
+        .iter()
+        .min_by_key(|evidence| evidence_rank(evidence))
+    else {
+        return LibraryPageReferenceMatchSource::Recent;
+    };
+    match strongest.kind {
+        EvidenceKind::PageKey { .. } => LibraryPageReferenceMatchSource::PageKey,
+        EvidenceKind::Identity | EvidenceKind::Title | EvidenceKind::Property { .. } => {
+            LibraryPageReferenceMatchSource::Title
+        }
+        EvidenceKind::Body { .. } => LibraryPageReferenceMatchSource::Content,
+    }
+}
+
+fn contract_quality(quality: SearchTermMatchQuality) -> LibraryPageSearchMatchQuality {
+    match quality {
+        SearchTermMatchQuality::Exact => LibraryPageSearchMatchQuality::Exact,
+        SearchTermMatchQuality::Prefix => LibraryPageSearchMatchQuality::Prefix,
+        SearchTermMatchQuality::Fuzzy => LibraryPageSearchMatchQuality::Fuzzy,
+    }
+}
+
+fn agent_quality(quality: LibraryPageSearchMatchQuality) -> LibraryAgentSearchMatchQuality {
+    match quality {
+        LibraryPageSearchMatchQuality::Exact => LibraryAgentSearchMatchQuality::Exact,
+        LibraryPageSearchMatchQuality::Prefix => LibraryAgentSearchMatchQuality::Prefix,
+        LibraryPageSearchMatchQuality::Fuzzy => LibraryAgentSearchMatchQuality::Fuzzy,
+    }
+}
+
+fn page_in_agent_scope(
+    index: &PageSearchIndex,
+    page: &IndexedPage,
+    scope: &LibraryAgentSearchScope,
+) -> bool {
+    match scope {
+        LibraryAgentSearchScope::Library => true,
+        LibraryAgentSearchScope::Page { page_id } => &page.id == page_id,
+        LibraryAgentSearchScope::DataSource { data_source_id } => terminal_parent(index, page)
+            .is_some_and(|(kind, id)| kind == "data_source" && id == data_source_id),
+        LibraryAgentSearchScope::Database { database_id } => terminal_parent(index, page)
+            .and_then(|(kind, id)| (kind == "data_source").then_some(id))
+            .and_then(|data_source_id| index.data_source_databases.get(data_source_id))
+            .is_some_and(|candidate| candidate == database_id),
+    }
+}
+
+fn terminal_parent<'a>(
+    index: &'a PageSearchIndex,
+    page: &'a IndexedPage,
+) -> Option<(&'a str, &'a str)> {
+    let mut current = page;
+    let mut seen = HashSet::new();
+    loop {
+        if current.parent_kind != "page" {
+            return Some((current.parent_kind.as_str(), current.parent_id.as_str()));
+        }
+        if !seen.insert(current.id.as_str()) {
+            return None;
+        }
+        current = index.pages.get(&current.parent_id)?;
+    }
+}
+
+fn validate_project_request(request: &ProjectSearchRequest<'_>) -> Result<(), StoreError> {
+    validate_project_ids(request.project_ids)?;
+    validate_filters(request.filters)?;
+    if request.recent_page_ids.len() > MAX_RECENT_HINTS {
+        return Err(invalid("Page search has too many recent Page hints"));
+    }
+    validate_unique_identities(request.recent_page_ids, "Page search recent Page")?;
+    if let Some(preferred) = request.preferred_project_id
+        && !request
+            .project_ids
+            .iter()
+            .any(|project_id| project_id == preferred)
+    {
+        return Err(invalid(
+            "Page search preferred Project is outside its scope",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_project_ids(project_ids: &[String]) -> Result<(), StoreError> {
+    if project_ids.is_empty() || project_ids.len() > MAX_PROJECT_SCOPES {
+        return Err(invalid("Page search Project scope is out of range"));
+    }
+    let mut unique = HashSet::new();
+    for project_id in project_ids {
+        if project_id.is_empty()
+            || project_id.len() > MAX_IDENTITY_BYTES
+            || project_id.trim() != project_id
+        {
+            return Err(invalid("Page search Project identity is invalid"));
+        }
+        if !unique.insert(project_id) {
+            return Err(invalid("Page search repeats a Project scope"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_filters(filters: Option<&LibraryProjectPageSearchFilters>) -> Result<(), StoreError> {
+    let Some(filters) = filters else {
+        return Ok(());
+    };
+    if filters
+        .statuses
+        .as_ref()
+        .is_some_and(|statuses| statuses.len() > MAX_FILTER_VALUES)
+        || filters
+            .priorities
+            .as_ref()
+            .is_some_and(|priorities| priorities.len() > MAX_FILTER_VALUES)
+        || filters.tags.len() > MAX_FILTER_VALUES
+        || filters.assignees.len() > MAX_FILTER_VALUES
+    {
+        return Err(invalid("Page search filter exceeds its value bound"));
+    }
+    if let Some(statuses) = filters.statuses.as_ref() {
+        let mut unique = Vec::new();
+        for status in statuses {
+            if unique.contains(status) {
+                return Err(invalid("Page search repeats a status filter"));
+            }
+            unique.push(*status);
+        }
+    }
+    if let Some(priorities) = filters.priorities.as_ref() {
+        let allowed = ["p0-critical", "p1-high", "p2-medium", "p3-low"];
+        validate_unique_identities(priorities, "Page search priority")?;
+        if priorities
+            .iter()
+            .any(|priority| !allowed.contains(&priority.as_str()))
+        {
+            return Err(invalid("Page search priority filter is invalid"));
+        }
+    }
+    let mut tag_identities = HashSet::new();
+    for tag in &filters.tags {
+        for (value, label) in [
+            (&tag.data_source_id, "data source"),
+            (&tag.property_id, "Property"),
+            (&tag.option_id, "option"),
+        ] {
+            validate_identity(value, &format!("Page search tag {label}"))?;
+        }
+        if !tag_identities.insert(filter_identity(tag)) {
+            return Err(invalid("Page search repeats a tag filter"));
+        }
+    }
+    validate_unique_identities(&filters.assignees, "Page search assignee")?;
+    Ok(())
+}
+
+fn validate_unique_identities(values: &[String], label: &str) -> Result<(), StoreError> {
+    let mut unique = HashSet::new();
+    for value in values {
+        validate_identity(value, label)?;
+        if !unique.insert(value) {
+            return Err(invalid(&format!("{label} filter is repeated")));
+        }
+    }
+    Ok(())
+}
+
+fn validate_identity(value: &str, label: &str) -> Result<(), StoreError> {
+    if value.is_empty() || value.len() > MAX_IDENTITY_BYTES || value.trim() != value {
+        return Err(invalid(&format!("{label} identity is invalid")));
+    }
+    Ok(())
+}
+
+fn normalize_query(query: &str) -> Result<String, StoreError> {
+    if query.len() > MAX_QUERY_BYTES {
+        return Err(invalid("Page search query exceeds its UTF-8 byte bound"));
+    }
+    Ok(normalize_search_text(query))
+}
+
+fn unique_terms(query: &str) -> Result<Vec<String>, StoreError> {
+    let mut terms = Vec::new();
+    for term in search_tokens(query) {
+        if !terms.contains(&term) {
+            terms.push(term);
+        }
+    }
+    if terms.len() > MAX_QUERY_TERMS {
+        return Err(invalid("Page search query has too many terms"));
+    }
+    Ok(terms)
+}
+
+fn result_limit(limit: Option<u32>) -> Result<usize, StoreError> {
+    let limit = usize::try_from(limit.unwrap_or(20))
+        .map_err(|_| invalid("Page search limit is invalid"))?;
+    if limit == 0 || limit > MAX_PAGE_RESULTS {
+        return Err(invalid("Page search limit is out of range"));
+    }
+    Ok(limit)
+}
+
+fn preferred_projects(project_ids: &[String], preferred: Option<&str>) -> Vec<String> {
+    let mut projects = project_ids.to_vec();
+    if let Some(preferred) = preferred
+        && let Some(index) = projects
+            .iter()
+            .position(|project_id| project_id == preferred)
+    {
+        let project = projects.remove(index);
+        projects.insert(0, project);
+    }
+    projects
+}
+
+fn invalid(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::InvalidInput, message, false)
+}
+
+fn corrupt(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
+fn internal(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::Internal, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+    use nodex_core_contracts::library::{
+        LibraryPageSearchTagMode, LibraryPageWorkflowStatus, LibraryProjectPageSearchFilters,
+    };
+
+    use super::{
+        Aggregate, Evidence, EvidenceKind, IndexedPage, MetadataField, PageSearchIndex, Posting,
+        ProjectSearchRequest, SearchTermMatchQuality, TokenTrie, aggregate_rank, highlight_text,
+        rank_project_outcomes,
+    };
+
+    #[test]
+    fn fuzzy_trie_returns_actual_title_token_without_scanning_pages() {
+        let mut trie = TokenTrie::default();
+        trie.insert(
+            "canonical",
+            Posting {
+                page_id: "page-1".to_owned(),
+                field: MetadataField::Title,
+            },
+        );
+        let matches = trie.matches("canoncal", true);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].token, "canonical");
+    }
+
+    #[test]
+    fn highlight_parts_preserve_original_unicode_text() {
+        assert_eq!(
+            highlight_text("讨论 Canonical ✅", &["canonical".to_owned()]),
+            vec![
+                nodex_core_contracts::library::LibraryPageSearchTextPart {
+                    text: "讨论 ".to_owned(),
+                    highlighted: false,
+                },
+                nodex_core_contracts::library::LibraryPageSearchTextPart {
+                    text: "Canonical".to_owned(),
+                    highlighted: true,
+                },
+                nodex_core_contracts::library::LibraryPageSearchTextPart {
+                    text: " ✅".to_owned(),
+                    highlighted: false,
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn strongest_evidence_for_each_term_determines_rank() {
+        let evidence = |kind, quality| Evidence {
+            term: "canonical".to_owned(),
+            matched_token: "canonical".to_owned(),
+            kind,
+            quality,
+            edit_distance: 0,
+            parts: Vec::new(),
+        };
+        let title_and_body = Aggregate {
+            page_id: "page:title".to_owned(),
+            terms: HashSet::from(["canonical".to_owned()]),
+            evidence: vec![
+                evidence(EvidenceKind::Title, SearchTermMatchQuality::Exact),
+                evidence(
+                    EvidenceKind::Body {
+                        block_id: "block:body".to_owned(),
+                        block_type: "text".to_owned(),
+                    },
+                    SearchTermMatchQuality::Prefix,
+                ),
+            ],
+            body_rank: -1.0,
+        };
+        let property_only = Aggregate {
+            page_id: "page:property".to_owned(),
+            terms: HashSet::from(["canonical".to_owned()]),
+            evidence: vec![evidence(
+                EvidenceKind::Property {
+                    property_id: "summary".to_owned(),
+                    property_name: "Summary".to_owned(),
+                },
+                SearchTermMatchQuality::Exact,
+            )],
+            body_rank: 0.0,
+        };
+
+        assert!(aggregate_rank(&title_and_body) < aggregate_rank(&property_only));
+    }
+
+    #[test]
+    fn authorization_and_filters_run_before_top_k_without_a_page_candidate_cliff() {
+        let mut pages = BTreeMap::new();
+        let mut aggregates = Vec::new();
+        for index in 0..=6_000 {
+            let page_id = format!("page:{index:04}");
+            let eligible = index == 6_000;
+            pages.insert(
+                page_id.clone(),
+                IndexedPage {
+                    id: page_id.clone(),
+                    title: "Needle".to_owned(),
+                    preview: String::new(),
+                    lifecycle: "active".to_owned(),
+                    parent_kind: "library".to_owned(),
+                    parent_id: "library:test".to_owned(),
+                    updated_at: format!("2026-08-17T00:{:02}:00.000Z", index % 60),
+                    properties: Vec::new(),
+                    status: Some(if index >= 3_000 {
+                        if eligible {
+                            LibraryPageWorkflowStatus::Ship
+                        } else {
+                            LibraryPageWorkflowStatus::Plan
+                        }
+                    } else {
+                        LibraryPageWorkflowStatus::Ship
+                    }),
+                    priority: None,
+                    tags: Vec::new(),
+                    assignee: None,
+                    authorized_project_ids: if index >= 3_000 {
+                        BTreeSet::from(["project:test".to_owned()])
+                    } else {
+                        BTreeSet::new()
+                    },
+                },
+            );
+            aggregates.push(Aggregate {
+                page_id,
+                terms: HashSet::from(["needle".to_owned()]),
+                evidence: vec![Evidence {
+                    term: "needle".to_owned(),
+                    matched_token: "needle".to_owned(),
+                    kind: EvidenceKind::Title,
+                    quality: SearchTermMatchQuality::Exact,
+                    edit_distance: 0,
+                    parts: Vec::new(),
+                }],
+                body_rank: 0.0,
+            });
+        }
+        let index = PageSearchIndex {
+            pages,
+            identity_terms: BTreeMap::new(),
+            title_terms: TokenTrie::default(),
+            property_terms: TokenTrie::default(),
+            data_source_databases: HashMap::new(),
+        };
+        let project_ids = vec!["project:test".to_owned()];
+        let filters = LibraryProjectPageSearchFilters {
+            statuses: Some(vec![LibraryPageWorkflowStatus::Ship]),
+            priorities: None,
+            include_empty_priority: true,
+            tags: Vec::new(),
+            tag_mode: LibraryPageSearchTagMode::Any,
+            assignees: Vec::new(),
+        };
+        let outcomes = rank_project_outcomes(
+            &index,
+            aggregates,
+            &ProjectSearchRequest {
+                project_ids: &project_ids,
+                query: "needle",
+                filters: Some(&filters),
+                preferred_project_id: Some("project:test"),
+                recent_page_ids: &[],
+                limit: Some(1),
+            },
+        );
+
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].aggregate.page_id, "page:6000");
+    }
+}

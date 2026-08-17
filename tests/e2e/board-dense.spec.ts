@@ -657,6 +657,54 @@ test("materializes and opens the authoritative board/dense environment", async (
     })).toContain("Related Page");
     await expect(page.getByText("Change Page…", { exact: true })).toHaveCount(0);
     await sourceTab.click();
+    await page.keyboard.press("Meta+P");
+    const commandPalette = page.getByRole("dialog", { name: "Command palette" });
+    const commandPaletteSearch = page.locator(
+      'input[aria-label="Command palette search"]:visible',
+    );
+    await expect(commandPalette).toBeVisible();
+    await commandPaletteSearch.fill("causal");
+    const bodySearchResult = page.getByRole("option", {
+      name: /Keep projection updates bounded/u,
+    });
+    await expect(bodySearchResult).toBeVisible();
+    await expect(bodySearchResult.getByText("causal", { exact: true })).toBeVisible();
+
+    await commandPaletteSearch.fill("isolated");
+    await page.getByRole("button", { name: "Filter pages" }).click();
+    await page.getByRole("button", { name: "Ship", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("No matching pages.", { exact: true }))
+      .toBeVisible();
+    await page.getByRole("button", { name: "Filter pages" }).click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("option", {
+      name: /Ship the isolated UI workflow/u,
+    })).toBeVisible();
+    const paletteScreenshot = testInfo.outputPath("command-palette-page-search.png");
+    await page.screenshot({ path: paletteScreenshot, fullPage: true });
+    await page.keyboard.press("Escape");
+    await expect(commandPalette).toHaveCount(0);
+
+    await page.getByRole("tab", { name: "Keep projection updates bounded" }).click();
+    const targetTitle = targetStage.getByRole("textbox", { name: "Page title" });
+    await targetTitle.fill("Immediate searchable projection");
+    await sourceTab.click();
+    await expect(page.getByRole("tab", { name: "Immediate searchable projection" }))
+      .toBeVisible();
+    await page.keyboard.press("Meta+P");
+    await commandPaletteSearch.fill("Immediate searchable");
+    await expect(page.getByRole("option", {
+      name: /Immediate searchable projection/u,
+    })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("tab", { name: "Immediate searchable projection" }).click();
+    await targetTitle.fill("Keep projection updates bounded");
+    await sourceTab.click();
+    await expect(page.getByRole("tab", { name: "Keep projection updates bounded" }))
+      .toBeVisible();
 
     const sourceStage = page.locator(
       `[data-page-stage-page-id="${sourcePageId}"]:visible`,
@@ -1090,6 +1138,10 @@ test("materializes and opens the authoritative board/dense environment", async (
     });
     await testInfo.attach("board-project-home", {
       path: boardScreenshot,
+      contentType: "image/png",
+    });
+    await testInfo.attach("command-palette-page-search", {
+      path: paletteScreenshot,
       contentType: "image/png",
     });
     await testInfo.attach("runtime-logs", {

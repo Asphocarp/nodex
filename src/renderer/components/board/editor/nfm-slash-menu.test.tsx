@@ -5,6 +5,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   buildPageReferenceCandidateSuggestionItems,
+  buildPageSearchUnavailableSuggestionItem,
   buildNfmDateMentionInlineContent,
   buildNfmDateMentionSuggestionItems,
   buildNfmThreadMentionInlineContent,
@@ -293,6 +294,13 @@ describe("NfmSlashMenu", () => {
           lifecycle: "active",
           matchExcerpt: "Projection notes",
           matchSource: "title",
+          titleParts: [{ text: "Projection", highlighted: true }, { text: " notes", highlighted: false }],
+          matchExcerptParts: [],
+          matches: [{
+            source: "title",
+            quality: "exact",
+            parts: [{ text: "Projection", highlighted: true }, { text: " notes", highlighted: false }],
+          }],
           disabledReason: null,
         },
         {
@@ -304,11 +312,27 @@ describe("NfmSlashMenu", () => {
           lifecycle: "active",
           matchExcerpt: "The affected projection window stays bounded.",
           matchSource: "content",
+          titleParts: [{ text: "Architecture", highlighted: false }],
+          matchExcerptParts: [
+            { text: "The affected ", highlighted: false },
+            { text: "projection", highlighted: true },
+            { text: " window stays bounded.", highlighted: false },
+          ],
+          matches: [{
+            source: "body",
+            quality: "exact",
+            blockId: "block:projection",
+            blockType: "paragraph",
+            parts: [
+              { text: "The affected ", highlighted: false },
+              { text: "projection", highlighted: true },
+              { text: " window stays bounded.", highlighted: false },
+            ],
+          }],
           disabledReason: null,
         },
       ],
       "mention",
-      "projection",
     );
 
     expect(items[0]).toMatchObject({
@@ -340,6 +364,25 @@ describe("NfmSlashMenu", () => {
       { type: "pageMention", props: { targetPageId: "page-content" } },
       " ",
     ], { updateSelection: true });
+  });
+
+  test("renders Core Page-search failure as an explicit disabled provider row", () => {
+    const item = buildPageSearchUnavailableSuggestionItem("mention");
+    expect(item).toMatchObject({
+      title: "Pages unavailable",
+      subtext: "Page search is unavailable. Try again.",
+      group: "Mention a page",
+      disabled: true,
+      mentionRank: { family: "page", match: "recent" },
+    });
+
+    const view = renderSuggestionMenu({
+      items: [item],
+      loadingState: "loaded",
+      selectedIndex: 0,
+      onItemClick: () => undefined,
+    });
+    expect(view.getByRole("option").getAttribute("aria-disabled")).toBe("true");
   });
 
   test("mention payload helpers preserve thread and date inline storage shapes", () => {
