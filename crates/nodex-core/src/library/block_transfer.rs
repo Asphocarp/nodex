@@ -24,7 +24,6 @@ use crate::database::{
     PageTaskShorthandBatchPlan, PageTaskShorthandCandidate, PageTaskShorthandPreservedReason,
     StagedPagePlacementRevisions, apply_page_task_shorthand_schema, current_page_key_for_page,
     place_staged_page_in_data_source, plan_page_task_shorthand,
-    resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
     resolve_page_transfer_list_destination, transfer_existing_page_for_agent_move_prevalidated,
     transfer_existing_page_for_block_transfer, validate_page_copy_data_source_source,
@@ -257,17 +256,30 @@ fn resolve_data_source_placement(
     match placement {
         LibraryBlockTransferDataSourcePlacement::Direct {
             view_id,
+            presentation_override,
             group_key,
             before_page_id,
-        } => resolve_page_transfer_data_source_destination(
-            connection,
-            library_id,
-            project_id,
-            data_source_id,
-            view_id,
-            group_key.as_deref(),
-            before_page_id.as_deref(),
-        ),
+            sorted_property_values,
+        } => {
+            let values = sorted_property_values
+                .iter()
+                .map(|value| PageCopyValueDraft {
+                    property_id: value.property_id.clone(),
+                    value: value.value.clone(),
+                })
+                .collect::<Vec<_>>();
+            crate::database::resolve_page_transfer_board_destination(
+                connection,
+                library_id,
+                project_id,
+                data_source_id,
+                view_id,
+                presentation_override,
+                group_key.as_deref(),
+                before_page_id.as_deref(),
+                &values,
+            )
+        }
         LibraryBlockTransferDataSourcePlacement::ListOccurrence {
             view_id,
             presentation_override,
@@ -1596,9 +1608,11 @@ fn prepare_page_ownership_transfer(
             let destination = if let Some(authority) = agent_authority {
                 let LibraryBlockTransferDataSourcePlacement::Direct {
                     view_id,
+                    presentation_override: _,
                     group_key,
                     before_page_id,
-                } = placement
+                    sorted_property_values: _,
+                } = placement.as_ref()
                 else {
                     return Err(invalid(
                         "Agent Page movement does not accept renderer List occurrence targets",

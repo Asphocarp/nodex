@@ -374,7 +374,7 @@ pub enum LibraryBlockTransferTarget {
     },
     DataSource {
         data_source_id: String,
-        placement: LibraryBlockTransferDataSourcePlacement,
+        placement: Box<LibraryBlockTransferDataSourcePlacement>,
     },
 }
 
@@ -383,8 +383,11 @@ pub enum LibraryBlockTransferTarget {
 pub enum LibraryBlockTransferDataSourcePlacement {
     Direct {
         view_id: String,
+        presentation_override: DatabaseViewPresentationOverrideInput,
         group_key: Option<String>,
         before_page_id: Option<String>,
+        #[serde(default)]
+        sorted_property_values: Vec<LibraryPageCopyValue>,
     },
     ListOccurrence {
         view_id: String,

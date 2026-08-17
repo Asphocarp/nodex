@@ -62,7 +62,7 @@ describe("Database List external Block drop", () => {
       pointerY: 30,
       rowTop: 0,
       rowBottom: 44,
-      manualOrder: true,
+      exactSlot: true,
     })).toMatchObject({
       target: { kind: "page", occurrenceKey: "b", edge: "before" },
       feedback: { kind: "line", occurrenceKey: "b", edge: "before" },
@@ -90,7 +90,7 @@ describe("Database List external Block drop", () => {
       pointerY: 20,
       rowTop: 0,
       rowBottom: 44,
-      manualOrder: true,
+      exactSlot: true,
     })).toEqual({
       target: { kind: "group", occurrenceKey: "subgroup" },
       feedback: { kind: "surface", occurrenceKey: "subgroup" },
@@ -105,7 +105,7 @@ describe("Database List external Block drop", () => {
       pointerY: 10,
       rowTop: 0,
       rowBottom: 44,
-      manualOrder: false,
+      exactSlot: false,
     })).toEqual({
       target: { kind: "root" },
       feedback: { kind: "surface", occurrenceKey: null },

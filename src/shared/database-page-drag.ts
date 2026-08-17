@@ -10,6 +10,7 @@ import {
 import type { DatabaseJsonValue } from "./database-kernel";
 import { parseDataSourceOptionId, type DataSourceId } from "./database-identities";
 import type { MovePageInput, MovePagesInput } from "./types";
+import { databaseViewFractionalOrderDirection } from "./database-view-presentation";
 
 export type DatabasePageDragErrorCode =
   | "invalid_page_set"
@@ -261,10 +262,10 @@ const compilePageRunFromQuery = (input: {
   const positionChanged =
     crossesGroup
     || currentTargetOrder.join("\u0000") !== nextTargetOrder.join("\u0000");
-  const manualSort = query.view.config.presentation.sort.find(
-    (sort) => sort.field.kind === "manual",
+  const manualDirection = databaseViewFractionalOrderDirection(
+    query.view.config.presentation.sort,
   );
-  if (manualSort?.direction === "desc" && positionChanged) {
+  if (manualDirection === "desc" && positionChanged) {
     return fail(
       "manual_direction_unsupported",
       "Descending manual Views require a visual-direction-aware Page anchor",
@@ -279,7 +280,7 @@ const compilePageRunFromQuery = (input: {
   if (values.length > 0) {
     operations.push({ kind: "edit_property_values", edits: values });
   }
-  if (manualSort && positionChanged) {
+  if (manualDirection && positionChanged) {
     const beforePageId = remainingTargetOrder[targetIndex];
     if (rows.length === 1 && rows[0]) {
       operations.push({

@@ -10,6 +10,7 @@ import type {
   DatabaseViewPresentationOverride,
   EffectiveDatabaseViewPresentation,
 } from "../../../../shared/database-kernel";
+import { databaseViewGesturePresentationOverride } from "../../../../shared/database-view-presentation";
 import type {
   DatabaseListProjectionRowSnapshot,
   DatabaseListWindowInput,
@@ -59,25 +60,8 @@ const EMPTY_WINDOW_STATE: DatabaseListWindowState = Object.freeze({
 /** A List request must never inherit the currently visible Board layout. */
 export const databaseListPresentationOverride = (
   effective: EffectiveDatabaseViewPresentation,
-): DatabaseViewPresentationOverride => ({
-  layout: "list",
-  sort: effective.presentation.sort,
-  group: effective.presentation.group,
-  subgroup: effective.presentation.subgroup,
-  groupDirection: effective.presentation.groupDirection,
-  completion: { ...effective.presentation.completion },
-  hierarchy: { ...effective.presentation.hierarchy },
-  layouts: {
-    board: {
-      fields: effective.presentation.layouts.board.fields,
-      showEmptyGroups: effective.presentation.layouts.board.showEmptyGroups,
-    },
-    list: {
-      fields: effective.presentation.layouts.list.fields,
-      showEmptyGroups: effective.presentation.layouts.list.showEmptyGroups,
-    },
-  },
-});
+): DatabaseViewPresentationOverride =>
+  databaseViewGesturePresentationOverride(effective, "list");
 
 const projectionIdentity = (snapshot: AnyDatabaseListWindowSnapshot): string =>
   JSON.stringify({

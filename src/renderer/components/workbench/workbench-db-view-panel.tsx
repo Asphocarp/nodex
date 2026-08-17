@@ -15,7 +15,10 @@ import {
 } from "react";
 import { NodexIconButton } from "@/components/ui/button";
 import type { WorkbenchTabProjection } from "@/lib/types";
-import { useBoard } from "@/lib/use-board";
+import {
+  useBoard,
+  type DatabaseViewBoardPageDropIntent,
+} from "@/lib/use-board";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import type {
   DatabaseViewField,
@@ -46,8 +49,6 @@ import { commitDatabaseViewOperations } from "@/lib/database-view-row-mutations"
 import type { OpenPageTabHandler } from "./workbench-page-stage-panel";
 import { primaryCanvasBlockId } from "../../../shared/block-documents";
 import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
-import { Board } from "@/components/board/board";
-import { classicBoardPresentation } from "@/lib/classic-board-adapter";
 import { supportedDatabaseIntrinsicFields } from "@/lib/database-intrinsic-field-registry";
 import type { Project } from "@/lib/types";
 import type {
@@ -112,13 +113,13 @@ export function DatabaseViewTabSurface({
   managementControl,
   databaseViewControls,
   rulesSummaryRow,
-  boardSurface,
   overlay,
   onSearchQueryChange,
   onOpenTaskSearch,
   onCloseTaskSearch,
   onOpenPage,
   onCommitted,
+  onMoveBoardPages,
   keyboardSurface,
   presentedPageIds,
   initialSelectedPageIds,
@@ -144,13 +145,15 @@ export function DatabaseViewTabSurface({
   readonly managementControl?: ReactNode;
   readonly databaseViewControls?: ReactNode;
   readonly rulesSummaryRow?: ReactNode;
-  readonly boardSurface?: ReactNode;
   readonly overlay?: ReactNode;
   readonly onSearchQueryChange: (value: string) => void;
   readonly onOpenTaskSearch: (selectQuery?: boolean) => void;
   readonly onCloseTaskSearch: () => void;
   readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
   readonly onCommitted?: () => void | Promise<void>;
+  readonly onMoveBoardPages?: (
+    input: DatabaseViewBoardPageDropIntent,
+  ) => Promise<boolean>;
   readonly keyboardSurface?: {
     readonly surfaceId: string;
     readonly presentationId: string;
@@ -197,9 +200,7 @@ export function DatabaseViewTabSurface({
       />
       {overlay}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {presentation.layout === "board" && boardSurface
-          ? boardSurface
-          : presentation.layout === "list"
+        {presentation.layout === "list"
             ? (
               <DatabaseList
                 model={model}
@@ -230,6 +231,7 @@ export function DatabaseViewTabSurface({
                 searchQuery={activeSearchQuery}
                 onOpenPage={onOpenPage}
                 onCommitted={onCommitted}
+                onMoveBoardPages={onMoveBoardPages}
                 keyboardSurface={keyboardSurface}
                 presentedPageIds={presentedPageIds}
                 initialSelectedPageIds={initialSelectedPageIds}
@@ -251,12 +253,9 @@ export function DbViewSessionTab({
   activeSearchQuery,
   searchByProject,
   presentedPageIds,
-  pageStageCloseRef,
   taskSearchOpenTick,
   setSearchQuery,
   onOpenPageTab,
-  onOpenPageInNewChat,
-  onSendPageToChat,
   onOpenCanvasStage,
   targetLeafId,
 }: {
@@ -395,7 +394,7 @@ export function DbViewSessionTab({
       tab.id,
     ]);
   useEffect(() => {
-    if (effectivePresentation?.layout !== "list" || !listPageCreateTarget) {
+    if (!listPageCreateTarget) {
       unregisterPageCreateTarget(
         appHandle,
         surfaceId,
@@ -560,7 +559,6 @@ export function DbViewSessionTab({
       }),
     };
   });
-  const classicBoard = classicBoardPresentation(effectivePresentation);
   const searchShortcutLabel = typeof navigator !== "undefined"
     && navigator.platform.toUpperCase().includes("MAC")
     ? "⌘F"
@@ -648,36 +646,6 @@ export function DbViewSessionTab({
           onOpenSort={() => setOpenViewPanel("sort")}
         />
       )}
-      boardSurface={classicBoard ? (
-        <Board
-          surfaceId={surfaceId}
-          panelTabId={tab.id}
-          projectId={projectId}
-          databaseViewId={databaseViewId}
-          presentationOverride={presentationOverride ?? null}
-          presentationOverrideReady={!personalPreference.loading}
-          projects={projects}
-          searchQuery={searchQuery}
-          dbViewPrefs={classicBoard.prefs}
-          showPageKey={classicBoard.identity.showPageKey}
-          showDescription={classicBoard.identity.showDescription}
-          openPageStage={(nextProjectId, pageId, titleSnapshot, options) => {
-            void onOpenPageTab(nextProjectId, pageId, titleSnapshot, {
-              sourceTabId: tab.id,
-              openMode: options?.openMode ?? "preview",
-            });
-          }}
-          pageStagePageId={undefined}
-          presentedPageIds={presentedPageIds}
-          initialSelectedPageIds={selectedPageIds}
-          onSelectedPageIdsChange={setSelectedPageIds}
-          pageStageCloseRef={pageStageCloseRef}
-          onOpenPageInNewChat={onOpenPageInNewChat}
-          onSendPageToChat={onSendPageToChat}
-          scrollStateKey={`database-view:${sessionId}:${tab.id}:${databaseViewId}:board`}
-          mutationHistory={mutationHistory}
-        />
-      ) : undefined}
       overlay={(
         <DatabaseManagementDialogController
           projectId={projectId}
@@ -696,6 +664,7 @@ export function DbViewSessionTab({
         });
       }}
       onCommitted={runtime.refresh}
+      onMoveBoardPages={runtime.moveDatabaseViewPages}
       keyboardSurface={{ surfaceId, presentationId: tab.id }}
       presentedPageIds={presentedPageIds}
       initialSelectedPageIds={selectedPageIds}

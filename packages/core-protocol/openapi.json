@@ -12657,6 +12657,7 @@
             "type": "object",
             "required": [
               "view_id",
+              "presentation_override",
               "kind"
             ],
             "properties": {
@@ -12677,6 +12678,15 @@
                 "enum": [
                   "direct"
                 ]
+              },
+              "presentation_override": {
+                "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+              },
+              "sorted_property_values": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageCopyValue"
+                }
               },
               "view_id": {
                 "type": "string"

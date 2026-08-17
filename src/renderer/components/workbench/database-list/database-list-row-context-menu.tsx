@@ -36,6 +36,7 @@ export function DatabaseListRowContextMenu({
   canMoveDown,
   pageKey,
   propertyBindings,
+  groupingPropertyId = null,
   onOpen,
   onSelectOnly,
   onToggleSelection,
@@ -47,6 +48,7 @@ export function DatabaseListRowContextMenu({
   readonly canMoveDown: boolean;
   readonly pageKey: string | null;
   readonly propertyBindings: readonly DataSourcePropertyEditorBinding[];
+  readonly groupingPropertyId?: string | null;
   readonly onOpen: () => void;
   readonly onSelectOnly: () => void;
   readonly onToggleSelection: () => void;
@@ -138,6 +140,7 @@ export function DatabaseListRowContextMenu({
               <NodexDropdown.SectionLabel>Properties</NodexDropdown.SectionLabel>
               <DataSourcePagePropertyContextMenuItems
                 bindings={propertyBindings}
+                groupingPropertyId={groupingPropertyId}
                 query={query}
                 onContextMenuCommit={() => setMenuOpen(false)}
               />

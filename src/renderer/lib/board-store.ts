@@ -61,6 +61,7 @@ import {
   revokeDatabaseRowDetail,
 } from "./database-row-detail-store";
 import { mapWithConcurrency } from "./map-with-concurrency";
+import { databaseViewPrimaryManualOrderDirection } from "../../shared/database-view-presentation";
 
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 const GROUP_WINDOW_FIRST = 50;
@@ -68,6 +69,18 @@ const GROUP_WINDOW_MAX_FIRST = 200;
 const CONSISTENT_WINDOW_READ_ATTEMPTS = 4;
 const MAX_RETAINED_BOARD_STORES = 32;
 const GROUP_WINDOW_READ_CONCURRENCY = 8;
+
+const changesProjectionCoordinate = (
+  override: DatabaseViewPresentationOverride | null,
+): boolean => Boolean(override && (
+  override.layout !== undefined
+  || override.sort !== undefined
+  || Object.prototype.hasOwnProperty.call(override, "group")
+  || Object.prototype.hasOwnProperty.call(override, "subgroup")
+  || override.groupDirection !== undefined
+  || override.completion !== undefined
+  || override.hierarchy !== undefined
+));
 
 export interface IndexedPage extends DatabasePageSummary {
   columnId: string;
@@ -156,10 +169,16 @@ export interface LocalOverlayOptions {
   apply: BoardTransform;
 }
 
+/** A pure optimistic transform replayed over each fresh Database View read. */
+export type DatabaseViewTransform = (
+  model: DatabaseViewRenderModel,
+) => DatabaseViewRenderModel;
+
 export interface RunOptimisticMutationOptions<T> {
   kind: string;
   conflictKeys: string[];
   apply: BoardTransform;
+  applyDatabaseView?: DatabaseViewTransform;
   runRemote: () => Promise<T>;
   /** Serializes commands whose Core intent is compiled from shared authority. */
   remoteLane?: string;
@@ -170,6 +189,25 @@ export interface RunOptimisticMutationOptions<T> {
    * is insufficient because the affected row can sit outside the loaded span.
    */
   isCommitMaterialized?: (canonicalBoard: BoardSummary) => boolean;
+  isDatabaseViewCommitMaterialized?: (
+    canonicalModel: DatabaseViewRenderModel,
+  ) => boolean;
+  refreshOnSuccess?: boolean;
+  refreshOnFailure?: boolean;
+  suppressErrorWhenSuperseded?: boolean;
+}
+
+export interface RunOptimisticDatabaseViewMutationOptions<T> {
+  kind: string;
+  conflictKeys: string[];
+  apply: DatabaseViewTransform;
+  runRemote: (canonicalModel: DatabaseViewRenderModel) => Promise<T>;
+  /** Serializes commands whose Core intent is compiled from shared authority. */
+  remoteLane?: string;
+  getCommitCursor?: (result: T) => LocalProjectionCursor | null | undefined;
+  isCommitMaterialized?: (
+    canonicalModel: DatabaseViewRenderModel,
+  ) => boolean;
   refreshOnSuccess?: boolean;
   refreshOnFailure?: boolean;
   suppressErrorWhenSuperseded?: boolean;
@@ -187,9 +225,13 @@ interface OptimisticEntry {
   kind: string;
   conflictKeys: string[];
   apply: BoardTransform;
+  applyDatabaseView: DatabaseViewTransform | null;
   phase: "pending" | "acknowledged" | "local";
   commitCursor: LocalProjectionCursor | null;
   isCommitMaterialized: ((canonicalBoard: BoardSummary) => boolean) | null;
+  isDatabaseViewCommitMaterialized: ((
+    canonicalModel: DatabaseViewRenderModel,
+  ) => boolean) | null;
   minimumMaterializationGeneration: number | null;
   superseded: boolean;
 }
@@ -1250,44 +1292,86 @@ class BoardProjectStore {
           patch.effectiveGroupKey,
           patch.effectiveSubgroupKey,
         );
-      const alreadyLoaded = snapshot.rows.some((row) => row.page.id === pageId);
+      const existingRow = snapshot.rows.find((row) => row.page.id === pageId);
+      const alreadyLoaded = existingRow !== undefined;
+      // A singleton patch carries fractional rank, not its index in an
+      // effective Property/intrinsic sort. Re-sorting the whole window by that
+      // rank would expose a manual-order frame before the required canonical
+      // repair. Presentation-changing personal overrides also make the
+      // patch's durable group coordinates non-authoritative for this window.
+      const manualDirection = changesProjectionCoordinate(this.presentationOverride)
+        ? null
+        : databaseViewPrimaryManualOrderDirection(
+            snapshot.query.view.config.presentation.sort,
+          );
       const admitsUpsert = includesUpsert && (
         alreadyLoaded
-        || snapshot.nextCursor === null
-        || patch.row.order < snapshot.rows.length
+        || manualDirection !== null && (
+          snapshot.nextCursor === null
+          || patch.row.order < snapshot.rows.length
+        )
       );
-      const sortedRows = [
-        ...snapshot.rows.filter((row) => row.page.id !== pageId),
-        ...(admitsUpsert
-          ? [{
-              page: patch.row,
-              groupKey: patch.effectiveGroupKey,
-              subgroupKey: patch.effectiveSubgroupKey,
-              rankKey:
-                patch.rankKey ?? "ffffffffffffffffffffffffffffffff",
-            }]
-          : []),
-      ].sort((left, right) =>
-        left.rankKey.localeCompare(right.rankKey)
-        || left.page.id.localeCompare(right.page.id)
-      );
-      const nextRows = snapshot.nextCursor !== null && !alreadyLoaded
-        ? sortedRows.slice(0, snapshot.rows.length)
-        : sortedRows;
+      const upsertedRow = patch.kind === "database_row_upsert"
+        ? {
+            page: patch.row,
+            groupKey: manualDirection === null && existingRow
+              ? existingRow.groupKey
+              : patch.effectiveGroupKey,
+            subgroupKey: manualDirection === null && existingRow
+              ? existingRow.subgroupKey
+              : patch.effectiveSubgroupKey,
+            rankKey:
+              manualDirection === null && existingRow
+                ? existingRow.rankKey
+                : patch.rankKey ?? "ffffffffffffffffffffffffffffffff",
+          }
+        : null;
+      const nextRows = manualDirection === null
+        ? snapshot.rows.flatMap((row) => {
+            if (row.page.id !== pageId) return [row];
+            return admitsUpsert && upsertedRow ? [upsertedRow] : [];
+          })
+        : [
+            ...snapshot.rows.filter((row) => row.page.id !== pageId),
+            ...(admitsUpsert && upsertedRow ? [upsertedRow] : []),
+          ].sort((left, right) => {
+            const order = left.rankKey.localeCompare(right.rankKey)
+              || left.page.id.localeCompare(right.page.id);
+            return manualDirection === "asc" ? order : -order;
+          }).slice(
+            0,
+            snapshot.nextCursor !== null && !alreadyLoaded
+              ? snapshot.rows.length
+              : undefined,
+          );
       const queryRowsByPageId = new Map(
         snapshot.query.rows
           .filter((row) => row.page.pageId !== pageId)
           .map((row) => [row.page.pageId, row] as const),
       );
       if (admitsUpsert) {
-        queryRowsByPageId.set(pageId, projectCoreDatabaseQueryRow(
+        const projectedQueryRow = projectCoreDatabaseQueryRow(
           patch.sourceRow,
           {
             libraryId: snapshot.libraryId,
             dataSourceId: snapshot.query.dataSource.dataSourceId,
             properties: snapshot.query.properties,
           },
-        ));
+        );
+        const existingQueryRow = snapshot.query.rows.find((row) =>
+          row.page.pageId === pageId
+        );
+        queryRowsByPageId.set(
+          pageId,
+          manualDirection === null && existingQueryRow
+            ? {
+                ...projectedQueryRow,
+                effectiveGroupKey: existingQueryRow.effectiveGroupKey,
+                effectiveSubgroupKey: existingQueryRow.effectiveSubgroupKey,
+                position: existingQueryRow.position,
+              }
+            : projectedQueryRow,
+        );
       }
       const nextBoard = rebuildBoardFromRankedRows(snapshot.board, nextRows);
       return {
@@ -1521,6 +1605,36 @@ class BoardProjectStore {
     }
   };
 
+  /**
+   * Runs a mutation whose visible authority is the generic Database View
+   * model. The transform lives in the same optimistic journal and placement
+   * lane as the classic Board projection, so refreshes cannot expose a stale
+   * frame and queued commands compile from the latest canonical read.
+   */
+  runOptimisticDatabaseViewMutation = async <T,>(
+    options: RunOptimisticDatabaseViewMutationOptions<T>,
+  ): Promise<OptimisticMutationResult<T>> => {
+    const {
+      apply,
+      runRemote,
+      isCommitMaterialized,
+      ...sharedOptions
+    } = options;
+    return await this.runOptimisticMutation({
+      ...sharedOptions,
+      apply: (board) => board,
+      applyDatabaseView: apply,
+      runRemote: async () => {
+        const canonicalModel = this.baseDatabaseView;
+        if (!canonicalModel) {
+          throw new Error("The Database View is not loaded");
+        }
+        return await runRemote(canonicalModel);
+      },
+      isDatabaseViewCommitMaterialized: isCommitMaterialized,
+    });
+  };
+
   private async runRemoteInLane<T>(
     lane: string,
     authorityGeneration: number,
@@ -1573,6 +1687,17 @@ class BoardProjectStore {
     return next;
   }
 
+  private composeDatabaseView(
+    baseModel: DatabaseViewRenderModel,
+  ): DatabaseViewRenderModel {
+    let next = baseModel;
+    for (const entry of this.optimisticEntries) {
+      if (entry.superseded || !entry.applyDatabaseView) continue;
+      next = entry.applyDatabaseView(next);
+    }
+    return next;
+  }
+
   private activePendingCount(): number {
     return this.optimisticEntries.filter(
       (entry) => entry.phase === "pending" && !entry.superseded,
@@ -1617,6 +1742,9 @@ class BoardProjectStore {
   ): void {
     this.pruneConvergedEntries();
     const composedBoard = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
+    const composedDatabaseView = this.baseDatabaseView
+      ? this.composeDatabaseView(this.baseDatabaseView)
+      : null;
     const board = boardSummariesEqual(this.snapshot.board, composedBoard)
       ? this.snapshot.board
       : composedBoard;
@@ -1635,7 +1763,7 @@ class BoardProjectStore {
     const next: BoardStoreSnapshot = {
       ...this.snapshot,
       board,
-      databaseView: this.baseDatabaseView,
+      databaseView: composedDatabaseView,
       pageIndex: board === this.snapshot.board
         ? this.snapshot.pageIndex
         : buildPageIndex(board),
@@ -1656,10 +1784,11 @@ class BoardProjectStore {
   }
 
   private pruneConvergedEntries(): void {
-    if (!this.baseBoard) return;
+    if (!this.baseBoard && !this.baseDatabaseView) return;
     if (this.optimisticEntries.length === 0) return;
 
     let working = this.baseBoard;
+    let workingDatabaseView = this.baseDatabaseView;
     let changed = false;
     const nextEntries: OptimisticEntry[] = [];
 
@@ -1669,22 +1798,27 @@ class BoardProjectStore {
         continue;
       }
 
-      const after = entry.apply(working);
+      const after = working ? entry.apply(working) : working;
+      const afterDatabaseView = workingDatabaseView && entry.applyDatabaseView
+        ? entry.applyDatabaseView(workingDatabaseView)
+        : workingDatabaseView;
 
       if (entry.phase === "pending") {
         nextEntries.push(entry);
         working = after;
+        workingDatabaseView = afterDatabaseView;
         continue;
       }
 
       // Retained local overlays are now auto-collected when base state catches up.
       if (entry.phase === "local") {
-        if (after === working) {
+        if (after === working && afterDatabaseView === workingDatabaseView) {
           changed = true;
           continue;
         }
         nextEntries.push(entry);
         working = after;
+        workingDatabaseView = afterDatabaseView;
         continue;
       }
 
@@ -1699,6 +1833,7 @@ class BoardProjectStore {
       ) {
         nextEntries.push(entry);
         working = after;
+        workingDatabaseView = afterDatabaseView;
         continue;
       }
 
@@ -1710,25 +1845,33 @@ class BoardProjectStore {
         ) {
           nextEntries.push(entry);
           working = after;
+          workingDatabaseView = afterDatabaseView;
           continue;
         }
-        const materialized = entry.isCommitMaterialized
-          ? entry.isCommitMaterialized(this.baseBoard)
+        const boardMaterialized = entry.isCommitMaterialized
+          ? this.baseBoard !== null && entry.isCommitMaterialized(this.baseBoard)
           : after === working;
+        const databaseViewMaterialized = entry.isDatabaseViewCommitMaterialized
+          ? this.baseDatabaseView !== null
+            && entry.isDatabaseViewCommitMaterialized(this.baseDatabaseView)
+          : afterDatabaseView === workingDatabaseView;
+        const materialized = boardMaterialized && databaseViewMaterialized;
         if (materialized) {
           changed = true;
           continue;
         }
         nextEntries.push(entry);
         working = after;
+        workingDatabaseView = afterDatabaseView;
         continue;
       }
 
       // Acknowledged entries remain visible until canonical state satisfies
       // the same semantic intent, at which point the transform is a no-op.
-      if (after !== working) {
+      if (after !== working || afterDatabaseView !== workingDatabaseView) {
         nextEntries.push(entry);
         working = after;
+        workingDatabaseView = afterDatabaseView;
         continue;
       }
 
@@ -1743,23 +1886,32 @@ class BoardProjectStore {
     kind,
     conflictKeys,
     apply,
+    applyDatabaseView,
     phase,
     isCommitMaterialized,
+    isDatabaseViewCommitMaterialized,
   }: {
     kind: string;
     conflictKeys: string[];
     apply: BoardTransform;
+    applyDatabaseView?: DatabaseViewTransform;
     phase: OptimisticEntry["phase"];
     isCommitMaterialized?: (canonicalBoard: BoardSummary) => boolean;
+    isDatabaseViewCommitMaterialized?: (
+      canonicalModel: DatabaseViewRenderModel,
+    ) => boolean;
   }): OptimisticEntry {
     return {
       opId: this.nextOpId++,
       kind,
       conflictKeys,
       apply,
+      applyDatabaseView: applyDatabaseView ?? null,
       phase,
       commitCursor: null,
       isCommitMaterialized: isCommitMaterialized ?? null,
+      isDatabaseViewCommitMaterialized:
+        isDatabaseViewCommitMaterialized ?? null,
       minimumMaterializationGeneration: null,
       superseded: false,
     };

@@ -15,6 +15,7 @@ import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
+  EffectiveDatabaseViewPresentation,
 } from "../../shared/database-kernel";
 import type {
   DatabaseId,
@@ -319,6 +320,37 @@ export const buildDatabaseViewColumns = (
     rows: rows.flatMap(({ row, renderRow }) =>
       row.effectiveGroupKey === column.id ? [renderRow] : []),
   }));
+};
+
+/**
+ * Binds a model to the exact presentation coordinate rendered by a surface.
+ * Personal presentation edits can render before their replacement Core
+ * window reaches the shared store, so gesture compilation must not infer its
+ * grouping and sorting semantics from the older durable snapshot.
+ */
+export const withEffectiveDatabaseViewPresentation = (
+  model: DatabaseViewRenderModel,
+  effective: EffectiveDatabaseViewPresentation,
+): DatabaseViewRenderModel => {
+  const query = {
+    ...model.query,
+    view: {
+      ...model.query.view,
+      defaultLayout: effective.layout,
+      config: {
+        ...model.query.view.config,
+        presentation: effective.presentation,
+      },
+    },
+  };
+  return {
+    ...model,
+    columns: buildDatabaseViewColumns(
+      query,
+      effective.presentation.group?.propertyId ?? null,
+    ),
+    query,
+  };
 };
 
 const queryFromSnapshot = (

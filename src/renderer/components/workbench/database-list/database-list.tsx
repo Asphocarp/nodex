@@ -41,10 +41,10 @@ import {
   buildDatabaseViewPropertyValueOperations,
   canMoveDatabaseViewPage,
   commitDatabaseViewOperations,
-  databaseViewSupportsManualReorder,
   DatabaseViewMutationError,
   type DatabaseViewMutationReceipt,
 } from "@/lib/database-view-row-mutations";
+import { databaseViewSupportsSortedSlotInference } from "@/lib/database-view-drag-operations";
 import {
   compilePageCollectionSearchQuery,
   matchesPageCollectionSearchQuery,
@@ -110,6 +110,7 @@ import {
   DatabaseListRow,
 } from "./database-list-row";
 import { DatabaseListRowContextMenu } from "./database-list-row-context-menu";
+import { buildDatabaseViewPageDragData } from "../database-view-page-drag";
 import { DatabaseListSelectionActionBar } from "./database-list-selection-action-bar";
 import { useDatabaseListGrid } from "./use-database-list-grid";
 import {
@@ -506,6 +507,7 @@ export function DatabaseList({
   );
   const [continuationError, setContinuationError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [pageDragInstanceId] = useState(() => Symbol("database-list-page-drag"));
   const mutationPending = pendingMutationCount > 0;
   const compiledSearchQuery = useMemo(
     () => compilePageCollectionSearchQuery(deferredSearchQuery),
@@ -761,6 +763,14 @@ export function DatabaseList({
     projection,
     selection,
   ), [projection, selection]);
+  const pageDragRows = useMemo(
+    () => projection.flatMap((entry) => entry.kind === "page" ? [entry.row] : []),
+    [projection],
+  );
+  const pageDragDisabled = model.readOnlyReason !== null
+    || !coreWindow.active
+    || optimisticMove !== null
+    || blockDropPreview !== null;
   const projectionIndexByKey = useMemo(
     () => new Map(projection.map((row, index) => [row.key, index] as const)),
     [projection],
@@ -1428,8 +1438,7 @@ export function DatabaseList({
       pointerY: event.clientY,
       rowTop: bounds?.top ?? event.clientY,
       rowBottom: bounds?.bottom ?? event.clientY,
-      manualOrder: presentation.sort.length === 0
-        || databaseViewSupportsManualReorder(mutationModel),
+      exactSlot: databaseViewSupportsSortedSlotInference(mutationModel),
     });
   };
 
@@ -1694,6 +1703,15 @@ export function DatabaseList({
             ? blockDropPreview.feedback.edge
             : null
         }
+        pragmaticDragData={pageDragDisabled || item.transientKind !== "none"
+          ? null
+          : buildDatabaseViewPageDragData({
+              model: mutationModel,
+              row: item.row,
+              allRows: pageDragRows,
+              selectedPageIds,
+              instanceId: pageDragInstanceId,
+            })}
       />
     );
     return (
@@ -1748,12 +1766,7 @@ export function DatabaseList({
       rows={projection}
       selection={selection}
       scrollerRef={scrollerRef}
-      disabled={
-        model.readOnlyReason !== null
-        || !coreWindow.active
-        || optimisticMove !== null
-        || blockDropPreview !== null
-      }
+      disabled={pageDragDisabled}
       overlayColumns={{
         priority: coreColumnVisibility.priority,
         identifier: identityFields.length > 0,

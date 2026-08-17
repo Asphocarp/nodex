@@ -1,6 +1,15 @@
 import { describe, expect, test } from "vitest";
-import type { DatabaseViewRenderModel } from "./database-view-render-model";
-import { buildDatabaseViewBoardDropOperations } from "./database-view-drag-operations";
+import {
+  withEffectiveDatabaseViewPresentation,
+  type DatabaseViewRenderModel,
+} from "./database-view-render-model";
+import {
+  applyOptimisticDatabaseViewBoardDrop,
+  buildDatabaseViewBoardDropOperations,
+  databaseViewSupportsSortedSlotInference,
+  resolveDatabaseViewDropPropertyValues,
+  resolveDatabaseViewSortedDropValues,
+} from "./database-view-drag-operations";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -16,6 +25,7 @@ const dataSourceId = parseDataSourceId("source-1");
 const viewId = parseDatabaseViewId("view-1");
 const statusId = parseDataSourcePropertyId("p_STATUS01");
 const priorityId = parseDataSourcePropertyId("p_PRIOR001");
+const unavailablePropertyId = parseDataSourcePropertyId("p_MISSING1");
 
 const row = (pageId: string, status: string, priority: string, rankKey: string) => ({
   pageKey: null,
@@ -156,7 +166,93 @@ const model: DatabaseViewRenderModel = {
   },
 };
 
+const prioritySortedModel = (): DatabaseViewRenderModel => ({
+  ...model,
+  query: {
+    ...model.query,
+    view: {
+      ...model.query.view,
+      config: {
+        ...model.query.view.config,
+        presentation: {
+          ...model.query.view.config.presentation,
+          sort: [{
+            field: { kind: "property", propertyId: priorityId },
+            direction: "desc",
+            nulls: "last",
+          }],
+          subgroup: null,
+        },
+      },
+    },
+    rows: model.query.rows.map((candidate) => ({
+      ...candidate,
+      effectiveSubgroupKey: null,
+    })),
+  },
+});
+
 describe("buildDatabaseViewBoardDropOperations", () => {
+  test("compiles against the surface presentation while its Store snapshot still has durable rules", () => {
+    const priorityProjectedModel: DatabaseViewRenderModel = {
+      ...model,
+      query: {
+        ...model.query,
+        rows: model.query.rows.map((candidate) => ({
+          ...candidate,
+          effectiveGroupKey: candidate.values[priorityId]?.value as string,
+          effectiveSubgroupKey: null,
+        })),
+      },
+    };
+    const effectiveModel = withEffectiveDatabaseViewPresentation(
+      priorityProjectedModel,
+      {
+        layout: "board",
+        presentation: {
+          ...model.query.view.config.presentation,
+          group: { propertyId: priorityId },
+          subgroup: null,
+          sort: [{
+            field: { kind: "property", propertyId: priorityId },
+            direction: "asc",
+            nulls: "last",
+          }],
+        },
+      },
+    );
+
+    expect(buildDatabaseViewBoardDropOperations({
+      model: effectiveModel,
+      pageIds: ["page-1"],
+      target: {
+        groupKey: "o_LOW00001",
+        subgroupKey: null,
+        beforePageId: "page-3",
+      },
+    })).toEqual([
+      {
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-1",
+          dataSourceId,
+          propertyId: priorityId,
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 3,
+            value: { kind: "select", optionId: "o_LOW00001" },
+          },
+        }],
+      },
+      {
+        kind: "position_pages",
+        viewId,
+        pages: [{ pageId: "page-1", expectedPositionRevision: 4 }],
+        beforePageId: "page-3",
+      },
+    ]);
+  });
+
   test("moves group, subgroup, and global manual rank in one operation list", () => {
     expect(buildDatabaseViewBoardDropOperations({
       model,
@@ -228,5 +324,393 @@ describe("buildDatabaseViewBoardDropOperations", () => {
       pages: [{ pageId: "page-2", expectedPositionRevision: 4 }],
       beforePageId: "page-3",
     }]);
+  });
+
+  test("keeps fractional manual positioning when the View has no sort rule", () => {
+    const unsortedModel: DatabaseViewRenderModel = {
+      ...model,
+      query: {
+        ...model.query,
+        view: {
+          ...model.query.view,
+          config: {
+            ...model.query.view.config,
+            presentation: {
+              ...model.query.view.config.presentation,
+              sort: [],
+            },
+          },
+        },
+      },
+    };
+    expect(buildDatabaseViewBoardDropOperations({
+      model: unsortedModel,
+      pageIds: ["page-2"],
+      target: {
+        groupKey: "o_DONE0001",
+        subgroupKey: "o_LOW00001",
+        beforePageId: "page-3",
+      },
+    })).toEqual([{
+      kind: "position_pages",
+      viewId,
+      pages: [{ pageId: "page-2", expectedPositionRevision: 4 }],
+      beforePageId: "page-3",
+    }]);
+  });
+
+  test("infers the sorted Property value shared by the insertion neighbors", () => {
+    const sortedModel = prioritySortedModel();
+    const target = {
+      groupKey: "o_DONE0001",
+      subgroupKey: null,
+      beforePageId: "page-3",
+    } as const;
+
+    expect(resolveDatabaseViewSortedDropValues({
+      model: sortedModel,
+      pageIds: ["page-1"],
+      target,
+    })).toEqual([{ propertyId: priorityId, value: "o_LOW00001" }]);
+    expect(databaseViewSupportsSortedSlotInference(sortedModel)).toBe(true);
+    expect(buildDatabaseViewBoardDropOperations({
+      model: sortedModel,
+      pageIds: ["page-1"],
+      target,
+    })).toEqual([
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            pageId: "page-1",
+            dataSourceId,
+            propertyId: statusId,
+            edit: {
+              kind: "replace",
+              expectedValueRevision: 2,
+              value: { kind: "select", optionId: "o_DONE0001" },
+            },
+          },
+          {
+            pageId: "page-1",
+            dataSourceId,
+            propertyId: priorityId,
+            edit: {
+              kind: "replace",
+              expectedValueRevision: 3,
+              value: { kind: "select", optionId: "o_LOW00001" },
+            },
+          },
+        ],
+      },
+      {
+        kind: "position_pages",
+        viewId,
+        pages: [{ pageId: "page-1", expectedPositionRevision: 4 }],
+        beforePageId: "page-3",
+      },
+    ]);
+  });
+
+  test("preserves the mouse-up Property intent while recompiling against newer authority", () => {
+    const sortedModel = prioritySortedModel();
+    const target = {
+      groupKey: "o_DONE0001",
+      subgroupKey: null,
+      beforePageId: "page-3",
+    } as const;
+    const propertyValues = resolveDatabaseViewDropPropertyValues({
+      model: sortedModel,
+      pageIds: ["page-1"],
+      target,
+    });
+    const rebasedModel = {
+      ...sortedModel,
+      query: {
+        ...sortedModel.query,
+        rows: sortedModel.query.rows.map((row) =>
+          row.page.pageId === "page-3"
+            ? {
+                ...row,
+                values: {
+                  ...row.values,
+                  [priorityId]: {
+                    ...row.values[priorityId]!,
+                    value: "o_HIGH0001",
+                  },
+                },
+              }
+            : row
+        ),
+      },
+    } satisfies DatabaseViewRenderModel;
+
+    expect(resolveDatabaseViewDropPropertyValues({
+      model: rebasedModel,
+      pageIds: ["page-1"],
+      target,
+    })).toEqual([{ propertyId: statusId, value: "o_DONE0001" }]);
+    expect(buildDatabaseViewBoardDropOperations({
+      model: rebasedModel,
+      pageIds: ["page-1"],
+      target,
+      propertyValues,
+    })[0]).toEqual({
+      kind: "edit_property_values",
+      edits: [
+        {
+          pageId: "page-1",
+          dataSourceId,
+          propertyId: statusId,
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 2,
+            value: { kind: "select", optionId: "o_DONE0001" },
+          },
+        },
+        {
+          pageId: "page-1",
+          dataSourceId,
+          propertyId: priorityId,
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 3,
+            value: { kind: "select", optionId: "o_LOW00001" },
+          },
+        },
+      ],
+    });
+  });
+
+  test("reorders equal Property values by their fractional tie-break", () => {
+    const sortedModel = prioritySortedModel();
+
+    expect(buildDatabaseViewBoardDropOperations({
+      model: sortedModel,
+      pageIds: ["page-3"],
+      target: {
+        groupKey: "o_DONE0001",
+        subgroupKey: null,
+        beforePageId: "page-2",
+      },
+    })).toEqual([{
+      kind: "position_pages",
+      viewId,
+      pages: [{ pageId: "page-3", expectedPositionRevision: 4 }],
+      beforePageId: "page-2",
+    }]);
+  });
+
+  test("moves across groups when one Property owns grouping and ordering", () => {
+    const sortedModel = prioritySortedModel();
+    const groupedModel: DatabaseViewRenderModel = {
+      ...sortedModel,
+      query: {
+        ...sortedModel.query,
+        view: {
+          ...sortedModel.query.view,
+          config: {
+            ...sortedModel.query.view.config,
+            presentation: {
+              ...sortedModel.query.view.config.presentation,
+              group: { propertyId: priorityId },
+            },
+          },
+        },
+        rows: sortedModel.query.rows.map((candidate) => ({
+          ...candidate,
+          effectiveGroupKey: candidate.values[priorityId]?.value as string,
+        })),
+      },
+    };
+    const target = {
+      groupKey: "o_LOW00001",
+      subgroupKey: null,
+      beforePageId: "page-2",
+    } as const;
+    const propertyValues = resolveDatabaseViewDropPropertyValues({
+      model: groupedModel,
+      pageIds: ["page-1"],
+      target,
+    });
+
+    expect(propertyValues).toEqual([{
+      propertyId: priorityId,
+      value: "o_LOW00001",
+    }]);
+    const optimistic = applyOptimisticDatabaseViewBoardDrop(groupedModel, {
+      pageIds: ["page-1"],
+      fallbackRows: [groupedModel.query.rows[0]!],
+      target,
+      propertyValues,
+    });
+    expect(optimistic.query.rows.find((row) => row.page.pageId === "page-1"))
+      .toMatchObject({
+        effectiveGroupKey: "o_LOW00001",
+        values: { [priorityId]: { value: "o_LOW00001" } },
+      });
+    expect(buildDatabaseViewBoardDropOperations({
+      model: groupedModel,
+      pageIds: ["page-1"],
+      target,
+    }).map((operation) => operation.kind)).toEqual([
+      "edit_property_values",
+      "position_pages",
+    ]);
+  });
+
+  test("keeps the optimistic sorted drop until canonical order converges", () => {
+    const sortedModel = prioritySortedModel();
+    const projection = {
+      pageIds: ["page-3"],
+      fallbackRows: [sortedModel.query.rows[2]!],
+      target: {
+        groupKey: "o_DONE0001",
+        subgroupKey: null,
+        beforePageId: "page-2",
+      },
+      propertyValues: [],
+    } as const;
+
+    const optimistic = applyOptimisticDatabaseViewBoardDrop(
+      sortedModel,
+      projection,
+    );
+    expect(optimistic.query.rows.map((row) => row.page.pageId)).toEqual([
+      "page-1",
+      "page-3",
+      "page-2",
+    ]);
+    expect(optimistic.columns.flatMap((column) => column.rows)
+      .map((row) => row.pageId)).toEqual([
+        "page-1",
+        "page-3",
+        "page-2",
+      ]);
+    expect(applyOptimisticDatabaseViewBoardDrop(
+      optimistic,
+      projection,
+    )).toBe(optimistic);
+
+    const repairingAuthority = {
+      ...sortedModel,
+      query: {
+        ...sortedModel.query,
+        rows: sortedModel.query.rows.filter((row) =>
+          row.page.pageId !== "page-3"
+        ),
+      },
+    };
+    expect(applyOptimisticDatabaseViewBoardDrop(
+      repairingAuthority,
+      projection,
+    ).query.rows.map((row) => row.page.pageId)).toEqual([
+      "page-1",
+      "page-3",
+      "page-2",
+    ]);
+  });
+
+  test("does not promise an exact slot after a derived secondary sort", () => {
+    expect(databaseViewSupportsSortedSlotInference({
+      ...model,
+      query: {
+        ...model.query,
+        view: {
+          ...model.query.view,
+          config: {
+            ...model.query.view.config,
+            presentation: {
+              ...model.query.view.config.presentation,
+              sort: [
+                {
+                  field: { kind: "property", propertyId: priorityId },
+                  direction: "asc",
+                  nulls: "last",
+                },
+                { field: { kind: "title" }, direction: "asc", nulls: "last" },
+              ],
+            },
+          },
+        },
+      },
+    })).toBe(false);
+  });
+
+  test("does not infer a writable slot without active Property semantics", () => {
+    expect(databaseViewSupportsSortedSlotInference({
+      ...model,
+      query: {
+        ...model.query,
+        view: {
+          ...model.query.view,
+          config: {
+            ...model.query.view.config,
+            presentation: {
+              ...model.query.view.config.presentation,
+              sort: [{
+                field: { kind: "property", propertyId: unavailablePropertyId },
+                direction: "asc",
+                nulls: "last",
+              }],
+            },
+          },
+        },
+      },
+    })).toBe(false);
+  });
+
+  test("describes structural and sorted Property changes from one drop proposal", () => {
+    const sortedModel = prioritySortedModel();
+
+    expect(resolveDatabaseViewDropPropertyValues({
+      model: sortedModel,
+      pageIds: ["page-1"],
+      target: {
+        groupKey: "o_DONE0001",
+        subgroupKey: null,
+        beforePageId: "page-3",
+      },
+    })).toEqual([
+      { propertyId: statusId, value: "o_DONE0001" },
+      { propertyId: priorityId, value: "o_LOW00001" },
+    ]);
+    expect(resolveDatabaseViewDropPropertyValues({
+      model,
+      pageIds: ["page-2"],
+      target: {
+        groupKey: "o_DONE0001",
+        subgroupKey: "o_LOW00001",
+        beforePageId: "page-3",
+      },
+    })).toEqual([]);
+    expect(resolveDatabaseViewDropPropertyValues({
+      model: sortedModel,
+      pageIds: ["page-2"],
+      target: {
+        groupKey: "o_DONE0001",
+        subgroupKey: null,
+        beforePageId: "page-3",
+      },
+    })).toEqual([]);
+  });
+
+  test("does not advertise an exact slot for intrinsic sorting", () => {
+    expect(databaseViewSupportsSortedSlotInference({
+      ...model,
+      query: {
+        ...model.query,
+        view: {
+          ...model.query.view,
+          config: {
+            ...model.query.view.config,
+            presentation: {
+              ...model.query.view.config.presentation,
+              sort: [{ field: { kind: "title" }, direction: "asc", nulls: "last" }],
+            },
+          },
+        },
+      },
+    })).toBe(false);
   });
 });

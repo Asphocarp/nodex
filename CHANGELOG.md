@@ -20,7 +20,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Database Views now keep one durable identity and Filter while switching between Board and List; personal display changes persist per View and can be reset or published as the View default.
-- Board and List now share effective View authority and layout-independent manual order while the canonical Status Board retains its established Column/Card UI, whole-card drag, column controls, Page menus, and keyboard behavior.
+- Board and List now share effective View authority and layout-independent manual order, and every Board grouping uses the same compact Column/Card UI, whole-card drag, column controls, Page menus, and keyboard behavior.
 - Replaced the Library workspace and ownership tree with a compact Pages section for standalone top-level resources; every Page, Database, and Canvas in a window now shares one restorable tablist with searchable open/new actions, breadcrumbs, and app-wide Back/Forward navigation without switching Projects.
 
 ### Removed
