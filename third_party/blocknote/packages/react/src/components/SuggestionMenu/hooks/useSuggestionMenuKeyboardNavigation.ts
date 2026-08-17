@@ -57,14 +57,17 @@ export function useSuggestionMenuKeyboardNavigation<Item>(
     const liveQuery = getResolvedLiveQuery();
     if (
       liveQuery !== pendingQuery
-      || usedRequestScopeKey !== pendingAcceptScopeKey.current
+      || requestScopeKey !== pendingAcceptScopeKey.current
     ) {
       pendingAcceptQuery.current = undefined;
       pendingAcceptScopeKey.current = undefined;
       return;
     }
 
-    if (usedQuery !== pendingQuery) {
+    if (
+      usedQuery !== pendingQuery
+      || usedRequestScopeKey !== pendingAcceptScopeKey.current
+    ) {
       return;
     }
 

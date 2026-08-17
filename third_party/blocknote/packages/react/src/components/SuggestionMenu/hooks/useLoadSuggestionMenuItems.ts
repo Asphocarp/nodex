@@ -20,6 +20,7 @@ export function useLoadSuggestionMenuItems<T>(
     [getImmediateItems, query, requestScopeKey],
   );
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const currentQuery = useRef<string | undefined>(undefined);
   const currentRequestScopeKey = useRef<string | undefined>(undefined);
@@ -34,6 +35,7 @@ export function useLoadSuggestionMenuItems<T>(
     latestRequestId.current = requestId;
     currentQuery.current = query;
     currentRequestScopeKey.current = requestScopeKey;
+    setFailed(false);
     if (usedRequestScopeKey.current !== thisRequestScopeKey) {
       setItems([]);
       usedQuery.current = undefined;
@@ -54,6 +56,7 @@ export function useLoadSuggestionMenuItems<T>(
 
       setItems(items);
       setLoading(false);
+      setFailed(false);
       usedQuery.current = thisQuery;
       usedRequestScopeKey.current = thisRequestScopeKey;
     }).catch(() => {
@@ -67,13 +70,17 @@ export function useLoadSuggestionMenuItems<T>(
 
       setItems([]);
       setLoading(false);
+      setFailed(true);
       usedQuery.current = thisQuery;
       usedRequestScopeKey.current = thisRequestScopeKey;
     });
   }, [query, getItems, requestScopeKey]);
 
   const scopeIsCurrent = currentRequestScopeKey.current === requestScopeKey;
-  const currentAsyncItems = scopeIsCurrent && usedQuery.current === query && !loading;
+  const currentAsyncItems = scopeIsCurrent
+    && usedQuery.current === query
+    && !loading
+    && !failed;
   const usingImmediateItems = immediateItems !== undefined && !currentAsyncItems;
   return {
     items: usingImmediateItems ? immediateItems : scopeIsCurrent ? items : [],
@@ -87,7 +94,7 @@ export function useLoadSuggestionMenuItems<T>(
       : scopeIsCurrent ? usedRequestScopeKey.current : undefined,
     loadingState:
       usingImmediateItems
-        ? "loading"
+        ? failed ? "loaded" : "loading"
         : !scopeIsCurrent || usedQuery.current === undefined
         ? "loading-initial"
         : loading

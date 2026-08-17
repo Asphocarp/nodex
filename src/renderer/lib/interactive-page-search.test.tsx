@@ -122,7 +122,9 @@ describe("InteractivePageSearch", () => {
     });
     const { container } = render(<Harness />);
 
-    act(() => fireEvent.change(container.querySelector("input")!, { target: { value: "pages" } }));
+    await act(async () => {
+      fireEvent.change(container.querySelector("input")!, { target: { value: "pages" } });
+    });
     const previewIds = () => Array.from(container.querySelectorAll("[data-page-id]"))
       .map((element) => element.getAttribute("data-page-id"));
     expect(previewIds()).toEqual(["page-preview-first", "page-preview-second"]);
