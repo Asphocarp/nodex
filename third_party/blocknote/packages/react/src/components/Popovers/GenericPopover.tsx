@@ -164,10 +164,13 @@ export const GenericPopover = (
   // possible both are needed.
   const { getFloatingProps } = useInteractions([dismiss, hover]);
 
-  // Keep the final committed React subtree mounted during the exit transition.
-  // Replacing it with an `innerHTML` copy loses every React-owned behavior while
-  // preserving native semantics such as `draggable`, links, and form controls.
+  // Keep the final committed React subtree mounted during the exit transition
+  // by default. Surfaces whose children derive from selection state can opt
+  // into the static DOM snapshot below; the exit layer is inert, so it does
+  // not need React-owned handlers during that visual-only interval.
   const lastOpenChildren = useRef<ReactNode>(props.children);
+  const lastOpenInnerHTML = useRef("");
+  const freezeChildrenOnClose = props.freezeChildrenOnClose === true;
   const hasRenderedChildren = props.children !== null
     && props.children !== undefined
     && props.children !== false;
@@ -240,9 +243,18 @@ export const GenericPopover = (
     () => {
       if (isMounted && !isClosing && hasRenderedChildren) {
         lastOpenChildren.current = props.children;
+        if (freezeChildrenOnClose && ref.current) {
+          lastOpenInnerHTML.current = ref.current.innerHTML;
+        }
       }
     },
-    [hasRenderedChildren, isClosing, isMounted, props.children],
+    [
+      freezeChildrenOnClose,
+      hasRenderedChildren,
+      isClosing,
+      isMounted,
+      props.children,
+    ],
   );
 
   if (!isMounted) {
@@ -260,14 +272,20 @@ export const GenericPopover = (
     },
     ...getFloatingProps(),
   };
+  const useFrozenChildren = isClosing
+    && freezeChildrenOnClose
+    && lastOpenInnerHTML.current.length > 0;
 
   const floatingElement = (
     <div
       ref={mergedRefs}
       {...mergedProps}
       {...(isClosing ? { inert: true, "aria-hidden": true } : {})}
+      {...(useFrozenChildren
+        ? { dangerouslySetInnerHTML: { __html: lastOpenInnerHTML.current } }
+        : {})}
     >
-      {isClosing ? lastOpenChildren.current : props.children}
+      {useFrozenChildren ? null : isClosing ? lastOpenChildren.current : props.children}
     </div>
   );
 

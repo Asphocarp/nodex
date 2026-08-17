@@ -186,6 +186,13 @@ export function resolveNfmFormattingToolbarPresentation(input: {
 }): NfmFormattingToolbarPresentation {
   if (!input.show) return { open: false };
 
+  // BlockNote's store and selection-derived eligibility can settle in
+  // different React commits. A collapsed selection is never a valid toolbar
+  // anchor, even when legacy eligibility still describes the previous block.
+  if (input.selectionRange.from === input.selectionRange.to) {
+    return { open: false };
+  }
+
   if (shouldSuppressNfmFormattingToolbarForSelection(input)) {
     return { open: false };
   }
@@ -221,40 +228,37 @@ export function NfmFormattingToolbarController(props: {
   });
   const sideMenuOpenController = useNfmSideMenuOpenController();
 
-  const selectionRange = useEditorState({
+  // Subscribe to ProseMirror transactions, then read the live state below.
+  // The formatting-toolbar store and selection events are separate external
+  // stores, so a derived selector can otherwise render one stale snapshot
+  // between the two updates.
+  useEditorState({
     editor,
-    selector: ({ editor }) => ({
-      from: editor.prosemirrorState.selection.from,
-      to: editor.prosemirrorState.selection.to,
-    }),
+    selector: ({ transactionNumber }) => transactionNumber,
   });
-
-  const placement = useEditorState({
-    editor,
-    selector: ({ editor }) => {
-      const block = editor.getTextCursorPosition().block as {
-        props?: { textAlignment?: DefaultProps["textAlignment"] };
-      };
-      return textAlignmentToPlacement(block.props?.textAlignment ?? defaultProps.textAlignment.default);
-    },
-  });
-
-  const floatingMode = useEditorState({
-    editor,
-    selector: ({ editor }) => resolveNfmFormattingToolbarFloatingMode(resolveTextActionMenuEligibility(editor)),
-  });
-  const toolbarEligibility = useEditorState({
-    editor,
-    selector: ({ editor }) => resolveFormattingToolbarEligibility(editor),
-  });
+  const currentSelectionRange = {
+    from: editor.prosemirrorState.selection.from,
+    to: editor.prosemirrorState.selection.to,
+  };
+  const currentToolbarEligibility = resolveFormattingToolbarEligibility(editor);
+  const currentFloatingMode = resolveNfmFormattingToolbarFloatingMode(
+    currentToolbarEligibility.textAction,
+  );
+  const currentPlacement = textAlignmentToPlacement(
+    (editor.getTextCursorPosition().block as {
+      props?: { textAlignment?: DefaultProps["textAlignment"] };
+    }).props?.textAlignment ?? defaultProps.textAlignment.default,
+  );
   const presentation = resolveNfmFormattingToolbarPresentation({
     show,
-    selectionRange,
+    selectionRange: currentSelectionRange,
     suppressionRange: sideMenuOpenController.formattingToolbarSuppressionRange,
-    textActionEligibility: toolbarEligibility.textAction,
-    legacyEligibility: toolbarEligibility.legacy,
+    textActionEligibility: currentToolbarEligibility.textAction,
+    legacyEligibility: currentToolbarEligibility.legacy,
   });
-  const lastVisibleFloatingModeRef = useRef<NfmFormattingToolbarMode>(floatingMode);
+  const lastVisibleFloatingModeRef = useRef<NfmFormattingToolbarMode>(
+    currentFloatingMode,
+  );
 
   if (presentation.open) {
     lastVisibleFloatingModeRef.current = presentation.mode;
@@ -262,7 +266,9 @@ export function NfmFormattingToolbarController(props: {
 
   const effectiveFloatingMode = resolveNfmFormattingToolbarEffectiveFloatingMode({
     show: presentation.open,
-    currentMode: presentation.open ? presentation.mode : floatingMode,
+    currentMode: presentation.open
+      ? presentation.mode
+      : currentFloatingMode,
     lastVisibleMode: lastVisibleFloatingModeRef.current,
   });
   const position = presentation.open ? presentation.position : undefined;
@@ -282,7 +288,7 @@ export function NfmFormattingToolbarController(props: {
           editor.focus();
         }
       },
-      placement,
+      placement: currentPlacement,
       strategy: "fixed",
       middleware: [offset(10), shift({ padding: 8 }), flip({ padding: 8 })],
       ...props.floatingUIOptions?.useFloatingOptions,
@@ -302,10 +308,11 @@ export function NfmFormattingToolbarController(props: {
         ...textActionFloatingOptions?.elementProps?.style,
       },
     },
+    freezeChildrenOnClose: true,
   }), [
     editor,
     formattingToolbar.store,
-    placement,
+    currentPlacement,
     presentation.open,
     props.floatingUIOptions,
     textActionFloatingOptions,

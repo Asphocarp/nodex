@@ -161,4 +161,88 @@ describe("NFM image formatting toolbar in Chromium", () => {
       editor._tiptapEditor.destroy();
     }
   });
+
+  test("does not flash the text formatting toolbar while moving the cursor into text", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: nfmSchema,
+      initialContent: [
+        {
+          id: "image-transition",
+          type: "image",
+          props: {
+            url: "data:image/png;base64,YQ==",
+            caption: "",
+            name: "image.png",
+            showPreview: true,
+          },
+        },
+        {
+          id: "paragraph-transition",
+          type: "paragraph",
+          content: "Click into this text",
+        },
+      ],
+    });
+    const view = render(
+      <NodexTooltipProvider>
+        <BlockNoteView
+          editor={editor}
+          className="nfm-editor"
+          formattingToolbar={false}
+          linkToolbar={false}
+          slashMenu={false}
+          sideMenu={false}
+          tableHandles={false}
+        >
+          <NfmSideMenuOpenProvider>
+            <NfmFormattingToolbarController
+              formattingToolbar={NfmFormattingToolbar}
+            />
+          </NfmSideMenuOpenProvider>
+        </BlockNoteView>
+      </NodexTooltipProvider>,
+    );
+
+    let textToolbarShownDuringImageExit = false;
+    const observer = new MutationObserver(() => {
+      if (document.body.querySelector('[role="toolbar"] [aria-label="Paragraph"]')) {
+        textToolbarShownDuringImageExit = true;
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    try {
+      await act(settleEditor);
+      await act(async () => {
+        editor.setTextCursorPosition("image-transition");
+        editor.getExtension(FormattingToolbarExtension)?.store.setState(true);
+        editor.focus();
+        await settleEditor();
+      });
+      expect(await view.findByRole("button", { name: "Edit caption" })).toBeTruthy();
+      textToolbarShownDuringImageExit = false;
+
+      await act(async () => {
+        editor.setTextCursorPosition("paragraph-transition", "start");
+        await Promise.resolve();
+      });
+      expect(
+        document.querySelector('[aria-hidden="true"] [aria-label="Edit caption"]'),
+      ).not.toBeNull();
+      await act(settleEditor);
+      await act(settleEditor);
+
+      expect(textToolbarShownDuringImageExit).toBe(false);
+      expect(view.queryByRole("button", { name: "Paragraph" })).toBeNull();
+      await waitFor(() => {
+        expect(
+          document.querySelector('[aria-hidden="true"] [aria-label="Edit caption"]'),
+        ).toBeNull();
+      });
+    } finally {
+      observer.disconnect();
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
 });
