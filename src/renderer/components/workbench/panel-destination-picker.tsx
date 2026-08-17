@@ -64,11 +64,13 @@ function getPanelDestinationRowDomId(listboxId: string, index: number) {
 
 function PanelDestinationStatusRow({
   children,
+  role = "status",
 }: {
   children: ReactNode;
+  role?: "status" | "alert";
 }) {
   return (
-    <div className="flex h-9 items-center px-3 text-[13px] leading-5 text-token-description-foreground">
+    <div role={role} className="flex h-9 items-center px-3 text-[13px] leading-5 text-token-description-foreground">
       {children}
     </div>
   );
@@ -558,10 +560,10 @@ export function PanelDestinationPickerSurface({
             </PanelDestinationStatusRow>
           ) : null}
           {query && pageSearchEnabled && remoteSearchResult.enrichment === "unavailable" ? (
-            <PanelDestinationStatusRow>Full Page search is unavailable</PanelDestinationStatusRow>
+            <PanelDestinationStatusRow role="alert">Full Page search is unavailable</PanelDestinationStatusRow>
           ) : null}
           {displayError ? (
-            <PanelDestinationStatusRow>{PANEL_DESTINATION_ERROR}</PanelDestinationStatusRow>
+            <PanelDestinationStatusRow role="alert">{PANEL_DESTINATION_ERROR}</PanelDestinationStatusRow>
           ) : null}
           {!loading && !displayError && rows.length === 0 ? (
             <PanelDestinationStatusRow>No results</PanelDestinationStatusRow>

@@ -37,6 +37,8 @@ export function SuggestionMenuController<
     getItems?: GetItemsType;
     /** Query-fresh same-render items; async getItems may enrich them later. */
     getImmediateItems?: (query: string) => ItemType<GetItemsType>[];
+    /** Authorization/context identity for rejecting same-query stale results. */
+    requestScopeKey?: string;
     shouldOpen?: SuggestionMenuOptions["shouldOpen"];
     minQueryLength?: number;
     /**
@@ -201,6 +203,7 @@ export function SuggestionMenuController<
           clearQuery={suggestionMenu.clearQuery}
           getItems={getItemsOrDefault}
           getImmediateItems={props.getImmediateItems}
+          requestScopeKey={props.requestScopeKey}
           suggestionMenuComponent={
             suggestionMenuComponent || SuggestionMenu<ItemType<GetItemsType>>
           }

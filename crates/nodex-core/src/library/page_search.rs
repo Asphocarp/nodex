@@ -236,44 +236,49 @@ fn build_index(connection: &Connection, library_id: &str) -> Result<PageSearchIn
     let locations = pages
         .keys()
         .map(|page_id| {
-            Ok((
-                page_id.clone(),
-                page_location_label(&pages, &data_source_names, library_id, page_id)?,
-            ))
+            let label = page_location_label(&pages, &data_source_names, library_id, page_id)
+                .unwrap_or_else(|error| {
+                    tracing::warn!(
+                        subsystem = "library_page_search",
+                        page_id = %page_id,
+                        error = %error,
+                        "Page search location label is unavailable"
+                    );
+                    String::new()
+                });
+            (page_id.clone(), label)
         })
-        .collect::<Result<HashMap<_, _>, StoreError>>()?;
+        .collect::<HashMap<_, _>>();
     for page in pages.values_mut() {
         page.page_key = page_keys.get(&page.id).cloned();
         page.location_label = locations.get(&page.id).cloned().unwrap_or_default();
     }
     let metadata_documents = pages
         .values()
-        .map(|page| {
-            Ok(KernelDocument {
-                page_id: page.id.clone(),
-                page_key: page.page_key.clone(),
-                title: page.title.clone(),
-                preview: page.preview.clone(),
-                status: page.status.map(kernel_workflow_status),
-                priority: page.priority.clone(),
-                tags: page.tags.iter().map(kernel_option).collect(),
-                assignee: page.assignee.clone(),
-                location_label: page.location_label.clone(),
-                updated_at: page.updated_at.clone(),
-                properties: page
-                    .properties
-                    .iter()
-                    .map(|property| KernelProperty {
-                        property_id: property.property_id.clone(),
-                        property_name: property.property_name.clone(),
-                        text: property.text.clone(),
-                    })
-                    .collect(),
-                authorized_project_ids: page.authorized_project_ids.iter().cloned().collect(),
-                data_source_ids: page.data_source_ids.iter().cloned().collect(),
-            })
+        .map(|page| KernelDocument {
+            page_id: page.id.clone(),
+            page_key: page.page_key.clone(),
+            title: page.title.clone(),
+            preview: page.preview.clone(),
+            status: page.status.map(kernel_workflow_status),
+            priority: page.priority.clone(),
+            tags: page.tags.iter().map(kernel_option).collect(),
+            assignee: page.assignee.clone(),
+            location_label: page.location_label.clone(),
+            updated_at: page.updated_at.clone(),
+            properties: page
+                .properties
+                .iter()
+                .map(|property| KernelProperty {
+                    property_id: property.property_id.clone(),
+                    property_name: property.property_name.clone(),
+                    text: property.text.clone(),
+                })
+                .collect(),
+            authorized_project_ids: page.authorized_project_ids.iter().cloned().collect(),
+            data_source_ids: page.data_source_ids.iter().cloned().collect(),
         })
-        .collect::<Result<Vec<_>, StoreError>>()?;
+        .collect::<Vec<_>>();
     Ok(PageSearchIndex {
         pages,
         data_source_databases,
@@ -640,7 +645,7 @@ pub(super) fn search_projects(
     outcomes
         .into_iter()
         .take(limit)
-        .map(|outcome| project_hit(connection, index, library_id, outcome))
+        .map(|outcome| project_hit(index, outcome))
         .collect()
 }
 
@@ -734,9 +739,7 @@ pub(super) fn project_facets(
 }
 
 pub(super) fn project_metadata(
-    _connection: &Connection,
     index: &PageSearchIndex,
-    _library_id: &str,
     project_ids: &[String],
     requested_page_ids: Option<&[String]>,
 ) -> Result<Vec<LibraryPageSearchMetadataDocument>, StoreError> {
@@ -844,11 +847,10 @@ pub(super) fn search_references(
     outcomes
         .into_iter()
         .take(limit)
-        .map(|outcome| reference_hit(connection, index, library_id, outcome))
+        .map(|outcome| reference_hit(index, outcome))
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn search_agent_pages(
     connection: &Connection,
     index: &PageSearchIndex,
@@ -890,7 +892,7 @@ pub(super) fn search_agent_pages(
     outcomes.sort_by(|left, right| compare_outcomes(left, right, index, None));
     outcomes
         .into_iter()
-        .map(|outcome| agent_hit(connection, index, library_id, outcome))
+        .map(|outcome| agent_hit(index, library_id, outcome))
         .collect()
 }
 
@@ -921,10 +923,9 @@ fn search_index(
     {
         for evidence in matched.evidence {
             let kind = match evidence.source {
-                KernelMatchSource::PageKey { page_key } => EvidenceKind::PageKey {
-                    page_key,
-                    is_current: true,
-                },
+                // Core resolves Page keys separately so casing and historical-key
+                // status come from the authoritative PageKeyResolution.
+                KernelMatchSource::PageKey { .. } => continue,
                 KernelMatchSource::Identity => EvidenceKind::Identity,
                 KernelMatchSource::Title => EvidenceKind::Title,
                 KernelMatchSource::Property {
@@ -1394,9 +1395,7 @@ fn evidence_rank(evidence: &Evidence) -> usize {
 }
 
 fn project_hit(
-    _connection: &Connection,
     index: &PageSearchIndex,
-    _library_id: &str,
     outcome: SearchOutcome,
 ) -> Result<LibraryProjectPageSearchHit, StoreError> {
     let page = index
@@ -1427,9 +1426,7 @@ fn project_hit(
 }
 
 fn reference_hit(
-    _connection: &Connection,
     index: &PageSearchIndex,
-    _library_id: &str,
     outcome: SearchOutcome,
 ) -> Result<LibraryPageReferenceCandidate, StoreError> {
     let page = index
@@ -1455,7 +1452,6 @@ fn reference_hit(
 }
 
 fn agent_hit(
-    _connection: &Connection,
     index: &PageSearchIndex,
     library_id: &str,
     outcome: SearchOutcome,

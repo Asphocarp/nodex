@@ -91,6 +91,7 @@ import {
 } from "@/lib/command-palette-highlight";
 import { StatusIcon } from "@/lib/status-presentation";
 import { WORKFLOW_STATUS_LABELS } from "../../../../shared/workflow-status";
+import { contentAccessContextKey } from "../../../../shared/content-access-context";
 
 interface NfmSlashMenuProps {
   executionProjectId: string | null;
@@ -1111,6 +1112,13 @@ function usePageReferenceGetItems(
   const editorRef = useRef(editor);
   const hostRuntimeRef = useRef(hostRuntime);
   const beforeSelectRef = useRef(beforeSelect);
+  const requestScopeKey = hostRuntime
+    ? JSON.stringify([
+        contentAccessContextKey(hostRuntime.contentAccessContext),
+        hostRuntime.hostPageId,
+        ...hostRuntime.ancestorPageIds,
+      ])
+    : "no-page-context";
   editorRef.current = editor;
   hostRuntimeRef.current = hostRuntime;
   beforeSelectRef.current = beforeSelect;
@@ -1154,7 +1162,10 @@ function usePageReferenceGetItems(
       beforeSelectRef.current,
     );
   }, [intent]);
-  return useMemo(() => ({ getItems, getImmediateItems }), [getImmediateItems, getItems]);
+  return useMemo(
+    () => ({ getItems, getImmediateItems, requestScopeKey }),
+    [getImmediateItems, getItems, requestScopeKey],
+  );
 }
 
 function classifyThreadMentionMatch(
@@ -1614,6 +1625,7 @@ function MentionMenu({
       triggerCharacter="@"
       getItems={getItems}
       getImmediateItems={getImmediateItems}
+      requestScopeKey={pageItems.requestScopeKey}
       shouldCloseOnItemClick={shouldCloseOnItemClick}
       autoCloseWhenNoItems={false}
       {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
@@ -1647,6 +1659,7 @@ function EmbedPageMenu({ bookmarkRef }: {
       triggerCharacter={PAGE_EMBED_PICKER_TRIGGER}
       getItems={pageItems.getItems}
       getImmediateItems={pageItems.getImmediateItems}
+      requestScopeKey={pageItems.requestScopeKey}
       {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
       suggestionMenuComponent={NfmPageSuggestionMenuSurface}
     />

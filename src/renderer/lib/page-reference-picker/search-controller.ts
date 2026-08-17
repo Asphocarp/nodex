@@ -10,6 +10,7 @@ import type {
   PageReferenceCandidate,
   PageReferencePickerRequest,
 } from "./types";
+import type { PageSearchResult } from "../../../shared/types";
 import {
   configuredPageSearchProjectIds,
   searchPageMetadataSync,
@@ -62,12 +63,11 @@ export function loadPageReferenceCandidatesSync(
   const projectIds = request.accessContext.kind === "project"
     ? [request.accessContext.projectId]
     : configuredPageSearchProjectIds();
+  const sourcePageId = resolvePageReferenceSourcePageId(request);
   const rows = searchPageMetadataSync({
     projectIds,
     query: request.query,
-    excludePageIds: resolvePageReferenceSourcePageId(request)
-      ? [resolvePageReferenceSourcePageId(request)!]
-      : [],
+    excludePageIds: sourcePageId ? [sourcePageId] : [],
     limit: request.limit,
     complete: false,
   });
@@ -76,7 +76,7 @@ export function loadPageReferenceCandidatesSync(
 
 export function pageSearchResultsToReferenceCandidates(
   request: PageReferencePickerRequest,
-  rows: readonly import("../../../shared/types").PageSearchResult[],
+  rows: readonly PageSearchResult[],
 ): PageReferenceCandidate[] {
   return deduplicatePageReferenceCandidates(rows.map((item) => ({
     pageId: item.pageId,
@@ -86,9 +86,15 @@ export function pageSearchResultsToReferenceCandidates(
     locationLabel: item.locationLabel,
     lifecycle: "active" as const,
     matchExcerpt: item.excerpt,
-    matchSource: item.matches.some((match) => match.source === "page_key")
-      ? "page_key" as const
-      : "title" as const,
+    matchSource: (() => {
+      const strongest = item.matches[0];
+      if (!strongest) return "recent" as const;
+      if (strongest.source === "page_key") return "page_key" as const;
+      if (strongest.source === "body" || strongest.source === "property") {
+        return "content" as const;
+      }
+      return "title" as const;
+    })(),
     titleParts: item.titleParts,
     matchExcerptParts: item.excerptParts,
     matches: item.matches,

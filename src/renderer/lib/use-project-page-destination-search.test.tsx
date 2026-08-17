@@ -42,5 +42,7 @@ describe("Project Page destination search", () => {
     expect(hook.result.current.pageHits[0]).toMatchObject({
       pageId: "page-1", pageKey: "LAB-13", pageTitle: "Launch",
     });
+    expect(hook.result.current.enrichment).toBe("loading");
+    hook.unmount();
   });
 });

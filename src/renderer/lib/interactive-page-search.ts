@@ -58,6 +58,14 @@ let documents = new Map<string, PageSearchMetadataDocument>();
 let configuredProjectIds: string[] = [];
 let generation = 0;
 let unsubscribeChanges: (() => void) | null = null;
+let refreshInFlight = false;
+let pendingFullRefresh = false;
+const pendingPageIds = new Set<string>();
+let nextScopeLeaseId = 1;
+const scopeLeases = new Map<number, {
+  readonly projectIds: readonly string[];
+  readonly mode: "extend" | "replace";
+}>();
 const listeners = new Set<() => void>();
 
 function emit(next: Omit<ProjectionState, "revision">): void {
@@ -111,7 +119,20 @@ async function refresh(pageIds?: readonly string[]): Promise<void> {
       currentGeneration !== generation
       || !projectionIsValid(snapshot, expectedScope)
       || (state.storeEpoch === snapshot.storeEpoch && snapshot.commitSeq < state.commitSeq)
-    ) return;
+    ) {
+      // A partial response can legitimately finish after a newer full response.
+      // Reconcile the complete projection instead of silently leaving unrelated
+      // Pages stale until another library event arrives.
+      if (
+        pageIds
+        && currentGeneration === generation
+        && state.storeEpoch === snapshot.storeEpoch
+        && snapshot.commitSeq < state.commitSeq
+      ) {
+        requestRefresh();
+      }
+      return;
+    }
     if (pageIds) {
       const returned = new Set(snapshot.documents.map((document) => document.pageId));
       const removals = pageIds.filter((pageId) => !returned.has(pageId));
@@ -141,18 +162,50 @@ async function refresh(pageIds?: readonly string[]): Promise<void> {
   }
 }
 
-/** Prewarms the Core-stamped projection. No query is executed on this async path. */
-export function configureInteractivePageSearch(
-  projectIds: readonly string[],
-  mode: "extend" | "replace" = "extend",
-): void {
-  const nextIds = [...new Set(
-    mode === "replace" ? projectIds : [...configuredProjectIds, ...projectIds],
-  )];
+function requestRefresh(pageIds?: readonly string[]): void {
+  if (pageIds === undefined) {
+    pendingFullRefresh = true;
+    pendingPageIds.clear();
+  } else if (!pendingFullRefresh) {
+    for (const pageId of pageIds) pendingPageIds.add(pageId);
+  }
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+  void drainRefreshQueue();
+}
+
+async function drainRefreshQueue(): Promise<void> {
+  try {
+    while (pendingFullRefresh || pendingPageIds.size > 0) {
+      const pageIds = pendingFullRefresh
+        ? undefined
+        : [...pendingPageIds];
+      pendingFullRefresh = false;
+      pendingPageIds.clear();
+      await refresh(pageIds);
+    }
+  } finally {
+    refreshInFlight = false;
+    if (pendingFullRefresh || pendingPageIds.size > 0) requestRefresh();
+  }
+}
+
+function activeProjectIds(): string[] {
+  const leases = [...scopeLeases.values()];
+  const replacement = leases.at(-1)?.mode === "replace"
+    ? leases.at(-1)
+    : leases.filter((lease) => lease.mode === "replace").at(-1);
+  if (replacement) return [...new Set(replacement.projectIds)];
+  return [...new Set(leases.flatMap((lease) => lease.projectIds))];
+}
+
+function applyProjectScope(nextIds: readonly string[]): void {
   const nextScope = scopeKey(nextIds);
   if (nextScope === state.scopeKey) return;
-  configuredProjectIds = nextIds;
+  configuredProjectIds = [...nextIds];
   generation += 1;
+  pendingFullRefresh = false;
+  pendingPageIds.clear();
   documents.clear();
   index?.free?.();
   index = null;
@@ -163,23 +216,43 @@ export function configureInteractivePageSearch(
     return;
   }
   emit({ scopeKey: nextScope, status: "loading", libraryId: null, storeEpoch: null, commitSeq: 0, error: null });
-  void refresh();
+  requestRefresh();
   unsubscribeChanges ??= subscribeLibraryChanges((event) => {
-    if (event.storeEpoch !== state.storeEpoch) {
+    if (state.storeEpoch !== null && event.storeEpoch !== state.storeEpoch) {
       generation += 1;
       documents.clear();
       index?.free?.();
       index = null;
       emit({ ...state, status: "loading", libraryId: null, storeEpoch: null, commitSeq: 0, error: null });
-      void refresh();
+      requestRefresh();
+      return;
+    }
+    // During the initial load the event is queued as a full reconciliation. It
+    // must not cancel the in-flight snapshot by pretending its epoch changed.
+    if (state.storeEpoch === null) {
+      requestRefresh();
       return;
     }
     if (event.affectedPageIds.length > 0 && event.affectedDatabaseIds.length === 0) {
-      void refresh(event.affectedPageIds);
+      requestRefresh(event.affectedPageIds);
       return;
     }
-    void refresh();
+    requestRefresh();
   });
+}
+
+/** Prewarms the Core-stamped projection. No query is executed on this async path. */
+export function configureInteractivePageSearch(
+  projectIds: readonly string[],
+  mode: "extend" | "replace" = "extend",
+): (() => void) {
+  const leaseId = nextScopeLeaseId++;
+  scopeLeases.set(leaseId, { projectIds: [...new Set(projectIds)], mode });
+  applyProjectScope(activeProjectIds());
+  return () => {
+    if (!scopeLeases.delete(leaseId)) return;
+    applyProjectScope(activeProjectIds());
+  };
 }
 
 export function searchPageMetadataSync(intent: PageSearchIntent): readonly PageSearchResult[] {
@@ -247,9 +320,14 @@ export function useInteractivePageSearch(intent: PageSearchIntent): InteractiveP
     ...intent,
     projectIds: normalizedProjectIds,
   });
-  const rows = mergeResults(preview, complete.rows, intent.limit ?? 20).filter(
-    (row) => !intent.excludePageIds?.includes(row.pageId),
-  );
+  const excluded = new Set(intent.excludePageIds ?? []);
+  const rows = complete.status === "settled"
+    ? complete.rows.filter((row) => !excluded.has(row.pageId)).slice(0, intent.limit ?? 20)
+    : mergeResults(
+        preview.filter((row) => !excluded.has(row.pageId)),
+        complete.rows.filter((row) => !excluded.has(row.pageId)),
+        intent.limit ?? 20,
+      );
   if (projection.status !== "ready" && complete.status !== "settled") {
     let enrichment: InteractivePageSearchResult["enrichment"] = "loading";
     if (
@@ -274,12 +352,19 @@ function useCompletePageSearch(
   revision: string,
   intent: PageSearchIntent,
 ): { readonly rows: readonly PageSearchResult[]; readonly status: InteractivePageSearchResult["enrichment"] } {
-  const store = completeStores.get(revision) ?? createCompleteStore(revision, enabled, intent);
-  if (!completeStores.has(revision)) completeStores.set(revision, store);
+  // The registry makes the revision the store identity. The other dependencies
+  // keep the creation inputs explicit without recreating an already registered
+  // store when a caller allocates an equivalent intent object on re-render.
+  const store = useMemo(
+    () => completeStores.get(revision) ?? createCompleteStore(revision, enabled, intent),
+    [enabled, intent, revision],
+  );
   useEffect(() => {
-    store.start();
-    return () => store.release();
-  }, [store]);
+    const activeStore = completeStores.get(revision) ?? store;
+    completeStores.set(revision, activeStore);
+    activeStore.start();
+    return () => activeStore.release();
+  }, [revision, store]);
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
@@ -292,7 +377,7 @@ function createCompleteStore(revision: string, enabled: boolean, intent: PageSea
   let timer: ReturnType<typeof setTimeout> | null = null;
   let users = 0;
   const subscribers = new Set<() => void>();
-  return {
+  const store: CompleteStore = {
     subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
     getSnapshot: () => snapshot,
     start() {
@@ -319,12 +404,14 @@ function createCompleteStore(revision: string, enabled: boolean, intent: PageSea
       }, 175);
     },
     release() {
+      if (users === 0) return;
       users -= 1;
       if (users > 0) return;
       if (timer) clearTimeout(timer);
-      completeStores.delete(revision);
+      if (completeStores.get(revision) === store) completeStores.delete(revision);
     },
   };
+  return store;
 }
 
 export const __testing = {
@@ -358,6 +445,11 @@ export const __testing = {
   reset() {
     generation += 1;
     unsubscribeChanges?.(); unsubscribeChanges = null;
+    refreshInFlight = false;
+    pendingFullRefresh = false;
+    pendingPageIds.clear();
+    scopeLeases.clear();
+    nextScopeLeaseId = 1;
     state = EMPTY_STATE; index?.free?.(); index = null; documents.clear(); configuredProjectIds = [];
     completeStores.clear(); listeners.clear();
   },

@@ -193,7 +193,7 @@ const projectPageSearchMetadataSnapshot = () => ({
     kind: "project_page_search_metadata" as const,
     items: [{
       page_id: "page:one", page_key: "NDX-1", title: "Page One",
-      preview: "Preview", status: "build" as const, priority: "p1-high",
+      preview: "Preview", status: "build" as const, priority: "p1-high" as const,
       tags: [], assignee: "Ada", location_label: "Product / Editor",
       updated_at: "2026-07-19T18:12:00.000Z",
       properties: [{ property_id: "summary", property_name: "Summary", text: "Canonical" }],
@@ -1318,6 +1318,21 @@ describe("Core Library Module Adapter", () => {
       pageId: "page:one", pageKey: "NDX-1", authorizedProjectIds: ["project:test"], dataSourceIds: ["source:test"],
       properties: [{ propertyId: "summary", propertyName: "Summary", text: "Canonical" }],
     });
+  });
+
+  test.each([
+    ["status", "invalid-status"],
+    ["priority", "invalid-priority"],
+  ])("rejects invalid Page search metadata %s", async (field, value) => {
+    const client = new FakeCoreClient();
+    const malformed = projectPageSearchMetadataSnapshot();
+    (malformed.value.items[0] as Record<string, unknown>)[field] = value;
+    client.enqueueRead(malformed);
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.pageSearchMetadata(["project:test"])).rejects.toThrow(
+      `Core Page search metadata returned an invalid ${field}`,
+    );
   });
 
   test("maps contextual Page reference provenance and source identity", async () => {

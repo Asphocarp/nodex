@@ -41,13 +41,20 @@ function LoadItemsHarness<T>({
   getImmediateItems,
   onSnapshot,
   query,
+  requestScopeKey,
 }: {
   getItems: (query: string) => Promise<T[]>;
   getImmediateItems?: (query: string) => T[];
   onSnapshot: (snapshot: ReturnType<typeof useLoadSuggestionMenuItems<T>>) => void;
   query: string;
+  requestScopeKey?: string;
 }) {
-  const snapshot = useLoadSuggestionMenuItems(query, getItems, getImmediateItems);
+  const snapshot = useLoadSuggestionMenuItems(
+    query,
+    getItems,
+    getImmediateItems,
+    requestScopeKey,
+  );
 
   useEffect(() => {
     onSnapshot(snapshot);
@@ -130,6 +137,46 @@ describe("suggestion menu freshness", () => {
     expect(latest?.items).toEqual(["metadata:canon"]);
     expect(latest?.usedQuery).toBe("canon");
     expect(latest?.loadingState).toBe("loading");
+  });
+
+  test("invalidates same-query items when the authorization scope changes", async () => {
+    const first = createDeferred<string[]>();
+    const second = createDeferred<string[]>();
+    let latest: ReturnType<typeof useLoadSuggestionMenuItems<string>> | undefined;
+    const onSnapshot = (snapshot: ReturnType<typeof useLoadSuggestionMenuItems<string>>) => {
+      latest = snapshot;
+    };
+    const view = render(
+      <LoadItemsHarness
+        query="page"
+        requestScopeKey="project:one"
+        getItems={() => first.promise}
+        getImmediateItems={() => ["project-one"]}
+        onSnapshot={onSnapshot}
+      />,
+    );
+    expect(latest?.items).toEqual(["project-one"]);
+
+    view.rerender(
+      <LoadItemsHarness
+        query="page"
+        requestScopeKey="project:two"
+        getItems={() => second.promise}
+        getImmediateItems={() => ["project-two"]}
+        onSnapshot={onSnapshot}
+      />,
+    );
+    expect(latest?.items).toEqual(["project-two"]);
+    expect(latest?.usedRequestScopeKey).toBe("project:two");
+
+    await act(async () => {
+      first.resolve(["stale project-one"]);
+      await Promise.resolve();
+      second.resolve(["fresh project-two"]);
+      await Promise.resolve();
+    });
+    expect(latest?.items).toEqual(["fresh project-two"]);
+    expect(latest?.usedRequestScopeKey).toBe("project:two");
   });
 
   test("ignores older same-query item requests when a newer request finishes first", async () => {

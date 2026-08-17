@@ -26,6 +26,10 @@ function hit(query: string): PageSearchResult {
   };
 }
 
+function pageHit(pageId: string, title: string): PageSearchResult {
+  return { ...hit(title), pageId, title };
+}
+
 function snapshot(results: readonly PageSearchResult[]): PageSearchSnapshot {
   return {
     libraryId: "library-1",
@@ -48,7 +52,7 @@ function Harness() {
   const search = useInteractivePageSearch({ projectIds: PROJECT_IDS, query, limit: 10 });
   return <>
     <input aria-label="Search Pages" value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
-    {search.rows.map((row) => <div key={row.pageId}>{row.title}</div>)}
+    {search.rows.map((row) => <div data-page-id={row.pageId} key={row.pageId}>{row.title}</div>)}
     {search.enrichment === "loading" ? <div>Loading more Pages…</div> : null}
     {search.enrichment === "unavailable" ? <div>Full Page search is unavailable</div> : null}
     {search.enrichment === "settled" && search.rows.length === 0 ? <div>No matching Pages</div> : null}
@@ -104,6 +108,27 @@ describe("InteractivePageSearch", () => {
 
     await act(async () => current.resolve(snapshot([hit("current complete")])));
     expect(textContent(container)).toContain("Canonical current complete");
+  });
+
+  test("adopts Core ordering once complete search settles", async () => {
+    vi.useFakeTimers();
+    const previewFirst = pageHit("page-preview-first", "Preview first");
+    const previewSecond = pageHit("page-preview-second", "Preview second");
+    vi.mocked(invoke).mockResolvedValueOnce(snapshot([previewSecond, previewFirst]));
+    __testing.installIndex(PROJECT_IDS, {
+      replace: () => undefined,
+      applyDelta: () => undefined,
+      search: () => [previewFirst, previewSecond],
+    });
+    const { container } = render(<Harness />);
+
+    act(() => fireEvent.change(container.querySelector("input")!, { target: { value: "pages" } }));
+    const previewIds = () => Array.from(container.querySelectorAll("[data-page-id]"))
+      .map((element) => element.getAttribute("data-page-id"));
+    expect(previewIds()).toEqual(["page-preview-first", "page-preview-second"]);
+
+    await act(async () => vi.advanceTimersByTimeAsync(175));
+    expect(previewIds()).toEqual(["page-preview-second", "page-preview-first"]);
   });
 
   test("keeps metadata rows when complete search is unavailable", async () => {

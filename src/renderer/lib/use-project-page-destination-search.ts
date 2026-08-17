@@ -2,13 +2,16 @@ import { useMemo } from "react";
 import type { NfmMoveToSearchResult } from "@/components/board/editor/nfm-move-to-menu-search";
 import { normalizeSearchText } from "@/lib/search-text";
 import type { PageSearchResult, Project } from "@/lib/types";
-import { useInteractivePageSearch } from "./interactive-page-search";
+import {
+  useInteractivePageSearch,
+  type InteractivePageSearchResult,
+} from "./interactive-page-search";
 import { WORKFLOW_STATUS_LABELS } from "../../shared/workflow-status";
 
 const DESTINATION_SEARCH_LIMIT = 60;
 
 export interface ProjectPageDestinationSearchResult extends NfmMoveToSearchResult {
-  readonly enrichment: "idle" | "loading" | "settled" | "unavailable";
+  readonly enrichment: InteractivePageSearchResult["enrichment"];
 }
 
 function emptyResult(query: string): NfmMoveToSearchResult {
@@ -130,24 +133,14 @@ export function useProjectPageDestinationSearch({
     complete: enabled && normalizedQuery.length > 0,
   });
 
-  return useMemo(
-    () => ({
-      ...buildRemoteDestinationSearchResult({
-        projects,
-        query: normalizedQuery,
-        results: search.rows,
-        sourceProjectId,
-        sourcePageId,
-      }),
-      enrichment: search.enrichment,
-    }),
-    [
-      normalizedQuery,
+  return {
+    ...buildRemoteDestinationSearchResult({
       projects,
-      search.enrichment,
-      search.rows,
-      sourcePageId,
+      query: normalizedQuery,
+      results: search.rows,
       sourceProjectId,
-    ],
-  );
+      sourcePageId,
+    }),
+    enrichment: search.enrichment,
+  };
 }

@@ -428,16 +428,11 @@ pub(super) fn read(
             recent_page_ids,
             limit,
         } => {
-            if requesting_project_id.is_some()
-                || !matches!(
-                    requesting_adapter,
-                    AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
-                )
-            {
-                return Err(unauthorized(
-                    "Project Page search requires a trusted local root Adapter",
-                ));
-            }
+            require_trusted_root_only(
+                requesting_project_id,
+                requesting_adapter,
+                "Project Page search requires a trusted local root Adapter",
+            )?;
             let index =
                 page_search_registry.snapshot(connection, library_id, store_epoch, commit_head)?;
             Ok(LibraryReadValue::ProjectPageSearch {
@@ -457,16 +452,11 @@ pub(super) fn read(
             })
         }
         LibraryRead::ProjectPageSearchFacets { project_ids } => {
-            if requesting_project_id.is_some()
-                || !matches!(
-                    requesting_adapter,
-                    AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
-                )
-            {
-                return Err(unauthorized(
-                    "Project Page search facets require a trusted local root Adapter",
-                ));
-            }
+            require_trusted_root_only(
+                requesting_project_id,
+                requesting_adapter,
+                "Project Page search facets require a trusted local root Adapter",
+            )?;
             let index =
                 page_search_registry.snapshot(connection, library_id, store_epoch, commit_head)?;
             Ok(LibraryReadValue::ProjectPageSearchFacets {
@@ -477,26 +467,15 @@ pub(super) fn read(
             project_ids,
             page_ids,
         } => {
-            if requesting_project_id.is_some()
-                || !matches!(
-                    requesting_adapter,
-                    AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
-                )
-            {
-                return Err(unauthorized(
-                    "Project Page search metadata requires a trusted local root Adapter",
-                ));
-            }
+            require_trusted_root_only(
+                requesting_project_id,
+                requesting_adapter,
+                "Project Page search metadata requires a trusted local root Adapter",
+            )?;
             let index =
                 page_search_registry.snapshot(connection, library_id, store_epoch, commit_head)?;
             Ok(LibraryReadValue::ProjectPageSearchMetadata {
-                items: page_search::project_metadata(
-                    connection,
-                    &index,
-                    library_id,
-                    &project_ids,
-                    page_ids.as_deref(),
-                )?,
+                items: page_search::project_metadata(&index, &project_ids, page_ids.as_deref())?,
             })
         }
         LibraryRead::PageReferenceCandidates {
@@ -844,6 +823,17 @@ fn trusted_root_adapter(adapter: &AdapterKind) -> bool {
         adapter,
         AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
     )
+}
+
+fn require_trusted_root_only(
+    requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
+    message: &str,
+) -> Result<(), StoreError> {
+    if requesting_project_id.is_none() && trusted_root_adapter(requesting_adapter) {
+        return Ok(());
+    }
+    Err(unauthorized(message))
 }
 
 fn agent_block_target(

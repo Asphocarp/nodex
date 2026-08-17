@@ -81,7 +81,6 @@ function NfmPageLinkPicker({
   const search = useInteractivePageSearch({
     projectIds,
     query,
-    excludePageIds: hostRuntime?.hostPageId ? [hostRuntime.hostPageId] : [],
     limit: 24,
     complete: Boolean(hostRuntime),
   });
@@ -93,9 +92,27 @@ function NfmPageLinkPicker({
     query,
     limit: 24,
   } : null;
+  const rows = hostRuntime?.hostPageId
+    ? search.rows.flatMap((row) => {
+        if (row.pageId !== hostRuntime.hostPageId || row.matches.length === 0) {
+          return [row];
+        }
+        const matches = row.matches.filter((match) => match.source !== "body");
+        if (matches.length === 0) return [];
+        return [{
+          ...row,
+          matches,
+          excerpt: null,
+          excerptParts: [],
+        }];
+      })
+    : search.rows;
   const items = request
-    ? pageSearchResultsToReferenceCandidates(request, search.rows)
+    ? pageSearchResultsToReferenceCandidates(request, rows)
     : [];
+  useEffect(() => {
+    setSelectedIndex((current) => Math.min(current, Math.max(items.length - 1, 0)));
+  }, [items.length]);
   const status = !hostRuntime || search.enrichment === "unavailable"
     ? "error" as const
     : search.enrichment === "loading" ? "loading" as const : "ready" as const;

@@ -23,7 +23,7 @@ import { PropertyEmptyValue } from "./property-empty-value";
 import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
 import {
   configuredPageSearchProjectIds,
-  searchPageMetadataSync,
+  useInteractivePageSearch,
 } from "@/lib/interactive-page-search";
 
 const mergeCandidates = (
@@ -187,14 +187,15 @@ export function RelationPropertyEditor({
   );
   const selectedIds = new Set(visibleTargets.map((target) => target.pageId));
   const normalizedQuery = foldDataSourceRelationSearchText(query.trim());
-  const metadataRows = editorOpen ? searchPageMetadataSync({
+  const metadataSearch = useInteractivePageSearch({
     projectIds: configuredPageSearchProjectIds(),
     query: normalizedQuery,
     dataSourceIds: targetDataSourceId ? [targetDataSourceId] : [],
     excludePageIds: excludedPageId ? [excludedPageId] : [],
     limit: 60,
     complete: false,
-  }) : [];
+  });
+  const metadataRows = editorOpen ? metadataSearch.rows : [];
   const synchronousCandidates = metadataRows.map((row) => ({
     pageId: row.pageId,
     title: row.title,

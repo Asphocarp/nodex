@@ -1697,18 +1697,31 @@ pub struct LibraryProjectPageSearchHit {
     pub updated_at: String,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum LibraryPageSearchPriority {
+    P0Critical,
+    P1High,
+    P2Medium,
+    P3Low,
+}
+
 /// Core-authored, authorization-filtered metadata used by the renderer's
 /// synchronous Page-search preview. It is always carried by a commit-fenced
 /// Library read snapshot and is not a second durable authority.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageSearchMetadataDocument {
     pub page_id: String,
+    #[schema(required = true)]
     pub page_key: Option<String>,
     pub title: String,
     pub preview: String,
+    #[schema(required = true)]
     pub status: Option<LibraryPageWorkflowStatus>,
+    #[schema(required = true, value_type = Option<LibraryPageSearchPriority>)]
     pub priority: Option<String>,
     pub tags: Vec<LibraryPageSearchOption>,
+    #[schema(required = true)]
     pub assignee: Option<String>,
     pub location_label: String,
     pub updated_at: String,

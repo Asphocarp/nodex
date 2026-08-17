@@ -107,7 +107,6 @@ export function PagesTabPicker({
     projectIds: configuredPageSearchProjectIds(),
     query: liveQuery,
     limit: 40,
-    complete: false,
   });
   const catalogItems = useMemo(
     () => catalog.data?.pages.flatMap((page) => page.items) ?? [],

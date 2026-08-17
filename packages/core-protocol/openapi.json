@@ -17059,9 +17059,13 @@
         "description": "Core-authored, authorization-filtered metadata used by the renderer's\nsynchronous Page-search preview. It is always carried by a commit-fenced\nLibrary read snapshot and is not a second durable authority.",
         "required": [
           "page_id",
+          "page_key",
           "title",
           "preview",
+          "status",
+          "priority",
           "tags",
+          "assignee",
           "location_label",
           "updated_at",
           "properties",
@@ -17103,9 +17107,13 @@
             "type": "string"
           },
           "priority": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageSearchPriority"
+              }
             ]
           },
           "properties": {
@@ -17198,6 +17206,15 @@
             "type": "string"
           }
         }
+      },
+      "LibraryPageSearchPriority": {
+        "type": "string",
+        "enum": [
+          "p0-critical",
+          "p1-high",
+          "p2-medium",
+          "p3-low"
+        ]
       },
       "LibraryPageSearchTagMode": {
         "type": "string",

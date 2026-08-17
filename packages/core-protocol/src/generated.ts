@@ -4303,16 +4303,16 @@ export interface components {
          *     Library read snapshot and is not a second durable authority.
          */
         readonly LibraryPageSearchMetadataDocument: {
-            readonly assignee?: string | null;
+            readonly assignee: string | null;
             readonly authorized_project_ids: readonly string[];
             readonly data_source_ids: readonly string[];
             readonly location_label: string;
             readonly page_id: string;
-            readonly page_key?: string | null;
+            readonly page_key: string | null;
             readonly preview: string;
-            readonly priority?: string | null;
+            readonly priority: null | components["schemas"]["LibraryPageSearchPriority"];
             readonly properties: readonly components["schemas"]["LibraryPageSearchMetadataProperty"][];
-            readonly status?: null | components["schemas"]["LibraryPageWorkflowStatus"];
+            readonly status: null | components["schemas"]["LibraryPageWorkflowStatus"];
             readonly tags: readonly components["schemas"]["LibraryPageSearchOption"][];
             readonly title: string;
             readonly updated_at: string;
@@ -4333,6 +4333,8 @@ export interface components {
             readonly option_id: string;
             readonly property_id: string;
         };
+        /** @enum {string} */
+        readonly LibraryPageSearchPriority: "p0-critical" | "p1-high" | "p2-medium" | "p3-low";
         /** @enum {string} */
         readonly LibraryPageSearchTagMode: "any" | "all" | "none";
         readonly LibraryPageSearchTextPart: {

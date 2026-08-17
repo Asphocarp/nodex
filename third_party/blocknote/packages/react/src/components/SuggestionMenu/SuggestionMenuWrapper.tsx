@@ -16,6 +16,7 @@ export function SuggestionMenuWrapper<Item>(props: {
   clearQuery: () => void;
   getItems: (query: string) => Promise<Item[]>;
   getImmediateItems?: (query: string) => Item[];
+  requestScopeKey?: string;
   onItemClick?: (item: Item) => void;
   shouldCloseOnItemClick?: (item: Item) => boolean;
   autoCloseWhenNoItems?: boolean;
@@ -32,6 +33,7 @@ export function SuggestionMenuWrapper<Item>(props: {
   const {
     getItems,
     getImmediateItems,
+    requestScopeKey,
     suggestionMenuComponent,
     triggerCharacter,
     query,
@@ -42,14 +44,17 @@ export function SuggestionMenuWrapper<Item>(props: {
     autoCloseWhenNoItems,
   } = props;
 
-  const { items, usedQuery, loadingState } = useLoadSuggestionMenuItems(
+  const { items, usedQuery, usedRequestScopeKey, loadingState } = useLoadSuggestionMenuItems(
     query,
     getItems,
     getImmediateItems,
+    requestScopeKey,
   );
   const { getLiveQuery, itemsFresh } = useSuggestionMenuFreshness({
     triggerCharacter,
     usedQuery,
+    requestScopeKey,
+    usedRequestScopeKey,
   });
 
   const onItemClickCloseMenu = useCallback(
@@ -84,6 +89,9 @@ export function SuggestionMenuWrapper<Item>(props: {
     usedQuery,
     onItemClickCloseMenu,
     getLiveQuery,
+    undefined,
+    requestScopeKey,
+    usedRequestScopeKey,
   );
 
   // set basic aria attributes when the menu is open

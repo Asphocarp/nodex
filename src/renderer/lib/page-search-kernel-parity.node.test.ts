@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test } from "vitest";
 import {
   initSync,
   PageSearchPreviewIndex,
@@ -8,13 +8,16 @@ import {
 import fixture from "../../../crates/nodex-page-search-kernel/tests/fixtures/parity.json";
 
 describe("Page search WASM adapter", () => {
-  test("satisfies the same corpus contract as native Rust", () => {
+  beforeAll(() => {
     initSync({
       module: readFileSync(resolve(
         import.meta.dirname,
         "../generated/page-search-wasm/nodex_page_search_kernel_bg.wasm",
       )),
     });
+  });
+
+  test("satisfies the same corpus contract as native Rust", () => {
     const index = new PageSearchPreviewIndex(fixture.documents);
     for (const parityCase of fixture.cases) {
       const hits = index.search(parityCase.request) as { pageId: string }[];
@@ -24,12 +27,6 @@ describe("Page search WASM adapter", () => {
   });
 
   test("applies upserts and removals without retaining stale postings", () => {
-    initSync({
-      module: readFileSync(resolve(
-        import.meta.dirname,
-        "../generated/page-search-wasm/nodex_page_search_kernel_bg.wasm",
-      )),
-    });
     const index = new PageSearchPreviewIndex(fixture.documents);
     const replacement = {
       ...fixture.documents[0],
@@ -43,9 +40,9 @@ describe("Page search WASM adapter", () => {
       query: "replacement",
     };
     expect((index.search(request) as { pageId: string }[]).map((hit) => hit.pageId))
-      .toEqual(["page-canonical"]);
+      .toEqual([replacement.pageId]);
 
-    index.applyDelta([], ["page-canonical"]);
+    index.applyDelta([], [replacement.pageId]);
     expect(index.search(request)).toEqual([]);
   });
 });

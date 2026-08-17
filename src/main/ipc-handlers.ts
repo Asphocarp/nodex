@@ -2469,8 +2469,18 @@ export function registerIpcHandlers(
     return snapshot;
   });
 
-  registerHandle("pages:search-metadata", async (_, projectIds, pageIds) =>
-    await libraryModule.pageSearchMetadata(projectIds, pageIds));
+  registerHandle("pages:search-metadata", async (_, projectIds, pageIds) => {
+    const startedAt = performance.now();
+    const snapshot = await libraryModule.pageSearchMetadata(projectIds, pageIds);
+    ipcPayloadLogger.info("page search metadata payload served", {
+      channel: "pages:search-metadata",
+      projectCount: projectIds.length,
+      resultCount: snapshot.documents.length,
+      approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return snapshot;
+  });
 
   registerHandle("pages:search-facets", async (_, projectIds) =>
     await libraryModule.pageSearchFacets(projectIds));

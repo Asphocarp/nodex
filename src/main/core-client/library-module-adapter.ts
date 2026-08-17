@@ -1059,6 +1059,7 @@ type CoreProjectPageSearchMetadataValue = Extract<
   LibraryReadSnapshot["value"],
   { readonly kind: "project_page_search_metadata" }
 >;
+type CorePageSearchMetadataItem = CoreProjectPageSearchMetadataValue["items"][number];
 
 const mapPageSearchParts = (
   parts: readonly { readonly text: string; readonly highlighted: boolean }[],
@@ -1098,6 +1099,41 @@ const mapPageSearchMatch = (match: CorePageSearchMatch): PageSearchMatch => {
   }
   return { source: match.source, quality: match.quality, parts };
 };
+
+function validatePageSearchMetadataItem(item: CorePageSearchMetadataItem): void {
+  if (typeof item.page_id !== "string" || item.page_id.length === 0) {
+    throw new Error("Core Page search metadata returned an invalid page_id");
+  }
+  if (typeof item.title !== "string" || typeof item.preview !== "string") {
+    throw new Error("Core Page search metadata returned invalid title or preview");
+  }
+  if (item.page_key !== null && typeof item.page_key !== "string") {
+    throw new Error("Core Page search metadata returned an invalid page_key");
+  }
+  if (item.status !== null && !isWorkflowStatus(item.status)) {
+    throw new Error("Core Page search metadata returned an invalid status");
+  }
+  if (item.priority !== null && !isPriority(item.priority)) {
+    throw new Error("Core Page search metadata returned an invalid priority");
+  }
+  if (typeof item.location_label !== "string" || typeof item.updated_at !== "string") {
+    throw new Error("Core Page search metadata returned invalid location or timestamp");
+  }
+  if (item.assignee !== null && typeof item.assignee !== "string") {
+    throw new Error("Core Page search metadata returned an invalid assignee");
+  }
+  if (!Array.isArray(item.tags) || !Array.isArray(item.properties)) {
+    throw new Error("Core Page search metadata returned invalid property collections");
+  }
+  if (
+    !Array.isArray(item.authorized_project_ids)
+    || item.authorized_project_ids.some((projectId) => typeof projectId !== "string" || projectId.length === 0)
+    || !Array.isArray(item.data_source_ids)
+    || item.data_source_ids.some((dataSourceId) => typeof dataSourceId !== "string" || dataSourceId.length === 0)
+  ) {
+    throw new Error("Core Page search metadata returned invalid authorization scope");
+  }
+}
 
 const mapPageSearchOption = (option: CorePageSearchOption): PageSearchOption => ({
   dataSourceId: option.data_source_id,
@@ -2020,25 +2056,30 @@ export const createCoreLibraryModuleAdapter = (
           coveredCommitSeq: snapshot.commit_head,
           projectIds: [...projectIds],
         },
-        documents: value.items.map((item) => ({
-          pageId: item.page_id,
-          pageKey: item.page_key ?? null,
-          title: item.title,
-          preview: item.preview,
-          status: item.status ?? null,
-          priority: item.priority && isPriority(item.priority) ? item.priority : null,
-          tags: item.tags.map(mapPageSearchOption),
-          assignee: item.assignee ?? null,
-          locationLabel: item.location_label,
-          updatedAt: item.updated_at,
-          properties: item.properties.map((property) => ({
-            propertyId: property.property_id,
-            propertyName: property.property_name,
-            text: property.text,
-          })),
-          authorizedProjectIds: [...item.authorized_project_ids],
-          dataSourceIds: [...item.data_source_ids],
-        })),
+        documents: value.items.map((item) => {
+          validatePageSearchMetadataItem(item);
+          return {
+            pageId: item.page_id,
+            pageKey: item.page_key ?? null,
+            title: item.title,
+            preview: item.preview,
+            status: item.status ?? null,
+            priority: item.priority !== null && isPriority(item.priority)
+              ? item.priority
+              : null,
+            tags: item.tags.map(mapPageSearchOption),
+            assignee: item.assignee ?? null,
+            locationLabel: item.location_label,
+            updatedAt: item.updated_at,
+            properties: item.properties.map((property) => ({
+              propertyId: property.property_id,
+              propertyName: property.property_name,
+              text: property.text,
+            })),
+            authorizedProjectIds: [...item.authorized_project_ids],
+            dataSourceIds: [...item.data_source_ids],
+          };
+        }),
       };
     },
     pageSearchFacets: async (projectIds) => {

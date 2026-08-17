@@ -13,20 +13,26 @@ export function useSuggestionMenuKeyboardNavigation<Item>(
   onItemClick?: (item: Item) => void,
   getLiveQuery?: () => string | undefined,
   element?: HTMLElement,
+  requestScopeKey?: string,
+  usedRequestScopeKey?: string,
 ) {
   const editorDOMElement = useEditorDOMElement();
   const pendingAcceptQuery = useRef<string | undefined>(undefined);
+  const pendingAcceptScopeKey = useRef<string | undefined>(undefined);
   const getResolvedLiveQuery = useCallback(
     () => getLiveQuery?.() ?? query,
     [getLiveQuery, query],
   );
   const itemsFresh = useCallback(
-    () => usedQuery !== undefined && usedQuery === getResolvedLiveQuery(),
-    [getResolvedLiveQuery, usedQuery],
+    () => usedQuery !== undefined
+      && usedQuery === getResolvedLiveQuery()
+      && usedRequestScopeKey === requestScopeKey,
+    [getResolvedLiveQuery, requestScopeKey, usedQuery, usedRequestScopeKey],
   );
   const markStaleAccept = useCallback(() => {
     pendingAcceptQuery.current = getResolvedLiveQuery();
-  }, [getResolvedLiveQuery]);
+    pendingAcceptScopeKey.current = requestScopeKey;
+  }, [getResolvedLiveQuery, requestScopeKey]);
   const { selectedIndex, setSelectedIndex, handler } =
     useSuggestionMenuKeyboardHandler(items, onItemClick, {
       itemsFresh,
@@ -49,8 +55,12 @@ export function useSuggestionMenuKeyboardNavigation<Item>(
     }
 
     const liveQuery = getResolvedLiveQuery();
-    if (liveQuery !== pendingQuery) {
+    if (
+      liveQuery !== pendingQuery
+      || usedRequestScopeKey !== pendingAcceptScopeKey.current
+    ) {
       pendingAcceptQuery.current = undefined;
+      pendingAcceptScopeKey.current = undefined;
       return;
     }
 
@@ -59,15 +69,23 @@ export function useSuggestionMenuKeyboardNavigation<Item>(
     }
 
     pendingAcceptQuery.current = undefined;
+    pendingAcceptScopeKey.current = undefined;
     if (items.length) {
       onItemClick?.(items[0]!);
     }
-  }, [getResolvedLiveQuery, items, onItemClick, usedQuery]);
+  }, [
+    getResolvedLiveQuery,
+    items,
+    onItemClick,
+    requestScopeKey,
+    usedQuery,
+    usedRequestScopeKey,
+  ]);
 
   // Resets index when items change
   useEffect(() => {
     setSelectedIndex(0);
-  }, [query, setSelectedIndex]);
+  }, [query, requestScopeKey, setSelectedIndex]);
 
   return {
     selectedIndex: items.length === 0 ? undefined : selectedIndex,

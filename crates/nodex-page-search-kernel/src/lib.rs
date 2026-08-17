@@ -6,6 +6,7 @@ use unicode_normalization::UnicodeNormalization;
 
 const MAX_QUERY_BYTES: usize = 512;
 const MAX_QUERY_TERMS: usize = 32;
+const MAX_PREFIX_MATCHES: usize = 512;
 const MAX_RESULTS: usize = 100;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -233,7 +234,13 @@ impl TokenTrie {
                 ));
             }
             if term.chars().count() >= 2 {
-                collect_prefix(node, &mut term.to_owned(), term, &mut found);
+                collect_prefix(
+                    node,
+                    &mut term.to_owned(),
+                    term,
+                    &mut found,
+                    MAX_PREFIX_MATCHES,
+                );
             }
         }
         let maximum = fuzzy_distance(term);
@@ -320,8 +327,20 @@ impl TokenMatch {
     }
 }
 
-fn collect_prefix(node: &TrieNode, token: &mut String, exact: &str, out: &mut Vec<TokenMatch>) {
+fn collect_prefix(
+    node: &TrieNode,
+    token: &mut String,
+    exact: &str,
+    out: &mut Vec<TokenMatch>,
+    maximum: usize,
+) {
+    if out.len() >= maximum {
+        return;
+    }
     for (c, child) in &node.children {
+        if out.len() >= maximum {
+            break;
+        }
         token.push(*c);
         if !child.postings.is_empty() && token != exact {
             out.push(TokenMatch::new(
@@ -331,7 +350,7 @@ fn collect_prefix(node: &TrieNode, token: &mut String, exact: &str, out: &mut Ve
                 &child.postings,
             ));
         }
-        collect_prefix(child, token, exact, out);
+        collect_prefix(child, token, exact, out, maximum);
         token.pop();
     }
 }
@@ -606,6 +625,8 @@ impl MetadataSearchIndex {
                         Evidence {
                             term: terms.join(" "),
                             token: key.clone(),
+                            // The kernel indexes only the current document Page key;
+                            // historical-key status is resolved by Core.
                             kind: EvidenceKind::PageKey(key.clone()),
                             quality: if key == page_key_query {
                                 MatchQuality::Exact
