@@ -6,7 +6,6 @@ import {
   parseLibraryModuleApplyResult,
   parseLibraryModuleReadResult,
 } from "./library-module-transport";
-import { LIBRARY_MODULE_CONTRACT_VERSION } from "./library-module";
 import {
   primaryCanvasBlockId,
   primaryCanvasDocumentId,
@@ -22,7 +21,6 @@ const primaryDocumentId = primaryCanvasDocumentId("project:default");
 const readResult = (value: unknown) => ({
   ok: true,
   value: {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     profileId: "profile-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -36,7 +34,6 @@ describe("Library Module transport", () => {
   test("binds bounded navigation requests without caller Library identity", () => {
     expect(
       bindLibraryModuleRead({
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         read: {
           mode: "children",
           parent: { kind: "page", pageId: "page-1" },
@@ -44,7 +41,6 @@ describe("Library Module transport", () => {
         },
       }),
     ).toEqual({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "children",
         parent: { kind: "page", pageId: "page-1" },
@@ -53,7 +49,6 @@ describe("Library Module transport", () => {
     });
     expect(() =>
       bindLibraryModuleRead({
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         libraryId: "forged-library",
         read: { mode: "metadata" },
       }),
@@ -62,7 +57,6 @@ describe("Library Module transport", () => {
 
   test("binds contextual Page reference reads and preserves Core match provenance", () => {
     expect(bindLibraryModuleRead({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "page_reference_candidates",
         query: "projection",
@@ -70,7 +64,6 @@ describe("Library Module transport", () => {
         sourcePageId: "page:host",
       },
     })).toEqual({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "page_reference_candidates",
         query: "projection",
@@ -106,13 +99,11 @@ describe("Library Module transport", () => {
 
   test("binds and parses the authoritative Project access matrix", () => {
     expect(bindLibraryModuleRead({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "resource_project_access",
         target: { kind: "page", pageId: "page-1" },
       },
     })).toEqual({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "resource_project_access",
         target: { kind: "page", pageId: "page-1" },
@@ -161,7 +152,6 @@ describe("Library Module transport", () => {
   test("rejects unbounded and structurally ambiguous requests", () => {
     expect(() =>
       bindLibraryModuleRead({
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         read: {
           mode: "children",
           parent: { kind: "library" },
@@ -171,7 +161,6 @@ describe("Library Module transport", () => {
     ).toThrow("between 1 and 100");
     expect(() =>
       bindLibraryModuleRead({
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         read: {
           mode: "catalog",
           kinds: ["page", "page"],
@@ -185,7 +174,6 @@ describe("Library Module transport", () => {
       parseLibraryModuleReadResult({
         ok: true,
         value: {
-          version: LIBRARY_MODULE_CONTRACT_VERSION,
           profileId: "profile-1",
           libraryId: "library-1",
           storeEpoch: "epoch-1",
@@ -223,7 +211,6 @@ describe("Library Module transport", () => {
 
   test("binds and parses a move destination window", () => {
     expect(bindLibraryModuleRead({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "move_destinations",
         target: { kind: "page", pageId: "page-source" },
@@ -234,7 +221,6 @@ describe("Library Module transport", () => {
         limit: 50,
       },
     })).toEqual({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "move_destinations",
         target: { kind: "page", pageId: "page-source" },
@@ -297,7 +283,6 @@ describe("Library Module transport", () => {
   test("binds and parses standalone roots while rejecting View entries", () => {
     const pageId = uuidV7(31);
     expect(bindLibraryModuleRead({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "standalone_roots",
         cursor: "cursor-1",
@@ -305,7 +290,6 @@ describe("Library Module transport", () => {
         forceIncludeTarget: { kind: "page", pageId },
       },
     })).toEqual({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "standalone_roots",
         cursor: "cursor-1",
@@ -361,13 +345,11 @@ describe("Library Module transport", () => {
 
   test("binds and parses the deterministic primary Canvas identity", () => {
     expect(bindLibraryModuleRead({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "canvas_target",
         canvasId: primaryCanvasId,
       },
     })).toEqual({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "canvas_target",
         canvasId: primaryCanvasId,
@@ -377,7 +359,6 @@ describe("Library Module transport", () => {
     expect(parseLibraryModuleReadResult({
       ok: true,
       value: {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -422,7 +403,6 @@ describe("Library Module transport", () => {
     expect(parseLibraryModuleReadResult({
       ok: true,
       value: {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -460,7 +440,6 @@ describe("Library Module transport", () => {
   test("accepts primary identities only for existing Canvas coordinates", () => {
     const destination = { kind: "library" } as const;
     const base = {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: uuidV7(1),
       storeEpoch: "epoch-1",
     } as const;
@@ -520,7 +499,6 @@ describe("Library Module transport", () => {
       },
     })).toThrow("expected canonical lowercase UUID-v7");
     expect(() => bindLibraryModuleRead({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "canvas_target",
         canvasId: "canvas:primary:",
@@ -530,7 +508,6 @@ describe("Library Module transport", () => {
 
   test("binds one revision-fenced Project access batch", () => {
     const operation = bindLibraryModuleApply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: uuidV7(20),
       storeEpoch: "epoch-1",
       operation: {
@@ -555,7 +532,6 @@ describe("Library Module transport", () => {
 
   test("binds one atomic Page metadata operation from owning-module payloads", () => {
     const operation = bindLibraryModuleApply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: uuidV7(21),
       storeEpoch: "epoch-1",
       operation: {
@@ -595,7 +571,6 @@ describe("Library Module transport", () => {
       }],
     });
     expect(() => bindLibraryModuleApply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: uuidV7(22),
       storeEpoch: "epoch-1",
       operation: {
@@ -689,7 +664,6 @@ describe("Library Module transport", () => {
       ok: true,
       localCommit: committedLocalCommit("epoch-1", 4),
       value: {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: uuidV7(1),
         storeEpoch: "epoch-1",
         libraryId: "library-1",

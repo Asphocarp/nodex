@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BROWSER_USE_CAPABILITY_CONTRACT_VERSION = "1.0.0";
+export const BROWSER_USE_CAPABILITY_FORMAT_VERSION = "1.0.0";
 
 const MAX_CAPABILITY_ENTRIES = 512;
 const MAX_REASONS = 64;
@@ -368,7 +368,7 @@ export function projectBrowserUseCapabilities(
   }
 
   const artifact = artifactResult.data;
-  if (artifact.contractVersion !== BROWSER_USE_CAPABILITY_CONTRACT_VERSION) {
+  if (artifact.contractVersion !== BROWSER_USE_CAPABILITY_FORMAT_VERSION) {
     reasons.add({
       stage: "artifact",
       code: "artifact-contract-version-mismatch",

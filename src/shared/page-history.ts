@@ -1,4 +1,3 @@
-export const PAGE_HISTORY_CONTRACT_VERSION = 1;
 export const DEFAULT_PAGE_HISTORY_PAGE_SIZE = 50;
 export const MAX_PAGE_HISTORY_PAGE_SIZE = 100;
 
@@ -15,7 +14,6 @@ export type PageHistoryCursor =
     };
 
 export interface ListPageHistoryRequest {
-  readonly version: typeof PAGE_HISTORY_CONTRACT_VERSION;
   readonly requestingProjectId: string;
   readonly pageId: string;
   readonly before?: PageHistoryCursor;
@@ -118,7 +116,6 @@ export type PageHistoryEntry =
   | PageBlockRelocationHistoryEntry;
 
 export interface PageHistoryPage {
-  readonly version: typeof PAGE_HISTORY_CONTRACT_VERSION;
   readonly libraryId: string;
   readonly pageId: string;
   readonly documentId: string;

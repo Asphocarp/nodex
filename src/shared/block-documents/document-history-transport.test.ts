@@ -11,7 +11,6 @@ import {
 } from "./document-operations";
 
 const restoreRequest = {
-  version: 1,
   mutationId: "restore:version-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -43,7 +42,6 @@ describe("Document history transport contracts", () => {
   test("binds checkpoint actor at the trusted transport boundary", () => {
     const bound = bindTrustedDocumentVersionCheckpoint(
       {
-        version: 1,
         projectId: "project-1",
         storeEpoch: "epoch-1",
         documentId: "document-1",
@@ -75,7 +73,6 @@ describe("Document history transport contracts", () => {
     try {
       bindTrustedDocumentVersionCheckpoint(
         {
-          version: 1,
           projectId: "project-2",
           storeEpoch: "epoch-1",
           documentId: "document-1",
@@ -98,7 +95,6 @@ describe("Document history transport contracts", () => {
   test("rejects inconsistent checkpoint evidence and summary metadata", () => {
     expect(() => bindTrustedDocumentVersionCheckpoint(
       {
-        version: 1,
         projectId: "project-1",
         storeEpoch: "epoch-1",
         documentId: "document-1",

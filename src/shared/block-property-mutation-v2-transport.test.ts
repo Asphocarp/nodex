@@ -9,7 +9,6 @@ import {
   parseLibraryBlockPropertyMutationCommandResultV2,
 } from "./block-property-mutations-v2";
 const request = {
-  version: 2,
   mutationId: "mutation-v2-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -45,7 +44,6 @@ describe("Block property mutation v2 transport binding", () => {
         observed: { store_epoch: "epoch-1", commit_head: 3 },
       },
       value: {
-        version: 2,
         mutationId: "mutation-v2-1",
         accessContext: { kind: "library" },
         storeEpoch: "epoch-1",
@@ -73,7 +71,6 @@ describe("Block property mutation v2 transport binding", () => {
 
   test("binds Library mutations without accepting Project scope or attribution", () => {
     const libraryRequest = {
-      version: request.version,
       mutationId: request.mutationId,
       storeEpoch: request.storeEpoch,
       clientSessionId: request.clientSessionId,
@@ -114,7 +111,6 @@ describe("Block property mutation v2 transport binding", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toMatchObject({
-      version: 2,
       mutationId: "mutation-v2-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -149,7 +145,7 @@ describe("Block property mutation v2 transport binding", () => {
     });
 
     const malformed = bindTrustedBlockPropertyMutationV2(
-      { ...request, version: 1 },
+      { ...request, unsupported: true },
       "project-1",
       { actor: { kind: "http_loopback" } },
     );

@@ -7,7 +7,6 @@ import type {
   NodexAgentV3ReadRequest,
 } from "../../shared/nodex-agent-tools";
 import { GetContextV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import {
   NodexAgentV3DynamicService,
   type NodexAgentV3DocumentHub,
@@ -130,7 +129,6 @@ async function readNativeContext(
 
   const database = request.input.include?.databases
     ? await databaseModule.read({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
         read: { target: { kind: "project_default" }, mode: "database" },
       })

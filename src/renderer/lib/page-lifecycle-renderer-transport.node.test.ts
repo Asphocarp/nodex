@@ -6,7 +6,6 @@ import {
 } from "./electron-renderer-transport";
 
 const request: PageLifecycleMutationRequestV2 = {
-  version: 2,
   operationId: "page-lifecycle-transport",
   projectId: "project/one",
   storeEpoch: "epoch-1",

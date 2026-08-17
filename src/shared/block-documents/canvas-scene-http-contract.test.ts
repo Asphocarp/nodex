@@ -24,7 +24,6 @@ describe("Canvas scene HTTP contract", () => {
   test("round-trips bounded sync and mutation requests with exact route scope", () => {
     const sync = decodeCanvasSceneSyncRequestHttp(
       encodeCanvasSceneSyncRequestHttp({
-        version: 1,
         syncRequestId: "sync-1",
         accessContext: { kind: "project", projectId: "project-1" },
         documentId: "canvas-1",
@@ -40,7 +39,6 @@ describe("Canvas scene HTTP contract", () => {
     expect(sync.knownHeadSeq).toBe(2);
     const mutation = decodeCanvasSceneMutationRequestHttp(
       encodeCanvasSceneMutationRequestHttp({
-        version: 1,
         mutationId: "mutation-1",
         accessContext: { kind: "project", projectId: "project-1" },
         documentId: "canvas-1",
@@ -60,7 +58,6 @@ describe("Canvas scene HTTP contract", () => {
 
   test("rejects a request whose Project route does not match", () => {
     const serialized = encodeCanvasSceneSyncRequestHttp({
-      version: 1,
       syncRequestId: "sync-2",
       accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
@@ -79,7 +76,6 @@ describe("Canvas scene HTTP contract", () => {
     expect(() => decodeCanvasSceneSyncResultHttp(JSON.stringify({
       ok: true,
       value: {
-        version: 1,
         kind: "snapshot",
         syncRequestId: "sync-1",
         libraryId: "library-1",
@@ -94,7 +90,6 @@ describe("Canvas scene HTTP contract", () => {
     expect(() => decodeCanvasSceneMutationResultHttp(JSON.stringify({
       ok: true,
       value: {
-        version: 1,
         mutationId: "mutation-1",
         libraryId: "library-1",
         accessContext: { kind: "project", projectId: "project-1" },
@@ -118,7 +113,6 @@ describe("Canvas scene HTTP contract", () => {
   test("rejects malformed realtime coordinates and non-commit mutation events", () => {
     expect(() => decodeCanvasSceneSseEvent(JSON.stringify({
       type: "canvas_scene_resync_required",
-      version: 1,
       libraryId: "library-1",
       accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
@@ -127,7 +121,6 @@ describe("Canvas scene HTTP contract", () => {
       headSeq: "1",
     }))).toThrow("headSeq");
     const value = {
-      version: 1,
       mutationId: "mutation-1",
       libraryId: "library-1",
       accessContext: { kind: "project", projectId: "project-1" },
@@ -158,7 +151,6 @@ describe("Canvas scene HTTP contract", () => {
       localCommit: committedLocalCommit("store-1", 1),
       event: {
         type: "canvas_scene_resync_required",
-        version: 1,
         libraryId: "library-1",
         accessContext: { kind: "project", projectId: "project-1" },
         documentId: "canvas-1",

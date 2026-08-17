@@ -1,4 +1,3 @@
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -89,7 +88,6 @@ export async function readNativeDatabaseQuery(
     });
     const [databaseResult, sourceResult] = await Promise.all([
       descriptorAdapter.read({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
         read: {
           target: {
@@ -100,7 +98,6 @@ export async function readNativeDatabaseQuery(
         },
       }),
       descriptorAdapter.read({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
         read: {
           target: {
@@ -133,7 +130,6 @@ export async function readNativeDatabaseQuery(
         throw new Error("Core returned the wrong Agent View query variant");
       }
       const viewResult = await descriptorAdapter.read({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
         read: {
           target: {
@@ -178,7 +174,6 @@ export async function readNativeDatabaseQuery(
     const parsed = parseDatabaseModuleReadResultV2({
       ok: true,
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
         libraryId: authority.libraryId,
         storeEpoch: snapshot.store_epoch,

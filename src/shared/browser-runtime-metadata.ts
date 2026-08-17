@@ -1,4 +1,3 @@
-export const BROWSER_RUNTIME_CONTRACT_VERSION = 1;
 export const BROWSER_RUNTIME_BUNDLE_DIRECTORY = "browser-runtime";
 export const BROWSER_RUNTIME_MANIFEST_FILENAME = "browser-runtime-manifest.json";
 export const BROWSER_RUNTIME_SCHEMA_VERSION = 4;
@@ -69,7 +68,6 @@ export type BrowserRuntimeManifest = {
   };
   buildFlavor: string;
   codexCompatibilityVersion: string;
-  contractVersion: typeof BROWSER_RUNTIME_CONTRACT_VERSION;
   desktopBuild: string;
   desktopBuildNumber: string;
   entrypoints: {
@@ -340,7 +338,6 @@ function parseSupportedBackends(value: unknown): BrowserRuntimeBackend[] | null 
 export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManifest | null {
   if (!isObject(value)) return null;
   if (value.schemaVersion !== BROWSER_RUNTIME_SCHEMA_VERSION) return null;
-  if (value.contractVersion !== BROWSER_RUNTIME_CONTRACT_VERSION) return null;
   if (value.targetArch !== "arm64" && value.targetArch !== "x64") return null;
   if (!["darwin", "linux", "win32"].includes(String(value.targetPlatform))) return null;
 
@@ -451,7 +448,6 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
       nativePip: capabilities.nativePip,
     },
     codexCompatibilityVersion,
-    contractVersion: value.contractVersion,
     desktopBuild,
     desktopBuildNumber,
     entrypoints,

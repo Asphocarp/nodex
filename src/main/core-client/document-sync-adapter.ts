@@ -4,7 +4,6 @@ import type { components } from "@nodex/core-protocol";
 import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
 
 import {
-  ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   encodeAdditionalDocumentCommandSemanticHashInput,
   parseAdditionalDocumentCommandRequest,
   parseAdditionalDocumentCommandResult,
@@ -990,7 +989,6 @@ export const createCoreDocumentSyncAdapter = (
         );
       }
       const result = parseDocumentOperationResult({
-        version: 1,
         mutationKind: documentMutationKind(request),
         mutationId: request.mutationId,
         projectId: request.projectId,
@@ -1096,7 +1094,6 @@ export const createCoreDocumentSyncAdapter = (
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
           value: {
-            version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
             operationId: request.operationId,
             projectId: request.projectId,
             storeEpoch,

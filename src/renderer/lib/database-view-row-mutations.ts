@@ -1,5 +1,4 @@
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
   type DatabaseApplyOperationV2,
   type DatabaseApplyReceiptV2,
@@ -295,7 +294,6 @@ export const commitDatabaseViewOperations = async (input: {
 }): Promise<DatabaseViewMutationReceipt | null> => {
   if (input.operations.length === 0) return null;
   const commonRequest = {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId ?? crypto.randomUUID(),
     storeEpoch: input.model.storeEpoch,
     operations: input.operations,

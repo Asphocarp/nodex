@@ -85,7 +85,6 @@ describe("cross-surface Block transfer drag", () => {
         promotionPolicy: "task_shorthand_v1",
       }),
     ).toEqual({
-      version: 3,
       operationId: "operation-a",
       projectId: "project-a",
       storeEpoch: "epoch-a",

@@ -6,7 +6,6 @@ import {
 } from "./page-lifecycle-v2-transport";
 
 const request = {
-  version: 2,
   operationId: "page-lifecycle-v2-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -36,7 +35,6 @@ describe("Page lifecycle v2 transport binding", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toMatchObject({
-      version: 2,
       operationId: "page-lifecycle-v2-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",

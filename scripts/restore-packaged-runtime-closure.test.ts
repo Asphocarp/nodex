@@ -39,7 +39,6 @@ function createFixture(): {
       sha256: sha256(""),
       size: 0,
     }],
-    contractVersion: 1,
     schemaVersion: 4,
   };
   const manifestBytes = `${JSON.stringify(manifest)}\n`;

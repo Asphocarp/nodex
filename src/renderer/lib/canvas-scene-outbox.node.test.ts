@@ -33,7 +33,6 @@ const intent = (
   documentId = "document-1",
   accessContext: ContentAccessContext = projectAccessContext,
 ): CanvasSceneMutationIntent => ({
-  version: 1,
   mutationId,
   accessContext,
   documentId,

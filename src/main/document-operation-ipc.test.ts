@@ -10,7 +10,6 @@ import {
 } from "./document-operation-ipc";
 
 const request: DocumentMutationRequest = {
-  version: 1,
   mutationId: "mutation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -38,7 +37,6 @@ const committed = (
     observed: { store_epoch: bound.storeEpoch, commit_head: 7 },
   },
   value: {
-    version: 1,
     mutationKind:
       "operations" in bound
         ? "document_operation_batch"

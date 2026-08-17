@@ -1,5 +1,4 @@
 import type { BlockTransferUndoToken } from "../../../shared/block-transfer";
-import { BLOCK_TRANSFER_CONTRACT_VERSION } from "../../../shared/block-transfer";
 import { undoBlockTransfer } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
 
@@ -10,7 +9,6 @@ export async function undoDatabaseViewBlockTransfer(input: {
   readonly onCommitted?: () => void | Promise<void>;
 }): Promise<boolean> {
   const result = await undoBlockTransfer(input.projectId, {
-    version: BLOCK_TRANSFER_CONTRACT_VERSION,
     operationId: crypto.randomUUID(),
     projectId: input.projectId,
     storeEpoch: input.storeEpoch,

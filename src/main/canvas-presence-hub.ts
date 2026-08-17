@@ -1,7 +1,6 @@
 import {
   CANVAS_PRESENCE_SWEEP_MS,
   CANVAS_PRESENCE_TTL_MS,
-  DOCUMENT_PRESENCE_VERSION,
   canonicalizeCanvasPresencePublication,
   canonicalizeCanvasPresenceRealtimeEvent,
   type CanvasPresenceEvent,
@@ -97,7 +96,6 @@ const presenceEvent = (
   entry: PresenceEntry,
   state: CanvasPresenceValue | null,
 ): CanvasPresenceEvent => ({
-  version: DOCUMENT_PRESENCE_VERSION,
   engine: "canvas_scene",
   documentId: entry.binding.documentId,
   generation: entry.generation ?? 1,
@@ -133,7 +131,6 @@ export const createCanvasPresenceHub = (
       if (!sameBoundary(sender, recipient)) continue;
       recipient.binding.send({
         type: "canvas_presence_updated",
-        version: DOCUMENT_PRESENCE_VERSION,
         libraryId: recipient.binding.libraryId,
         accessContext: recipient.binding.accessContext,
         presence: event,
@@ -214,7 +211,6 @@ export const createCanvasPresenceHub = (
         try {
           canonicalizeCanvasPresenceRealtimeEvent({
             type: "canvas_presence_snapshot",
-            version: DOCUMENT_PRESENCE_VERSION,
             libraryId: entry.binding.libraryId,
             accessContext: entry.binding.accessContext,
             documentId: entry.binding.documentId,
@@ -228,7 +224,6 @@ export const createCanvasPresenceHub = (
       }
       entry.binding.send({
         type: "canvas_presence_snapshot",
-        version: DOCUMENT_PRESENCE_VERSION,
         libraryId: entry.binding.libraryId,
         accessContext: entry.binding.accessContext,
         documentId: entry.binding.documentId,
@@ -238,7 +233,6 @@ export const createCanvasPresenceHub = (
       for (const presence of overflowPresences) {
         entry.binding.send(canonicalizeCanvasPresenceRealtimeEvent({
           type: "canvas_presence_updated",
-          version: DOCUMENT_PRESENCE_VERSION,
           libraryId: entry.binding.libraryId,
           accessContext: entry.binding.accessContext,
           presence,
@@ -270,7 +264,6 @@ export const createCanvasPresenceHub = (
       }
       canonicalizeCanvasPresenceRealtimeEvent({
         type: "canvas_presence_updated",
-        version: DOCUMENT_PRESENCE_VERSION,
         libraryId: entry.binding.libraryId,
         accessContext: entry.binding.accessContext,
         presence: {

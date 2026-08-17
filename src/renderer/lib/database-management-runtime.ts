@@ -1,5 +1,4 @@
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyOperationV2,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
@@ -58,7 +57,6 @@ const readSnapshot = async (
   dependencies: DatabaseManagementRuntimeDependencies,
 ): Promise<DatabaseModuleReadSnapshotV2> => {
   const result = await dependencies.read(projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read,
   });
@@ -231,7 +229,6 @@ export const commitDatabaseManagementOperations = async (input: {
   const operations = input.buildOperations(authority);
   if (operations.length === 0) return authority;
   const request: DatabaseApplyV2 = {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId,
     projectId: input.projectId,
     storeEpoch: authority.snapshot.storeEpoch,

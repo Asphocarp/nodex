@@ -1,5 +1,4 @@
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseContainerDescriptorV2,
   type DatabaseModuleErrorV2,
   type DatabaseModuleReadRequestV2,
@@ -192,7 +191,6 @@ const readProjectDefaultDatabase = async (
   dependencies: NfmBlockMoveRuntimeDependencies,
 ) => {
   const result = await dependencies.readDatabase(projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read: {
       target: { kind: "project_default" },
@@ -314,7 +312,6 @@ export const moveNfmBlocks = async (
   }
 
   const result = await dependencies.transfer(request.projectId, {
-    version: 3,
     operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,

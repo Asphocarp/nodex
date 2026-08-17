@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
 import { noOpLocalCommit } from "./testing/local-commit";
 import {
   bindDatabaseApplyV2,
@@ -19,7 +18,6 @@ const CUSTOM_PROPERTY_ID = "p_abcdefgh";
 const CUSTOM_OPTION_ID = "o_abcdefgh";
 
 const applyRequest = () => ({
-  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   operationId: "module-operation-2",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -96,13 +94,8 @@ const propertyRecord = () => ({
 });
 
 describe("Database Module v2 transport boundary", () => {
-  test("exposes the View-global ordering contract version", () => {
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(13);
-  });
-
   test("binds Page-key namespace reads and rename as Database authority", () => {
     expect(bindDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: "project-1",
       read: {
         target: { kind: "page_key_namespace", databaseId: "database-1" },
@@ -117,7 +110,6 @@ describe("Database Module v2 transport boundary", () => {
       },
     });
     expect(bindDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: "project-1",
       read: {
         target: { kind: "database", databaseId: "database-1" },
@@ -130,7 +122,6 @@ describe("Database Module v2 transport boundary", () => {
       },
     });
     expect(bindDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "operation:rename-key",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -308,7 +299,7 @@ describe("Database Module v2 transport boundary", () => {
     ).toThrow("propertyId is invalid");
   });
 
-  test("attests route scope, version, and exact request fields", () => {
+  test("attests route scope and exact request fields", () => {
     const request = applyRequest();
     expect(() =>
       bindDatabaseApplyV2(request, "project-2", {
@@ -321,7 +312,7 @@ describe("Database Module v2 transport boundary", () => {
         "project-1",
         { actor: { kind: "test" } },
       ),
-    ).toThrow("Unsupported Database Module v2 contract version");
+    ).toThrow("databaseApplyV2.version is not supported");
     expect(() =>
       bindDatabaseApplyV2(
         { ...request, databaseBlockId: "block-1" },
@@ -333,7 +324,6 @@ describe("Database Module v2 transport boundary", () => {
 
   test("keeps presentation conflicts separate from per-occurrence disclosure", () => {
     const bound = bindDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "personal-view-state",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -373,7 +363,6 @@ describe("Database Module v2 transport boundary", () => {
       "view_collapsed_occurrences",
     ] as const) {
       expect(bindDatabaseModuleReadV2({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: "project-1",
         read: {
           target: { kind: "view", viewId: "view-1" },
@@ -383,7 +372,6 @@ describe("Database Module v2 transport boundary", () => {
     }
 
     expect(() => bindDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "bad-disclosure-target",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -403,7 +391,6 @@ describe("Database Module v2 transport boundary", () => {
     expect(() =>
       bindDatabaseModuleReadV2(
         {
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId: "project-1",
           read: {
             target: { kind: "data_source", dataSourceId: "source-1" },
@@ -423,7 +410,6 @@ describe("Database Module v2 transport boundary", () => {
     expect(() =>
       bindDatabaseModuleReadV2(
         {
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId: "project-1",
           read: {
             target: { kind: "data_source", dataSourceId: "source-1" },
@@ -447,7 +433,6 @@ describe("Database Module v2 transport boundary", () => {
 
   test("binds catalog and source-scoped Relation candidate windows", () => {
     expect(bindDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: "project-1",
       read: {
         target: { kind: "project_default" },
@@ -461,7 +446,6 @@ describe("Database Module v2 transport boundary", () => {
     });
 
     expect(bindDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: "project-1",
       read: {
         target: { kind: "data_source", dataSourceId: "source-1" },
@@ -476,7 +460,6 @@ describe("Database Module v2 transport boundary", () => {
     });
 
     const unfiltered = bindDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: "project-1",
       read: {
         target: { kind: "data_source", dataSourceId: "source-1" },
@@ -487,7 +470,6 @@ describe("Database Module v2 transport boundary", () => {
     expect(unfiltered.mode).toBe("relation_candidate_window");
     expect("query" in unfiltered).toBe(false);
     expect(() => bindDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: "project-1",
       read: {
         target: { kind: "data_source", dataSourceId: "source-1" },
@@ -498,7 +480,6 @@ describe("Database Module v2 transport boundary", () => {
       "databaseModuleReadV2.read.query must be a canonical non-empty string",
     );
     expect(() => bindDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: "project-1",
       read: {
         target: { kind: "data_source", dataSourceId: "source-1" },
@@ -516,7 +497,6 @@ describe("Database Module v2 transport boundary", () => {
       (_, index) => `page-${index}`,
     );
     expect(() => bindDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "relation-replace",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -539,7 +519,6 @@ describe("Database Module v2 transport boundary", () => {
     );
 
     const replaceOne = bindDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "relation-clear",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -569,7 +548,6 @@ describe("Database Module v2 transport boundary", () => {
     });
 
     const clearMany = bindDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "relation-clear-many",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -594,7 +572,6 @@ describe("Database Module v2 transport boundary", () => {
     ).toEqual({ kind: "clear_many_relation", expectedValueRevision: 8 });
 
     expect(() => bindDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "relation-patch",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -625,7 +602,6 @@ describe("Database Module v2 transport boundary", () => {
 
   test("binds task-parent runs to Relation value revisions", () => {
     const request = bindDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "task-parent-run",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -650,7 +626,6 @@ describe("Database Module v2 transport boundary", () => {
     const result = {
       ok: true,
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: "project-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -714,7 +689,6 @@ describe("Database Module v2 transport boundary", () => {
     const envelope = (value: unknown) => ({
       ok: true,
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: "project-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -768,7 +742,6 @@ describe("Database Module v2 transport boundary", () => {
     const result = {
       ok: true,
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: "project-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -843,7 +816,6 @@ describe("Database Module v2 transport boundary", () => {
       ok: true,
       localCommit: noOpLocalCommit("epoch-1", 5),
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",
         projectId: "project-1",
         libraryId: "library-1",
@@ -874,7 +846,6 @@ describe("Database Module v2 transport boundary", () => {
 
   test("binds and parses Library reads and writes without a Project coordinate", () => {
     const boundRead = bindLibraryDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       read: {
         target: { kind: "data_source", dataSourceId: "source-1" },
         mode: "data_source",
@@ -882,7 +853,6 @@ describe("Database Module v2 transport boundary", () => {
       },
     });
     expect(boundRead).toEqual({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       read: {
         target: { kind: "data_source", dataSourceId: "source-1" },
         mode: "data_source",
@@ -890,12 +860,10 @@ describe("Database Module v2 transport boundary", () => {
       },
     });
     expect(() => bindLibraryDatabaseModuleReadV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       read: { target: { kind: "project_default" }, mode: "database" },
     })).toThrow("require a concrete Database");
 
     expect(bindLibraryDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "library-operation-1",
       storeEpoch: "epoch-1",
       operations: [{
@@ -907,7 +875,6 @@ describe("Database Module v2 transport boundary", () => {
         expectedPropertyRevision: 2,
       }],
     })).toEqual({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "library-operation-1",
       storeEpoch: "epoch-1",
       operations: [{
@@ -923,7 +890,6 @@ describe("Database Module v2 transport boundary", () => {
     const read = parseLibraryDatabaseModuleReadResultV2({
       ok: true,
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         accessContext: { kind: "library" },
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -948,7 +914,6 @@ describe("Database Module v2 transport boundary", () => {
       ok: true,
       localCommit: noOpLocalCommit("epoch-1", 5),
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",
         accessContext: { kind: "library" },
         libraryId: "library-1",

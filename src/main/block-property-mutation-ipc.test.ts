@@ -10,7 +10,6 @@ import {
 } from "./block-property-mutation-ipc";
 
 const request: BlockPropertyMutationRequestV2 = {
-  version: 2,
   mutationId: "mutation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -37,7 +36,6 @@ const committed = (
     observed: { store_epoch: bound.storeEpoch, commit_head: 1 },
   },
   value: {
-    version: 2,
     mutationId: bound.mutationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,

@@ -1720,7 +1720,6 @@ fn page_detail(
         _ => return Err(corrupt("Library Page has an invalid parent kind")),
     };
     Ok(LibraryPageDetail {
-        version: 4,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
         commit_seq: commit_head,

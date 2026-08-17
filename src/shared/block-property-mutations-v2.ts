@@ -3,7 +3,6 @@ import {
   type LocalCommitCommandSuccess,
 } from "./local-commit-delivery";
 
-export const BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION = 2 as const;
 export const MAX_BLOCK_PROPERTY_MUTATION_V2_FIELDS = 256;
 
 const MAX_ID_LENGTH = 512;
@@ -35,7 +34,6 @@ export interface SetIntrinsicBlockPropertyV2 {
 export type BlockPropertyFieldMutationV2 = SetIntrinsicBlockPropertyV2;
 
 export interface BlockPropertyMutationRequestV2 {
-  readonly version: typeof BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION;
   readonly mutationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -63,7 +61,6 @@ export type BlockPropertyMutationFieldResultV2 =
   IntrinsicBlockPropertyMutationFieldResultV2;
 
 export interface BlockPropertyMutationResultV2 {
-  readonly version: typeof BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION;
   readonly mutationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -398,11 +395,6 @@ const parseBlockPropertyMutationRequestBody = (
   request: Readonly<Record<string, unknown>>,
   label: string,
 ): ParsedBlockPropertyMutationRequestBody => {
-  if (request.version !== BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.version must be ${BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION}`,
-    );
-  }
   if (
     !Array.isArray(request.fields) ||
     request.fields.length < 1 ||
@@ -428,7 +420,6 @@ const parseBlockPropertyMutationRequestBody = (
     );
   }
   return {
-    version: BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
     mutationId: readBoundedString(request, "mutationId", label),
     storeEpoch: readBoundedString(request, "storeEpoch", label),
     ...(request.clientSessionId === undefined
@@ -468,7 +459,7 @@ export const parseBlockPropertyMutationRequestV2 = (
   assertExactKeys(
     request,
     label,
-    ["version", "mutationId", "projectId", "storeEpoch", "actor", "fields"],
+    ["mutationId", "projectId", "storeEpoch", "actor", "fields"],
     ["clientSessionId"],
   );
   const parsed: BlockPropertyMutationRequestV2 = {
@@ -488,7 +479,7 @@ export const parseLibraryBlockPropertyMutationRequestV2 = (
   assertExactKeys(
     request,
     label,
-    ["version", "mutationId", "storeEpoch", "fields"],
+    ["mutationId", "storeEpoch", "fields"],
     ["clientSessionId"],
   );
   const parsed = parseBlockPropertyMutationRequestBody(request, label);
@@ -628,11 +619,6 @@ const parseBlockPropertyMutationResultBody = (
   result: Readonly<Record<string, unknown>>,
   label: string,
 ): ParsedBlockPropertyMutationResultBody => {
-  if (result.version !== BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.version must be ${BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION}`,
-    );
-  }
   if (typeof result.duplicate !== "boolean") {
     throw new BlockPropertyMutationV2ContractError(
       `${label}.duplicate must be a boolean`,
@@ -672,7 +658,6 @@ const parseBlockPropertyMutationResultBody = (
     );
   }
   return {
-    version: BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
     mutationId: readBoundedString(result, "mutationId", label),
     storeEpoch: readBoundedString(result, "storeEpoch", label),
     duplicate: result.duplicate,
@@ -694,7 +679,6 @@ export const parseBlockPropertyMutationResultV2 = (
   const label = "propertyMutationResultV2";
   const result = readRecord(value, label);
   assertExactKeys(result, label, [
-    "version",
     "mutationId",
     "projectId",
     "storeEpoch",
@@ -834,7 +818,6 @@ const parseLibraryBlockPropertyMutationResultV2 = (
   const label = "libraryPropertyMutationResultV2";
   const receipt = readRecord(value, label);
   assertExactKeys(receipt, label, [
-    "version",
     "mutationId",
     "accessContext",
     "storeEpoch",

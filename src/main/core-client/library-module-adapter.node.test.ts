@@ -12,8 +12,6 @@ import {
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import { LIBRARY_NAVIGATION_EVENT_VERSION } from "../../shared/library-events";
-import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
-import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
@@ -56,7 +54,6 @@ const pageDetailSnapshot = () => ({
   value: {
     kind: "page_detail" as const,
     value: {
-      version: 4,
       library_id: identity.libraryId,
       store_epoch: identity.storeEpoch,
       commit_seq: 9,
@@ -102,7 +99,6 @@ const pageHistorySnapshot = () => ({
   value: {
     kind: "page_history" as const,
     value: {
-      version: PAGE_HISTORY_CONTRACT_VERSION,
       library_id: identity.libraryId,
       page_id: "page:one",
       document_id: "document:one",
@@ -346,7 +342,6 @@ const pageLifecyclePreflightSnapshot = () => ({
   value: {
     kind: "page_lifecycle_preflight" as const,
     value: {
-      version: 3,
       default_view: lifecycleDefaultView(),
       tags_property: lifecycleTagsProperty(),
       reserved_block_type: null,
@@ -492,7 +487,6 @@ describe("Core Library Module Adapter", () => {
         },
       });
     await expect(bridge.listPageHistory({
-      version: PAGE_HISTORY_CONTRACT_VERSION,
       requestingProjectId: "project:test",
       pageId: "page:one",
     })).resolves.toMatchObject({
@@ -514,7 +508,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.listPageHistory({
-      version: PAGE_HISTORY_CONTRACT_VERSION,
       requestingProjectId: "project:test",
       pageId: "page:one",
       before: {
@@ -526,7 +519,6 @@ describe("Core Library Module Adapter", () => {
     })).resolves.toEqual({
       ok: true,
       value: {
-        version: PAGE_HISTORY_CONTRACT_VERSION,
         libraryId: identity.libraryId,
         pageId: "page:one",
         documentId: "document:one",
@@ -710,7 +702,6 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
     const request = {
-      version: 2 as const,
       operationId: "lifecycle:archive-one",
       projectId: "project:test",
       storeEpoch: identity.storeEpoch,
@@ -726,7 +717,6 @@ describe("Core Library Module Adapter", () => {
       ok: true,
       localCommit: committedLocalCommit(identity.storeEpoch, 16),
       value: {
-        version: 2,
         operationKind: "archive_page",
         operationId: request.operationId,
         projectId: request.projectId,
@@ -809,7 +799,6 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
     const request: BlockPropertyMutationRequestV2 = {
-      version: 2,
       mutationId: "property:mixed",
       projectId: "project:test",
       storeEpoch: identity.storeEpoch,
@@ -829,7 +818,6 @@ describe("Core Library Module Adapter", () => {
       ok: true,
       localCommit: committedLocalCommit(identity.storeEpoch, 21),
       value: {
-        version: 2,
         mutationId: request.mutationId,
         projectId: request.projectId,
         storeEpoch: identity.storeEpoch,
@@ -914,7 +902,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.apply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "property:metadata",
       storeEpoch: identity.storeEpoch,
       operation: {
@@ -1040,7 +1027,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
     const richTitle = plainTextToPortableRichText("Rich Page");
     const request: PageLifecycleMutationRequestV2 = {
-      version: 2,
       operationId: "lifecycle:create-one",
       projectId: "project:test",
       storeEpoch: identity.storeEpoch,
@@ -1230,7 +1216,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "page_reference_candidates",
         query: "projection",
@@ -1288,12 +1273,10 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "children", parent: { kind: "library" } },
     })).resolves.toEqual({
       ok: true,
       value: {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: identity.profileId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
@@ -1368,7 +1351,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "move_destinations",
         target: { kind: "page", pageId: "page:source" },
@@ -1430,7 +1412,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "standalone_roots",
         limit: 10,
@@ -1512,7 +1493,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "resource_project_access",
         target: { kind: "page", pageId: "page:one" },
@@ -1536,7 +1516,6 @@ describe("Core Library Module Adapter", () => {
       },
     });
     await expect(adapter.apply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "operation:set-access",
       storeEpoch: identity.storeEpoch,
       operation: {
@@ -1631,7 +1610,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "canvas_target", canvasId },
     })).resolves.toMatchObject({
       ok: true,
@@ -1650,7 +1628,6 @@ describe("Core Library Module Adapter", () => {
       },
     });
     await expect(adapter.apply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "operation:create-canvas",
       storeEpoch: identity.storeEpoch,
       operation: {
@@ -1709,7 +1686,6 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.read({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "canvas_target", canvasId },
     })).resolves.toMatchObject({
       ok: true,
@@ -1784,7 +1760,6 @@ describe("Core Library Module Adapter", () => {
     const result = await bridge.apply(
       { kind: "project", projectId: "project:test" },
       {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: "operation:create-inline-canvas",
         storeEpoch: identity.storeEpoch,
         operation: {
@@ -1840,7 +1815,6 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
     const request = {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "operation:create",
       storeEpoch: identity.storeEpoch,
       operation: {
@@ -1917,7 +1891,6 @@ describe("Core Library Module Adapter", () => {
       authority: Promise.resolve(runtime),
     });
     const request = {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "operation:trusted",
       storeEpoch: identity.storeEpoch,
       operation: {

@@ -12,7 +12,6 @@ import {
 import type { PageLifecyclePreflightResultV2 } from "../shared/page-lifecycle-v2-runtime";
 
 const request = (session: string, actorKind: string) => ({
-  version: 2,
   operationId: "page-lifecycle-transport-retry",
   projectId: "project-1",
   storeEpoch: "epoch-1",

@@ -35,7 +35,6 @@ import type { ResourceRevocationMessage } from "../../shared/resource-revocation
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseModuleReadResultV2,
   type DatabaseViewRecordV2,
   type DatabaseViewQueryResultV2,
@@ -169,7 +168,6 @@ function createDatabaseViewSnapshot(
   return {
     ok: true,
     value: {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId,
       libraryId,
       storeEpoch: "epoch-1",

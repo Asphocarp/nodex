@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  CORE_MODULE_CONTRACT_VERSION,
   bindInProcessModule,
   type BoundModuleContext,
   type DeepCoreModule,
@@ -55,11 +54,9 @@ describe("deep Core Module contract", () => {
         })),
     );
     const readRequest: ProbeReadRequest = {
-      version: CORE_MODULE_CONTRACT_VERSION,
       read: { kind: "metadata" },
     };
     const applyRequest: ProbeApplyRequest = {
-      version: CORE_MODULE_CONTRACT_VERSION,
       operationId: "operation-1",
       storeEpoch: "epoch-1",
       intent: { kind: "grant_project_access", projectId: "project-1" },

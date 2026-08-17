@@ -12,7 +12,6 @@ import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import type { WorkflowStatus } from "./workflow-status";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 16 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -207,7 +206,6 @@ export type LibraryRead =
     };
 
 export interface LibraryModuleReadRequest {
-  readonly version: typeof LIBRARY_MODULE_CONTRACT_VERSION;
   readonly read: LibraryRead;
 }
 
@@ -304,7 +302,6 @@ export type LibraryReadValue =
     };
 
 export interface LibraryModuleReadSnapshot {
-  readonly version: typeof LIBRARY_MODULE_CONTRACT_VERSION;
   readonly profileId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
@@ -547,7 +544,6 @@ export type LibraryApplyOperation =
   | ApplyPageMetadataPropertiesOperation;
 
 export interface LibraryModuleApplyRequest {
-  readonly version: typeof LIBRARY_MODULE_CONTRACT_VERSION;
   readonly operationId: string;
   readonly storeEpoch: string;
   readonly operation: LibraryApplyOperation;
@@ -564,7 +560,6 @@ export interface LibraryCanvasMutationResult {
 }
 
 export interface LibraryModuleApplyReceipt {
-  readonly version: typeof LIBRARY_MODULE_CONTRACT_VERSION;
   readonly operationId: string;
   readonly storeEpoch: string;
   readonly libraryId: string;

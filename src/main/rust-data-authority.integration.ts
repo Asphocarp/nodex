@@ -31,9 +31,6 @@ import {
 } from "./core-client/desktop-store-administration-bridge";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
-import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
-import { PAGE_HISTORY_CONTRACT_VERSION } from "../shared/page-history";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
 import { parseDataSourcePropertyId } from "../shared/database-identities";
 import {
   NODEX_APP_TOOL_NAMESPACE,
@@ -41,11 +38,9 @@ import {
 } from "../shared/nodex-agent-tools";
 import { CreatePagesV6OutputSchema } from "../shared/nodex-agent-tools/v6-schemas";
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   primaryCanvasDocumentId,
   type CanvasSceneRealtimeEvent,
 } from "../shared/block-documents";
-import { BLOCK_TRANSFER_INTENT_CONTRACT_VERSION } from "../shared/block-transfer";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -141,7 +136,6 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
       const databaseCatalog = await database.read({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId,
         read: { target: { kind: "project_default" }, mode: "database" },
       });
@@ -166,7 +160,6 @@ describe("Electron native data authority", () => {
       }
       const nativePropertyId = parseDataSourcePropertyId("p_rustcore");
       const databaseWrite = {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "electron-database-adapter-put-property",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -232,7 +225,6 @@ describe("Electron native data authority", () => {
         },
       });
       const updatedDataSource = await database.read({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId,
         read: {
           target: {
@@ -263,7 +255,6 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
       const libraryDataSource = await libraryDatabase.read({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         read: {
           target: {
             kind: "data_source",
@@ -281,7 +272,6 @@ describe("Electron native data authority", () => {
       expect("projectId" in libraryDataSource.value).toBe(false);
       const libraryPropertyId = parseDataSourcePropertyId("p_libcore1");
       const libraryDatabaseWrite = await libraryDatabase.apply({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "electron-library-database-put-property",
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         operations: [{
@@ -337,7 +327,6 @@ describe("Electron native data authority", () => {
       const nativeContentBlockId = "01981e00-0000-7000-8000-000000000003";
       const nativeEmptyBlockId = "01981e00-0000-7000-8000-000000000004";
       const createSyncedSource = {
-        version: 2 as const,
         operationId: "electron-document-create-synced-source",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -418,7 +407,6 @@ describe("Electron native data authority", () => {
         },
       });
       const checkpointRequest = {
-        version: 1 as const,
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         documentId: nativeSourceDocumentId,
@@ -492,7 +480,6 @@ describe("Electron native data authority", () => {
         throw new Error("Expected native Synced Block version detail");
       }
       const changeRequest = {
-        version: 1 as const,
         mutationId: "electron-document-history-change",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -520,7 +507,6 @@ describe("Electron native data authority", () => {
         },
       });
       const restoreRequest = {
-        version: 1 as const,
         mutationId: "electron-document-history-restore",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -609,7 +595,6 @@ describe("Electron native data authority", () => {
       const nativeTargetAnchorBlockId = "01981e00-0000-7000-8000-000000000007";
       const createdTransferTarget = await projectDocuments
         .applyAdditionalDocumentCommand({
-          version: 2,
           operationId: "electron-block-transfer-create-target",
           projectId,
           storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -645,7 +630,6 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
       const transferIntent = {
-        version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
         operationId: "electron-native-block-transfer",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -949,13 +933,11 @@ describe("Electron native data authority", () => {
         throw new Error("Expected native Page lifecycle authority");
       }
       const lifecycleRequestBase = {
-        version: 2 as const,
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         actor: { kind: "electron_renderer", clientId: "rust-authority-test" },
       };
       const databasePropertyMutation = await database.apply({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "electron-page-property-database",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -978,7 +960,6 @@ describe("Electron native data authority", () => {
         throw new Error(databasePropertyMutation.error.message);
       }
       const propertyMutation = await lifecycleLibrary.applyBlockPropertyMutation({
-        version: 2,
         mutationId: "electron-page-property-mixed",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -1006,7 +987,6 @@ describe("Electron native data authority", () => {
         },
       });
       await expect(database.apply({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "electron-page-property-database",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -1026,7 +1006,6 @@ describe("Electron native data authority", () => {
         }],
       })).resolves.toMatchObject({ ok: true, value: { duplicate: true } });
       const propertyReplay = await lifecycleLibrary.applyBlockPropertyMutation({
-        version: 2,
         mutationId: "electron-page-property-mixed",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -2139,7 +2118,6 @@ describe("Electron native data authority", () => {
         label: "Electron native authority",
       });
       expect(nativeBackup).toMatchObject({
-        version: 2,
         trigger: "manual",
         label: "Electron native authority",
         includesAssets: true,
@@ -2186,7 +2164,6 @@ describe("Electron native data authority", () => {
         canvasBinding,
       );
       const firstCanvasRequest = {
-        version: CANVAS_SCENE_SYNC_VERSION,
         accessContext: canvasAccessContext,
         documentId: canvasDocumentId,
         clientSessionId: "renderer:electron-canvas:first",
@@ -2310,7 +2287,6 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
       await expect(library.read({
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         read: { mode: "metadata" },
       })).resolves.toMatchObject({
         ok: true,
@@ -2320,7 +2296,6 @@ describe("Electron native data authority", () => {
         },
       });
       const createdPage = await library.apply({
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: "electron-library-adapter-create",
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         operation: {
@@ -2347,7 +2322,6 @@ describe("Electron native data authority", () => {
         },
       });
       await expect(library.apply({
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: "electron-library-adapter-grant",
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         operation: {
@@ -2430,7 +2404,6 @@ describe("Electron native data authority", () => {
         ancestors: [],
       });
       await expect(library.listPageHistory({
-        version: PAGE_HISTORY_CONTRACT_VERSION,
         requestingProjectId: projectId,
         pageId: "page:electron-library-adapter",
         pageSize: 10,
@@ -2449,7 +2422,6 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
       const rootCreatedPage = await rootLibrary.apply({
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: "electron-root-library-create",
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         operation: {
@@ -2493,7 +2465,6 @@ describe("Electron native data authority", () => {
       if (!libraryPageDetail.ok) throw new Error("Expected Library Page Detail");
       expect("projectId" in libraryPageDetail.value).toBe(false);
       await expect(libraryDatabase.apply({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "electron-library-page-enter-database",
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         operations: [{

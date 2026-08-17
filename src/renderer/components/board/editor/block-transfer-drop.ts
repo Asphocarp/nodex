@@ -324,7 +324,6 @@ export const setupBlockTransferDocumentDrop = (
       clear();
       void prepareStructuralMutation()
         .then((tokens) => boundary.transfer({
-          version: 3,
           operationId: boundary.createOperationId(),
           projectId: boundary.projectId,
           storeEpoch: boundary.storeEpoch,
@@ -525,7 +524,6 @@ export const setupBlockTransferDocumentDrop = (
     }
     void prepareStructuralMutation(session.sourceSurfaceId)
       .then((tokens) => boundary.transfer({
-        version: 3,
         operationId: boundary.createOperationId(),
         projectId: boundary.projectId,
         storeEpoch: boundary.storeEpoch,

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  PAGE_HISTORY_CONTRACT_VERSION,
   MAX_PAGE_HISTORY_PAGE_SIZE,
   type PageHistoryPage,
 } from "./page-history";
@@ -14,7 +13,6 @@ const occurredAt = "2026-07-12T08:00:00.000Z";
 const versionId = "version:history:1";
 
 const page: PageHistoryPage = {
-  version: PAGE_HISTORY_CONTRACT_VERSION,
   libraryId: "library:history",
   pageId: "card:history",
   documentId: "document:history",
@@ -74,7 +72,6 @@ const rejectsContract = (operation: () => unknown): boolean => {
 describe("Page history transport contract", () => {
   test("parses one exact scoped request and source-specific cursor", () => {
     const request = parseListPageHistoryRequest({
-      version: PAGE_HISTORY_CONTRACT_VERSION,
       requestingProjectId: "project:history",
       pageId: "card:history",
       pageSize: MAX_PAGE_HISTORY_PAGE_SIZE,

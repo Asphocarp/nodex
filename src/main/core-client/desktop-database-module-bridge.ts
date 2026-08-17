@@ -15,7 +15,6 @@ import type {
 import type { ProjectionCursor } from "../../shared/projection-stream";
 import { evaluateDatabaseViewRows } from "../../shared/database-views";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
   type DatabaseModuleReadRequestV2,
@@ -552,7 +551,6 @@ export const createDesktopDatabaseModuleBridge = (
         windowInput,
         readCore: adapter.readCore,
         readDescriptor: async (read) => await adapter.read({
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId,
           read,
         }),
@@ -568,7 +566,6 @@ export const createDesktopDatabaseModuleBridge = (
         windowInput,
         readCore: adapter.readCore,
         readDescriptor: async (read) => await adapter.read({
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId,
           read,
         }),
@@ -595,7 +592,6 @@ export const createDesktopDatabaseModuleBridge = (
         windowInput,
         readCore: adapter.readCore,
         readDescriptor: async (read) => await adapter.read({
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           read: read as LibraryDatabaseReadV2,
         }),
       });
@@ -610,7 +606,6 @@ export const createDesktopDatabaseModuleBridge = (
         windowInput,
         readCore: adapter.readCore,
         readDescriptor: async (read) => await adapter.read({
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           read: read as LibraryDatabaseReadV2,
         }),
       });

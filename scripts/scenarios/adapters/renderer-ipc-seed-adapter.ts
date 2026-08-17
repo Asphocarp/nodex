@@ -96,7 +96,6 @@ export class RendererIpcSeedAdapter implements ScenarioSeedPort {
       input.projectId,
       descriptor.documentId,
       {
-        version: 1,
         mutationId: input.mutationId,
         projectId: input.projectId,
         storeEpoch: descriptor.storeEpoch,

@@ -4,7 +4,6 @@ import type {
   LibraryModuleApplyResult,
   LibraryModuleReadResult,
 } from "../shared/library-module";
-import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 import {
   libraryContentAccess,
   projectContentAccess,
@@ -18,7 +17,6 @@ import {
 const result = (): LibraryModuleReadResult => ({
   ok: true,
   value: {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     profileId: "profile-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -34,7 +32,6 @@ const documentId = "019f7399-7676-70ae-b2aa-168692b64d1a";
 const canvasId = "019f7399-7676-70ae-b2aa-168692b64d1b";
 const canvasDocumentId = "019f7399-7676-70ae-b2aa-168692b64d1c";
 const applyRequest = {
-  version: LIBRARY_MODULE_CONTRACT_VERSION,
   operationId,
   storeEpoch: "epoch-1",
   operation: {
@@ -52,7 +49,6 @@ const applyResult = (): LibraryModuleApplyResult => ({
     observed: { store_epoch: "epoch-1", commit_head: 1 },
   },
   value: {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId,
     storeEpoch: "epoch-1",
     libraryId: "library-1",
@@ -95,7 +91,6 @@ describe("Library Module IPC", () => {
       },
     });
     const request = {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "metadata" },
     } as const;
     expect(await handlers.get(LIBRARY_MODULE_READ_IPC_CHANNEL)?.(
@@ -114,7 +109,6 @@ describe("Library Module IPC", () => {
       applyRequest,
     )).toEqual(applyResult());
     const canvasRequest = {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "019f7399-7676-70ae-b2aa-168692b64d1d",
       storeEpoch: "epoch-1",
       operation: {

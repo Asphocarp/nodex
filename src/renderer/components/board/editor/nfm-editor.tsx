@@ -42,7 +42,6 @@ import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { toast } from "@/components/ui/toast";
 import { createUuidV7 } from "../../../../shared/uuid-v7";
-import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../../../shared/library-module";
 import { applyLibraryModule } from "@/lib/api";
 import { resolveNfmLinkAction } from "@/lib/nfm-link-actions";
 import {
@@ -2358,7 +2357,6 @@ function NfmEditorInstance({
       }
       const pageId = createUuidV7();
       const result = await applyLibraryModule(contentAccessContext, {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: createUuidV7(),
         storeEpoch: source.storeEpoch,
         operation: {

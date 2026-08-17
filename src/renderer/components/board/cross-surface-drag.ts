@@ -181,7 +181,6 @@ export const buildBlockToDataSourceTransferIntent = (input: {
   readonly promotionPolicy: PagePromotionPolicy;
   readonly causalDependencies?: readonly BlockTransferDocumentHead[];
 }): PublicBlockTransferIntent => ({
-  version: 3,
   operationId: input.operationId,
   projectId: input.projectId,
   storeEpoch: input.storeEpoch,

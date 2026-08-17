@@ -26,13 +26,11 @@ import {
 import { cn } from "@/lib/utils";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
-  PAGE_HISTORY_CONTRACT_VERSION,
   DEFAULT_PAGE_HISTORY_PAGE_SIZE,
   type PageHistoryCursor,
   type PageHistoryEntry,
 } from "../../../shared/page-history";
 import {
-  DOCUMENT_VERSION_CONTRACT_VERSION,
   type DocumentVersionDetail,
   type PrepareDocumentVersionRestore,
 } from "../../../shared/block-documents/document-history";
@@ -119,7 +117,6 @@ export function HistoryPanel({
     setPreviewCache(new Map());
     try {
       const result = await listPageHistory({
-        version: PAGE_HISTORY_CONTRACT_VERSION,
         requestingProjectId: projectId,
         pageId: targetPageId,
         pageSize: DEFAULT_PAGE_HISTORY_PAGE_SIZE,
@@ -273,7 +270,6 @@ export function HistoryPanel({
     setTimelineError(null);
     try {
       const result = await listPageHistory({
-        version: PAGE_HISTORY_CONTRACT_VERSION,
         requestingProjectId: projectId,
         pageId: pageId,
         before: cursor,
@@ -319,7 +315,6 @@ export function HistoryPanel({
         pendingRestore = {
           entryId: selectedEntry.id,
           request: {
-            version: DOCUMENT_VERSION_CONTRACT_VERSION,
             mutationId: crypto.randomUUID(),
             projectId,
             storeEpoch: descriptor.storeEpoch,

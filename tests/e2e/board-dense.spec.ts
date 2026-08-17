@@ -10,7 +10,6 @@ import {
   BOARD_DENSE_PRIMARY_PAGE_KEY,
   BOARD_DENSE_SCENARIO_ID,
 } from "../../scripts/scenarios/scenarios/board-dense";
-import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../src/shared/library-module";
 
 const focusEditableBlockEnd = async (block: Locator): Promise<void> => {
   await block.evaluate((element) => {
@@ -545,12 +544,11 @@ test("materializes and opens the authoritative board/dense environment", async (
     await expect(sourceEditor.getByRole("button", {
       name: "Edit Reference model child title",
     })).toBeVisible({ timeout: 15_000 });
-    const childSearch = await page.evaluate(async ({ projectId, contractVersion }) => {
+    const childSearch = await page.evaluate(async ({ projectId }) => {
       return await window.api?.invoke("library-module:read", {
         kind: "project",
         projectId,
       }, {
-        version: contractVersion,
         read: {
           mode: "page_reference_candidates",
           query: "Reference model child",
@@ -559,7 +557,6 @@ test("materializes and opens the authoritative board/dense environment", async (
       });
     }, {
       projectId: manifest.projectId,
-      contractVersion: LIBRARY_MODULE_CONTRACT_VERSION,
     });
     expect(childSearch).toMatchObject({
       ok: true,

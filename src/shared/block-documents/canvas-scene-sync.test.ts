@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   canonicalizeCanvasSceneMutationIntent,
   canonicalizeCanvasSceneMutationRequest,
   encodeCanonicalCanvasSceneMutationIntent,
@@ -8,7 +7,6 @@ import {
 } from "./canvas-scene-sync";
 
 const request = () => ({
-  version: CANVAS_SCENE_SYNC_VERSION,
   mutationId: "mutation-1",
   accessContext: { kind: "project", projectId: "project-1" },
   documentId: "document-1",
@@ -52,7 +50,7 @@ describe("Canvas scene sync contract", () => {
       value: { kind: "value", value: 20 },
     });
     expect(JSON.parse(encodeCanonicalCanvasSceneMutationRequest(canonical)))
-      .toMatchObject({ mutationId: "mutation-1", version: 1 });
+      .toMatchObject({ mutationId: "mutation-1" });
   });
 
   test("canonical request encoding is independent of input object key order", () => {

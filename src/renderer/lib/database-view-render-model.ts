@@ -10,7 +10,6 @@ import type {
   DataSourcePropertyRecordV2,
   LibraryDatabaseModuleReadSnapshotV2,
 } from "../../shared/database-module-v2";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
 import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import type {
@@ -369,7 +368,6 @@ export const buildDatabaseViewWindowRenderModel = (
   window: DatabaseViewWindowSnapshot<string | null>,
 ): DatabaseViewRenderModel =>
   buildDatabaseViewRenderModel({
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     ...(window.projectId === null
       ? { accessContext: { kind: "library" as const } }
       : { projectId: window.projectId }),

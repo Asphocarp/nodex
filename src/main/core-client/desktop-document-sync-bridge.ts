@@ -440,8 +440,7 @@ const hasCanvasSceneIdentity = (
   request: CanvasSceneSubscribeRequest,
 ): boolean => {
   if (
-    request?.version !== 1
-    || typeof request.documentId !== "string"
+    typeof request.documentId !== "string"
     || request.documentId.length === 0
     || request.documentId.length > 512
     || request.documentId.trim() !== request.documentId
@@ -958,7 +957,6 @@ export function createDesktopDocumentSyncBridge(
       subscription.pendingRealtimeEvents.clear();
       const delivered = sendCanvasRealtimeEvent(key, target, {
         type: "canvas_scene_resync_required",
-        version: 1,
         libraryId: event.libraryId,
         accessContext: event.accessContext,
         documentId: event.documentId,
@@ -977,7 +975,6 @@ export function createDesktopDocumentSyncBridge(
       }
       const delivered = sendCanvasRealtimeEvent(key, target, {
         type: "canvas_scene_resync_required",
-        version: 1,
         libraryId: event.libraryId,
         accessContext: event.accessContext,
         documentId: event.documentId,
@@ -1275,7 +1272,6 @@ export function createDesktopDocumentSyncBridge(
         if (event.kind === "canvas_generation_changed") {
           const delivered = deliverCanvasRealtimeEvent(key, subscription.target, {
             type: "canvas_scene_resync_required",
-            version: 1,
             libraryId: subscription.libraryId,
             accessContext: subscription.scope,
             documentId: event.document_id,
@@ -1298,7 +1294,6 @@ export function createDesktopDocumentSyncBridge(
         try {
           realtimeEvent = decodeCanvasSceneSseEvent(JSON.stringify({
             type: "canvas_scene_committed",
-            version: 1,
             libraryId: subscription.libraryId,
             accessContext: subscription.scope,
             documentId: event.document_id,
@@ -1746,7 +1741,6 @@ export function createDesktopDocumentSyncBridge(
         );
       }
       const subscriptionRequest: CanvasSceneSubscribeRequest = {
-        version: 1,
         accessContext: parsed.accessContext,
         documentId: parsed.publication.documentId,
         clientSessionId: parsed.clientSessionId,

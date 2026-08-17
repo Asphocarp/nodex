@@ -5,7 +5,6 @@ import {
   type DataSourceOptionId,
 } from "./database-identities";
 import {
-  PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
   parsePageLifecycleMutationRequestV2,
   PageLifecycleV2ContractError,
   type CreatePageOperationV2,
@@ -293,7 +292,6 @@ export const compilePageLifecycleCreateRequestV2 = (
     tagsProperty: input.tagsProperty,
   });
   const compiled = parsePageLifecycleMutationRequestV2({
-    version: 2,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -309,7 +307,6 @@ export const compilePageLifecycleCreateRequestV2 = (
   return compiled as PageLifecycleCreateMutationRequestV2;
 };
 
-export const PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION = 3 as const;
 
 export interface PageLifecycleDocumentCoordinateV2 {
   readonly documentId: string;
@@ -367,7 +364,6 @@ export interface PageLifecycleOwnedBlockAuthorityV2 {
 }
 
 export interface PageLifecyclePreflightV2 {
-  readonly version: typeof PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION;
   readonly defaultView: DatabaseViewQueryResultV2;
   readonly tagsProperty: PageLifecycleTagsPropertySnapshotV2;
   readonly reservedBlockType: string | null;
@@ -375,7 +371,6 @@ export interface PageLifecyclePreflightV2 {
 }
 
 export interface PageLifecyclePreflightSnapshotV2 {
-  readonly version: typeof PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION;
   readonly projectId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
@@ -501,7 +496,7 @@ const canonicalDateTime = (value: Date | null | undefined): string | null =>
 
 const primaryView = (preflight: PageLifecyclePreflightSnapshotV2) => {
   const value = preflight.value;
-  if (!value || value.version !== PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION) {
+  if (!value) {
     return runtimeFail("preflight_mismatch", "Page lifecycle v2 preflight is missing");
   }
   const query = value.defaultView;
@@ -635,8 +630,7 @@ export const compilePageLifecycleRequestV2 = (input: {
   const { intent, preflight } = input;
   if (
     preflight.projectId !== intent.projectId ||
-    !preflight.storeEpoch ||
-    preflight.value.version !== PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION
+    !preflight.storeEpoch
   ) {
     return runtimeFail(
       "preflight_mismatch",
@@ -790,7 +784,6 @@ export const compilePageLifecycleRequestV2 = (input: {
   }
 
   return parsePageLifecycleMutationRequestV2({
-    version: PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
     operationId: intent.operationId,
     projectId: intent.projectId,
     storeEpoch: preflight.storeEpoch,

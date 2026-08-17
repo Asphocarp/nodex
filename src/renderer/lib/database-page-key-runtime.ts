@@ -1,5 +1,4 @@
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
   type DatabaseModuleErrorV2,
@@ -94,11 +93,9 @@ export async function previewDatabasePageKeyPrefix(
   };
   const snapshot = input.projectId === undefined
     ? unwrapRead(await dependencies.readLibrary({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         read,
       }))
     : unwrapRead(await dependencies.readProject(input.projectId, {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: input.projectId,
         read,
       }));
@@ -113,7 +110,6 @@ export async function readDatabasePageKeyNamespace(
   dependencies: DatabasePageKeyRuntimeDependencies = defaultDependencies,
 ): Promise<DatabasePageKeyNamespaceAuthority> {
   const snapshot = unwrapRead(await dependencies.readProject(input.projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: input.projectId,
     read: {
       target: {
@@ -144,7 +140,6 @@ export async function renameDatabasePageKeyPrefix(
   dependencies: DatabasePageKeyRuntimeDependencies = defaultDependencies,
 ): Promise<void> {
   const result = await dependencies.applyProject(input.projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId ?? crypto.randomUUID(),
     projectId: input.projectId,
     storeEpoch: input.storeEpoch,

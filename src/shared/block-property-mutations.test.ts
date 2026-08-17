@@ -17,7 +17,6 @@ const operationFails = (operation: () => void): boolean => {
 };
 
 const baseRequest = {
-  version: 1 as const,
   mutationId: "mutation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -149,7 +148,6 @@ describe("Block property mutation contract", () => {
 
   test("strictly validates committed receipts", () => {
     const result = parseBlockPropertyMutationResult({
-      version: 1,
       mutationId: "mutation-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",

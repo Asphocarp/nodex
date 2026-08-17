@@ -13,7 +13,6 @@ import {
 import { committedLocalCommit } from "./testing/local-commit";
 
 const v2Request = () => ({
-  version: 2,
   operationId: "operation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -77,7 +76,6 @@ describe("Page Lifecycle v2 contract", () => {
     const parsed = parsePageLifecycleMutationRequestV2(v2Request());
 
     expect(parsed).toMatchObject({
-      version: 2,
       operationId: "operation-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -199,7 +197,6 @@ describe("Page Lifecycle v2 contract", () => {
 
   test("keeps non-create operation shapes under the v2 envelope", () => {
     const parsed = parsePageLifecycleMutationRequestV2({
-      version: 2,
       operationId: "archive-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -212,7 +209,6 @@ describe("Page Lifecycle v2 contract", () => {
     });
 
     expect(parsed).toMatchObject({
-      version: 2,
       operation: {
         kind: "archive_page",
         pageId: "page-1",
@@ -223,7 +219,6 @@ describe("Page Lifecycle v2 contract", () => {
 
   test("parses v2 receipts with exact-retry tag allocation evidence", () => {
     const receipt = {
-      version: 2,
       operationId: "operation-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -249,7 +244,6 @@ describe("Page Lifecycle v2 contract", () => {
     };
 
     expect(parsePageLifecycleMutationReceiptV2(receipt)).toMatchObject({
-      version: 2,
       dataSourceId: "source-1",
       createdTagOptionIds: ["o_AAAAAAAA"],
     });
@@ -261,7 +255,7 @@ describe("Page Lifecycle v2 contract", () => {
       }),
     ).toMatchObject({
       ok: true,
-      value: { version: 2 },
+      value: { operationId: "operation-1" },
       localCommit: { status: "committed", commit: { commit_seq: 1 } },
     });
   });

@@ -10,7 +10,6 @@ import {
 } from "./additional-document-command-ipc";
 
 const request: PublicAdditionalDocumentCommandRequest = {
-  version: 2,
   operationId: "additional-command-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -36,7 +35,6 @@ const committed = (
     observed: { store_epoch: bound.storeEpoch, commit_head: 7 },
   },
   value: {
-    version: 2,
     operationId: bound.operationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,

@@ -10,7 +10,6 @@ import {
 } from "./electron-renderer-transport";
 
 const request: DocumentMutationRequest = {
-  version: 1,
   mutationId: "renderer-document-mutation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -26,7 +25,6 @@ const result: DocumentOperationCommandResult = {
   ok: true,
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
-    version: 1,
     mutationKind: "document_operation_batch",
     mutationId: request.mutationId,
     projectId: request.projectId,

@@ -1,5 +1,4 @@
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   canonicalizeCanvasSceneMutationRequest,
   canonicalizeCanvasSceneMutationResult,
   type CanvasSceneMutationCommandResult,
@@ -152,7 +151,6 @@ export const createCoreCanvasSceneAdapter = (
       onRepair: (repair: DocumentLiveRepair) => {
         listener({
           type: "canvas_scene_resync_required",
-          version: CANVAS_SCENE_SYNC_VERSION,
           libraryId: binding.libraryId,
           accessContext: binding.accessContext,
           documentId: repair.document_id,
@@ -165,7 +163,6 @@ export const createCoreCanvasSceneAdapter = (
         if (!reconnected) return;
         listener({
           type: "canvas_scene_resync_required",
-          version: CANVAS_SCENE_SYNC_VERSION,
           libraryId: binding.libraryId,
           accessContext: binding.accessContext,
           documentId: barrier.document_id,
@@ -363,7 +360,6 @@ const canvasEvent = (
   ) {
     return {
       type: "canvas_scene_resync_required",
-      version: CANVAS_SCENE_SYNC_VERSION,
       libraryId: binding.libraryId,
       accessContext: binding.accessContext,
       documentId: event.document_id,
@@ -380,7 +376,6 @@ const canvasEvent = (
   try {
     return decodeCanvasSceneSseEvent(JSON.stringify({
       type: "canvas_scene_committed",
-      version: CANVAS_SCENE_SYNC_VERSION,
       libraryId: binding.libraryId,
       accessContext: binding.accessContext,
       documentId: event.document_id,

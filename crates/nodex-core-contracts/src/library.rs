@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 24;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 25;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -942,7 +942,6 @@ pub struct LibraryPageLifecycleAuthority {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageLifecyclePreflight {
-    pub version: u32,
     pub default_view: Value,
     pub tags_property: Value,
     pub reserved_block_type: Option<String>,
@@ -1224,7 +1223,6 @@ pub enum LibraryPageDataSourceContext {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageDetail {
-    pub version: u32,
     pub library_id: String,
     pub store_epoch: String,
     pub commit_seq: i64,
@@ -1237,7 +1235,6 @@ pub struct LibraryPageDetail {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageContent {
-    pub version: u32,
     pub library_id: String,
     pub store_epoch: String,
     pub commit_seq: i64,
@@ -1851,7 +1848,6 @@ pub enum LibraryPageHistoryEntry {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageHistoryPage {
-    pub version: u32,
     pub library_id: String,
     pub page_id: String,
     pub document_id: String,
