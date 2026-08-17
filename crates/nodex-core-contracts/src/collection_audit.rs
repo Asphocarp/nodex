@@ -132,6 +132,7 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         }
         LibraryRead::ProjectPageSearch { .. }
         | LibraryRead::ProjectPageSearchFacets { .. }
+        | LibraryRead::ProjectPageSearchMetadata { .. }
         | LibraryRead::PageReferenceCandidates { .. }
         | LibraryRead::PlanAgentResourceAccess { .. }
         | LibraryRead::PrepareAgentPageCopy { .. }
