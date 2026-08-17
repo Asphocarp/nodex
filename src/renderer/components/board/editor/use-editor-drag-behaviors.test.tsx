@@ -11,7 +11,7 @@ import {
   beginLocalBlockDragSession,
   endLocalBlockDragSession,
   shouldHandleNativeCrossSurfaceDrag,
-} from "../cross-surface-drag";
+} from "../../workbench/block-transfer/cross-surface-drag";
 
 type DragBehaviorEditor = Parameters<typeof useEditorDragBehaviors>[0]["editor"];
 

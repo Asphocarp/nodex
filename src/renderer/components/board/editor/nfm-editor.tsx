@@ -59,7 +59,7 @@ import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import {
   beginLocalBlockDragSession,
   endLocalBlockDragSession,
-} from "../cross-surface-drag";
+} from "../../workbench/block-transfer/cross-surface-drag";
 import { resolveTopLevelDraggedBlocks } from "./dragged-block-roots";
 import { previewTaskShorthand } from "@/lib/task-shorthand-preview";
 import type { CodexPromptInput } from "@/lib/types";

@@ -8,7 +8,7 @@ import {
   endLocalBlockDragSession,
   resolveLocalBlockDragSession,
   shouldBlockNoteYieldManagedDrag,
-} from "../cross-surface-drag";
+} from "../../workbench/block-transfer/cross-surface-drag";
 import {
   setupBlockTransferDocumentDrop,
   type BlockTransferDropBoundary,

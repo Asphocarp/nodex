@@ -243,7 +243,6 @@ async function seedConvergenceDocument(
       project.projectId,
       documentId,
       {
-        version: 1,
         mutationId: createUuidV7(),
         projectId: project.projectId,
         storeEpoch: project.storeEpoch,
@@ -288,17 +287,21 @@ async function dispatchEditorAncestorScroll({
   });
 }
 
-async function dragBlockToBoardWithMouse({
+async function dragBlockFromEditorWithMouse({
   page,
   sourceBlock,
   sourceEditor,
-  targetColumn,
+  target,
+  targetYRatio = 0.7,
+  expectedFeedback,
   exerciseAncestorScrollLifecycle = false,
 }: {
   page: Page;
   sourceBlock: Locator;
   sourceEditor: Locator;
-  targetColumn: Locator;
+  target: Locator;
+  targetYRatio?: number;
+  expectedFeedback?: Locator;
   exerciseAncestorScrollLifecycle?: boolean;
 }): Promise<void> {
   await sourceBlock.scrollIntoViewIfNeeded();
@@ -347,7 +350,7 @@ async function dragBlockToBoardWithMouse({
     }
 
     // This first segment crosses both Nodex's click tolerance and Chromium's
-    // native drag activation threshold before the long trip to the Board.
+    // native drag activation threshold before the long trip to the target.
     await page.mouse.move(handleCenter.x + 12, handleCenter.y, { steps: 4 });
 
     // Chromium can emit pointercancel once native DnD takes pointer ownership.
@@ -358,13 +361,13 @@ async function dragBlockToBoardWithMouse({
       expect(await pressedHandle.evaluate((handle) => handle.isConnected)).toBe(true);
     }
 
-    const columnBox = await targetColumn.boundingBox();
-    if (!columnBox) throw new Error("Board target column has no layout box");
+    const targetBox = await target.boundingBox();
+    if (!targetBox) throw new Error("Block transfer target has no layout box");
     const dropPoint = {
-      x: columnBox.x + columnBox.width / 2,
-      y: columnBox.y + Math.min(
-        columnBox.height - 12,
-        Math.max(64, columnBox.height * 0.7),
+      x: targetBox.x + targetBox.width / 2,
+      y: targetBox.y + Math.min(
+        targetBox.height - 4,
+        Math.max(4, targetBox.height * targetYRatio),
       ),
     };
     await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 30 });
@@ -373,6 +376,7 @@ async function dragBlockToBoardWithMouse({
     // reliably produce the accepted dragover required for an HTML5 drop.
     await page.mouse.move(dropPoint.x + 1, dropPoint.y + 1);
     await page.mouse.move(dropPoint.x + 2, dropPoint.y + 2);
+    if (expectedFeedback) await expect(expectedFeedback).toBeVisible();
     await page.mouse.up();
     mouseReleased = true;
   } finally {
@@ -2204,7 +2208,7 @@ test("moves selected Blocks to a DB status through the picker @move-picker-smoke
 // This is the native source-gesture smoke. High-pressure tests below remain on
 // the direct typed transfer boundary because they test transaction convergence,
 // not the handle-to-dragover pipeline exercised here.
-test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
+test("moves a Block into Board and List views with native DnD @dnd-smoke", async () => {
   test.setTimeout(120_000);
   const harness = await ElectronScenarioHarness.create({ label: "native-dnd" });
   const workspace = harness.profile.initialProjectsDirectory;
@@ -2217,7 +2221,7 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
       workspace,
     );
     const database = await readConvergenceDatabase(page, project);
-    await createConvergenceBoardPage(
+    const firstBoardFixture = await createConvergenceBoardPage(
       page,
       project,
       "Board fixture one",
@@ -2289,11 +2293,11 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     await expect(sourceBlock).toBeVisible();
 
     await expectClosingSideMenuToBeInert({ page, sourceBlock, sourceEditor });
-    await dragBlockToBoardWithMouse({
+    await dragBlockFromEditorWithMouse({
       page,
       sourceBlock,
       sourceEditor,
-      targetColumn: triageColumn,
+      target: triageColumn,
       exerciseAncestorScrollLifecycle: true,
     });
 
@@ -2386,6 +2390,66 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     );
     await page.getByRole("tab", { name: "DnD source Page" }).click();
     await expect(sourceSurface).toBeVisible({ timeout: 15_000 });
+    await expect(sourceBlock).toHaveCount(1, { timeout: 15_000 });
+
+    await page.getByRole("tablist", { name: "Database views" })
+      .getByRole("tab", { name: "List", exact: true })
+      .click();
+    const list = page.getByRole("grid", { name: /List$/ });
+    await expect(list).toBeVisible({ timeout: 15_000 });
+    const listTarget = list.locator(
+      `[data-list-row="true"][data-database-view-page-id="${firstBoardFixture.pageId}"]`,
+    );
+    await expect(listTarget).toBeVisible({ timeout: 15_000 });
+
+    await dragBlockFromEditorWithMouse({
+      page,
+      sourceBlock,
+      sourceEditor,
+      target: listTarget,
+      targetYRatio: 0.25,
+      expectedFeedback: listTarget.locator('[data-list-drop-indicator="true"]'),
+    });
+
+    const promotedListRows = list.locator(
+      '[data-list-row="true"][data-database-view-page-id]',
+    ).filter({ hasText: "DnD smoke title" });
+    await expect(promotedListRows).toHaveCount(1, { timeout: 15_000 });
+    await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
+    const promotedListPageId = requireString(
+      await promotedListRows.getAttribute("data-database-view-page-id"),
+      "Native List DnD promoted Page id",
+    );
+    const promotedListDetail = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "pages:detail:get",
+        project.projectId,
+        promotedListPageId,
+      ),
+      "Read native List DnD promoted Page detail",
+    );
+    expect(promotedListDetail.page).toMatchObject({
+      title: "DnD smoke title",
+      parent: {
+        kind: "data_source",
+        dataSourceId: database.dataSourceId,
+      },
+    });
+    expect(promotedListDetail.dataSourceContext).toMatchObject({
+      kind: "member",
+      values: {
+        priority: { value: "p1-high" },
+        estimate: { value: "xl" },
+        status: { value: "triage" },
+      },
+    });
+    const listPromotionToast = page.locator('[data-slot="toast-item"]')
+      .filter({ hasText: "Task shorthand applied" })
+      .last();
+    await expect(listPromotionToast.locator('[role="alert"]')).toBeVisible();
+    await listPromotionToast.getByRole("button", { name: "Undo" }).click();
+    await expect(promotedListRows).toHaveCount(0, { timeout: 15_000 });
     await expect(sourceBlock).toHaveCount(1, { timeout: 15_000 });
   } finally {
     await harness.close();

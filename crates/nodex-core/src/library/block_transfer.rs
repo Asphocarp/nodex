@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use nodex_core_contracts::library::{
-    LibraryBlockLocation, LibraryBlockTransferDocumentCommit, LibraryBlockTransferDocumentHead,
+    LibraryBlockLocation, LibraryBlockTransferDataSourcePlacement,
+    LibraryBlockTransferDocumentCommit, LibraryBlockTransferDocumentHead,
     LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
     LibraryBlockTransferPromotionEvidence, LibraryBlockTransferResult, LibraryBlockTransferSource,
     LibraryBlockTransferTarget, LibraryBlockTransferTransformationEvidence,
@@ -25,8 +26,9 @@ use crate::database::{
     place_staged_page_in_data_source, plan_page_task_shorthand,
     resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
-    transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
-    validate_page_copy_data_source_source, validate_page_transfer_data_source_source,
+    resolve_page_transfer_list_destination, transfer_existing_page_for_agent_move_prevalidated,
+    transfer_existing_page_for_block_transfer, validate_page_copy_data_source_source,
+    validate_page_transfer_data_source_source,
     validate_page_transfer_data_source_source_prevalidated,
 };
 use crate::document::{
@@ -243,6 +245,45 @@ enum PreparedPageParentTarget {
     DataSource {
         destination: PageCopyDataSourceDestination,
     },
+}
+
+fn resolve_data_source_placement(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    data_source_id: &str,
+    placement: &LibraryBlockTransferDataSourcePlacement,
+) -> Result<PageCopyDataSourceDestination, StoreError> {
+    match placement {
+        LibraryBlockTransferDataSourcePlacement::Direct {
+            view_id,
+            group_key,
+            before_page_id,
+        } => resolve_page_transfer_data_source_destination(
+            connection,
+            library_id,
+            project_id,
+            data_source_id,
+            view_id,
+            group_key.as_deref(),
+            before_page_id.as_deref(),
+        ),
+        LibraryBlockTransferDataSourcePlacement::ListOccurrence {
+            view_id,
+            presentation_override,
+            expected_projection,
+            target,
+        } => resolve_page_transfer_list_destination(
+            connection,
+            library_id,
+            project_id,
+            data_source_id,
+            view_id,
+            presentation_override,
+            expected_projection,
+            target,
+        ),
+    }
 }
 
 struct PreparedPageParentRoot {
@@ -1550,17 +1591,25 @@ fn prepare_page_ownership_transfer(
         }
         LibraryBlockTransferTarget::DataSource {
             data_source_id,
-            view_id,
-            group_key,
-            before_page_id,
+            placement,
         } => {
-            if before_page_id
-                .as_ref()
-                .is_some_and(|anchor| intent.root_block_ids.contains(anchor))
-            {
-                return Err(invalid("A moved Page cannot be its own placement anchor"));
-            }
             let destination = if let Some(authority) = agent_authority {
+                let LibraryBlockTransferDataSourcePlacement::Direct {
+                    view_id,
+                    group_key,
+                    before_page_id,
+                } = placement
+                else {
+                    return Err(invalid(
+                        "Agent Page movement does not accept renderer List occurrence targets",
+                    ));
+                };
+                if before_page_id
+                    .as_ref()
+                    .is_some_and(|anchor| intent.root_block_ids.contains(anchor))
+                {
+                    return Err(invalid("A moved Page cannot be its own placement anchor"));
+                }
                 resolve_page_transfer_data_source_destination_prevalidated(
                     connection,
                     library_id,
@@ -1571,14 +1620,12 @@ fn prepare_page_ownership_transfer(
                     before_page_id.as_deref(),
                 )?
             } else {
-                resolve_page_transfer_data_source_destination(
+                resolve_data_source_placement(
                     connection,
                     library_id,
                     requesting_project_id,
                     data_source_id,
-                    view_id,
-                    group_key.as_deref(),
-                    before_page_id.as_deref(),
+                    placement,
                 )?
             };
             PreparedPageOwnershipTarget::DataSource { destination }
@@ -2677,18 +2724,14 @@ fn prepare_page_parent_transfer(
         }
         LibraryBlockTransferTarget::DataSource {
             data_source_id,
-            view_id,
-            group_key,
-            before_page_id,
+            placement,
         } => {
-            let destination = resolve_page_transfer_data_source_destination(
+            let destination = resolve_data_source_placement(
                 connection,
                 library_id,
                 project_id,
                 data_source_id,
-                view_id,
-                group_key.as_deref(),
-                before_page_id.as_deref(),
+                placement,
             )?;
             (
                 project_id.to_owned(),
@@ -4611,18 +4654,14 @@ fn revalidate_command_authority(
         }
         LibraryBlockTransferTarget::DataSource {
             data_source_id,
-            view_id,
-            group_key,
-            before_page_id,
+            placement,
         } => {
-            resolve_page_transfer_data_source_destination(
+            resolve_data_source_placement(
                 connection,
                 library_id,
                 project_id,
                 data_source_id,
-                view_id,
-                group_key.as_deref(),
-                before_page_id.as_deref(),
+                placement,
             )?;
         }
         LibraryBlockTransferTarget::Library {

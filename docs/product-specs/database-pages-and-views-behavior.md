@@ -272,6 +272,20 @@ Their opaque Core recipe enters a bounded, Store-epoch-and-View-scoped session
 history, and List-scoped Command/Ctrl+Z restores it only while editor, input,
 combobox, and menu Undo owners are inactive.
 
+List also accepts native NFM Block drags from another mounted editor in the
+same renderer window. Under manual order, a root Page-row half resolves to a
+truthful root-level gap and reuses the existing insertion line; group and
+subgroup headers, empty Lists, nested rows, and derived sorts use a quiet
+destination-surface highlight instead. External Blocks do not author child
+nesting: a nested row resolves to its owning group, because Option/Alt already
+means Copy for Block transfer. Under title, created, or another derived sort,
+the destination group is exact but the sort owns the final visible position.
+Free-text search, read-only Views, non-Project contexts, incomplete or stale
+Core projections, and cross-Project/store sessions fail closed. The renderer
+sends only the raw occurrence target, exact projection expectation, and
+effective List presentation; Core atomically resolves group/subgroup Property
+values, root placement, shorthand, source Move/Copy, receipt, and Undo.
+
 Primary and subgroup headers paint an opaque full-width sticky surface through
 the scrollport's top edge. The scroll container must not introduce transparent
 top padding above that sticky plane, so a scrolled Page row can never show

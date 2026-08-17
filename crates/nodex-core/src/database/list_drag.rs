@@ -348,15 +348,20 @@ fn next_sibling_outside_closure(
 
 fn resolve_target(
     graph: &ListProjectionGraph,
-    sources: &ResolvedSources,
+    closure_page_ids: &HashSet<&str>,
     target: &DatabaseListMoveTarget,
 ) -> Result<DatabaseListMoveNormalizedTarget, StoreError> {
-    let closure_page_ids = sources
-        .moved_page_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
     match target {
+        DatabaseListMoveTarget::Root => Ok(DatabaseListMoveNormalizedTarget {
+            target_occurrence_key: None,
+            target_page_id: None,
+            parent_page_id: None,
+            before_page_id: None,
+            group_key: None,
+            subgroup_key: None,
+            depth: 0,
+            edge: DatabaseListMoveEdge::Inside,
+        }),
         DatabaseListMoveTarget::Group { occurrence_key } => {
             let row = graph
                 .occurrence(occurrence_key)
@@ -373,7 +378,7 @@ fn resolve_target(
                 }
             };
             Ok(DatabaseListMoveNormalizedTarget {
-                target_occurrence_key: occurrence_key.clone(),
+                target_occurrence_key: Some(occurrence_key.clone()),
                 target_page_id: None,
                 parent_page_id: None,
                 before_page_id: None,
@@ -407,12 +412,12 @@ fn resolve_target(
                 ),
                 DatabaseListMoveEdge::After if has_children => (
                     Some(summary.page_id.clone()),
-                    next_direct_child_outside_closure(graph, target_index, &closure_page_ids),
+                    next_direct_child_outside_closure(graph, target_index, closure_page_ids),
                     depth.saturating_add(1),
                 ),
                 DatabaseListMoveEdge::After => (
                     summary.task_parent_page_id.clone(),
-                    next_sibling_outside_closure(graph, target_index, &closure_page_ids),
+                    next_sibling_outside_closure(graph, target_index, closure_page_ids),
                     depth,
                 ),
                 DatabaseListMoveEdge::Inside => {
@@ -420,7 +425,7 @@ fn resolve_target(
                 }
             };
             Ok(DatabaseListMoveNormalizedTarget {
-                target_occurrence_key: occurrence_key.clone(),
+                target_occurrence_key: Some(occurrence_key.clone()),
                 target_page_id: Some(summary.page_id.clone()),
                 parent_page_id,
                 before_page_id,
@@ -431,6 +436,19 @@ fn resolve_target(
             })
         }
     }
+}
+
+pub(crate) fn resolve_list_insertion_target(
+    projection: &PresentedListProjection,
+    expected_projection: &DatabaseListProjectionExpectation,
+    target: &DatabaseListMoveTarget,
+) -> Result<DatabaseListMoveNormalizedTarget, StoreError> {
+    if !projection_matches(projection, expected_projection) {
+        return Err(conflict(
+            "The Database List projection changed during this drop",
+        ));
+    }
+    resolve_target(&projection.graph, &HashSet::new(), target)
 }
 
 fn input_from_value(
@@ -852,7 +870,12 @@ pub(crate) fn plan_list_occurrence_move(
     }
     let graph = &projection.graph;
     let sources = resolve_sources(graph, initiator_occurrence_key, selection)?;
-    let normalized_target = resolve_target(graph, &sources, target)?;
+    let closure_page_ids = sources
+        .moved_page_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let normalized_target = resolve_target(graph, &closure_page_ids, target)?;
     let (property_edits, property_states) =
         property_adoption(connection, graph, &sources, &normalized_target)?;
     let summaries = sources

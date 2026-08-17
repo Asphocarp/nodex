@@ -10,9 +10,10 @@ use nodex_core_contracts::agent::{
 use nodex_core_contracts::library::{
     LibraryAgentDocumentHead, LibraryAgentMovePagePreparation, LibraryAgentMovePagesPreparation,
     LibraryAgentMovePagesRequest, LibraryAgentMovePagesResult, LibraryAgentMovedPage,
-    LibraryAgentPageDestination, LibraryAgentPageLocation, LibraryBlockTransferDocumentHead,
-    LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
-    LibraryBlockTransferTarget, LibraryPageCopyDestination, LibraryReadValue,
+    LibraryAgentPageDestination, LibraryAgentPageLocation, LibraryBlockTransferDataSourcePlacement,
+    LibraryBlockTransferDocumentHead, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
+    LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryPageCopyDestination,
+    LibraryReadValue,
 };
 use nodex_core_contracts::{
     AdapterKind, ApplyResponse, BoundModuleContext, LIBRARY_CONTRACT_VERSION, ModuleApplyRequest,
@@ -1074,9 +1075,11 @@ fn transfer_intent(
                 .ok_or_else(|| corrupt("Agent Page-move target has no resolved View"))?;
             LibraryBlockTransferTarget::DataSource {
                 data_source_id: data_source_id.clone(),
-                view_id: view.view_id.clone(),
-                group_key: view.group_key.clone(),
-                before_page_id: view.before.as_ref().map(|anchor| anchor.page_id.clone()),
+                placement: LibraryBlockTransferDataSourcePlacement::Direct {
+                    view_id: view.view_id.clone(),
+                    group_key: view.group_key.clone(),
+                    before_page_id: view.before.as_ref().map(|anchor| anchor.page_id.clone()),
+                },
             }
         }
     };

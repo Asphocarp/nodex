@@ -51,10 +51,10 @@ The former parse and strip preferences migrate to On only when neither was expli
 
 Static authoring feedback is presentation-only.
 A quiet inline decoration marks a recognized prefix; it never adds a trailing summary chip, changes the document model, enters Yjs, or changes clipboard serialization.
-Hovering the prefix or placing the caret within it reveals `Preview only · On Block → Page: …`.
+Hovering the prefix or placing the caret within it reveals only the parsed result, for example `P1 · XL · 2 tags`.
 The window-local drag session may carry a compact preview hint, but serialized native drag data continues to contain stable IDs and type hints only.
 
-Board drag feedback describes Move/Copy, Page count, and the predicted shorthand summary.
+Database View drag feedback describes Move/Copy, Page count, and the predicted shorthand summary across Board and List layouts.
 Alt/Option selects Copy.
 Shift forces `literal` for that drop and composes with Alt/Option.
 After commit, applied or preserved outcomes are aggregated into one quiet notification; ordinary literal drops stay silent.

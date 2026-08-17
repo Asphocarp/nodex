@@ -6915,7 +6915,6 @@
       "DatabaseListMoveNormalizedTarget": {
         "type": "object",
         "required": [
-          "target_occurrence_key",
           "depth",
           "edge"
         ],
@@ -6953,7 +6952,10 @@
             ]
           },
           "target_occurrence_key": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "target_page_id": {
             "type": [
@@ -7116,6 +7118,20 @@
               },
               "occurrence_key": {
                 "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "root"
+                ]
               }
             }
           }
@@ -12635,6 +12651,70 @@
           "unknown"
         ]
       },
+      "LibraryBlockTransferDataSourcePlacement": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "kind"
+            ],
+            "properties": {
+              "before_page_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "group_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "direct"
+                ]
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "presentation_override",
+              "expected_projection",
+              "target",
+              "kind"
+            ],
+            "properties": {
+              "expected_projection": {
+                "$ref": "#/components/schemas/DatabaseListProjectionExpectation"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "list_occurrence"
+                ]
+              },
+              "presentation_override": {
+                "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+              },
+              "target": {
+                "$ref": "#/components/schemas/DatabaseListMoveTarget"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "LibraryBlockTransferDocumentCommit": {
         "type": "object",
         "required": [
@@ -13168,24 +13248,12 @@
             "type": "object",
             "required": [
               "data_source_id",
-              "view_id",
+              "placement",
               "kind"
             ],
             "properties": {
-              "before_page_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
               "data_source_id": {
                 "type": "string"
-              },
-              "group_key": {
-                "type": [
-                  "string",
-                  "null"
-                ]
               },
               "kind": {
                 "type": "string",
@@ -13193,8 +13261,8 @@
                   "data_source"
                 ]
               },
-              "view_id": {
-                "type": "string"
+              "placement": {
+                "$ref": "#/components/schemas/LibraryBlockTransferDataSourcePlacement"
               }
             }
           }

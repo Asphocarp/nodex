@@ -8,12 +8,15 @@ use crate::agent::{
     AgentResourceAccessOverlay, AgentResourceAccessPlan, AgentResourceGrantSpec,
     AgentResourceIntent, AgentTurnProvenance,
 };
-use crate::database::{DatabaseGroupScope, DatabaseIntent, DatabasePropertyDescriptor};
+use crate::database::{
+    DatabaseGroupScope, DatabaseIntent, DatabaseListMoveTarget, DatabaseListProjectionExpectation,
+    DatabasePropertyDescriptor, DatabaseViewPresentationOverrideInput,
+};
 use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 25;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 26;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -371,9 +374,23 @@ pub enum LibraryBlockTransferTarget {
     },
     DataSource {
         data_source_id: String,
+        placement: LibraryBlockTransferDataSourcePlacement,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryBlockTransferDataSourcePlacement {
+    Direct {
         view_id: String,
         group_key: Option<String>,
         before_page_id: Option<String>,
+    },
+    ListOccurrence {
+        view_id: String,
+        presentation_override: DatabaseViewPresentationOverrideInput,
+        expected_projection: DatabaseListProjectionExpectation,
+        target: DatabaseListMoveTarget,
     },
 }
 

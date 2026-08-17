@@ -647,7 +647,8 @@ export type DatabaseListMoveTargetV2 =
   | {
       readonly kind: "group";
       readonly occurrenceKey: string;
-    };
+    }
+  | { readonly kind: "root" };
 
 export interface DatabaseListProjectionExpectationV2 {
   readonly scopeKey: string;
@@ -707,7 +708,7 @@ export type DatabaseOperationOutcomeV2 =
       readonly movedPageIds: readonly string[];
       readonly moveRootPageIds: readonly string[];
       readonly normalizedTarget: {
-        readonly targetOccurrenceKey: string;
+        readonly targetOccurrenceKey: string | null;
         readonly targetPageId: string | null;
         readonly parentPageId: string | null;
         readonly beforePageId: string | null;

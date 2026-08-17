@@ -2,10 +2,11 @@ import type {
   BlockTransferReceipt,
   BlockTransferDocumentHead,
   BlockTransferIntentSource,
+  BlockTransferDataSourcePlacement,
   BlockTransferMode,
   PagePromotionPolicy,
-} from "../../../shared/block-transfer";
-import type { PublicBlockTransferIntent } from "../../../shared/block-transfer-transport";
+} from "../../../../shared/block-transfer";
+import type { PublicBlockTransferIntent } from "../../../../shared/block-transfer-transport";
 
 export const NODEX_BLOCK_TRANSFER_DRAG_MIME =
   "application/vnd.nodex.block-transfer.v2+json";
@@ -174,9 +175,7 @@ export const buildBlockToDataSourceTransferIntent = (input: {
   readonly storeEpoch: string;
   readonly payload: CrossSurfaceBlockTransferPayload;
   readonly dataSourceId: string;
-  readonly viewId: string;
-  readonly groupKey: string;
-  readonly beforePageId?: string;
+  readonly placement: BlockTransferDataSourcePlacement;
   readonly altKey: boolean;
   readonly promotionPolicy: PagePromotionPolicy;
   readonly causalDependencies?: readonly BlockTransferDocumentHead[];
@@ -191,11 +190,7 @@ export const buildBlockToDataSourceTransferIntent = (input: {
   target: {
     kind: "data_source",
     dataSourceId: input.dataSourceId,
-    viewId: input.viewId,
-    groupKey: input.groupKey,
-    ...(input.beforePageId
-      ? { beforePageId: input.beforePageId }
-      : {}),
+    placement: input.placement,
   },
   promotionPolicy: input.promotionPolicy,
 });
