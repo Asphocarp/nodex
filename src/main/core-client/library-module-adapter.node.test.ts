@@ -146,13 +146,41 @@ const projectPageSearchSnapshot = () => ({
       project_id: "project:test",
       page_id: "page:one",
       page_key: null,
-      matched_page_key: null,
-      matched_page_key_is_current: null,
       title: "Page One",
       status: "build" as const,
-      score: 1_000_000,
+      priority: "p1-high",
+      tags: [],
+      assignee: "Ada",
+      location_label: "Product / Editor",
+      title_parts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
       excerpt: "Page search evidence",
+      excerpt_parts: [{ text: "Page search evidence", highlighted: true }],
+      matches: [{
+        source: "title" as const,
+        quality: "exact" as const,
+        parts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
+      }],
+      updated_at: "2026-07-19T18:12:00.000Z",
     }],
+  },
+});
+
+const projectPageSearchFacetsSnapshot = () => ({
+  contract_version: 2 as const,
+  store_epoch: identity.storeEpoch,
+  commit_head: 13,
+  authorization: null,
+  value: {
+    kind: "project_page_search_facets" as const,
+    value: {
+      tags: [{
+        data_source_id: "source:test",
+        property_id: "tags",
+        option_id: "o_AAAAAAAA",
+        label: "Search",
+      }],
+      assignees: ["Ada"],
+    },
   },
 });
 
@@ -171,6 +199,15 @@ const pageReferenceCandidatesSnapshot = () => ({
       location_label: "Product / Editor",
       match_excerpt: "The projection stays bounded.",
       match_source: "content" as const,
+      title_parts: [{ text: "Projection notes", highlighted: false }],
+      match_excerpt_parts: [{ text: "projection", highlighted: true }],
+      matches: [{
+        source: "body" as const,
+        quality: "exact" as const,
+        block_id: "block:match",
+        block_type: "paragraph",
+        parts: [{ text: "projection", highlighted: true }],
+      }],
     }],
   },
 });
@@ -1195,18 +1232,50 @@ describe("Core Library Module Adapter", () => {
       projectId: "project:test",
       pageId: "page:one",
       pageKey: null,
-      matchedPageKey: null,
-      matchedPageKeyIsCurrent: null,
       title: "Page One",
       status: "build",
-      score: 1_000_000,
+      priority: "p1-high",
+      tags: [],
+      assignee: "Ada",
+      locationLabel: "Product / Editor",
+      titleParts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
       excerpt: "Page search evidence",
+      excerptParts: [{ text: "Page search evidence", highlighted: true }],
+      matches: [{
+        source: "title",
+        quality: "exact",
+        parts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
+      }],
+      updatedAt: "2026-07-19T18:12:00.000Z",
     }]);
     expect(client.reads).toEqual([{
       kind: "project_page_search",
       project_ids: ["project:test", "project:other"],
       query: "page evidence",
+      filters: null,
+      preferred_project_id: null,
+      recent_page_ids: [],
       limit: 25,
+    }]);
+  });
+
+  test("maps Page search facets from the same Project scope", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead(projectPageSearchFacetsSnapshot());
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.pageSearchFacets(["project:test"])).resolves.toEqual({
+      tags: [{
+        dataSourceId: "source:test",
+        propertyId: "tags",
+        optionId: "o_AAAAAAAA",
+        label: "Search",
+      }],
+      assignees: ["Ada"],
+    });
+    expect(client.reads).toEqual([{
+      kind: "project_page_search_facets",
+      project_ids: ["project:test"],
     }]);
   });
 

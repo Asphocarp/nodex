@@ -16816,7 +16816,10 @@
           "page_id",
           "title",
           "location_label",
-          "match_source"
+          "match_source",
+          "title_parts",
+          "match_excerpt_parts",
+          "matches"
         ],
         "properties": {
           "location_label": {
@@ -16828,8 +16831,20 @@
               "null"
             ]
           },
+          "match_excerpt_parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+            }
+          },
           "match_source": {
             "$ref": "#/components/schemas/LibraryPageReferenceMatchSource"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchMatch"
+            }
           },
           "page_id": {
             "type": "string"
@@ -16852,6 +16867,12 @@
           },
           "title": {
             "type": "string"
+          },
+          "title_parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+            }
           }
         }
       },
@@ -16871,6 +16892,232 @@
           "reference_block",
           "link"
         ]
+      },
+      "LibraryPageSearchMatch": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "page_key",
+              "is_current",
+              "parts",
+              "source"
+            ],
+            "properties": {
+              "is_current": {
+                "type": "boolean"
+              },
+              "page_key": {
+                "type": "string"
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+                }
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryPageSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "page_key"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "parts",
+              "source"
+            ],
+            "properties": {
+              "parts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+                }
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryPageSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "identity"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "parts",
+              "source"
+            ],
+            "properties": {
+              "parts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+                }
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryPageSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "title"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "property_id",
+              "property_name",
+              "parts",
+              "source"
+            ],
+            "properties": {
+              "parts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+                }
+              },
+              "property_id": {
+                "type": "string"
+              },
+              "property_name": {
+                "type": "string"
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryPageSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "property"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "quality",
+              "block_id",
+              "block_type",
+              "parts",
+              "source"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "block_type": {
+                "type": "string"
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+                }
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryPageSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "body"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryPageSearchMatchQuality": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "prefix",
+          "fuzzy"
+        ]
+      },
+      "LibraryPageSearchOption": {
+        "type": "object",
+        "required": [
+          "data_source_id",
+          "property_id",
+          "option_id",
+          "label"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "option_id": {
+            "type": "string"
+          },
+          "property_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryPageSearchOptionIdentity": {
+        "type": "object",
+        "required": [
+          "data_source_id",
+          "property_id",
+          "option_id"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "option_id": {
+            "type": "string"
+          },
+          "property_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryPageSearchTagMode": {
+        "type": "string",
+        "enum": [
+          "any",
+          "all",
+          "none"
+        ]
+      },
+      "LibraryPageSearchTextPart": {
+        "type": "object",
+        "required": [
+          "text",
+          "highlighted"
+        ],
+        "properties": {
+          "highlighted": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
       },
       "LibraryPageTarget": {
         "oneOf": [
@@ -17204,31 +17451,114 @@
           }
         }
       },
+      "LibraryProjectPageSearchFacets": {
+        "type": "object",
+        "required": [
+          "tags",
+          "assignees"
+        ],
+        "properties": {
+          "assignees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchOption"
+            }
+          }
+        }
+      },
+      "LibraryProjectPageSearchFilters": {
+        "type": "object",
+        "required": [
+          "include_empty_priority",
+          "tags",
+          "tag_mode",
+          "assignees"
+        ],
+        "properties": {
+          "assignees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_empty_priority": {
+            "type": "boolean"
+          },
+          "priorities": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "statuses": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+            }
+          },
+          "tag_mode": {
+            "$ref": "#/components/schemas/LibraryPageSearchTagMode"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchOptionIdentity"
+            }
+          }
+        }
+      },
       "LibraryProjectPageSearchHit": {
         "type": "object",
         "required": [
           "project_id",
           "page_id",
           "title",
-          "status",
-          "score",
-          "excerpt"
+          "tags",
+          "location_label",
+          "title_parts",
+          "excerpt_parts",
+          "matches",
+          "updated_at"
         ],
         "properties": {
-          "excerpt": {
-            "type": "string"
-          },
-          "matched_page_key": {
+          "assignee": {
             "type": [
               "string",
               "null"
             ]
           },
-          "matched_page_key_is_current": {
+          "excerpt": {
             "type": [
-              "boolean",
+              "string",
               "null"
             ]
+          },
+          "excerpt_parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+            }
+          },
+          "location_label": {
+            "type": "string"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchMatch"
+            }
           },
           "page_id": {
             "type": "string"
@@ -17239,17 +17569,41 @@
               "null"
             ]
           },
+          "priority": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "project_id": {
             "type": "string"
           },
-          "score": {
-            "type": "integer",
-            "format": "int64"
-          },
           "status": {
-            "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchOption"
+            }
           },
           "title": {
+            "type": "string"
+          },
+          "title_parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchTextPart"
+            }
+          },
+          "updated_at": {
             "type": "string"
           }
         }
@@ -23247,9 +23601,20 @@
                 "required": [
                   "project_ids",
                   "query",
+                  "recent_page_ids",
                   "kind"
                 ],
                 "properties": {
+                  "filters": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryProjectPageSearchFilters"
+                      }
+                    ]
+                  },
                   "kind": {
                     "type": "string",
                     "enum": [
@@ -23264,6 +23629,12 @@
                     "format": "int32",
                     "minimum": 0
                   },
+                  "preferred_project_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "project_ids": {
                     "type": "array",
                     "items": {
@@ -23272,6 +23643,33 @@
                   },
                   "query": {
                     "type": "string"
+                  },
+                  "recent_page_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "project_page_search_facets"
+                    ]
+                  },
+                  "project_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 }
               },
@@ -30527,6 +30925,24 @@
                             "enum": [
                               "project_page_search"
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "project_page_search_facets"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryProjectPageSearchFacets"
                           }
                         }
                       },

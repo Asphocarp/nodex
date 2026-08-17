@@ -25,7 +25,7 @@ import {
 } from "@/lib/command-palette-chat-search";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import type { CommandPaletteHighlightSegment } from "@/lib/command-palette-highlight";
-import { normalizeCommandPaletteSearchText } from "@/lib/command-palette-page-search";
+import { normalizeSearchText as normalizeCommandPaletteSearchText } from "@/lib/search-text";
 import {
   areQueryFresh,
   resolvePendingQueryFreshAccept,

@@ -1,15 +1,12 @@
 import { matchesSearchTokens, tokenizeSearchQuery } from "./page-search";
 import { buildCommandPaletteCharacterHighlightSegments } from "./command-palette-highlight";
-import {
-  createCommandPalettePageSearchIndex,
-  normalizeCommandPaletteSearchText,
-  type CommandPalettePageSearchIndex,
-} from "./command-palette-page-search";
+import { normalizeSearchText } from "./search-text";
 import {
   createCommandPaletteThreadSearchIndex,
   type CommandPaletteThreadSearchIndex,
 } from "./command-palette-thread-search";
 import { WORKFLOW_STATUS_LABELS, WORKFLOW_STATUS_ORDER } from "../../shared/workflow-status";
+import type { WorkflowStatus } from "../../shared/workflow-status";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
   TOGGLE_LIST_PRIORITY_CHIP_LABELS,
@@ -66,7 +63,15 @@ export interface CommandPalettePage {
   projectName: string;
   projectAppearance: ProjectAppearance;
   columnName: string;
-  page: DatabasePageSummary;
+  page: DatabasePageSummary | {
+    id: string;
+    title: string;
+    pageKey: string | null;
+    status: WorkflowStatus | null;
+    priority: Priority | null;
+    tags: string[];
+    assignee: string | null;
+  };
   /** Registry-resolved display labels; canonical option IDs stay on page.tags. */
   tagLabels: string[];
   inActiveProject: boolean;
@@ -156,10 +161,7 @@ interface ScoredCommand {
   score: number;
 }
 
-interface ScoredPage {
-  item: CommandPalettePage;
-  score: number;
-}
+const normalizeCommandPaletteSearchText = normalizeSearchText;
 
 interface ScoredThread {
   item: CommandPaletteThread;
@@ -176,7 +178,6 @@ export interface CommandPalettePageFilters {
   projectIds: string[];
 }
 
-const DEFAULT_PAGE_LIMIT = 12;
 const DEFAULT_THREAD_LIMIT = 8;
 export const COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY =
   "nodex-command-palette-page-filters-v2";
@@ -390,6 +391,7 @@ export function hasActiveCommandPalettePageFilters(
 export function summarizeCommandPalettePageFilters(
   filters: CommandPalettePageFilters,
   projectNameById: ReadonlyMap<string, string>,
+  tagNameById: ReadonlyMap<string, string> = new Map(),
 ): Array<{ key: string; label: string; value: string }> {
   const summaries: Array<{ key: string; label: string; value: string }> = [];
 
@@ -419,7 +421,7 @@ export function summarizeCommandPalettePageFilters(
     summaries.push({
       key: "tags",
       label: `Tags (${modeLabel})`,
-      value: filters.tags.join(", "),
+      value: filters.tags.map((tag) => tagNameById.get(tag) ?? tag).join(", "),
     });
   }
 
@@ -442,53 +444,6 @@ export function summarizeCommandPalettePageFilters(
   }
 
   return summaries;
-}
-
-function matchesTagFilters(cardTags: string[], filters: CommandPalettePageFilters): boolean {
-  if (filters.tags.length === 0) {
-    return true;
-  }
-
-  if (filters.tagMode === "any") {
-    return cardTags.some((tag) => filters.tags.includes(tag));
-  }
-
-  if (filters.tagMode === "all") {
-    return filters.tags.every((tag) => cardTags.includes(tag));
-  }
-
-  return !cardTags.some((tag) => filters.tags.includes(tag));
-}
-
-export function matchesCommandPalettePageFilters(
-  item: CommandPalettePage,
-  filters: CommandPalettePageFilters,
-): boolean {
-  if (!filters.statuses.includes(item.page.status)) {
-    return false;
-  }
-
-  if (item.page.priority) {
-    if (!filters.priorities.includes(item.page.priority)) {
-      return false;
-    }
-  } else if (!filters.includeEmptyPriority) {
-    return false;
-  }
-
-  if (!matchesTagFilters(item.tagLabels, filters)) {
-    return false;
-  }
-
-  if (filters.assignees.length > 0 && !filters.assignees.includes(item.page.assignee ?? "")) {
-    return false;
-  }
-
-  if (filters.projectIds.length > 0 && !filters.projectIds.includes(item.projectId)) {
-    return false;
-  }
-
-  return true;
 }
 
 function scoreNormalizedText(text: string, query: string): number {
@@ -618,33 +573,6 @@ export function prioritizeActiveProjectItems<T extends { inActiveProject: boolea
   return [...activeItems, ...otherItems];
 }
 
-function compareDefaultPages(left: CommandPalettePage, right: CommandPalettePage): number {
-  if (left.inActiveProject !== right.inActiveProject) {
-    return left.inActiveProject ? -1 : 1;
-  }
-
-  if (left.recentIndex !== right.recentIndex) {
-    if (left.recentIndex === null) return 1;
-    if (right.recentIndex === null) return -1;
-    return left.recentIndex - right.recentIndex;
-  }
-
-  if (left.boardIndex !== right.boardIndex) {
-    return left.boardIndex - right.boardIndex;
-  }
-
-  return left.page.title.localeCompare(right.page.title);
-}
-
-function compareScoredPages(left: ScoredPage, right: ScoredPage): number {
-  if (right.score !== left.score) return right.score - left.score;
-  return compareDefaultPages(left.item, right.item);
-}
-
-function compareScoredPagesWithActiveProjectPriority(left: ScoredPage, right: ScoredPage): number {
-  return compareActiveProjectItems(left.item, right.item) || compareScoredPages(left, right);
-}
-
 function compareDefaultThreads(left: CommandPaletteThread, right: CommandPaletteThread): number {
   if (left.pinned !== right.pinned) {
     return left.pinned ? -1 : 1;
@@ -680,17 +608,13 @@ export function filterCommandPaletteItems(input: {
   commands: CommandPaletteCommand[];
   pages: CommandPalettePage[];
   threads?: CommandPaletteThread[];
-  pageFilters?: CommandPalettePageFilters | null;
-  pageSearchIndex?: CommandPalettePageSearchIndex | null;
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   commandLimit?: number;
-  pageLimit?: number;
   threadLimit?: number;
   preferActiveProject?: boolean;
 }): CommandPaletteResults {
   const query = normalizeCommandPaletteSearchText(input.query.trimStart());
   const tokens = tokenizeSearchQuery(query);
-  const pageFilters = input.pageFilters ?? getDefaultCommandPalettePageFilters();
   const preferActiveProject = input.preferActiveProject ?? false;
 
   if (input.mode === "root") {
@@ -743,27 +667,11 @@ export function filterCommandPaletteItems(input: {
     };
   }
 
-  const pages = query
-    ? (
-        input.pageSearchIndex === undefined
-          ? createCommandPalettePageSearchIndex(input.pages).search(query)
-          : input.pageSearchIndex?.search(query) ?? []
-      )
-        .filter(({ item }) => matchesCommandPalettePageFilters(item, pageFilters))
-        .sort(preferActiveProject ? compareScoredPagesWithActiveProjectPriority : compareScoredPages)
-        .slice(0, input.pageLimit ?? DEFAULT_PAGE_LIMIT)
-        .map(({ item }) => item)
-    : input.pages
-        .slice()
-        .filter((item) => matchesCommandPalettePageFilters(item, pageFilters))
-        .sort(compareDefaultPages)
-        .slice(0, input.pageLimit ?? DEFAULT_PAGE_LIMIT);
-
   return {
     mode: input.mode,
     query,
     commands: [],
-    pages,
+    pages: [],
     threads: [],
   };
 }

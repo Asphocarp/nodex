@@ -10,7 +10,7 @@ import {
   buildCommandPaletteCharacterHighlightSegments,
   buildCommandPaletteQueryHighlightPreview,
 } from "./command-palette-highlight";
-import { normalizeCommandPaletteSearchText } from "./command-palette-page-search";
+import { normalizeSearchText as normalizeCommandPaletteSearchText } from "./search-text";
 import type {
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,

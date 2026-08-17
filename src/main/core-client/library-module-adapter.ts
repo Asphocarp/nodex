@@ -34,7 +34,14 @@ import {
   type PageHistoryCommandError,
   type PageHistoryCommandResult,
 } from "../../shared/page-history-transport";
-import type { PageSearchInput, PageSearchResult } from "../../shared/types";
+import type {
+  PageSearchFacets,
+  PageSearchInput,
+  PageSearchMatch,
+  PageSearchOption,
+  PageSearchResult,
+  PageSearchTextPart,
+} from "../../shared/types";
 import {
   parseBlockPropertyMutationCommandResultV2,
   parseLibraryBlockPropertyMutationCommandResultV2,
@@ -68,6 +75,7 @@ import type {
 } from "../../shared/page-ownership-paths";
 import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import { isWorkflowStatus } from "../../shared/workflow-status";
+import { isPriority } from "../../shared/priority";
 import { CoreModuleResponseError } from "./core-client";
 import {
   applyResultCursor,
@@ -109,6 +117,7 @@ export interface CoreLibraryModuleAdapter {
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
   searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
+  pageSearchFacets(projectIds: string[]): Promise<PageSearchFacets>;
   resolvePageTarget(
     input: ResolvePageTargetInput,
   ): Promise<PageTargetReadModel | null>;
@@ -866,6 +875,9 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
           locationLabel: item.location_label,
           matchExcerpt: item.match_excerpt ?? null,
           matchSource: item.match_source,
+          titleParts: mapPageSearchParts(item.title_parts),
+          matchExcerptParts: mapPageSearchParts(item.match_excerpt_parts),
+          matches: item.matches.map(mapPageSearchMatch),
         })),
       } as const;
     case "page_backlinks":
@@ -1029,6 +1041,59 @@ const mapPageHistory = (
   documentId: page.document_id,
   entries: page.entries.map(mapPageHistoryEntry),
   nextCursor: page.next_cursor ? mapPageHistoryCursor(page.next_cursor) : null,
+});
+
+type CoreProjectPageSearchValue = Extract<
+  LibraryReadSnapshot["value"],
+  { readonly kind: "project_page_search" }
+>;
+type CorePageSearchMatch = CoreProjectPageSearchValue["items"][number]["matches"][number];
+type CorePageSearchOption = CoreProjectPageSearchValue["items"][number]["tags"][number];
+
+const mapPageSearchParts = (
+  parts: readonly { readonly text: string; readonly highlighted: boolean }[],
+): PageSearchTextPart[] => parts.map((part) => ({
+  text: part.text,
+  highlighted: part.highlighted,
+}));
+
+const mapPageSearchMatch = (match: CorePageSearchMatch): PageSearchMatch => {
+  const parts = mapPageSearchParts(match.parts);
+  if (match.source === "page_key") {
+    return {
+      source: match.source,
+      quality: match.quality,
+      pageKey: match.page_key,
+      isCurrent: match.is_current,
+      parts,
+    };
+  }
+  if (match.source === "property") {
+    return {
+      source: match.source,
+      quality: match.quality,
+      propertyId: match.property_id,
+      propertyName: match.property_name,
+      parts,
+    };
+  }
+  if (match.source === "body") {
+    return {
+      source: match.source,
+      quality: match.quality,
+      blockId: match.block_id,
+      blockType: match.block_type,
+      parts,
+    };
+  }
+  return { source: match.source, quality: match.quality, parts };
+};
+
+const mapPageSearchOption = (option: CorePageSearchOption): PageSearchOption => ({
+  dataSourceId: option.data_source_id,
+  propertyId: option.property_id,
+  optionId: option.option_id,
+  label: option.label,
 });
 
 const mapPageTarget = (
@@ -1367,6 +1432,8 @@ const mapCoreError = (error: CoreModuleError): LibraryModuleError => {
         return "document_conflict";
       case "store_corrupt":
         return "state_corrupt";
+      case "resource_exhausted":
+        return "resource_exhausted";
       default:
         return "unknown";
     }
@@ -1859,6 +1926,22 @@ export const createCoreLibraryModuleAdapter = (
         kind: "project_page_search",
         project_ids: searchInput.projectIds,
         query: searchInput.query,
+        filters: searchInput.filters
+          ? {
+              statuses: searchInput.filters.statuses ?? null,
+              priorities: searchInput.filters.priorities ?? null,
+              include_empty_priority: searchInput.filters.includeEmptyPriority,
+              tags: searchInput.filters.tags.map((tag) => ({
+                data_source_id: tag.dataSourceId,
+                property_id: tag.propertyId,
+                option_id: tag.optionId,
+              })),
+              tag_mode: searchInput.filters.tagMode,
+              assignees: searchInput.filters.assignees,
+            }
+          : null,
+        preferred_project_id: searchInput.preferredProjectId ?? null,
+        recent_page_ids: searchInput.recentPageIds ?? [],
         limit: searchInput.limit ?? null,
       });
       if (
@@ -1873,13 +1956,10 @@ export const createCoreLibraryModuleAdapter = (
           || !item.page_id
           || typeof item.title !== "string"
           || (item.page_key !== null && typeof item.page_key !== "string")
-          || (item.matched_page_key !== null
-            && typeof item.matched_page_key !== "string")
-          || (item.matched_page_key_is_current !== null
-            && typeof item.matched_page_key_is_current !== "boolean")
-          || !isWorkflowStatus(item.status)
-          || !Number.isSafeInteger(item.score)
-          || item.score < 1
+          || (item.status != null && !isWorkflowStatus(item.status))
+          || (item.priority != null && !isPriority(item.priority))
+          || typeof item.location_label !== "string"
+          || typeof item.updated_at !== "string"
         ) {
           throw new Error("Core Project Page search returned invalid evidence");
         }
@@ -1887,14 +1967,35 @@ export const createCoreLibraryModuleAdapter = (
           projectId: item.project_id,
           pageId: item.page_id,
           pageKey: item.page_key ?? null,
-          matchedPageKey: item.matched_page_key ?? null,
-          matchedPageKeyIsCurrent: item.matched_page_key_is_current ?? null,
           title: item.title,
-          status: item.status,
-          score: item.score,
-          excerpt: item.excerpt,
+          status: item.status ?? null,
+          priority: item.priority ?? null,
+          tags: item.tags.map(mapPageSearchOption),
+          assignee: item.assignee ?? null,
+          locationLabel: item.location_label,
+          titleParts: mapPageSearchParts(item.title_parts),
+          excerpt: item.excerpt ?? null,
+          excerptParts: mapPageSearchParts(item.excerpt_parts),
+          matches: item.matches.map(mapPageSearchMatch),
+          updatedAt: item.updated_at,
         };
       });
+    },
+    pageSearchFacets: async (projectIds) => {
+      const snapshot = await input.client.libraryRead({
+        kind: "project_page_search_facets",
+        project_ids: projectIds,
+      });
+      if (
+        snapshot.store_epoch !== input.storeEpoch
+        || snapshot.value.kind !== "project_page_search_facets"
+      ) {
+        throw new Error("Core Page search facets escaped its snapshot boundary");
+      }
+      return {
+        tags: snapshot.value.value.tags.map(mapPageSearchOption),
+        assignees: [...snapshot.value.value.assignees],
+      };
     },
     resolvePageTarget: async (request) => {
       const snapshot = await input.client.libraryRead({

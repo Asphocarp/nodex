@@ -12,7 +12,6 @@ import {
   type CommandPaletteThread,
   writeCommandPalettePageFilters,
 } from "./command-palette";
-import { createCommandPalettePageSearchIndex } from "./command-palette-page-search";
 import { createCommandPaletteThreadSearchIndex } from "./command-palette-thread-search";
 import type { DatabasePageSummary } from "./types";
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
@@ -145,31 +144,6 @@ function withMockLocalStorage(run: () => void): void {
 }
 
 describe("filterCommandPaletteItems", () => {
-  test("prefers active-project pages when text relevance is tied", () => {
-    const currentProjectPage = makePalettePage({
-      page: makePage({ id: "page-a", title: "Command palette" }),
-      inActiveProject: true,
-      boardIndex: 5,
-    });
-    const otherProjectPage = makePalettePage({
-      page: makePage({ id: "page-b", title: "Command palette" }),
-      projectId: "ops",
-      projectName: "Ops",
-      inActiveProject: false,
-      boardIndex: 0,
-    });
-
-    const result = filterCommandPaletteItems({
-      query: "command pal",
-      mode: "pages",
-      commands: [],
-      pages: [otherProjectPage, currentProjectPage],
-      pageSearchIndex: createCommandPalettePageSearchIndex([otherProjectPage, currentProjectPage]),
-    });
-
-    expect(result.pages[0]?.page.id).toBe("page-a");
-  });
-
   test("supports command-only root mode without a > prefix", () => {
     const result = filterCommandPaletteItems({
       query: "sett",
@@ -207,73 +181,6 @@ describe("filterCommandPaletteItems", () => {
     ).toBe("opnset");
   });
 
-  test("boosts recent pages when the query is otherwise tied", () => {
-    const recentPage = makePalettePage({
-      page: makePage({ id: "recent", title: "Search flow" }),
-      recentIndex: 0,
-      boardIndex: 10,
-    });
-    const stalePage = makePalettePage({
-      page: makePage({ id: "stale", title: "Search flow" }),
-      recentIndex: null,
-      boardIndex: 0,
-    });
-
-    const result = filterCommandPaletteItems({
-      query: "search flow",
-      mode: "pages",
-      commands: [],
-      pages: [stalePage, recentPage],
-      pageSearchIndex: createCommandPalettePageSearchIndex([stalePage, recentPage]),
-    });
-
-    expect(result.pages[0]?.page.id).toBe("recent");
-  });
-
-  test("returns fuzzy description matches in page results", () => {
-    const descriptionPage = makePalettePage({
-      page: makePage({
-        id: "description-hit",
-        title: "Misc task",
-        descriptionPreview: "Rebuild the search indxer for the command palette.",
-      }),
-    });
-
-    const result = filterCommandPaletteItems({
-      query: "search indexer",
-      mode: "pages",
-      commands: [],
-      pages: [descriptionPage],
-      pageSearchIndex: createCommandPalettePageSearchIndex([descriptionPage]),
-    });
-
-    expect(result.pages.length).toBe(1);
-    expect(result.pages[0]?.page.id).toBe("description-hit");
-  });
-
-  test("returns useful defaults for an empty query", () => {
-    const result = filterCommandPaletteItems({
-      query: "",
-      mode: "pages",
-      commands: [
-        makeCommand({ id: "terminal", title: "Toggle terminal", priority: 300 }),
-        makeCommand({ id: "board", title: "Switch to board", priority: 200 }),
-      ],
-      pages: [
-        makePalettePage({ page: makePage({ id: "alpha", title: "Alpha" }), boardIndex: 3 }),
-        makePalettePage({ page: makePage({ id: "beta", title: "Beta" }), boardIndex: 0 }),
-      ],
-      threads: [
-        makePaletteThread({ threadId: "older", id: "thread:older", updatedAt: 100 }),
-        makePaletteThread({ threadId: "newer", id: "thread:newer", updatedAt: 200 }),
-      ],
-    });
-
-    expect(result.pages[0]?.page.id).toBe("beta");
-    expect(result.commands.length).toBe(0);
-    expect(result.threads.length).toBe(0);
-  });
-
   test("returns chat metadata matches in chats mode", () => {
     const targetThread = makePaletteThread({
       threadId: "thr-search",
@@ -301,109 +208,6 @@ describe("filterCommandPaletteItems", () => {
     expect(result.threads.length).toBe(1);
     expect(result.threads[0]?.threadId).toBe("thr-search");
     expect(result.threads[0]?.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
-  });
-
-  test("filters pages by explicit tag and status filters", () => {
-    const doneSearchPage = makePalettePage({
-      page: makePage({
-        id: "done-search",
-        title: "Search polish",
-        status: "ship",
-        tags: ["search", "palette"],
-      }),
-      columnName: "Ship",
-    });
-    const backlogSearchPage = makePalettePage({
-      page: makePage({
-        id: "backlog-search",
-        title: "Search polish",
-        status: "plan",
-        tags: ["search"],
-      }),
-      columnName: "Plan",
-    });
-    const doneOtherTagPage = makePalettePage({
-      page: makePage({
-        id: "done-other",
-        title: "Other task",
-        status: "ship",
-        tags: ["infra"],
-      }),
-      columnName: "Ship",
-    });
-
-    const result = filterCommandPaletteItems({
-      query: "",
-      mode: "pages",
-      commands: [],
-      pages: [backlogSearchPage, doneOtherTagPage, doneSearchPage],
-      pageFilters: {
-        ...getDefaultCommandPalettePageFilters(),
-        statuses: ["ship"],
-        tags: ["search"],
-      },
-      pageSearchIndex: createCommandPalettePageSearchIndex([
-        backlogSearchPage,
-        doneOtherTagPage,
-        doneSearchPage,
-      ]),
-    });
-
-    expect(result.pages.length).toBe(1);
-    expect(result.pages[0]?.page.id).toBe("done-search");
-  });
-
-  test("combines project and assignee filters with free-text search", () => {
-    const targetPage = makePalettePage({
-      projectId: "ops",
-      projectName: "Ops Console",
-      page: makePage({
-        id: "ops-page",
-        title: "Executor queue",
-        assignee: "Alex",
-        descriptionPreview: "Refresh palette results after queue updates.",
-      }),
-    });
-    const wrongProjectPage = makePalettePage({
-      projectId: "design",
-      projectName: "Design System",
-      page: makePage({
-        id: "design-page",
-        title: "Executor queue",
-        assignee: "Alex",
-        descriptionPreview: "Refresh palette results after queue updates.",
-      }),
-    });
-    const wrongAssigneePage = makePalettePage({
-      projectId: "ops",
-      projectName: "Ops Console",
-      page: makePage({
-        id: "other-assignee",
-        title: "Executor queue",
-        assignee: "Sam",
-        descriptionPreview: "Refresh palette results after queue updates.",
-      }),
-    });
-
-    const result = filterCommandPaletteItems({
-      query: "queue",
-      mode: "pages",
-      commands: [],
-      pages: [wrongProjectPage, wrongAssigneePage, targetPage],
-      pageFilters: {
-        ...getDefaultCommandPalettePageFilters(),
-        assignees: ["Alex"],
-        projectIds: ["ops"],
-      },
-      pageSearchIndex: createCommandPalettePageSearchIndex([
-        wrongProjectPage,
-        wrongAssigneePage,
-        targetPage,
-      ]),
-    });
-
-    expect(result.pages.length).toBe(1);
-    expect(result.pages[0]?.page.id).toBe("ops-page");
   });
 
   test("summarizes active palette filters in the same compact language as the view toolbar", () => {

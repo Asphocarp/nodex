@@ -1,371 +1,101 @@
 import { describe, expect, test } from "vitest";
-import type { CommandPalettePage } from "./command-palette";
+import { getDefaultCommandPalettePageFilters } from "./command-palette";
 import {
-  buildCommandPalettePageItemsFromBoardSummaries,
-  getCommandPalettePageSearchPlan,
-  isCommandPalettePageDescriptionSearchPending,
-  type CommandPalettePageDescriptionSearchBatch,
-  selectCommandPalettePageResults,
+  buildCommandPalettePagesFromSearchResults,
+  isCommandPalettePageSearchPending,
+  pageSearchOptionIdentityKey,
+  toCorePageSearchFilters,
 } from "./command-palette-page-results";
-import { createCommandPalettePageSearchIndex } from "./command-palette-page-search";
-import type { BoardSummary, DatabasePageSummary, PageSearchResult, Project } from "./types";
-import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
+import type { PageSearchResult, Project } from "./types";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
-function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
-  const descriptionPreview = overrides.descriptionPreview ?? "Add quick page switching and commands.";
-  const title = overrides.title ?? "Polish command palette";
-  return {
-    id: overrides.id ?? "page-1",
-    pageKey: overrides.pageKey ?? null,
-    title,
-    richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
-    descriptionPreview,
-    descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
-    hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
-    status: overrides.status ?? "build",
-    archived: overrides.archived ?? false,
-    priority: overrides.priority,
-    estimate: overrides.estimate,
-    tags: overrides.tags ?? ["search"],
-    dueDate: overrides.dueDate,
-    scheduledStart: overrides.scheduledStart,
-    scheduledEnd: overrides.scheduledEnd,
-    isAllDay: overrides.isAllDay ?? false,
-    recurrence: overrides.recurrence,
-    reminders: overrides.reminders ?? [],
-    scheduleTimezone: overrides.scheduleTimezone,
-    assignee: overrides.assignee,
-    runInTarget: overrides.runInTarget ?? "localProject",
-    runInLocalPath: overrides.runInLocalPath,
-    runInBaseBranch: overrides.runInBaseBranch,
-    runInWorktreePath: overrides.runInWorktreePath,
-    runInEnvironmentPath: overrides.runInEnvironmentPath,
-    revision: overrides.revision ?? 1,
-    created: overrides.created ?? new Date("2026-03-13T00:00:00.000Z"),
-    order: overrides.order ?? 0,
-  };
-}
+const project = {
+  id: "project:one",
+  name: "Product",
+  appearance: DEFAULT_PROJECT_APPEARANCE,
+} as Project;
 
-function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPalettePage {
-  const page = overrides.page ?? makePage();
-  return {
-    kind: "page",
-    id: overrides.id ?? `${overrides.projectId ?? "default"}:${page.id}`,
-    projectId: overrides.projectId ?? "default",
-    projectName: overrides.projectName ?? "Default",
-    projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
-    columnName: overrides.columnName ?? "In progress",
-    page,
-    tagLabels: overrides.tagLabels ?? page.tags,
-    inActiveProject: overrides.inActiveProject ?? true,
-    recentIndex: overrides.recentIndex ?? null,
-    boardIndex: overrides.boardIndex ?? 0,
-  };
-}
+const result = (overrides: Partial<PageSearchResult> = {}): PageSearchResult => ({
+  projectId: "project:one",
+  pageId: "page:one",
+  pageKey: "NDX-42",
+  title: "Search authority",
+  status: "build",
+  priority: "p1-high",
+  tags: [{
+    dataSourceId: "source:one",
+    propertyId: "tags",
+    optionId: "tag:core",
+    label: "Core",
+  }],
+  assignee: "Ada",
+  locationLabel: "Product / Build",
+  titleParts: [
+    { text: "Search", highlighted: true },
+    { text: " authority", highlighted: false },
+  ],
+  excerpt: "Search evidence from Core",
+  excerptParts: [
+    { text: "Search", highlighted: true },
+    { text: " evidence from Core", highlighted: false },
+  ],
+  matches: [{
+    source: "title",
+    quality: "exact",
+    parts: [
+      { text: "Search", highlighted: true },
+      { text: " authority", highlighted: false },
+    ],
+  }],
+  updatedAt: "2026-08-17T00:00:00.000Z",
+  ...overrides,
+});
 
-function makeProject(id: string, name: string): Project {
-  return {
-    id,
-    libraryId: "library:test",
-    databaseId: "database:test:primary",
-    defaultDatabaseViewId: "view:test:primary",
-    lifecycle: "active",
-    bindingRevision: 1,
-    name,
-    description: "",
-    appearance: DEFAULT_PROJECT_APPEARANCE,
-    sources: [],
-    primaryWorkspaceRoot: null,
-    pinned: false,
-    pinnedOrder: null,
-    created: new Date("2026-03-13T00:00:00.000Z"),
-    updated: new Date("2026-03-13T00:00:00.000Z"),
-  };
-}
-
-function makeDescriptionResult(overrides: Partial<PageSearchResult> = {}): PageSearchResult {
-  return {
-    projectId: overrides.projectId ?? "default",
-    pageId: overrides.pageId ?? "page-1",
-    pageKey: overrides.pageKey ?? null,
-    matchedPageKey: overrides.matchedPageKey ?? null,
-    matchedPageKeyIsCurrent: overrides.matchedPageKeyIsCurrent ?? null,
-    title: overrides.title ?? "Page One",
-    status: overrides.status ?? "build",
-    score: overrides.score ?? -1,
-    excerpt: overrides.excerpt ?? "Server excerpt",
-  };
-}
-
-function makeDescriptionBatch(
-  query: string,
-  results: readonly PageSearchResult[],
-): CommandPalettePageDescriptionSearchBatch {
-  return {
-    query,
-    scopeKey: "",
-    results,
-    status: "success",
-    error: null,
-  };
-}
-
-describe("command palette page result selection", () => {
-  test("plans focused and root Page content searches from user intent", () => {
-    expect(getCommandPalettePageSearchPlan("pages", "x")?.searchLimit).toBe(60);
-    expect(getCommandPalettePageSearchPlan("root", "x")).toBeNull();
-    expect(getCommandPalettePageSearchPlan("root", "页面")?.searchLimit).toBe(12);
-  });
-
-  test("treats a mismatched settled batch as pending for the requested Page query", () => {
-    expect(isCommandPalettePageDescriptionSearchPending({
-      batch: {
-        ...makeDescriptionBatch("previous query", []),
-        scopeKey: "default",
-      },
-      enabled: true,
-      query: "current query",
-      scopeKey: "default",
-    })).toBe(true);
-    expect(isCommandPalettePageDescriptionSearchPending({
-      batch: {
-        ...makeDescriptionBatch("current query", []),
-        scopeKey: "default",
-      },
-      enabled: true,
-      query: "current query",
-      scopeKey: "default",
-    })).toBe(false);
-  });
-
-  test("returns metadata fuzzy and prefix matches through the shared page selector", () => {
-    const target = makePalettePage({
-      page: makePage({ id: "target", title: "Command palette page search" }),
-    });
-    const other = makePalettePage({
-      page: makePage({ id: "other", title: "Terminal panel" }),
-    });
-    const pages = [other, target];
-    const index = createCommandPalettePageSearchIndex(pages);
-
-    const fuzzyResults = selectCommandPalettePageResults({
-      query: "commnd palete",
-      pages,
-      pageSearchIndex: index,
-    });
-    const prefixResults = selectCommandPalettePageResults({
-      query: "comm page",
-      pages,
-      pageSearchIndex: index,
+describe("Core-authoritative command palette Page results", () => {
+  test("preserves Core order and consumes typed highlight evidence", () => {
+    const pages = buildCommandPalettePagesFromSearchResults({
+      results: [
+        result(),
+        result({ pageId: "page:two", title: "Second", pageKey: null }),
+      ],
+      projects: [project],
+      activeProjectId: project.id,
+      recentPageIds: ["page:two"],
     });
 
-    expect(fuzzyResults[0]?.page.id).toBe("target");
-    expect(prefixResults[0]?.page.id).toBe("target");
-  });
-
-  test("merges content-only Page hits from pages:search excerpts", () => {
-    const page = makePalettePage({
-      page: makePage({
-        id: "content-only",
-        title: "Assorted implementation note",
-        descriptionPreview: "No local preview match.",
-      }),
-    });
-
-    const results = selectCommandPalettePageResults({
-      query: "vector clocks",
-      pages: [page],
-      pageSearchIndex: createCommandPalettePageSearchIndex([page]),
-      pageDescriptionSearchBatch: makeDescriptionBatch("vector clocks", [
-        makeDescriptionResult({
-          pageId: "content-only",
-          excerpt: "Document vector clocks and replicated queue recovery.",
-        }),
-      ]),
-    });
-
-    expect(results.length).toBe(1);
-    expect(results[0]?.page.id).toBe("content-only");
-    expect(results[0]?.searchPreview?.excerpt.includes("vector clocks")).toBe(true);
-  });
-
-  test("keeps local metadata while preserving historical Page-key evidence", () => {
-    const page = makePalettePage({
-      page: makePage({
-        id: "historical-key",
-        pageKey: "RND-13",
-        title: "Current identity",
-      }),
-    });
-
-    const results = selectCommandPalettePageResults({
-      query: "lab-13",
-      pages: [page],
-      pageSearchIndex: createCommandPalettePageSearchIndex([page]),
-      pageDescriptionSearchBatch: makeDescriptionBatch("lab-13", [
-        makeDescriptionResult({
-          pageId: "historical-key",
-          pageKey: "RND-13",
-          matchedPageKey: "LAB-13",
-          matchedPageKeyIsCurrent: false,
-          excerpt: "Current identity",
-        }),
-      ]),
-    });
-
-    expect(results).toHaveLength(1);
-    expect(results[0]?.page.pageKey).toBe("RND-13");
-    expect(results[0]?.pageKeyMatch).toEqual({
-      matchedPageKey: "LAB-13",
-      isCurrent: false,
-    });
-  });
-
-  test("can prioritize active-project description hits before final result limits", () => {
-    const activeProjectPage = makePalettePage({
-      page: makePage({
-        id: "active-content-only",
-        title: "General implementation note",
-        descriptionPreview: "No local metadata match.",
-      }),
-      inActiveProject: true,
-    });
-    const otherProjectPage = makePalettePage({
-      projectId: "ops",
-      projectName: "Ops",
-      page: makePage({
-        id: "other-metadata",
-        title: "Approval heuristic",
-      }),
-      inActiveProject: false,
-    });
-    const pages = [otherProjectPage, activeProjectPage];
-    const pageSearchIndex = createCommandPalettePageSearchIndex(pages);
-    const pageDescriptionSearchBatch = makeDescriptionBatch("approval heuristic", [
-      makeDescriptionResult({
-        projectId: activeProjectPage.projectId,
-        pageId: activeProjectPage.page.id,
-        excerpt: "Approval heuristic appears only in the active page body.",
-      }),
+    expect(pages.map((page) => page.page.id)).toEqual(["page:one", "page:two"]);
+    expect(pages[0]?.searchDecorations?.titleSegments).toEqual([
+      { text: "Search", highlight: true },
+      { text: " authority", highlight: false },
     ]);
-
-    const defaultResults = selectCommandPalettePageResults({
-      query: "approval heuristic",
-      pages,
-      pageSearchIndex,
-      pageDescriptionSearchBatch,
-      metadataPageLimit: 1,
-      mergedPageLimit: 1,
-    });
-    const prioritizedResults = selectCommandPalettePageResults({
-      query: "approval heuristic",
-      pages,
-      pageSearchIndex,
-      pageDescriptionSearchBatch,
-      metadataPageLimit: 1,
-      mergedPageLimit: 1,
-      preferActiveProject: true,
-    });
-
-    expect(defaultResults[0]?.page.id).toBe("other-metadata");
-    expect(prioritizedResults[0]?.page.id).toBe("active-content-only");
-    expect(prioritizedResults[0]?.searchPreview?.excerpt.includes("active page body")).toBe(true);
+    expect(pages[1]?.recentIndex).toBe(0);
   });
 
-  test("keeps current-project and board-order fallbacks for empty page queries", () => {
-    const projects = [
-      makeProject("ops", "Ops"),
-      makeProject("app", "App"),
-    ];
-    const appBoard: BoardSummary = {
-      columns: [
-        {
-          id: "plan",
-          name: "Plan",
-          cards: [
-            makePage({ id: "app-first", title: "App first", status: "plan" }),
-            makePage({ id: "app-second", title: "App second", status: "plan" }),
-          ],
-        },
-      ],
-    };
-    const opsBoard: BoardSummary = {
-      columns: [
-        {
-          id: "plan",
-          name: "Plan",
-          cards: [makePage({ id: "ops-first", title: "Ops first", status: "plan" })],
-        },
-      ],
-    };
-    const pages = buildCommandPalettePageItemsFromBoardSummaries({
-      projects,
-      boardMap: new Map([
-        ["ops", opsBoard],
-        ["app", appBoard],
-      ]),
-      activeProjectId: "app",
-    });
+  test("encodes scoped tag identities before sending filters to Core", () => {
+    const filters = getDefaultCommandPalettePageFilters();
+    filters.tags = [pageSearchOptionIdentityKey({
+      dataSourceId: "source:one",
+      propertyId: "tags",
+      optionId: "tag:core",
+    })];
+    filters.tagMode = "all";
 
-    const results = selectCommandPalettePageResults({
+    expect(toCorePageSearchFilters(filters)).toMatchObject({
+      tags: [{
+        dataSourceId: "source:one",
+        propertyId: "tags",
+        optionId: "tag:core",
+      }],
+      tagMode: "all",
+    });
+  });
+
+  test("treats an empty-query Core request as pending until its batch arrives", () => {
+    expect(isCommandPalettePageSearchPending({
+      batch: null,
+      enabled: true,
       query: "",
-      pages,
-      pageSearchIndex: createCommandPalettePageSearchIndex(pages),
-    });
-
-    expect(results[0]?.page.id).toBe("app-first");
-    expect(results[1]?.page.id).toBe("app-second");
-    expect(results[2]?.page.id).toBe("ops-first");
-  });
-
-  test("does not replace a metadata preview with a later description search preview", () => {
-    const page = makePalettePage({
-      page: makePage({
-        id: "preview-page",
-        title: "Implementation note",
-        descriptionPreview: "Local OCR pipeline metadata preview.",
-      }),
-    });
-
-    const results = selectCommandPalettePageResults({
-      query: "ocr pipeline",
-      pages: [page],
-      pageSearchIndex: createCommandPalettePageSearchIndex([page]),
-      pageDescriptionSearchBatch: makeDescriptionBatch("ocr pipeline", [
-        makeDescriptionResult({
-          pageId: "preview-page",
-          excerpt: "Server OCR pipeline body excerpt.",
-        }),
-      ]),
-    });
-
-    expect(results.length).toBe(1);
-    expect(results[0]?.searchPreview?.excerpt.includes("Local OCR pipeline")).toBe(true);
-    expect(results[0]?.searchPreview?.excerpt.includes("Server OCR")).toBe(false);
-  });
-
-  test("does not merge stale description batches from another query", () => {
-    const page = makePalettePage({
-      page: makePage({
-        id: "content-only",
-        title: "Assorted implementation note",
-        descriptionPreview: "No local preview match.",
-      }),
-    });
-
-    const results = selectCommandPalettePageResults({
-      query: "vector clocks",
-      pages: [page],
-      pageSearchIndex: createCommandPalettePageSearchIndex([page]),
-      pageDescriptionSearchBatch: makeDescriptionBatch("approval heuristic", [
-        makeDescriptionResult({
-          pageId: "content-only",
-          excerpt: "Document vector clocks and replicated queue recovery.",
-        }),
-      ]),
-    });
-
-    expect(results.length).toBe(0);
+      scopeKey: "project:one",
+    })).toBe(true);
   });
 });

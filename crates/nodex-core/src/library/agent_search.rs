@@ -1,35 +1,25 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::agent::{
     AgentAuthorizationTarget, AgentExecutionAuthorization, AgentProjectResourceAction,
 };
 use nodex_core_contracts::library::{
-    LibraryAgentPageLocation, LibraryAgentPageSearchMatch, LibraryAgentSearchMatchQuality,
-    LibraryAgentSearchResult, LibraryAgentSearchScope, LibraryAgentSearchTarget, LibraryReadValue,
-    LibrarySearchSourceKind,
+    LibraryAgentSearchMatchQuality, LibraryAgentSearchResult, LibraryAgentSearchScope,
+    LibraryAgentSearchTarget, LibraryReadValue, LibrarySearchSourceKind,
 };
 use rusqlite::{Connection, params_from_iter, types::Value as SqlValue};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::database::{self, resolve_page_key_matches_in_library};
-use crate::domain::page_key::is_explicit_page_key_search;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::{
-    agent_authorization, cursor,
-    search_match::{SearchTermMatchQuality, field_match_quality, search_tokens},
-};
+use super::{agent_authorization, cursor, search_match::search_tokens};
 
 const MAX_QUERY_BYTES: usize = 512;
 const MAX_TERMS: usize = 32;
 const MAX_FILTERS: usize = 64;
 const MAX_METADATA_PAGES: usize = 5_000;
-const MAX_PROPERTY_VALUES_PER_PAGE: usize = 64;
-const MAX_PROPERTY_TEXT_BYTES_PER_PAGE: usize = 32 * 1024;
-const MAX_PROPERTY_DISPLAY_CHARS: usize = 4_096;
 const MAX_FTS_HITS_PER_TERM: usize = 200;
 const SQLITE_ID_BATCH: usize = 400;
 const DEFAULT_LIMIT: usize = 50;
@@ -38,45 +28,6 @@ const MAX_LIMIT: usize = 100;
 #[derive(Clone)]
 struct PageCandidate {
     id: String,
-    page_key: Option<String>,
-    title: String,
-    parent_kind: String,
-    parent_id: String,
-}
-
-struct PropertyValue {
-    property_id: String,
-    property_name: String,
-    text: String,
-}
-
-#[derive(Clone)]
-enum EvidenceKind {
-    Identity,
-    Title,
-    Property {
-        property_id: String,
-        property_name: String,
-    },
-    Body {
-        block_id: String,
-        block_type: String,
-    },
-}
-
-#[derive(Clone)]
-struct Evidence {
-    term: String,
-    kind: EvidenceKind,
-    quality: LibraryAgentSearchMatchQuality,
-    excerpt: String,
-}
-
-struct PageAggregate {
-    page: PageCandidate,
-    matched_terms: HashSet<String>,
-    evidence: Vec<Evidence>,
-    rank: f64,
 }
 
 #[derive(Clone)]
@@ -102,6 +53,7 @@ pub(super) fn read(
     include_archived: bool,
     requested_cursor: Option<&str>,
     limit: Option<u32>,
+    page_search_index: Option<&super::page_search::PageSearchIndex>,
 ) -> Result<LibraryReadValue, StoreError> {
     let query = validate_query(query)?;
     let terms = search_terms(query)?;
@@ -128,9 +80,12 @@ pub(super) fn read(
         return empty();
     }
 
-    let exact_page_keys = if target == LibraryAgentSearchTarget::Pages {
-        exact_page_key_results(
+    let mut items = if target == LibraryAgentSearchTarget::Pages {
+        let page_search_index =
+            page_search_index.ok_or_else(|| corrupt("Agent Page search index is unavailable"))?;
+        super::page_search::search_agent_pages(
             connection,
+            page_search_index,
             context,
             library_id,
             authorization,
@@ -138,13 +93,6 @@ pub(super) fn read(
             &scope,
             include_archived,
         )?
-    } else {
-        Vec::new()
-    };
-    let mut items = if !exact_page_keys.is_empty() {
-        exact_page_keys
-    } else if target == LibraryAgentSearchTarget::Pages && is_explicit_page_key_search(query) {
-        Vec::new()
     } else {
         let candidates = read_page_candidates(connection, library_id, &scope, include_archived)?;
         let candidate_ids = candidates
@@ -166,18 +114,13 @@ pub(super) fn read(
             .iter()
             .map(|candidate| candidate.id.clone())
             .collect::<Vec<_>>();
-        match target {
-            LibraryAgentSearchTarget::Pages => {
-                search_pages(connection, &terms, candidates, include_archived)?
-            }
-            LibraryAgentSearchTarget::Blocks => search_blocks(
-                connection,
-                &terms,
-                &authorized_ids,
-                block_types.as_deref(),
-                include_archived,
-            )?,
-        }
+        search_blocks(
+            connection,
+            &terms,
+            &authorized_ids,
+            block_types.as_deref(),
+            include_archived,
+        )?
     };
     let start = after
         .as_deref()
@@ -263,16 +206,6 @@ fn read_page_candidates(
     scope: &LibraryAgentSearchScope,
     include_archived: bool,
 ) -> Result<Vec<PageCandidate>, StoreError> {
-    read_page_candidates_with_exact_id(connection, library_id, scope, include_archived, None)
-}
-
-fn read_page_candidates_with_exact_id(
-    connection: &Connection,
-    library_id: &str,
-    scope: &LibraryAgentSearchScope,
-    include_archived: bool,
-    exact_page_id: Option<&str>,
-) -> Result<Vec<PageCandidate>, StoreError> {
     let lifecycle = if include_archived {
         "page_block.lifecycle <> 'deleted'"
     } else {
@@ -308,10 +241,6 @@ fn read_page_candidates_with_exact_id(
             parameters.push(SqlValue::Text(database_id.clone()));
         }
     }
-    if let Some(exact_page_id) = exact_page_id {
-        conditions.push("page.block_id = ?".to_owned());
-        parameters.push(SqlValue::Text(exact_page_id.to_owned()));
-    }
     parameters.push(SqlValue::Integer((MAX_METADATA_PAGES + 1) as i64));
     let sql = format!(
         "WITH RECURSIVE hierarchy(root_page_id, page_id, parent_kind, parent_id, path) AS ( \
@@ -325,22 +254,7 @@ fn read_page_candidates_with_exact_id(
            WHERE parent.library_id = ? \
              AND instr(hierarchy.path, '|' || parent.block_id || '|') = 0 \
          ) \
-         SELECT page.block_id, materialization.title, page.parent_kind, page.parent_id, \
-           (SELECT prefix.normalized_prefix || '-' || assignment.number \
-            FROM data_sources current_source \
-            JOIN page_key_namespaces namespace \
-              ON namespace.database_block_id = current_source.home_database_block_id \
-             AND namespace.library_id = page.library_id \
-            JOIN page_key_prefixes prefix \
-              ON prefix.database_block_id = namespace.database_block_id \
-             AND prefix.library_id = namespace.library_id \
-             AND prefix.retired_at IS NULL \
-            JOIN page_key_assignments assignment \
-              ON assignment.database_block_id = namespace.database_block_id \
-             AND assignment.page_block_id = page.block_id \
-            WHERE page.parent_kind = 'data_source' \
-              AND current_source.id = page.parent_id \
-              AND current_source.library_id = page.library_id) AS page_key \
+         SELECT page.block_id \
          FROM pages page \
          JOIN blocks page_block ON page_block.id = page.block_id \
            AND page_block.library_id = page.library_id \
@@ -358,13 +272,7 @@ fn read_page_candidates_with_exact_id(
     let candidates = connection
         .prepare(&sql)?
         .query_map(params_from_iter(parameters.iter()), |row| {
-            Ok(PageCandidate {
-                id: row.get(0)?,
-                page_key: row.get(4)?,
-                title: row.get(1)?,
-                parent_kind: row.get(2)?,
-                parent_id: row.get(3)?,
-            })
+            Ok(PageCandidate { id: row.get(0)? })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if candidates.len() > MAX_METADATA_PAGES {
@@ -375,181 +283,6 @@ fn read_page_candidates_with_exact_id(
         ));
     }
     Ok(candidates)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn exact_page_key_results(
-    connection: &Connection,
-    context: &BoundModuleContext,
-    library_id: &str,
-    authorization: &AgentExecutionAuthorization,
-    query: &str,
-    scope: &LibraryAgentSearchScope,
-    include_archived: bool,
-) -> Result<Vec<LibraryAgentSearchResult>, StoreError> {
-    let mut matches = Vec::new();
-    for resolution in resolve_page_key_matches_in_library(connection, library_id, query)? {
-        let mut candidates = read_page_candidates_with_exact_id(
-            connection,
-            library_id,
-            scope,
-            include_archived,
-            Some(&resolution.page_block_id),
-        )?;
-        let Some(page) = candidates.pop() else {
-            continue;
-        };
-        matches.push((resolution, page));
-    }
-    if matches.is_empty() {
-        agent_authorization::authorized_page_ids(
-            connection,
-            context,
-            library_id,
-            authorization,
-            &[],
-        )?;
-        return Ok(Vec::new());
-    }
-    let candidate_ids = matches
-        .iter()
-        .map(|(_, page)| page.id.clone())
-        .collect::<Vec<_>>();
-    let authorized = agent_authorization::authorized_page_ids(
-        connection,
-        context,
-        library_id,
-        authorization,
-        &candidate_ids,
-    )?;
-    let mut results = Vec::new();
-    for (resolution, page) in matches {
-        if !authorized.contains(&page.id) {
-            continue;
-        }
-        let location = page_location(&page)?;
-        results.push(LibraryAgentSearchResult::Page {
-            id: page.id,
-            page_key: resolution.current_page_key,
-            title: page.title,
-            location,
-            matches: vec![LibraryAgentPageSearchMatch::PageKey {
-                quality: LibraryAgentSearchMatchQuality::Exact,
-                page_key: resolution.matched_page_key,
-                is_current: resolution.is_current,
-            }],
-        });
-    }
-    Ok(results)
-}
-
-fn search_pages(
-    connection: &Connection,
-    terms: &[String],
-    candidates: Vec<PageCandidate>,
-    include_archived: bool,
-) -> Result<Vec<LibraryAgentSearchResult>, StoreError> {
-    let candidate_ids = candidates
-        .iter()
-        .map(|candidate| candidate.id.clone())
-        .collect::<Vec<_>>();
-    let candidate_by_id = candidates
-        .iter()
-        .map(|candidate| (candidate.id.clone(), candidate))
-        .collect::<HashMap<_, _>>();
-    let properties = read_property_values(connection, &candidate_ids)?;
-    let mut aggregates = HashMap::<String, PageAggregate>::new();
-    for page in &candidates {
-        for (term_index, term) in terms.iter().enumerate() {
-            let mut evidence = metadata_evidence(
-                page,
-                properties
-                    .get(&page.id)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default(),
-                term,
-            );
-            if evidence.is_empty() {
-                continue;
-            }
-            let aggregate = aggregates
-                .entry(page.id.clone())
-                .or_insert_with(|| PageAggregate {
-                    page: page.clone(),
-                    matched_terms: HashSet::new(),
-                    evidence: Vec::new(),
-                    rank: 0.0,
-                });
-            aggregate.matched_terms.insert(term.clone());
-            aggregate.rank += 1.0 / (60 + term_index) as f64;
-            aggregate.evidence.append(&mut evidence);
-        }
-    }
-    for (term_index, term) in terms.iter().enumerate() {
-        let mut hits = search_fts(connection, term, &candidate_ids, None, include_archived)?;
-        hits.truncate(MAX_FTS_HITS_PER_TERM);
-        for (hit_index, hit) in hits.into_iter().enumerate() {
-            let Some(page) = candidate_by_id.get(&hit.owner_page_id) else {
-                continue;
-            };
-            let quality = exact_or_prefix(&hit.excerpt, term);
-            let kind = match hit.source {
-                LibrarySearchSourceKind::DocumentTitle => EvidenceKind::Title,
-                LibrarySearchSourceKind::DocumentBlock => EvidenceKind::Body {
-                    block_id: hit.block_id,
-                    block_type: hit.block_type,
-                },
-            };
-            let aggregate = aggregates
-                .entry(page.id.clone())
-                .or_insert_with(|| PageAggregate {
-                    page: (**page).clone(),
-                    matched_terms: HashSet::new(),
-                    evidence: Vec::new(),
-                    rank: 0.0,
-                });
-            aggregate.matched_terms.insert(term.clone());
-            aggregate.evidence.push(Evidence {
-                term: term.clone(),
-                kind,
-                quality,
-                excerpt: hit.excerpt,
-            });
-            aggregate.rank += 1.0 / (60 + term_index + hit_index) as f64;
-        }
-    }
-    let mut aggregates = aggregates
-        .into_values()
-        .filter(|aggregate| {
-            terms
-                .iter()
-                .all(|term| aggregate.matched_terms.contains(term))
-        })
-        .collect::<Vec<_>>();
-    aggregates.sort_by(|left, right| {
-        evidence_tier(&left.evidence)
-            .cmp(&evidence_tier(&right.evidence))
-            .then_with(|| {
-                right
-                    .rank
-                    .partial_cmp(&left.rank)
-                    .unwrap_or(Ordering::Equal)
-            })
-            .then_with(|| left.page.id.cmp(&right.page.id))
-    });
-    aggregates
-        .into_iter()
-        .map(|aggregate| {
-            let location = page_location(&aggregate.page)?;
-            Ok(LibraryAgentSearchResult::Page {
-                id: aggregate.page.id,
-                page_key: aggregate.page.page_key,
-                title: aggregate.page.title,
-                location,
-                matches: representative_evidence(aggregate.evidence, terms),
-            })
-        })
-        .collect()
 }
 
 fn search_blocks(
@@ -680,327 +413,6 @@ fn search_fts(
             .then_with(|| left.block_id.cmp(&right.block_id))
     });
     Ok(all)
-}
-
-fn read_property_values(
-    connection: &Connection,
-    page_ids: &[String],
-) -> Result<HashMap<String, Vec<PropertyValue>>, StoreError> {
-    let mut values = HashMap::<String, Vec<PropertyValue>>::new();
-    let mut bytes = HashMap::<String, usize>::new();
-    for page_ids in page_ids.chunks(SQLITE_ID_BATCH) {
-        if page_ids.is_empty() {
-            continue;
-        }
-        let sql = format!(
-            "SELECT membership.page_block_id, property.id, property.name, \
-               property.value_type, property.config_json, value.value_json \
-             FROM data_source_page_memberships membership \
-             JOIN data_source_properties property \
-               ON property.data_source_id = membership.data_source_id \
-               AND property.lifecycle = 'active' \
-             JOIN data_source_property_values value ON value.membership_id = membership.id \
-               AND value.property_id = property.id \
-               AND value.data_source_id = membership.data_source_id \
-             WHERE membership.removed_at IS NULL \
-               AND membership.page_block_id IN ({}) \
-             ORDER BY membership.page_block_id, property.rank_key, property.id",
-            placeholders(page_ids.len())
-        );
-        let rows = connection
-            .prepare(&sql)?
-            .query_map(params_from_iter(page_ids.iter()), |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (page_id, property_id, property_name, value_type, config_json, value) in rows {
-            let current = values.entry(page_id.clone()).or_default();
-            if current.len() >= MAX_PROPERTY_VALUES_PER_PAGE {
-                continue;
-            }
-            let value = serde_json::from_str::<Value>(&value)
-                .map_err(|_| corrupt("Agent search property value is invalid"))?;
-            let Some(text) =
-                property_display_value(&property_id, &value_type, &config_json, &value)?
-            else {
-                continue;
-            };
-            if text.is_empty() {
-                continue;
-            }
-            let next_bytes = bytes.get(&page_id).copied().unwrap_or(0) + text.len();
-            if next_bytes > MAX_PROPERTY_TEXT_BYTES_PER_PAGE {
-                continue;
-            }
-            bytes.insert(page_id, next_bytes);
-            current.push(PropertyValue {
-                property_id,
-                property_name,
-                text,
-            });
-        }
-    }
-    Ok(values)
-}
-
-fn property_display_value(
-    property_id: &str,
-    value_type: &str,
-    config_json: &str,
-    value: &Value,
-) -> Result<Option<String>, StoreError> {
-    if value.is_null() {
-        return Ok(None);
-    }
-    let truncate = |value: &str| value.chars().take(MAX_PROPERTY_DISPLAY_CHARS).collect();
-    if matches!(value_type, "select" | "multi_select") {
-        let config = database::property_semantics::option_config_from_storage(
-            property_id,
-            value_type,
-            config_json,
-        )?;
-        let names = config
-            .options
-            .iter()
-            .map(|option| (option.id.as_str(), option.name.as_str()))
-            .collect::<HashMap<_, _>>();
-        if value_type == "select" {
-            let id = value
-                .as_str()
-                .ok_or_else(|| corrupt("Agent search select Property value is invalid"))?;
-            let name = names
-                .get(id)
-                .ok_or_else(|| corrupt("Agent search select Property option is not registered"))?;
-            return Ok(Some(truncate(name)));
-        }
-        let items = value
-            .as_array()
-            .ok_or_else(|| corrupt("Agent search multi-select Property value is invalid"))?;
-        let mut selected = HashSet::new();
-        let names = items
-            .iter()
-            .map(|item| {
-                let id = item.as_str().ok_or_else(|| {
-                    corrupt("Agent search multi-select Property contains a non-string option")
-                })?;
-                if !selected.insert(id) {
-                    return Err(corrupt(
-                        "Agent search multi-select Property repeats an option",
-                    ));
-                }
-                names.get(id).copied().ok_or_else(|| {
-                    corrupt("Agent search multi-select Property option is not registered")
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        return Ok(Some(truncate(&names.join(" "))));
-    }
-
-    let config = serde_json::from_str::<Value>(config_json)
-        .map_err(|_| corrupt("Agent search property config is invalid"))?;
-    if !config.is_object() {
-        return Err(corrupt("Agent search property config is not an object"));
-    }
-    let display = match value_type {
-        "checkbox" => Some(
-            value
-                .as_bool()
-                .ok_or_else(|| corrupt("Agent search checkbox Property value is invalid"))?
-                .to_string(),
-        ),
-        "number" => {
-            let value = value
-                .as_f64()
-                .filter(|value| value.is_finite())
-                .ok_or_else(|| corrupt("Agent search number Property value is invalid"))?;
-            let value = if value.fract() == 0.0 {
-                format!("{value:.0}")
-            } else {
-                value.to_string()
-            };
-            Some(truncate(&value))
-        }
-        "text" | "date" | "datetime" => {
-            Some(truncate(value.as_str().ok_or_else(|| {
-                corrupt("Agent search textual Property value is invalid")
-            })?))
-        }
-        "relation" => None,
-        _ => return Err(corrupt("Agent search Property type is unsupported")),
-    };
-    Ok(display)
-}
-
-fn metadata_evidence(
-    page: &PageCandidate,
-    properties: &[PropertyValue],
-    term: &str,
-) -> Vec<Evidence> {
-    let mut evidence = Vec::new();
-    if let Some(quality) = field_quality(&page.id, term, false) {
-        evidence.push(Evidence {
-            term: term.to_owned(),
-            kind: EvidenceKind::Identity,
-            quality,
-            excerpt: page.id.clone(),
-        });
-    }
-    if let Some(quality) = field_quality(&page.title, term, true) {
-        evidence.push(Evidence {
-            term: term.to_owned(),
-            kind: EvidenceKind::Title,
-            quality,
-            excerpt: page.title.clone(),
-        });
-    }
-    for property in properties {
-        let Some(quality) = field_quality(&property.text, term, true) else {
-            continue;
-        };
-        evidence.push(Evidence {
-            term: term.to_owned(),
-            kind: EvidenceKind::Property {
-                property_id: property.property_id.clone(),
-                property_name: property.property_name.clone(),
-            },
-            quality,
-            excerpt: property.text.clone(),
-        });
-    }
-    evidence
-}
-
-fn field_quality(
-    text: &str,
-    term: &str,
-    allow_fuzzy: bool,
-) -> Option<LibraryAgentSearchMatchQuality> {
-    field_match_quality(text, term, allow_fuzzy).map(|quality| match quality {
-        SearchTermMatchQuality::Exact => LibraryAgentSearchMatchQuality::Exact,
-        SearchTermMatchQuality::Prefix => LibraryAgentSearchMatchQuality::Prefix,
-        SearchTermMatchQuality::Fuzzy => LibraryAgentSearchMatchQuality::Fuzzy,
-    })
-}
-
-fn representative_evidence(
-    mut evidence: Vec<Evidence>,
-    terms: &[String],
-) -> Vec<LibraryAgentPageSearchMatch> {
-    evidence.sort_by(|left, right| {
-        match_tier(left)
-            .cmp(&match_tier(right))
-            .then_with(|| term_index(terms, &left.term).cmp(&term_index(terms, &right.term)))
-            .then_with(|| evidence_key(left).cmp(&evidence_key(right)))
-    });
-    evidence.dedup_by(|left, right| evidence_key(left) == evidence_key(right));
-    let mut selected = Vec::<Evidence>::new();
-    for term in terms {
-        if let Some(match_index) = evidence.iter().position(|candidate| {
-            candidate.term == *term
-                && !selected
-                    .iter()
-                    .any(|item| evidence_key(item) == evidence_key(candidate))
-        }) {
-            selected.push(evidence[match_index].clone());
-        }
-        if selected.len() == 3 {
-            break;
-        }
-    }
-    for candidate in evidence {
-        if selected.len() == 3 {
-            break;
-        }
-        if !selected
-            .iter()
-            .any(|item| evidence_key(item) == evidence_key(&candidate))
-        {
-            selected.push(candidate);
-        }
-    }
-    selected.into_iter().map(contract_evidence).collect()
-}
-
-fn contract_evidence(evidence: Evidence) -> LibraryAgentPageSearchMatch {
-    match evidence.kind {
-        EvidenceKind::Identity => LibraryAgentPageSearchMatch::Identity {
-            quality: evidence.quality,
-            excerpt: evidence.excerpt,
-        },
-        EvidenceKind::Title => LibraryAgentPageSearchMatch::Title {
-            quality: evidence.quality,
-            excerpt: evidence.excerpt,
-        },
-        EvidenceKind::Property {
-            property_id,
-            property_name,
-        } => LibraryAgentPageSearchMatch::Property {
-            quality: evidence.quality,
-            property_id,
-            property_name,
-            excerpt: evidence.excerpt,
-        },
-        EvidenceKind::Body {
-            block_id,
-            block_type,
-        } => LibraryAgentPageSearchMatch::Body {
-            quality: evidence.quality,
-            block_id,
-            block_type,
-            excerpt: evidence.excerpt,
-        },
-    }
-}
-
-fn evidence_tier(evidence: &[Evidence]) -> u8 {
-    evidence.iter().map(match_tier).min().unwrap_or(u8::MAX)
-}
-
-fn match_tier(evidence: &Evidence) -> u8 {
-    match &evidence.kind {
-        EvidenceKind::Identity => 0,
-        EvidenceKind::Title if evidence.quality != LibraryAgentSearchMatchQuality::Fuzzy => 1,
-        EvidenceKind::Title => 2,
-        EvidenceKind::Property { .. }
-            if evidence.quality != LibraryAgentSearchMatchQuality::Fuzzy =>
-        {
-            3
-        }
-        EvidenceKind::Body { .. } => 4,
-        EvidenceKind::Property { .. } => 5,
-    }
-}
-
-fn evidence_key(evidence: &Evidence) -> String {
-    let source = match &evidence.kind {
-        EvidenceKind::Identity => "identity".to_owned(),
-        EvidenceKind::Title => "title".to_owned(),
-        EvidenceKind::Property { property_id, .. } => format!("property:{property_id}"),
-        EvidenceKind::Body { block_id, .. } => format!("body:{block_id}"),
-    };
-    format!("{}:{source}:{}", evidence.term, evidence.excerpt)
-}
-
-fn page_location(page: &PageCandidate) -> Result<LibraryAgentPageLocation, StoreError> {
-    match page.parent_kind.as_str() {
-        "library" => Ok(LibraryAgentPageLocation::Library {
-            library_id: page.parent_id.clone(),
-        }),
-        "page" => Ok(LibraryAgentPageLocation::Page {
-            page_id: page.parent_id.clone(),
-        }),
-        "data_source" => Ok(LibraryAgentPageLocation::DataSource {
-            data_source_id: page.parent_id.clone(),
-        }),
-        _ => Err(corrupt("Agent search returned an invalid Page location")),
-    }
 }
 
 fn validate_query(query: &str) -> Result<&str, StoreError> {
@@ -1156,13 +568,6 @@ fn search_limit(limit: Option<u32>) -> Result<usize, StoreError> {
     }
 }
 
-fn term_index(terms: &[String], term: &str) -> usize {
-    terms
-        .iter()
-        .position(|candidate| candidate == term)
-        .unwrap_or(usize::MAX)
-}
-
 fn placeholders(count: usize) -> String {
     std::iter::repeat_n("?", count)
         .collect::<Vec<_>>()
@@ -1187,68 +592,4 @@ fn conflict(message: impl Into<String>) -> StoreError {
 
 fn corrupt(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::{
-        EvidenceKind, LibraryAgentSearchMatchQuality, PageCandidate, PropertyValue,
-        metadata_evidence, property_display_value,
-    };
-
-    #[test]
-    fn resolves_select_option_ids_for_searchable_property_display_text() {
-        let config = json!({
-            "options": [
-                { "id": "o_todo0000", "name": "To do" },
-                { "id": "o_progr000", "name": "In progress" }
-            ]
-        })
-        .to_string();
-        assert_eq!(
-            property_display_value("p_status00", "select", &config, &json!("o_progr000"),)
-                .expect("select display should resolve"),
-            Some("In progress".to_owned())
-        );
-        assert_eq!(
-            property_display_value(
-                "p_labels00",
-                "multi_select",
-                &config,
-                &json!(["o_todo0000", "o_progr000"]),
-            )
-            .expect("multi-select display should resolve"),
-            Some("To do In progress".to_owned())
-        );
-        assert!(
-            property_display_value("p_status00", "select", &config, &json!("o_missing0"),).is_err()
-        );
-    }
-
-    #[test]
-    fn fuzzy_matching_applies_to_human_metadata_but_not_page_identity() {
-        let evidence = metadata_evidence(
-            &PageCandidate {
-                id: "page:integraton".to_owned(),
-                page_key: None,
-                title: "Unrelated".to_owned(),
-                parent_kind: "library".to_owned(),
-                parent_id: "library:test".to_owned(),
-            },
-            &[PropertyValue {
-                property_id: "p_status00".to_owned(),
-                property_name: "Status".to_owned(),
-                text: "Integration".to_owned(),
-            }],
-            "integraton",
-        );
-        assert_eq!(evidence.len(), 1);
-        assert!(matches!(
-            &evidence[0].kind,
-            EvidenceKind::Property { property_id, .. } if property_id == "p_status00"
-        ));
-        assert_eq!(evidence[0].quality, LibraryAgentSearchMatchQuality::Fuzzy);
-    }
 }

@@ -67,7 +67,7 @@ describe("mention suggestion model", () => {
       "Mention a chat",
       "Mention a page",
     ]);
-    expect(sections[2]?.items).toEqual(["page-title", "page-content"]);
+    expect(sections[2]?.items).toEqual(["page-content", "page-title"]);
   });
 
   test("reports hidden results instead of letting one section dominate", () => {

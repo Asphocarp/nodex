@@ -16,7 +16,11 @@ import type {
 } from "../../shared/page-detail";
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
-import type { PageSearchInput, PageSearchResult } from "../../shared/types";
+import type {
+  PageSearchFacets,
+  PageSearchInput,
+  PageSearchResult,
+} from "../../shared/types";
 import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import type {
   PageLifecycleMutationCommandResultV2,
@@ -73,6 +77,7 @@ export interface DesktopLibraryModuleBridge {
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
   searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
+  pageSearchFacets(projectIds: string[]): Promise<PageSearchFacets>;
   resolvePageTarget(
     input: ResolvePageTargetInput,
   ): Promise<PageTargetReadModel | null>;
@@ -178,6 +183,10 @@ export function createDesktopLibraryModuleBridge(
     searchPages: async (searchInput) => {
       const runtime = await input.authority;
       return await rootAdapter(runtime).searchPages(searchInput);
+    },
+    pageSearchFacets: async (projectIds) => {
+      const runtime = await input.authority;
+      return await rootAdapter(runtime).pageSearchFacets(projectIds);
     },
     resolvePageTarget: async (request) => {
       const runtime = await input.authority;

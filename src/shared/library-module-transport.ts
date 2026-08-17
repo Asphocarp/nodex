@@ -40,6 +40,10 @@ import {
   type LibraryWriteParent,
 } from "./library-module";
 import { isWorkflowStatus } from "./workflow-status";
+import type {
+  PageSearchMatch,
+  PageSearchTextPart,
+} from "./types";
 import { parseAuthorizedReadStamp } from "./authorized-read-stamp";
 import {
   PROJECT_MARKER_COLORS,
@@ -50,6 +54,95 @@ import { assertUuidV7 } from "./uuid-v7";
 
 const MAX_ID_LENGTH = 512;
 const MAX_TITLE_LENGTH = 1_000_000;
+
+const displayText = (value: unknown, label: string): string => {
+  if (
+    typeof value === "string"
+    && value.length > 0
+    && value.length <= MAX_TITLE_LENGTH
+    && !value.includes("\0")
+  ) {
+    return value;
+  }
+  throw new TypeError(`${label} must be bounded display text`);
+};
+
+const parsePageSearchParts = (
+  value: unknown,
+  label: string,
+): PageSearchTextPart[] => {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array`);
+  }
+  return value.map((entry, index) => {
+    const part = record(entry, `${label}[${index}]`);
+    exactKeys(part, `${label}[${index}]`, ["text", "highlighted"]);
+    return {
+      text: displayText(part.text, `${label}[${index}].text`),
+      highlighted: boolean(part.highlighted, `${label}[${index}].highlighted`),
+    };
+  });
+};
+
+const parsePageSearchMatch = (value: unknown, label: string): PageSearchMatch => {
+  const match = record(value, label);
+  const source = string(match.source, `${label}.source`);
+  const quality = string(match.quality, `${label}.quality`);
+  if (quality !== "exact" && quality !== "prefix" && quality !== "fuzzy") {
+    throw new TypeError(`${label}.quality is unsupported`);
+  }
+  if (source === "page_key") {
+    exactKeys(match, label, ["source", "quality", "pageKey", "isCurrent", "parts"]);
+    return {
+      source,
+      quality,
+      pageKey: string(match.pageKey, `${label}.pageKey`),
+      isCurrent: boolean(match.isCurrent, `${label}.isCurrent`),
+      parts: parsePageSearchParts(match.parts, `${label}.parts`),
+    };
+  }
+  if (source === "identity" || source === "title") {
+    exactKeys(match, label, ["source", "quality", "parts"]);
+    return {
+      source,
+      quality,
+      parts: parsePageSearchParts(match.parts, `${label}.parts`),
+    };
+  }
+  if (source === "property") {
+    exactKeys(match, label, [
+      "source",
+      "quality",
+      "propertyId",
+      "propertyName",
+      "parts",
+    ]);
+    return {
+      source,
+      quality,
+      propertyId: string(match.propertyId, `${label}.propertyId`),
+      propertyName: string(match.propertyName, `${label}.propertyName`),
+      parts: parsePageSearchParts(match.parts, `${label}.parts`),
+    };
+  }
+  if (source === "body") {
+    exactKeys(match, label, [
+      "source",
+      "quality",
+      "blockId",
+      "blockType",
+      "parts",
+    ]);
+    return {
+      source,
+      quality,
+      blockId: string(match.blockId, `${label}.blockId`),
+      blockType: string(match.blockType, `${label}.blockType`),
+      parts: parsePageSearchParts(match.parts, `${label}.parts`),
+    };
+  }
+  throw new TypeError(`${label}.source is unsupported`);
+};
 
 const isRecord = (
   value: unknown,
@@ -1787,6 +1880,9 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
           "locationLabel",
           "matchExcerpt",
           "matchSource",
+          "titleParts",
+          "matchExcerptParts",
+          "matches",
         ]);
         if (
           candidate.status !== null
@@ -1839,6 +1935,27 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
                 true,
               ),
           matchSource: candidate.matchSource,
+          titleParts: parsePageSearchParts(
+            candidate.titleParts,
+            `library Page reference candidates[${index}].titleParts`,
+          ),
+          matchExcerptParts: parsePageSearchParts(
+            candidate.matchExcerptParts,
+            `library Page reference candidates[${index}].matchExcerptParts`,
+          ),
+          matches: (() => {
+            if (!Array.isArray(candidate.matches)) {
+              throw new TypeError(
+                `library Page reference candidates[${index}].matches must be an array`,
+              );
+            }
+            return candidate.matches.map((match, matchIndex) =>
+              parsePageSearchMatch(
+                match,
+                `library Page reference candidates[${index}].matches[${matchIndex}]`,
+              )
+            );
+          })(),
         };
       },
     );
@@ -1860,6 +1977,7 @@ const parseErrorCode = (value: unknown): LibraryModuleErrorCode => {
     value === "primary_database_bound" ||
     value === "document_conflict" ||
     value === "stale_cursor" ||
+    value === "resource_exhausted" ||
     value === "state_corrupt" ||
     value === "unknown"
   ) {
@@ -2142,7 +2260,7 @@ export const libraryModuleFailure = (
 export const libraryModuleHttpStatus = (
   error: LibraryModuleError,
 ): 400 | 404 | 409 | 500 => {
-  if (error.code === "invalid_request") return 400;
+  if (error.code === "invalid_request" || error.code === "resource_exhausted") return 400;
   if (error.code === "resource_not_found") return 404;
   if (
     error.code === "stale_cursor" ||
