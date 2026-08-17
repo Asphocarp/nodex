@@ -13,6 +13,7 @@ export interface SkyRemoteHostedPipHostRegistration {
   animated: boolean;
   contentBounds: RemoteHostedPipViewportRect;
   id: string;
+  isCodexHomeAvailable: boolean;
   nativeWindowHandle: Buffer | null;
   presentationScope: RemoteHostedPipPresentationScope;
   title: string;
@@ -21,11 +22,12 @@ export interface SkyRemoteHostedPipHostRegistration {
 export interface SkyNativeAddon {
   completeRemoteHostedPIPContentThread(threadId: string): boolean;
   computerUseServiceProcessMatchesExecutablePath(pid: number, executablePath: string): boolean;
-  hasRemoteHostedPIPContentActivePresentation(): boolean;
+  getRemoteHostedPIPContentActiveTaskIDs(): string[];
   hasRemoteHostedPIPContentAnyPresentation(): boolean;
   invalidateBrowserUsePIPContent(presentationId: string): boolean;
   invalidateRemoteHostedPIPContentTurn(threadId: string, turnId: string): boolean;
   isPrivacySettingsTerminationRequest(): boolean;
+  refreshRemoteHostedPIPContentVisibility(threadIds?: string[]): boolean;
   registerRemoteHostedPIPContentHost(input: SkyRemoteHostedPipHostRegistration): boolean;
   setRemoteHostedPIPContentActiveThreadID(threadId: string | null): boolean;
   setRemoteHostedPIPContentComputerUseCursorLocationHandler(
@@ -36,16 +38,18 @@ export interface SkyNativeAddon {
     handler: ((size: number) => void) | null,
   ): boolean;
   setRemoteHostedPIPContentPetWakeRequestHandler(handler: (() => void) | null): boolean;
+  setRemoteHostedPIPContentShouldShowTaskHandler(
+    handler: ((threadId: string) => boolean) | null,
+  ): boolean;
   setRemoteHostedPIPContentSuppressedThreadIDs(threadIds: string[]): boolean;
   setRemoteHostedPIPContentVisibilityRequestHandler(
     handler: ((isVisible: boolean, threadIds: string[]) => void) | null,
   ): boolean;
-  setRemoteHostedPIPContentVisible(isVisible: boolean): boolean;
   spawnComputerUseService(executablePath: string): Promise<number | null>;
   startRemoteHostedPIPContentHost(tooltips: {
     hide: string;
     placement: string;
-  }): boolean;
+  }, onServiceConnectionLost?: () => void): boolean;
   stopRemoteHostedPIPContentHost(): boolean;
   unregisterRemoteHostedPIPContentHost(hostId: string): boolean;
   upsertBrowserUsePIPContent(
@@ -70,17 +74,20 @@ function resolveElectronAppPath(): string {
 }
 const REQUIRED_REMOTE_HOSTED_PIP_EXPORTS = [
   "completeRemoteHostedPIPContentThread",
-  "hasRemoteHostedPIPContentActivePresentation",
+  "getRemoteHostedPIPContentActiveTaskIDs",
   "hasRemoteHostedPIPContentAnyPresentation",
   "invalidateBrowserUsePIPContent",
   "invalidateRemoteHostedPIPContentTurn",
+  "isPrivacySettingsTerminationRequest",
+  "refreshRemoteHostedPIPContentVisibility",
   "registerRemoteHostedPIPContentHost",
   "setRemoteHostedPIPContentActiveThreadID",
   "setRemoteHostedPIPContentMaxDisplaySize",
   "setRemoteHostedPIPContentMaxDisplaySizeChangedHandler",
+  "setRemoteHostedPIPContentPetWakeRequestHandler",
+  "setRemoteHostedPIPContentShouldShowTaskHandler",
   "setRemoteHostedPIPContentSuppressedThreadIDs",
   "setRemoteHostedPIPContentVisibilityRequestHandler",
-  "setRemoteHostedPIPContentVisible",
   "startRemoteHostedPIPContentHost",
   "stopRemoteHostedPIPContentHost",
   "unregisterRemoteHostedPIPContentHost",
