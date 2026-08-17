@@ -1,5 +1,4 @@
 import {
-  LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryPageReferenceCandidate,
 } from "../../../shared/library-module";
 import { readLibraryModule } from "../api";
@@ -24,7 +23,6 @@ export async function loadPageReferenceCandidates(
 ): Promise<PageReferenceCandidate[]> {
   const sourcePageId = resolvePageReferenceSourcePageId(request);
   const result = await readLibraryModule(request.accessContext, {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: {
       mode: "page_reference_candidates",
       query: request.query,

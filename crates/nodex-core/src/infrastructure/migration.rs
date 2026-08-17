@@ -52,7 +52,7 @@ use super::resource_grant_migration::{
     ensure_v118_canvas_resource_grants, validate_v118_canvas_resource_grants,
 };
 use super::schema::{
-    CORE_SCHEMA_VERSION, SchemaInventory, TYPESCRIPT_SCHEMA_VERSION, install_v84_schema,
+    CURRENT_STORE_REVISION, LEGACY_TYPESCRIPT_STORE_REVISION, SchemaInventory, install_v84_schema,
     read_schema_inventory, schema_inventory_fingerprint, v84_schema_objects_sql,
     validate_exact_v84_schema,
 };
@@ -61,7 +61,7 @@ use super::sqlite::{
 };
 
 const CORE_SCHEMA_OWNER: &str = "rust_core";
-const MIN_SUPPORTED_SCHEMA_VERSION: i64 = TYPESCRIPT_SCHEMA_VERSION;
+const MIN_SUPPORTED_STORE_REVISION: i64 = nodex_store_format::MIN_SUPPORTED_STORE_REVISION as i64;
 const LEGACY_WRITABLE_ROOTS_IMPORT_KEY: &str = "codex_thread_writable_roots_v1";
 const LEGACY_WRITABLE_ROOTS_FILE_NAME: &str = "codex-thread-writable-roots-v1.json";
 const AUTOMATION_JITTER_SALT_FILE: &str = "automations/.run-jitter-salt";
@@ -2686,14 +2686,39 @@ fn validate_v128_block_transfer_undo(connection: &Connection) -> Result<(), Stor
     Ok(())
 }
 
+fn ensure_v129_store_revision_authority(connection: &Connection) -> Result<(), StoreError> {
+    if table_has_column(connection, "core_store_metadata", "store_format_version")? {
+        connection
+            .execute_batch("ALTER TABLE core_store_metadata DROP COLUMN store_format_version;")?;
+    }
+    validate_v129_store_revision_authority(connection)
+}
+
+fn validate_v129_store_revision_authority(connection: &Connection) -> Result<(), StoreError> {
+    if table_has_column(connection, "core_store_metadata", "store_format_version")? {
+        return Err(corrupt(
+            "v129 Store duplicates PRAGMA user_version in Core metadata",
+        ));
+    }
+    Ok(())
+}
+
 pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
 ) -> Result<StorePreparation, StoreError> {
-    prepare_profile_store_with_observer(connection, profile_home, &mut |_| {})
+    StoreMigrationLedger::prepare(connection, profile_home, &mut |_| {})
 }
 
 pub fn prepare_profile_store_with_observer(
+    connection: &mut Connection,
+    profile_home: &Path,
+    observer: &mut dyn FnMut(StorePreparationEvent),
+) -> Result<StorePreparation, StoreError> {
+    StoreMigrationLedger::prepare(connection, profile_home, observer)
+}
+
+fn prepare_profile_store_impl(
     connection: &mut Connection,
     profile_home: &Path,
     observer: &mut dyn FnMut(StorePreparationEvent),
@@ -2707,60 +2732,28 @@ pub fn prepare_profile_store_with_observer(
     if version == 0 && object_count == 0 {
         let now = unix_time_millis()?;
         create_fresh_store(connection, profile_home, now)?;
-        validate_store(connection)?;
-        validate_codex_thread_timestamp_invariants(connection)?;
-        validate_canonical_text_timestamp_invariants(connection)?;
-        validate_database_view_layout_invariants(connection)?;
-        validate_database_view_global_rank_invariants(connection)?;
-        validate_database_relation_invariants(connection)?;
-        validate_database_priority_invariants(connection)?;
-        validate_v117_library_content_ownership(connection)?;
-        validate_v118_canvas_resource_grants(connection)?;
-        validate_v119_library_content_index_cleanup(connection)?;
-        validate_v120_document_block_tombstones(connection)?;
-        validate_v124_thread_execution_hosts(connection)?;
-        validate_v125_default_draft_sessions(connection)?;
-        validate_v126_thread_recency(connection)?;
-        validate_v127_document_page_references(connection)?;
-        validate_v128_block_transfer_undo(connection)?;
+        StoreMigrationLedger::validate_current_store(connection)?;
         return Ok(StorePreparation {
-            schema_version: CORE_SCHEMA_VERSION,
+            schema_version: CURRENT_STORE_REVISION,
             created_fresh: true,
             migrated_from_version: None,
             migration_backup_path: None,
             validated_yjs_documents: 0,
         });
     }
-    if !(MIN_SUPPORTED_SCHEMA_VERSION..=CORE_SCHEMA_VERSION).contains(&version) {
+    if !(MIN_SUPPORTED_STORE_REVISION..=CURRENT_STORE_REVISION).contains(&version) {
         return Err(StoreError::new(
             StoreErrorCode::UnsupportedSchema,
             format!(
-                "Rust Core supports store versions {MIN_SUPPORTED_SCHEMA_VERSION} through {CORE_SCHEMA_VERSION}; received v{version}"
+                "Rust Core supports store versions {MIN_SUPPORTED_STORE_REVISION} through {CURRENT_STORE_REVISION}; received v{version}"
             ),
             false,
         ));
     }
-    if version == CORE_SCHEMA_VERSION {
-        validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
-        validate_exact_current_schema(connection)?;
-        validate_store(connection)?;
-        validate_codex_thread_timestamp_invariants(connection)?;
-        validate_canonical_text_timestamp_invariants(connection)?;
-        validate_database_view_layout_invariants(connection)?;
-        validate_database_view_global_rank_invariants(connection)?;
-        validate_database_relation_invariants(connection)?;
-        validate_database_priority_invariants(connection)?;
-        validate_v117_library_content_ownership(connection)?;
-        validate_v118_canvas_resource_grants(connection)?;
-        validate_v119_library_content_index_cleanup(connection)?;
-        validate_v120_document_block_tombstones(connection)?;
-        validate_v124_thread_execution_hosts(connection)?;
-        validate_v125_default_draft_sessions(connection)?;
-        validate_v126_thread_recency(connection)?;
-        validate_v127_document_page_references(connection)?;
-        validate_v128_block_transfer_undo(connection)?;
+    if version == CURRENT_STORE_REVISION {
+        StoreMigrationLedger::validate_current_store(connection)?;
         return Ok(StorePreparation {
-            schema_version: CORE_SCHEMA_VERSION,
+            schema_version: CURRENT_STORE_REVISION,
             created_fresh: false,
             migrated_from_version: None,
             migration_backup_path: None,
@@ -2768,7 +2761,7 @@ pub fn prepare_profile_store_with_observer(
         });
     }
 
-    if (85..CORE_SCHEMA_VERSION).contains(&version) {
+    if (85..CURRENT_STORE_REVISION).contains(&version) {
         return upgrade_owned_store(connection, profile_home, version, observer);
     }
 
@@ -2785,7 +2778,7 @@ pub fn prepare_profile_store_with_observer(
     }
     observer(StorePreparationEvent::MigrationStarted {
         from_version: source_version,
-        to_version: CORE_SCHEMA_VERSION,
+        to_version: CURRENT_STORE_REVISION,
     });
     let backup_path = create_migration_backup(connection, profile_home, source_version)?;
     let validated_yjs_documents = validate_live_yjs_documents(connection)?;
@@ -2807,25 +2800,9 @@ pub fn prepare_profile_store_with_observer(
         now,
         observer,
     )?;
-    validate_store(connection)?;
-    validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
-    validate_codex_thread_timestamp_invariants(connection)?;
-    validate_canonical_text_timestamp_invariants(connection)?;
-    validate_database_view_layout_invariants(connection)?;
-    validate_database_view_global_rank_invariants(connection)?;
-    validate_database_relation_invariants(connection)?;
-    validate_database_priority_invariants(connection)?;
-    validate_v117_library_content_ownership(connection)?;
-    validate_v118_canvas_resource_grants(connection)?;
-    validate_v119_library_content_index_cleanup(connection)?;
-    validate_v120_document_block_tombstones(connection)?;
-    validate_v124_thread_execution_hosts(connection)?;
-    validate_v125_default_draft_sessions(connection)?;
-    validate_v126_thread_recency(connection)?;
-    validate_v127_document_page_references(connection)?;
-    validate_v128_block_transfer_undo(connection)?;
+    StoreMigrationLedger::validate_current_store(connection)?;
     Ok(StorePreparation {
-        schema_version: CORE_SCHEMA_VERSION,
+        schema_version: CURRENT_STORE_REVISION,
         created_fresh: false,
         migrated_from_version: Some(source_version),
         migration_backup_path: Some(backup_path),
@@ -2868,31 +2845,14 @@ pub(crate) fn prepare_legacy_import_candidate(
     publish_current_store(
         connection,
         profile_home,
-        Some(TYPESCRIPT_SCHEMA_VERSION),
+        Some(LEGACY_TYPESCRIPT_STORE_REVISION),
         Some(backup_name),
         now,
         observer,
     )?;
-    validate_store(connection)?;
-    validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
-    validate_exact_current_schema(connection)?;
-    validate_codex_thread_timestamp_invariants(connection)?;
-    validate_canonical_text_timestamp_invariants(connection)?;
-    validate_database_view_layout_invariants(connection)?;
-    validate_database_view_global_rank_invariants(connection)?;
-    validate_database_relation_invariants(connection)?;
-    validate_database_priority_invariants(connection)?;
-    validate_v117_library_content_ownership(connection)?;
-    validate_v118_canvas_resource_grants(connection)?;
-    validate_v119_library_content_index_cleanup(connection)?;
-    validate_v120_document_block_tombstones(connection)?;
-    validate_v124_thread_execution_hosts(connection)?;
-    validate_v125_default_draft_sessions(connection)?;
-    validate_v126_thread_recency(connection)?;
-    validate_v127_document_page_references(connection)?;
-    validate_v128_block_transfer_undo(connection)?;
+    StoreMigrationLedger::validate_current_store(connection)?;
     Ok(StorePreparation {
-        schema_version: CORE_SCHEMA_VERSION,
+        schema_version: CURRENT_STORE_REVISION,
         created_fresh: false,
         migrated_from_version: Some(source_version),
         migration_backup_path: Some(source_backup_path.to_path_buf()),
@@ -2945,230 +2905,23 @@ fn upgrade_owned_store(
 ) -> Result<StorePreparation, StoreError> {
     validate_store(connection)?;
     validate_core_metadata(connection, source_version)?;
-    match source_version {
-        85 => validate_exact_v85_schema(connection)?,
-        86 => validate_exact_v86_schema(connection)?,
-        87 => validate_exact_v87_schema(connection)?,
-        88 => validate_exact_v88_schema(connection)?,
-        89 => validate_exact_v89_schema(connection)?,
-        90 => validate_exact_v90_schema(connection)?,
-        91 => validate_exact_v91_schema(connection)?,
-        92 => validate_exact_v92_schema(connection)?,
-        93 => validate_exact_v93_schema(connection)?,
-        94 => validate_exact_v94_schema(connection)?,
-        95 => validate_exact_v95_schema(connection)?,
-        96 => validate_exact_v96_schema(connection)?,
-        97 => validate_exact_v97_schema(connection)?,
-        98 => validate_exact_v98_schema(connection)?,
-        99 => validate_exact_v99_schema(connection)?,
-        100 => validate_exact_v100_schema(connection)?,
-        101 => validate_exact_v101_schema(connection)?,
-        102 => validate_exact_v102_schema(connection)?,
-        103 => validate_exact_v103_schema(connection)?,
-        104 => validate_exact_v104_schema(connection)?,
-        105 => validate_exact_v105_schema(connection)?,
-        106 => validate_exact_v106_schema(connection)?,
-        107 => validate_exact_v107_schema(connection)?,
-        108 => validate_exact_v108_schema(connection)?,
-        109 => validate_exact_v109_schema(connection)?,
-        110 | 111 => validate_exact_v110_schema(connection)?,
-        112 | 113 => validate_exact_v113_schema(connection)?,
-        114 => validate_exact_v114_schema(connection)?,
-        115 => validate_exact_v115_schema(connection)?,
-        116 => validate_exact_v116_schema(connection)?,
-        117 => validate_exact_v117_schema(connection)?,
-        118 => validate_exact_v118_schema(connection)?,
-        119 => validate_exact_v119_schema(connection)?,
-        120 => validate_exact_v120_schema(connection)?,
-        121 => validate_exact_v121_schema(connection)?,
-        122 => validate_exact_v122_schema(connection)?,
-        123 => validate_exact_v123_schema(connection)?,
-        124 => validate_exact_v124_schema(connection)?,
-        125 => validate_exact_v125_schema(connection)?,
-        126 => validate_exact_v126_schema(connection)?,
-        127 => validate_exact_v127_schema(connection)?,
-        _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
-    }
+    StoreMigrationLedger::validate_published_source(connection, source_version)?;
 
     observer(StorePreparationEvent::MigrationStarted {
         from_version: source_version,
-        to_version: CORE_SCHEMA_VERSION,
+        to_version: CURRENT_STORE_REVISION,
     });
 
     let backup_path = create_migration_backup(connection, profile_home, source_version)?;
     let validated_yjs_documents = validate_live_yjs_documents(connection)?;
     let migration_now = unix_time_millis()?;
     with_schema_rebuild_transaction(connection, |transaction| {
-        if source_version < 86 {
-            ensure_v86_execution_profile_schema(transaction)?;
-        }
-        if source_version < 87 {
-            ensure_v87_project_session_tabs_schema(transaction)?;
-        }
-        if source_version < 88 {
-            ensure_v88_projection_impact_schema(transaction)?;
-        }
-        if source_version < 89 {
-            repair_v89_codex_thread_timestamps(transaction)?;
-        }
-        if source_version < 90 {
-            ensure_v90_window_owned_session_views_schema(transaction)?;
-        }
-        if source_version < 91 {
-            ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
-        }
-        if source_version < 92 {
-            ensure_v92_canonical_text_timestamps(transaction)?;
-        }
-        if source_version < 93 {
-            ensure_v93_database_starter_sessions_schema(transaction)?;
-        }
-        if source_version < 94 {
-            ensure_v94_project_appearance_schema(transaction)?;
-        }
-        if source_version < 95 {
-            ensure_v95_canvas_incremental_schema(transaction)?;
-        }
-        if source_version < 96 {
-            ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
-        }
-        if source_version < 97 {
-            ensure_v97_canvas_owners_schema(transaction)?;
-        }
-        if source_version < 98 {
-            ensure_v98_yjs_integrity_schema(transaction)?;
-        }
-        if source_version < 99 {
-            ensure_v99_owner_scoped_scenes_schema(transaction)?;
-        }
-        if source_version < 100 {
-            ensure_v100_relation_properties_schema(transaction)?;
-        }
-        if source_version < 101 {
-            ensure_v101_projectless_permission_mode_schema(transaction)?;
-        }
-        if source_version < 102 {
-            ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
-        }
-        if source_version < 103 {
-            ensure_v103_local_commit_composite_identity(transaction)?;
-        }
-        if source_version < 108 {
-            // Current manifest compilation includes scoped revocation evidence.
-            // Install its immutable child table before any historical manifest
-            // rebuild so every migration stage sees the complete current
-            // canonical input rather than special-casing absent evidence.
-            ensure_v108_local_commit_revocations_schema(transaction)?;
-        }
-        if source_version < 109 {
-            ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
-        }
-        if source_version < 110 {
-            ensure_v110_visibility_delta_journal_schema(transaction)?;
-        }
-        if source_version < 106 {
-            upgrade_local_commit_artifacts(
-                transaction,
-                source_version,
-                &mut |completed, total| {
-                    observer(StorePreparationEvent::MigrationProgress { completed, total });
-                },
-            )?;
-        }
-        if source_version < 107 {
-            ensure_v107_block_project_cascade_indexes(transaction)?;
-        }
-        if (106..108).contains(&source_version) {
-            crate::infrastructure::local_commit::upgrade_v108_manifest(
-                transaction,
-                &mut |completed, total| {
-                    observer(StorePreparationEvent::MigrationProgress { completed, total });
-                },
-            )?;
-        }
-        if source_version < 109 {
-            crate::infrastructure::local_commit::upgrade_v109_manifest(
-                transaction,
-                &mut |completed, total| {
-                    observer(StorePreparationEvent::MigrationProgress { completed, total });
-                },
-            )?;
-        }
-        if source_version < 110 {
-            crate::infrastructure::local_commit::upgrade_v110_manifest(
-                transaction,
-                &mut |completed, total| {
-                    observer(StorePreparationEvent::MigrationProgress { completed, total });
-                },
-            )?;
-        }
-        if source_version < 111 {
-            ensure_v111_priority_contract(transaction, migration_now)?;
-        }
-        if source_version < 112 {
-            ensure_v112_database_view_contract(transaction, migration_now)?;
-        }
-        if source_version < 113 {
-            ensure_v113_view_global_rank(transaction)?;
-        }
-        if source_version < 114 {
-            ensure_v114_database_list_authority(transaction)?;
-        }
-        if source_version < 115 {
-            ensure_v115_task_parent_relation_authority(transaction, migration_now)?;
-        }
-        if source_version < 120 {
-            ensure_v116_view_personal_state(transaction)?;
-            ensure_v117_library_content_ownership(transaction)?;
-            ensure_v118_canvas_resource_grants(transaction)?;
-            ensure_v119_library_content_index_cleanup(transaction)?;
-            ensure_v120_document_block_tombstones_schema(transaction)?;
-        }
-        if source_version < 121 {
-            ensure_v121_page_key_authority(transaction, migration_now)?;
-        } else if source_version < 123 {
-            let migrated_at = migration_timestamp(migration_now)?;
-            migrate_page_key_display_fields(transaction, &migrated_at)?;
-            validate_v121_page_key_invariants(transaction)?;
-        } else {
-            validate_v121_page_key_invariants(transaction)?;
-        }
-        ensure_v124_thread_execution_hosts(transaction)?;
-        ensure_v125_default_draft_sessions(transaction)?;
-        ensure_v126_thread_recency(transaction)?;
-        ensure_v127_document_page_references(transaction)?;
-        ensure_v128_block_transfer_undo(transaction)?;
-        let updated = transaction.execute(
-            "UPDATE core_store_metadata SET store_format_version = ?1 \
-             WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
-            params![CORE_SCHEMA_VERSION, CORE_SCHEMA_OWNER, source_version],
-        )?;
-        if updated != 1 {
-            return Err(corrupt(
-                "Rust Core ownership marker changed during forward migration",
-            ));
-        }
-        transaction.pragma_update(None, "user_version", CORE_SCHEMA_VERSION)?;
-        Ok(())
+        StoreMigrationLedger::migrate_forward(transaction, source_version, migration_now, observer)
     })?;
 
-    validate_store(connection)?;
-    validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
-    validate_exact_current_schema(connection)?;
-    validate_codex_thread_timestamp_invariants(connection)?;
-    validate_canonical_text_timestamp_invariants(connection)?;
-    validate_database_view_layout_invariants(connection)?;
-    validate_database_view_global_rank_invariants(connection)?;
-    validate_database_relation_invariants(connection)?;
-    validate_database_priority_invariants(connection)?;
-    validate_v117_library_content_ownership(connection)?;
-    validate_v118_canvas_resource_grants(connection)?;
-    validate_v119_library_content_index_cleanup(connection)?;
-    validate_v120_document_block_tombstones(connection)?;
-    validate_v124_thread_execution_hosts(connection)?;
-    validate_v125_default_draft_sessions(connection)?;
+    StoreMigrationLedger::validate_current_store(connection)?;
     Ok(StorePreparation {
-        schema_version: CORE_SCHEMA_VERSION,
+        schema_version: CURRENT_STORE_REVISION,
         created_fresh: false,
         migrated_from_version: Some(source_version),
         migration_backup_path: Some(backup_path),
@@ -3190,7 +2943,7 @@ fn create_migration_backup(
         return Ok(existing);
     }
     let pending_path = directory.join(format!(
-        ".v{source_version}-to-v{CORE_SCHEMA_VERSION}.pending.db"
+        ".v{source_version}-to-v{CURRENT_STORE_REVISION}.pending.db"
     ));
     if let Ok(metadata) = fs::symlink_metadata(&pending_path) {
         if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
@@ -3210,7 +2963,7 @@ fn create_migration_backup(
     validate_migration_backup(&pending_path, source_version)?;
     let digest = file_sha256(&pending_path)?;
     let backup_path = directory.join(format!(
-        "v{source_version}-to-v{CORE_SCHEMA_VERSION}-{digest}.db"
+        "v{source_version}-to-v{CURRENT_STORE_REVISION}-{digest}.db"
     ));
     if let Ok(metadata) = fs::symlink_metadata(&backup_path) {
         if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
@@ -3264,7 +3017,7 @@ fn find_reusable_migration_backup(
     source_version: i64,
     source_identity: &MigrationSourceIdentity,
 ) -> Result<Option<PathBuf>, StoreError> {
-    let prefix = format!("v{source_version}-to-v{CORE_SCHEMA_VERSION}-");
+    let prefix = format!("v{source_version}-to-v{CURRENT_STORE_REVISION}-");
     let mut candidates = Vec::new();
     for entry in fs::read_dir(directory).map_err(io_error)? {
         let path = entry.map_err(io_error)?.path();
@@ -3424,7 +3177,7 @@ fn validate_live_yjs_documents(connection: &Connection) -> Result<usize, StoreEr
 }
 
 pub(crate) fn validate_v85_restore_documents(connection: &Connection) -> Result<usize, StoreError> {
-    validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
+    validate_core_metadata(connection, CURRENT_STORE_REVISION)?;
     validate_live_yjs_documents(connection)
 }
 
@@ -3571,52 +3324,13 @@ fn publish_current_store(
         ensure_automation_run_revision(transaction)?;
         ensure_v86_execution_profile_schema(transaction)?;
         ensure_v87_project_session_tabs_schema(transaction)?;
-        write_v85_metadata(transaction, migrated_from, backup_name, now)?;
-        ensure_v88_projection_impact_schema(transaction)?;
-        repair_v89_codex_thread_timestamps(transaction)?;
-        ensure_v90_window_owned_session_views_schema(transaction)?;
-        ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
-        ensure_v92_canonical_text_timestamps(transaction)?;
-        ensure_v93_database_starter_sessions_schema(transaction)?;
-        ensure_v94_project_appearance_schema(transaction)?;
-        ensure_v95_canvas_incremental_schema(transaction)?;
-        ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
-        ensure_v97_canvas_owners_schema(transaction)?;
-        ensure_v98_yjs_integrity_schema(transaction)?;
-        ensure_v99_owner_scoped_scenes_schema(transaction)?;
-        ensure_v100_relation_properties_schema(transaction)?;
-        ensure_v101_projectless_permission_mode_schema(transaction)?;
-        ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
-        ensure_v103_local_commit_composite_identity(transaction)?;
-        ensure_v107_block_project_cascade_indexes(transaction)?;
-        ensure_v108_local_commit_revocations_schema(transaction)?;
-        ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
-        ensure_v110_visibility_delta_journal_schema(transaction)?;
-        upgrade_local_commit_artifacts(
+        write_core_metadata(transaction, migrated_from, backup_name, now)?;
+        StoreMigrationLedger::migrate_forward(
             transaction,
-            TYPESCRIPT_SCHEMA_VERSION,
-            &mut |completed, total| {
-                observer(StorePreparationEvent::MigrationProgress { completed, total });
-            },
+            LEGACY_TYPESCRIPT_STORE_REVISION,
+            now,
+            observer,
         )?;
-        crate::infrastructure::local_commit::upgrade_v109_manifest(transaction, &mut |_, _| {})?;
-        crate::infrastructure::local_commit::upgrade_v110_manifest(transaction, &mut |_, _| {})?;
-        ensure_v111_priority_contract(transaction, now)?;
-        ensure_v112_database_view_contract(transaction, now)?;
-        ensure_v113_view_global_rank(transaction)?;
-        ensure_v114_database_list_authority(transaction)?;
-        ensure_v115_task_parent_relation_authority(transaction, now)?;
-        ensure_v116_view_personal_state(transaction)?;
-        ensure_v117_library_content_ownership(transaction)?;
-        ensure_v118_canvas_resource_grants(transaction)?;
-        ensure_v119_library_content_index_cleanup(transaction)?;
-        ensure_v120_document_block_tombstones_schema(transaction)?;
-        ensure_v121_page_key_authority(transaction, now)?;
-        ensure_v124_thread_execution_hosts(transaction)?;
-        ensure_v125_default_draft_sessions(transaction)?;
-        ensure_v126_thread_recency(transaction)?;
-        ensure_v127_document_page_references(transaction)?;
-        ensure_v128_block_transfer_undo(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -3635,46 +3349,13 @@ fn create_fresh_store(
         ensure_automation_run_revision(transaction)?;
         ensure_v86_execution_profile_schema(transaction)?;
         ensure_v87_project_session_tabs_schema(transaction)?;
-        write_v85_metadata(transaction, None, None, now)?;
-        ensure_v88_projection_impact_schema(transaction)?;
-        repair_v89_codex_thread_timestamps(transaction)?;
-        ensure_v90_window_owned_session_views_schema(transaction)?;
-        ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
-        ensure_v92_canonical_text_timestamps(transaction)?;
-        ensure_v93_database_starter_sessions_schema(transaction)?;
-        ensure_v94_project_appearance_schema(transaction)?;
-        ensure_v95_canvas_incremental_schema(transaction)?;
-        ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
-        ensure_v97_canvas_owners_schema(transaction)?;
-        ensure_v98_yjs_integrity_schema(transaction)?;
-        ensure_v99_owner_scoped_scenes_schema(transaction)?;
-        ensure_v100_relation_properties_schema(transaction)?;
-        ensure_v101_projectless_permission_mode_schema(transaction)?;
-        ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
-        ensure_v103_local_commit_composite_identity(transaction)?;
-        ensure_v107_block_project_cascade_indexes(transaction)?;
-        ensure_v108_local_commit_revocations_schema(transaction)?;
-        ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
-        ensure_v110_visibility_delta_journal_schema(transaction)?;
-        upgrade_local_commit_artifacts(transaction, TYPESCRIPT_SCHEMA_VERSION, &mut |_, _| {})?;
-        crate::infrastructure::local_commit::upgrade_v109_manifest(transaction, &mut |_, _| {})?;
-        crate::infrastructure::local_commit::upgrade_v110_manifest(transaction, &mut |_, _| {})?;
-        ensure_v111_priority_contract(transaction, now)?;
-        ensure_v112_database_view_contract(transaction, now)?;
-        ensure_v113_view_global_rank(transaction)?;
-        ensure_v114_database_list_authority(transaction)?;
-        ensure_v115_task_parent_relation_authority(transaction, now)?;
-        ensure_v116_view_personal_state(transaction)?;
-        ensure_v117_library_content_ownership(transaction)?;
-        ensure_v118_canvas_resource_grants(transaction)?;
-        ensure_v119_library_content_index_cleanup(transaction)?;
-        ensure_v120_document_block_tombstones_schema(transaction)?;
-        ensure_v121_page_key_authority(transaction, now)?;
-        ensure_v124_thread_execution_hosts(transaction)?;
-        ensure_v125_default_draft_sessions(transaction)?;
-        ensure_v126_thread_recency(transaction)?;
-        ensure_v127_document_page_references(transaction)?;
-        ensure_v128_block_transfer_undo(transaction)?;
+        write_core_metadata(transaction, None, None, now)?;
+        StoreMigrationLedger::migrate_forward(
+            transaction,
+            LEGACY_TYPESCRIPT_STORE_REVISION,
+            now,
+            &mut |_| {},
+        )?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -3712,7 +3393,7 @@ pub(crate) fn prepare_test_current_store(
             "INSERT INTO nodex_agent_token_keys(id, key_material) VALUES (1, randomblob(32))",
             [],
         )?;
-        write_v85_metadata(transaction, None, None, now)?;
+        write_core_metadata(transaction, None, None, now)?;
         transaction.execute(
             "UPDATE core_store_metadata SET projection_event_v2_floor = 1 WHERE id = 1",
             [],
@@ -7686,7 +7367,7 @@ fn network_root_has_server_and_share(root: &str, separator: char) -> bool {
         && parts.next().is_some_and(|part| !part.is_empty())
 }
 
-fn write_v85_metadata(
+fn write_core_metadata(
     transaction: &rusqlite::Transaction<'_>,
     migrated_from: Option<i64>,
     backup_name: Option<&str>,
@@ -7699,20 +7380,30 @@ fn write_v85_metadata(
             false,
         )
     })?;
-    transaction.execute(
-        "INSERT INTO core_store_metadata (\
-           id, schema_owner, store_format_version, migrated_from_version, \
-           migration_backup_name, migrated_at_unix_ms\
-         ) VALUES (1, ?1, ?2, ?3, ?4, ?5)",
-        params![
-            CORE_SCHEMA_OWNER,
-            CORE_SCHEMA_VERSION,
-            migrated_from,
-            backup_name,
-            now
-        ],
-    )?;
-    transaction.pragma_update(None, "user_version", CORE_SCHEMA_VERSION)?;
+    if table_has_column(transaction, "core_store_metadata", "store_format_version")? {
+        transaction.execute(
+            "INSERT INTO core_store_metadata (\
+               id, schema_owner, store_format_version, migrated_from_version, \
+               migration_backup_name, migrated_at_unix_ms\
+             ) VALUES (1, ?1, ?2, ?3, ?4, ?5)",
+            params![
+                CORE_SCHEMA_OWNER,
+                CURRENT_STORE_REVISION,
+                migrated_from,
+                backup_name,
+                now
+            ],
+        )?;
+    } else {
+        transaction.execute(
+            "INSERT INTO core_store_metadata (\
+               id, schema_owner, migrated_from_version, migration_backup_name, \
+               migrated_at_unix_ms\
+             ) VALUES (1, ?1, ?2, ?3, ?4)",
+            params![CORE_SCHEMA_OWNER, migrated_from, backup_name, now],
+        )?;
+    }
+    transaction.pragma_update(None, "user_version", CURRENT_STORE_REVISION)?;
     Ok(())
 }
 
@@ -7720,14 +7411,26 @@ fn validate_core_metadata(
     connection: &Connection,
     expected_version: i64,
 ) -> Result<(), StoreError> {
-    let metadata = connection
-        .query_row(
-            "SELECT schema_owner, store_format_version FROM core_store_metadata WHERE id = 1",
-            [],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .optional()?;
-    if metadata != Some((CORE_SCHEMA_OWNER.to_owned(), expected_version)) {
+    let owns_store = if expected_version >= 129 {
+        connection
+            .query_row(
+                "SELECT schema_owner FROM core_store_metadata WHERE id = 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .is_some_and(|owner| owner == CORE_SCHEMA_OWNER)
+    } else {
+        connection
+            .query_row(
+                "SELECT schema_owner, store_format_version FROM core_store_metadata WHERE id = 1",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?
+            == Some((CORE_SCHEMA_OWNER.to_owned(), expected_version))
+    };
+    if !owns_store {
         return Err(corrupt(format!(
             "v{expected_version} store does not contain the Rust Core ownership marker"
         )));
@@ -7748,244 +7451,253 @@ fn validate_core_metadata(
     Err(corrupt("Projection event replay floor is invalid"))
 }
 
-fn validate_exact_v85_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(
-        connection, false, false, false, false, false, false, false, 85,
-    )
+struct StoreMigrationLedger;
+
+impl StoreMigrationLedger {
+    fn prepare(
+        connection: &mut Connection,
+        profile_home: &Path,
+        observer: &mut dyn FnMut(StorePreparationEvent),
+    ) -> Result<StorePreparation, StoreError> {
+        prepare_profile_store_impl(connection, profile_home, observer)
+    }
+
+    fn supports(revision: i64) -> bool {
+        u32::try_from(revision)
+            .ok()
+            .and_then(nodex_store_format::published_store_format)
+            .is_some()
+    }
+
+    fn migrate_forward(
+        transaction: &Connection,
+        source_revision: i64,
+        migration_now: u64,
+        observer: &mut dyn FnMut(StorePreparationEvent),
+    ) -> Result<(), StoreError> {
+        if source_revision < 86 {
+            ensure_v86_execution_profile_schema(transaction)?;
+        }
+        if source_revision < 87 {
+            ensure_v87_project_session_tabs_schema(transaction)?;
+        }
+        if source_revision < 88 {
+            ensure_v88_projection_impact_schema(transaction)?;
+        }
+        if source_revision < 89 {
+            repair_v89_codex_thread_timestamps(transaction)?;
+        }
+        if source_revision < 90 {
+            ensure_v90_window_owned_session_views_schema(transaction)?;
+        }
+        if source_revision < 91 {
+            ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
+        }
+        if source_revision < 92 {
+            ensure_v92_canonical_text_timestamps(transaction)?;
+        }
+        if source_revision < 93 {
+            ensure_v93_database_starter_sessions_schema(transaction)?;
+        }
+        if source_revision < 94 {
+            ensure_v94_project_appearance_schema(transaction)?;
+        }
+        if source_revision < 95 {
+            ensure_v95_canvas_incremental_schema(transaction)?;
+        }
+        if source_revision < 96 {
+            ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
+        }
+        if source_revision < 97 {
+            ensure_v97_canvas_owners_schema(transaction)?;
+        }
+        if source_revision < 98 {
+            ensure_v98_yjs_integrity_schema(transaction)?;
+        }
+        if source_revision < 99 {
+            ensure_v99_owner_scoped_scenes_schema(transaction)?;
+        }
+        if source_revision < 100 {
+            ensure_v100_relation_properties_schema(transaction)?;
+        }
+        if source_revision < 101 {
+            ensure_v101_projectless_permission_mode_schema(transaction)?;
+        }
+        if source_revision < 102 {
+            ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
+        }
+        if source_revision < 103 {
+            ensure_v103_local_commit_composite_identity(transaction)?;
+        }
+        if source_revision < 108 {
+            // Current manifest compilation includes scoped revocation evidence.
+            // Install its immutable child table before rebuilding historical
+            // manifests so every step sees one canonical input shape.
+            ensure_v108_local_commit_revocations_schema(transaction)?;
+        }
+        if source_revision < 109 {
+            ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
+        }
+        if source_revision < 110 {
+            ensure_v110_visibility_delta_journal_schema(transaction)?;
+        }
+        if source_revision < 106 {
+            upgrade_local_commit_artifacts(
+                transaction,
+                source_revision,
+                &mut |completed, total| {
+                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                },
+            )?;
+        }
+        if source_revision < 107 {
+            ensure_v107_block_project_cascade_indexes(transaction)?;
+        }
+        if (106..108).contains(&source_revision) {
+            crate::infrastructure::local_commit::upgrade_v108_manifest(
+                transaction,
+                &mut |completed, total| {
+                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                },
+            )?;
+        }
+        if source_revision < 109 {
+            crate::infrastructure::local_commit::upgrade_v109_manifest(
+                transaction,
+                &mut |completed, total| {
+                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                },
+            )?;
+        }
+        if source_revision < 110 {
+            crate::infrastructure::local_commit::upgrade_v110_manifest(
+                transaction,
+                &mut |completed, total| {
+                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                },
+            )?;
+        }
+        if source_revision < 111 {
+            ensure_v111_priority_contract(transaction, migration_now)?;
+        }
+        if source_revision < 112 {
+            ensure_v112_database_view_contract(transaction, migration_now)?;
+        }
+        if source_revision < 113 {
+            ensure_v113_view_global_rank(transaction)?;
+        }
+        if source_revision < 114 {
+            ensure_v114_database_list_authority(transaction)?;
+        }
+        if source_revision < 115 {
+            ensure_v115_task_parent_relation_authority(transaction, migration_now)?;
+        }
+        if source_revision < 120 {
+            ensure_v116_view_personal_state(transaction)?;
+            ensure_v117_library_content_ownership(transaction)?;
+            ensure_v118_canvas_resource_grants(transaction)?;
+            ensure_v119_library_content_index_cleanup(transaction)?;
+            ensure_v120_document_block_tombstones_schema(transaction)?;
+        }
+        if source_revision < 121 {
+            ensure_v121_page_key_authority(transaction, migration_now)?;
+        } else if source_revision < 123 {
+            let migrated_at = migration_timestamp(migration_now)?;
+            migrate_page_key_display_fields(transaction, &migrated_at)?;
+            validate_v121_page_key_invariants(transaction)?;
+        } else {
+            validate_v121_page_key_invariants(transaction)?;
+        }
+        ensure_v124_thread_execution_hosts(transaction)?;
+        ensure_v125_default_draft_sessions(transaction)?;
+        ensure_v126_thread_recency(transaction)?;
+        ensure_v127_document_page_references(transaction)?;
+        ensure_v128_block_transfer_undo(transaction)?;
+        ensure_v129_store_revision_authority(transaction)?;
+        transaction.pragma_update(None, "user_version", CURRENT_STORE_REVISION)?;
+        Ok(())
+    }
+
+    fn validate_published_source(connection: &Connection, revision: i64) -> Result<(), StoreError> {
+        if revision <= LEGACY_TYPESCRIPT_STORE_REVISION
+            || revision >= CURRENT_STORE_REVISION
+            || !Self::supports(revision)
+        {
+            return Err(corrupt("Rust Core forward-migration source is unsupported"));
+        }
+        validate_exact_core_schema(connection, revision)?;
+        validate_store_semantics_at_revision(connection, revision)
+    }
+
+    fn validate_current(connection: &Connection) -> Result<(), StoreError> {
+        validate_exact_core_schema(connection, CURRENT_STORE_REVISION)?;
+        validate_store_semantics_at_revision(connection, CURRENT_STORE_REVISION)
+    }
+
+    fn validate_current_store(connection: &Connection) -> Result<(), StoreError> {
+        validate_store(connection)?;
+        validate_core_metadata(connection, CURRENT_STORE_REVISION)?;
+        Self::validate_current(connection)?;
+        validate_codex_thread_timestamp_invariants(connection)?;
+        validate_canonical_text_timestamp_invariants(connection)?;
+        validate_database_view_layout_invariants(connection)?;
+        validate_database_view_global_rank_invariants(connection)?;
+        validate_database_relation_invariants(connection)?;
+        validate_database_priority_invariants(connection)?;
+        validate_v117_library_content_ownership(connection)?;
+        validate_v118_canvas_resource_grants(connection)?;
+        validate_v119_library_content_index_cleanup(connection)?;
+        validate_v120_document_block_tombstones(connection)
+    }
 }
 
-fn validate_exact_v86_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(
-        connection, true, false, false, false, false, false, false, 86,
-    )
+fn validate_store_semantics_at_revision(
+    connection: &Connection,
+    revision: i64,
+) -> Result<(), StoreError> {
+    if revision >= 121 {
+        validate_v121_page_key_invariants(connection)?;
+    }
+    if revision >= 124 {
+        validate_v124_thread_execution_hosts(connection)?;
+    }
+    if revision >= 125 {
+        validate_v125_default_draft_sessions(connection)?;
+    }
+    if revision >= 126 {
+        validate_v126_thread_recency(connection)?;
+    }
+    if revision >= 127 {
+        validate_v127_document_page_references(connection)?;
+    }
+    if revision >= 128 {
+        validate_v128_block_transfer_undo(connection)?;
+    }
+    if revision >= 129 {
+        validate_v129_store_revision_authority(connection)?;
+    }
+    Ok(())
 }
 
-fn validate_exact_v87_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(
-        connection, true, true, false, false, false, false, false, 87,
-    )
-}
-
-fn validate_exact_v88_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, false, false, false, false, 88)
-}
-
-fn validate_exact_v89_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, false, false, false, false, 89)
-}
-
-fn validate_exact_v90_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, false, false, false, 90)
-}
-
-fn validate_exact_v91_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, false, false, 91)
-}
-
-fn validate_exact_v92_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, false, false, 92)
-}
-
-fn validate_exact_v93_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, false, 93)
-}
-
-fn validate_exact_v94_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 94)
-}
-
-fn validate_exact_v95_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 95)
-}
-
-fn validate_exact_v96_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 96)
-}
-
-fn validate_exact_v97_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 97)
-}
-
-fn validate_exact_v98_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 98)
-}
-
-fn validate_exact_v99_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 99)
-}
-
-fn validate_exact_v100_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 100)
-}
-
-fn validate_exact_v101_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 101)
-}
-
-fn validate_exact_v102_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 102)
-}
-
-fn validate_exact_v103_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 103)
-}
-
-fn validate_exact_v104_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 104)
-}
-
-fn validate_exact_v105_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 105)
-}
-
-fn validate_exact_v106_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 106)
-}
-
-fn validate_exact_v107_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 107)
-}
-
-fn validate_exact_v108_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 108)
-}
-
-fn validate_exact_v109_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 109)
-}
-
-fn validate_exact_v110_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 110)
-}
-
-fn validate_exact_v113_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 113)
-}
-
-fn validate_exact_v114_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 114)
-}
-
-fn validate_exact_v115_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 115)
-}
-
-fn validate_exact_v116_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 116)
-}
-
-fn validate_exact_v117_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 117)
-}
-
-fn validate_exact_v118_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 118)
-}
-
-fn validate_exact_v119_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 119)
-}
-
-fn validate_exact_v120_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 120)
-}
-
-fn validate_exact_v121_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 121)?;
-    validate_v121_page_key_invariants(connection)
-}
-
-fn validate_exact_v122_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 122)?;
-    validate_v121_page_key_invariants(connection)
-}
-
-fn validate_exact_v123_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 123)?;
-    validate_v121_page_key_invariants(connection)
-}
-
-fn validate_exact_v124_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 124)?;
-    validate_v121_page_key_invariants(connection)?;
-    validate_v124_thread_execution_hosts(connection)
-}
-
-fn validate_exact_v125_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 125)?;
-    validate_v121_page_key_invariants(connection)?;
-    validate_v124_thread_execution_hosts(connection)?;
-    validate_v125_default_draft_sessions(connection)
-}
-
-fn validate_exact_v126_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 126)?;
-    validate_v121_page_key_invariants(connection)?;
-    validate_v124_thread_execution_hosts(connection)?;
-    validate_v125_default_draft_sessions(connection)?;
-    validate_v126_thread_recency(connection)
-}
-
-fn validate_exact_v127_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 127)?;
-    validate_v121_page_key_invariants(connection)?;
-    validate_v124_thread_execution_hosts(connection)?;
-    validate_v125_default_draft_sessions(connection)?;
-    validate_v126_thread_recency(connection)?;
-    validate_v127_document_page_references(connection)
-}
-
+#[cfg(test)]
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
-    validate_exact_core_schema(
-        connection,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        CORE_SCHEMA_VERSION,
-    )?;
-    validate_v121_page_key_invariants(connection)?;
-    validate_v124_thread_execution_hosts(connection)?;
-    validate_v125_default_draft_sessions(connection)?;
-    validate_v126_thread_recency(connection)?;
-    validate_v127_document_page_references(connection)?;
-    validate_v128_block_transfer_undo(connection)
+    StoreMigrationLedger::validate_current(connection)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_exact_core_schema(
     connection: &Connection,
-    include_execution_profiles: bool,
-    include_portable_tabs: bool,
-    include_projection_impact: bool,
-    include_window_owned_session_views: bool,
-    include_workspace_sidebar_lanes: bool,
-    include_database_starter_sessions: bool,
-    include_project_appearance: bool,
-    schema_version: i64,
+    store_revision: i64,
 ) -> Result<(), StoreError> {
     let actual_inventory = read_schema_inventory(connection)?;
-    if schema_version == CORE_SCHEMA_VERSION {
+    if store_revision == CURRENT_STORE_REVISION {
         return compare_schema_inventories(
             current_schema_inventory()?,
             &actual_inventory,
-            schema_version,
+            store_revision,
         );
     }
-    let expected_inventory = build_expected_core_schema_inventory(
-        include_execution_profiles,
-        include_portable_tabs,
-        include_projection_impact,
-        include_window_owned_session_views,
-        include_workspace_sidebar_lanes,
-        include_database_starter_sessions,
-        include_project_appearance,
-        schema_version,
-    )?;
-    compare_schema_inventories(&expected_inventory, &actual_inventory, schema_version)
+    let expected_inventory = build_expected_core_schema_inventory(store_revision)?;
+    compare_schema_inventories(&expected_inventory, &actual_inventory, store_revision)
 }
 
 static CURRENT_SCHEMA_INVENTORY: OnceLock<SchemaInventory> = OnceLock::new();
@@ -7994,32 +7706,15 @@ fn current_schema_inventory() -> Result<&'static SchemaInventory, StoreError> {
     if let Some(inventory) = CURRENT_SCHEMA_INVENTORY.get() {
         return Ok(inventory);
     }
-    let inventory = build_expected_core_schema_inventory(
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        CORE_SCHEMA_VERSION,
-    )?;
+    let inventory = build_expected_core_schema_inventory(CURRENT_STORE_REVISION)?;
     let _ = CURRENT_SCHEMA_INVENTORY.set(inventory);
     CURRENT_SCHEMA_INVENTORY
         .get()
         .ok_or_else(|| corrupt("Current Store schema inventory was not initialized"))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_expected_core_schema_inventory(
-    include_execution_profiles: bool,
-    include_portable_tabs: bool,
-    include_projection_impact: bool,
-    include_window_owned_session_views: bool,
-    include_workspace_sidebar_lanes: bool,
-    include_database_starter_sessions: bool,
-    include_project_appearance: bool,
-    schema_version: i64,
+    store_revision: i64,
 ) -> Result<SchemaInventory, StoreError> {
     let expected = Connection::open_in_memory()?;
     expected.execute_batch(v84_schema_objects_sql())?;
@@ -8027,116 +7722,119 @@ fn build_expected_core_schema_inventory(
     expected.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
     ensure_automation_definition_revision(&expected)?;
     ensure_automation_run_revision(&expected)?;
-    if include_execution_profiles {
+    if store_revision >= 86 {
         ensure_v86_execution_profile_schema(&expected)?;
     }
-    if include_portable_tabs {
+    if store_revision >= 87 {
         ensure_v87_project_session_tabs_schema(&expected)?;
     }
-    if include_projection_impact {
+    if store_revision >= 88 {
         ensure_v88_projection_impact_schema(&expected)?;
     }
-    if include_window_owned_session_views {
+    if store_revision >= 90 {
         ensure_v90_window_owned_session_views_schema(&expected)?;
     }
-    if include_workspace_sidebar_lanes {
+    if store_revision >= 91 {
         ensure_v91_workspace_sidebar_lanes_schema(&expected)?;
     }
-    if include_database_starter_sessions {
+    if store_revision >= 93 {
         ensure_v93_database_starter_sessions_schema(&expected)?;
     }
-    if include_project_appearance {
+    if store_revision >= 94 {
         ensure_v94_project_appearance_schema(&expected)?;
     }
-    if schema_version >= 95 {
+    if store_revision >= 95 {
         ensure_v95_canvas_incremental_schema(&expected)?;
     }
-    if schema_version >= 96 {
+    if store_revision >= 96 {
         ensure_v96_canvas_tombstone_bytes_schema(&expected)?;
     }
-    if schema_version >= 97 {
+    if store_revision >= 97 {
         ensure_v97_canvas_owners_schema(&expected)?;
     }
-    if schema_version >= 98 {
+    if store_revision >= 98 {
         ensure_v98_yjs_integrity_schema(&expected)?;
     }
-    if schema_version >= 99 {
+    if store_revision >= 99 {
         ensure_v99_owner_scoped_scenes_schema(&expected)?;
     }
-    if schema_version >= 100 {
+    if store_revision >= 100 {
         ensure_v100_relation_properties_schema(&expected)?;
     }
-    if schema_version >= 101 {
+    if store_revision >= 101 {
         ensure_v101_projectless_permission_mode_schema(&expected)?;
     }
-    if schema_version >= 102 {
+    if store_revision >= 102 {
         ensure_v102_local_commit_schema(&expected, &mut |_, _| {})?;
     }
-    if schema_version >= 103 {
+    if store_revision >= 103 {
         ensure_v103_local_commit_composite_identity(&expected)?;
     }
-    if schema_version >= 105 {
+    if store_revision >= 105 {
         ensure_v105_local_commit_manifest_schema(&expected)?;
     }
-    if schema_version >= 106 {
+    if store_revision >= 106 {
         ensure_v106_projection_scope_heads_schema(&expected)?;
     }
-    if schema_version >= 107 {
+    if store_revision >= 107 {
         ensure_v107_block_project_cascade_indexes(&expected)?;
     }
-    if schema_version >= 108 {
+    if store_revision >= 108 {
         ensure_v108_local_commit_revocations_schema(&expected)?;
     }
-    if schema_version >= 109 {
+    if store_revision >= 109 {
         ensure_v109_local_commit_delivery_atoms_schema(&expected)?;
     }
-    if schema_version >= 110 {
+    if store_revision >= 110 {
         ensure_v110_visibility_delta_journal_schema(&expected)?;
     }
-    if schema_version >= 112 {
+    if store_revision >= 112 {
         ensure_v112_database_view_contract(&expected, 0)?;
         ensure_v113_view_global_rank(&expected)?;
     }
-    if schema_version >= 114 {
+    if store_revision >= 114 {
         ensure_v114_database_list_authority(&expected)?;
     }
-    if schema_version >= 115 {
+    if store_revision >= 115 {
         ensure_v115_task_parent_relation_authority(&expected, 0)?;
     }
-    if schema_version >= 116 {
+    if store_revision >= 116 {
         ensure_v116_view_personal_state(&expected)?;
     }
-    if schema_version >= 117 {
+    if store_revision >= 117 {
         expected.pragma_update(None, "foreign_keys", false)?;
         ensure_v117_library_content_ownership(&expected)?;
         expected.pragma_update(None, "foreign_keys", true)?;
     }
-    if schema_version >= 118 {
+    if store_revision >= 118 {
         ensure_v118_canvas_resource_grants(&expected)?;
     }
-    if schema_version >= 119 {
+    if store_revision >= 119 {
         ensure_v119_library_content_index_cleanup(&expected)?;
     }
-    if schema_version >= 120 {
+    if store_revision >= 120 {
         ensure_v120_document_block_tombstones_schema(&expected)?;
     }
-    if schema_version >= 121 {
+    if store_revision >= 121 {
         ensure_v121_page_key_authority(&expected, 0)?;
     }
-    if schema_version >= 124 {
+    if store_revision >= 124 {
         ensure_v124_thread_execution_hosts(&expected)?;
     }
-    if schema_version >= 125 {
+    if store_revision >= 125 {
         ensure_v125_default_draft_sessions(&expected)?;
     }
-    if schema_version >= 126 {
+    if store_revision >= 126 {
         ensure_v126_thread_recency(&expected)?;
     }
-    if schema_version >= 127 {
+    if store_revision >= 127 {
         ensure_v127_document_page_references(&expected)?;
     }
-    if schema_version >= 128 {
+    if store_revision >= 128 {
         ensure_v128_block_transfer_undo(&expected)?;
+    }
+    if store_revision >= 129 {
+        ensure_v129_store_revision_authority(&expected)?;
     }
 
     read_schema_inventory(&expected)
@@ -8166,143 +7864,31 @@ fn compare_schema_inventories(
                 .get(*key)
                 .is_some_and(|actual_sql| actual_sql != *sql)
         })
-        .count();
+        .map(|(key, _)| key.name.as_str())
+        .collect::<Vec<_>>();
     Err(corrupt(format!(
-        "v{schema_version} physical schema does not match the frozen Rust Core schema ({missing} missing, {unexpected} unexpected, {changed} changed objects)"
+        "v{schema_version} physical schema does not match the frozen Rust Core schema ({missing} missing, {unexpected} unexpected, {} changed objects: {})",
+        changed.len(),
+        changed.join(", ")
     )))
 }
 
-pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreError> {
-    let expected = Connection::open_in_memory()?;
-    if version == TYPESCRIPT_SCHEMA_VERSION {
+pub fn expected_store_schema_fingerprint(revision: i64) -> Result<String, StoreError> {
+    if revision == LEGACY_TYPESCRIPT_STORE_REVISION {
+        let expected = Connection::open_in_memory()?;
         install_v84_schema(&expected)?;
         return read_schema_inventory(&expected)
             .map(|inventory| schema_inventory_fingerprint(&inventory));
     }
-    if !(85..=CORE_SCHEMA_VERSION).contains(&version) {
+    if !StoreMigrationLedger::supports(revision) {
         return Err(StoreError::new(
             StoreErrorCode::UnsupportedSchema,
-            format!("No exact Rust Core schema inventory is published for v{version}"),
+            format!("No exact Rust Core schema inventory is published for v{revision}"),
             false,
         ));
     }
-    expected.execute_batch(v84_schema_objects_sql())?;
-    expected.execute_batch(V85_SCHEMA_SQL)?;
-    expected.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
-    ensure_automation_definition_revision(&expected)?;
-    ensure_automation_run_revision(&expected)?;
-    if version >= 86 {
-        ensure_v86_execution_profile_schema(&expected)?;
-    }
-    if version >= 87 {
-        ensure_v87_project_session_tabs_schema(&expected)?;
-    }
-    if version >= 88 {
-        ensure_v88_projection_impact_schema(&expected)?;
-    }
-    if version >= 90 {
-        ensure_v90_window_owned_session_views_schema(&expected)?;
-    }
-    if version >= 91 {
-        ensure_v91_workspace_sidebar_lanes_schema(&expected)?;
-    }
-    if version >= 93 {
-        ensure_v93_database_starter_sessions_schema(&expected)?;
-    }
-    if version >= 94 {
-        ensure_v94_project_appearance_schema(&expected)?;
-    }
-    if version >= 95 {
-        ensure_v95_canvas_incremental_schema(&expected)?;
-    }
-    if version >= 96 {
-        ensure_v96_canvas_tombstone_bytes_schema(&expected)?;
-    }
-    if version >= 97 {
-        ensure_v97_canvas_owners_schema(&expected)?;
-    }
-    if version >= 98 {
-        ensure_v98_yjs_integrity_schema(&expected)?;
-    }
-    if version >= 99 {
-        ensure_v99_owner_scoped_scenes_schema(&expected)?;
-    }
-    if version >= 100 {
-        ensure_v100_relation_properties_schema(&expected)?;
-    }
-    if version >= 101 {
-        ensure_v101_projectless_permission_mode_schema(&expected)?;
-    }
-    if version >= 102 {
-        ensure_v102_local_commit_schema(&expected, &mut |_, _| {})?;
-    }
-    if version >= 103 {
-        ensure_v103_local_commit_composite_identity(&expected)?;
-    }
-    if version >= 105 {
-        ensure_v105_local_commit_manifest_schema(&expected)?;
-    }
-    if version >= 106 {
-        ensure_v106_projection_scope_heads_schema(&expected)?;
-    }
-    if version >= 107 {
-        ensure_v107_block_project_cascade_indexes(&expected)?;
-    }
-    if version >= 108 {
-        ensure_v108_local_commit_revocations_schema(&expected)?;
-    }
-    if version >= 109 {
-        ensure_v109_local_commit_delivery_atoms_schema(&expected)?;
-    }
-    if version >= 110 {
-        ensure_v110_visibility_delta_journal_schema(&expected)?;
-    }
-    if version >= 112 {
-        ensure_v112_database_view_contract(&expected, 0)?;
-        ensure_v113_view_global_rank(&expected)?;
-    }
-    if version >= 114 {
-        ensure_v114_database_list_authority(&expected)?;
-    }
-    if version >= 115 {
-        ensure_v115_task_parent_relation_authority(&expected, 0)?;
-    }
-    if version >= 116 {
-        ensure_v116_view_personal_state(&expected)?;
-    }
-    if version >= 117 {
-        expected.pragma_update(None, "foreign_keys", false)?;
-        ensure_v117_library_content_ownership(&expected)?;
-        expected.pragma_update(None, "foreign_keys", true)?;
-    }
-    if version >= 118 {
-        ensure_v118_canvas_resource_grants(&expected)?;
-    }
-    if version >= 119 {
-        ensure_v119_library_content_index_cleanup(&expected)?;
-    }
-    if version >= 120 {
-        ensure_v120_document_block_tombstones_schema(&expected)?;
-    }
-    if version >= 121 {
-        ensure_v121_page_key_authority(&expected, 0)?;
-    }
-    if version >= 124 {
-        ensure_v124_thread_execution_hosts(&expected)?;
-    }
-    if version >= 125 {
-        ensure_v125_default_draft_sessions(&expected)?;
-    }
-    if version >= 126 {
-        ensure_v126_thread_recency(&expected)?;
-    }
-    if version >= 127 {
-        ensure_v127_document_page_references(&expected)?;
-    }
-    if version >= 128 {
-        ensure_v128_block_transfer_undo(&expected)?;
-    }
-    read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
+    build_expected_core_schema_inventory(revision)
+        .map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
 fn apply_update(
@@ -8426,7 +8012,42 @@ mod tests {
 
     const DOCUMENT_ID: &str = "document:migration-page";
 
+    /// Historical migration unit tests still construct specific old revisions by
+    /// removing newer objects from a fresh Store. Restore the exact v128 metadata
+    /// table first; the published-boundary gate itself uses the frozen v128 fixture.
+    fn restore_v128_store_metadata_schema(connection: &Connection) -> Result<(), StoreError> {
+        if table_has_column(connection, "core_store_metadata", "store_format_version")? {
+            return Ok(());
+        }
+        connection.execute_batch(
+            "ALTER TABLE core_store_metadata RENAME TO core_store_metadata_v129; \
+             CREATE TABLE core_store_metadata ( \
+               id INTEGER PRIMARY KEY CHECK (id = 1), \
+               schema_owner TEXT NOT NULL CHECK (schema_owner = 'rust_core'), \
+               store_format_version INTEGER NOT NULL CHECK (store_format_version >= 84), \
+               migrated_from_version INTEGER, \
+               migration_backup_name TEXT, \
+               migrated_at_unix_ms INTEGER NOT NULL CHECK (migrated_at_unix_ms >= 0), \
+               projection_event_v2_floor INTEGER, \
+               CHECK ( \
+                 (migrated_from_version IS NULL AND migration_backup_name IS NULL) \
+                 OR (migrated_from_version = 84 AND length(migration_backup_name) > 0) \
+               ) \
+             ) STRICT; \
+             INSERT INTO core_store_metadata( \
+               id, schema_owner, store_format_version, migrated_from_version, \
+               migration_backup_name, migrated_at_unix_ms, projection_event_v2_floor \
+             ) \
+             SELECT id, schema_owner, 128, migrated_from_version, \
+                    migration_backup_name, migrated_at_unix_ms, projection_event_v2_floor \
+             FROM core_store_metadata_v129; \
+             DROP TABLE core_store_metadata_v129;",
+        )?;
+        Ok(())
+    }
+
     fn remove_v128_block_transfer_undo_schema(connection: &Connection) -> Result<(), StoreError> {
+        restore_v128_store_metadata_schema(connection)?;
         connection
             .execute_batch("DROP TABLE block_transfer_undo_recipes;")
             .map_err(StoreError::from)
@@ -8584,11 +8205,11 @@ mod tests {
     fn published_current_store_identity_matches_the_exact_schema() {
         assert_eq!(
             i64::from(nodex_core_protocol::CURRENT_STORE_VERSION),
-            CORE_SCHEMA_VERSION,
+            CURRENT_STORE_REVISION,
         );
         assert_eq!(
             nodex_core_protocol::CURRENT_STORE_SCHEMA_FINGERPRINT,
-            expected_store_schema_fingerprint(CORE_SCHEMA_VERSION)
+            expected_store_schema_fingerprint(CURRENT_STORE_REVISION)
                 .expect("current Store fingerprint"),
         );
     }
@@ -9058,7 +8679,7 @@ mod tests {
         let reopened_again = SqliteStoreKernel::open(&home).expect("reopen current Store");
         assert_eq!(
             reopened_again.preparation().schema_version,
-            CORE_SCHEMA_VERSION
+            CURRENT_STORE_REVISION
         );
         assert!(!reopened_again.preparation().created_fresh);
     }
@@ -9143,7 +8764,10 @@ mod tests {
         drop(upgraded);
 
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current Store");
-        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            reopened.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert!(!reopened.preparation().created_fresh);
     }
 
@@ -9207,28 +8831,17 @@ mod tests {
     #[test]
     fn previous_published_store_migrates_to_the_current_schema() {
         assert_eq!(
-            CORE_SCHEMA_VERSION, 128,
+            CURRENT_STORE_REVISION, 129,
             "refresh the previous-published Store fixture for each Store version bump",
         );
-        let previous_store_version = CORE_SCHEMA_VERSION - 1;
+        let previous_store_version = CURRENT_STORE_REVISION - 1;
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
-        kernel
-            .writer()
-            .call(move |connection| {
-                with_immediate_transaction(connection, |transaction| {
-                    remove_v128_block_transfer_undo_schema(transaction)?;
-                    transaction.execute(
-                        "UPDATE core_store_metadata SET store_format_version = ?1 WHERE id = 1",
-                        [previous_store_version],
-                    )?;
-                    transaction.pragma_update(None, "user_version", previous_store_version)?;
-                    Ok(())
-                })
-            })
-            .expect("restore exact previous-published Store");
-        drop(kernel);
+        fs::write(
+            home.join("nodex.db"),
+            include_bytes!("../../tests/fixtures/store-v128.db"),
+        )
+        .expect("install frozen v128 Store fixture");
 
         let upgraded = SqliteStoreKernel::open(&home).expect("migrate previous-published Store");
         assert_eq!(
@@ -9239,16 +8852,24 @@ mod tests {
         upgraded
             .readers()
             .read_default(|connection| {
-                let undo_table_count = connection.query_row(
-                    "SELECT count(*) FROM sqlite_schema \
-                     WHERE type = 'table' AND name = 'block_transfer_undo_recipes'",
+                let duplicate_revision_columns = connection.query_row(
+                    "SELECT count(*) FROM pragma_table_info('core_store_metadata') \
+                     WHERE name = 'store_format_version'",
                     [],
                     |row| row.get::<_, i64>(0),
                 )?;
-                assert_eq!(undo_table_count, 1);
+                assert_eq!(duplicate_revision_columns, 0);
                 validate_exact_current_schema(connection)
             })
-            .expect("read migrated block-transfer Undo schema");
+            .expect("read migrated current schema");
+        drop(upgraded);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen migrated Store");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        assert_eq!(
+            reopened.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
     }
 
     #[test]
@@ -9653,7 +9274,7 @@ mod tests {
             Ok(())
         })
         .expect("seed v110 Priority Store");
-        validate_exact_v110_schema(&connection).expect("exact v110 Store");
+        validate_exact_core_schema(&connection, 110).expect("exact v110 Store");
     }
 
     fn seed_owned_v111_database_view_store(home: &Path) {
@@ -9699,7 +9320,7 @@ mod tests {
             Ok(())
         })
         .expect("seed v111 Database View Store");
-        validate_exact_v110_schema(&connection).expect("exact v111 physical Store");
+        validate_exact_core_schema(&connection, 110).expect("exact v111 physical Store");
     }
 
     fn seed_owned_v114_task_hierarchy_store(home: &Path) {
@@ -9805,7 +9426,7 @@ mod tests {
             Ok(())
         })
         .expect("seed v114 task hierarchy Store");
-        validate_exact_v114_schema(&connection).expect("exact v114 Store");
+        validate_exact_core_schema(&connection, 114).expect("exact v114 Store");
     }
 
     fn seed_owned_v115_view_personal_preferences_store(home: &Path) {
@@ -9847,7 +9468,7 @@ mod tests {
             Ok(())
         })
         .expect("seed v115 View personal preferences Store");
-        validate_exact_v115_schema(&connection).expect("exact v115 Store");
+        validate_exact_core_schema(&connection, 115).expect("exact v115 Store");
     }
 
     fn seed_owned_v116_library_content_cutover_store(home: &Path) {
@@ -10147,7 +9768,7 @@ mod tests {
             Ok(())
         })
         .expect("seed representative v116 Library content Store");
-        validate_exact_v116_schema(&connection).expect("exact v116 Store");
+        validate_exact_core_schema(&connection, 116).expect("exact v116 Store");
         validate_store(&connection).expect("valid representative v116 Store");
     }
 
@@ -10260,7 +9881,7 @@ mod tests {
             Ok(())
         })
         .expect("seed v99 Store");
-        validate_exact_v99_schema(&connection).expect("exact v99 Store");
+        validate_exact_core_schema(&connection, 99).expect("exact v99 Store");
     }
 
     fn seed_owned_v108_store_with_person_value(home: &Path) {
@@ -10295,7 +9916,7 @@ mod tests {
             Ok(())
         })
         .expect("seed v108 Store");
-        validate_exact_v108_schema(&connection).expect("exact v108 Store");
+        validate_exact_core_schema(&connection, 108).expect("exact v108 Store");
     }
 
     fn seed_owned_v109_store(home: &Path) {
@@ -10311,7 +9932,7 @@ mod tests {
             Ok(())
         })
         .expect("seed v109 Store");
-        validate_exact_v109_schema(&connection).expect("exact v109 Store");
+        validate_exact_core_schema(&connection, 109).expect("exact v109 Store");
     }
 
     fn seed_v84_page(home: &Path) {
@@ -10896,7 +10517,7 @@ mod tests {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         let kernel = SqliteStoreKernel::open(&home).expect("fresh Core store");
-        assert_eq!(kernel.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(kernel.preparation().schema_version, CURRENT_STORE_REVISION);
         assert!(kernel.preparation().created_fresh);
         assert!(kernel.preparation().migration_backup_path.is_none());
         let version = kernel
@@ -10907,7 +10528,7 @@ mod tests {
                     .map_err(StoreError::from)
             })
             .expect("read schema version");
-        assert_eq!(version, CORE_SCHEMA_VERSION);
+        assert_eq!(version, CURRENT_STORE_REVISION);
         let agent_path_columns = kernel
             .readers()
             .read_default(|connection| {
@@ -11440,7 +11061,10 @@ mod tests {
         seed_owned_v116_library_content_cutover_store(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v116 Library content");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(116));
         let backup_path = upgraded
             .preparation()
@@ -11891,7 +11515,10 @@ mod tests {
         seed_owned_v110_store_with_p4_priority(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v110 Priority Store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(110));
         let backup_path = upgraded
             .preparation()
@@ -12335,7 +11962,10 @@ mod tests {
         seed_owned_v99_store_with_property_value(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v99 Core store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(99));
         let backup_path = upgraded
             .preparation()
@@ -12412,7 +12042,10 @@ mod tests {
 
         drop(upgraded);
         let reopened = SqliteStoreKernel::open(&home).expect("reopen exact current Store");
-        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            reopened.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(reopened.preparation().migrated_from_version, None);
     }
 
@@ -12464,7 +12097,10 @@ mod tests {
         seed_owned_v88_store_with_noncanonical_threads(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v88 Core store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(88));
         let backup_path = upgraded
             .preparation()
@@ -12545,7 +12181,13 @@ mod tests {
 
         let error = open_error(&home);
         assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
-        assert!(error.message.contains("invalid Thread recency timestamps"));
+        assert!(
+            error
+                .message
+                .contains("Thread update time precedes creation"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]
@@ -12586,7 +12228,10 @@ mod tests {
         drop(connection);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v85 Core store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(85));
         let backup_path = upgraded
             .preparation()
@@ -12667,7 +12312,7 @@ mod tests {
             events,
             [StorePreparationEvent::MigrationStarted {
                 from_version: 86,
-                to_version: CORE_SCHEMA_VERSION,
+                to_version: CURRENT_STORE_REVISION,
             }]
         );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(86));
@@ -12717,7 +12362,10 @@ mod tests {
             SqliteStoreKernel::open_with_observer(&home, |event| reopen_events.push(event))
                 .expect("validate current v90 store exactly");
         assert!(reopen_events.is_empty());
-        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            reopened.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(reopened.preparation().migrated_from_version, None);
         assert!(reopened.preparation().migration_backup_path.is_none());
     }
@@ -13032,7 +12680,10 @@ mod tests {
         seed_owned_v92_store_with_starter_sessions(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v92 Core store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(92));
         upgraded
             .writer()
@@ -13054,7 +12705,10 @@ mod tests {
             .expect("verify v99 starter retirement migration");
         drop(upgraded);
         let reopened = SqliteStoreKernel::open(&home).expect("validate current store exactly");
-        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            reopened.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(reopened.preparation().migrated_from_version, None);
     }
 
@@ -13065,7 +12719,10 @@ mod tests {
         seed_owned_v97_store_with_threaded_and_threadless_starters(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v97 Core store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(97));
         upgraded
             .writer()
@@ -13108,7 +12765,10 @@ mod tests {
         promote_owned_v97_starter_store_to_v98(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v98 Core store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(98));
         upgraded
             .writer()
@@ -13143,7 +12803,10 @@ mod tests {
         seed_owned_v93_store_with_legacy_project_icons(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v93 Core store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(93));
         let backup_path = upgraded
             .preparation()
@@ -13220,7 +12883,10 @@ mod tests {
         drop(upgraded);
 
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
-        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            reopened.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(reopened.preparation().migrated_from_version, None);
     }
 
@@ -13231,7 +12897,10 @@ mod tests {
         seed_owned_v94_store_with_canvas(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v94 Canvas store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(94));
         upgraded
             .readers()
@@ -13316,11 +12985,14 @@ mod tests {
             Ok(())
         })
         .expect("publish exact v95 store");
-        validate_exact_v95_schema(&connection).expect("validate exact v95 store");
+        validate_exact_core_schema(&connection, 95).expect("validate exact v95 store");
         drop(connection);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v95 Canvas store");
-        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(
+            upgraded.preparation().schema_version,
+            CURRENT_STORE_REVISION
+        );
         assert_eq!(upgraded.preparation().migrated_from_version, Some(95));
         let backup_path = upgraded
             .preparation()
@@ -13670,7 +13342,7 @@ mod tests {
                 assert_eq!(
                     connection
                         .query_row("PRAGMA user_version", [], |row| { row.get::<_, i64>(0) })?,
-                    CORE_SCHEMA_VERSION
+                    CURRENT_STORE_REVISION
                 );
                 assert_eq!(
                     connection.query_row(
@@ -13739,7 +13411,7 @@ mod tests {
                 assert_eq!(
                     connection
                         .query_row("PRAGMA user_version", [], |row| { row.get::<_, i64>(0) })?,
-                    CORE_SCHEMA_VERSION
+                    CURRENT_STORE_REVISION
                 );
                 for table in [
                     "local_commit_library_effects",
@@ -13760,7 +13432,7 @@ mod tests {
                     );
                 }
                 let actual = schema_inventory_fingerprint(&read_schema_inventory(connection)?);
-                let expected = expected_store_schema_fingerprint(CORE_SCHEMA_VERSION)?;
+                let expected = expected_store_schema_fingerprint(CURRENT_STORE_REVISION)?;
                 assert_eq!(actual, expected);
                 Ok(())
             })
@@ -13895,17 +13567,17 @@ mod tests {
             .expect("Store epoch");
         let backup_directory = prepare_migration_backup_directory(&home).expect("backup directory");
         let existing = backup_directory.join(format!(
-            "v{CORE_SCHEMA_VERSION}-to-v{CORE_SCHEMA_VERSION}-existing.db"
+            "v{CURRENT_STORE_REVISION}-to-v{CURRENT_STORE_REVISION}-existing.db"
         ));
         connection
             .backup(MAIN_DB, &existing, None)
             .expect("existing source backup");
         let pending = backup_directory.join(format!(
-            ".v{CORE_SCHEMA_VERSION}-to-v{CORE_SCHEMA_VERSION}.pending.db"
+            ".v{CURRENT_STORE_REVISION}-to-v{CURRENT_STORE_REVISION}.pending.db"
         ));
         fs::create_dir(&pending).expect("sentinel pending path");
 
-        let reused = create_migration_backup(&connection, &home, CORE_SCHEMA_VERSION)
+        let reused = create_migration_backup(&connection, &home, CURRENT_STORE_REVISION)
             .expect("exact source backup reuse");
 
         assert_eq!(reused, existing);
@@ -13928,7 +13600,7 @@ mod tests {
                  );",
             )
             .expect("advance source without matching LocalCommit evidence");
-        let error = create_migration_backup(&connection, &home, CORE_SCHEMA_VERSION)
+        let error = create_migration_backup(&connection, &home, CURRENT_STORE_REVISION)
             .expect_err("changed source cannot reuse an epoch-only backup");
         assert_eq!(error.code, StoreErrorCode::InvalidProfile);
     }
@@ -13983,8 +13655,7 @@ mod tests {
             .read_default(|connection| {
                 connection
                     .query_row(
-                        "SELECT metadata.schema_owner, metadata.store_format_version, \
-                                document.head_seq, document.state_hash, \
+                        "SELECT metadata.schema_owner, document.head_seq, document.state_hash, \
                                 EXISTS(SELECT 1 FROM sqlite_schema \
                                   WHERE type = 'table' AND name = 'document_engine_fingerprints'), \
                                 document.library_id, project.library_id \
@@ -13997,11 +13668,10 @@ mod tests {
                             Ok((
                                 row.get::<_, String>(0)?,
                                 row.get::<_, i64>(1)?,
-                                row.get::<_, i64>(2)?,
-                                row.get::<_, String>(3)?,
-                                row.get::<_, bool>(4)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, bool>(3)?,
+                                row.get::<_, String>(4)?,
                                 row.get::<_, String>(5)?,
-                                row.get::<_, String>(6)?,
                             ))
                         },
                     )
@@ -14009,12 +13679,11 @@ mod tests {
             })
             .expect("migration evidence");
         assert_eq!(evidence.0, CORE_SCHEMA_OWNER);
-        assert_eq!(evidence.1, CORE_SCHEMA_VERSION);
-        assert_eq!(evidence.2, 1);
-        assert!(evidence.3.is_empty());
-        assert!(!evidence.4);
-        assert_eq!(evidence.5, evidence.6);
-        assert!(!evidence.5.is_empty());
+        assert_eq!(evidence.1, 1);
+        assert!(evidence.2.is_empty());
+        assert!(!evidence.3);
+        assert_eq!(evidence.4, evidence.5);
+        assert!(!evidence.4.is_empty());
         let retired_search_objects = kernel
             .readers()
             .read_default(|connection| {
@@ -14150,7 +13819,7 @@ mod tests {
             let version: i64 = connection
                 .query_row("PRAGMA user_version", [], |row| row.get(0))
                 .expect("schema version");
-            assert_eq!(version, TYPESCRIPT_SCHEMA_VERSION);
+            assert_eq!(version, LEGACY_TYPESCRIPT_STORE_REVISION);
         }
     }
 
@@ -14415,7 +14084,7 @@ mod tests {
 
     #[test]
     fn unsupported_store_versions_fail_before_publication() {
-        for version in [83, CORE_SCHEMA_VERSION + 1] {
+        for version in [83, CURRENT_STORE_REVISION + 1] {
             let directory = tempdir().expect("Profile");
             let home = directory.path().canonicalize().expect("absolute Profile");
             let connection = Connection::open(home.join("nodex.db")).expect("store");

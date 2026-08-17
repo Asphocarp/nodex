@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   CANVAS_PRESENCE_TTL_MS,
-  DOCUMENT_PRESENCE_VERSION,
   type CanvasPresenceRealtimeEvent,
 } from "../../shared/block-documents/document-presence";
 import {
@@ -48,7 +47,6 @@ describe("CanvasPresenceHub", () => {
     events.clear();
 
     expect(hub.publish("a", {
-      version: DOCUMENT_PRESENCE_VERSION,
       engine: "canvas_scene",
       documentId: "document-1",
       generation: 3,
@@ -66,7 +64,6 @@ describe("CanvasPresenceHub", () => {
     });
 
     expect(hub.publish("a", {
-      version: DOCUMENT_PRESENCE_VERSION,
       engine: "canvas_scene",
       documentId: "document-1",
       generation: 3,
@@ -74,7 +71,6 @@ describe("CanvasPresenceHub", () => {
       state: state(2),
     }).applied).toBe(false);
     expect(hub.publish("a", {
-      version: DOCUMENT_PRESENCE_VERSION,
       engine: "canvas_scene",
       documentId: "document-1",
       generation: 3,
@@ -101,7 +97,6 @@ describe("CanvasPresenceHub", () => {
     });
 
     expect(hub.publish("a", {
-      version: DOCUMENT_PRESENCE_VERSION,
       engine: "canvas_scene",
       documentId: "document-1",
       generation: 3,
@@ -109,7 +104,6 @@ describe("CanvasPresenceHub", () => {
       state: state(3),
     }).applied).toBe(false);
     expect(hub.publish("a", {
-      version: DOCUMENT_PRESENCE_VERSION,
       engine: "canvas_scene",
       documentId: "document-1",
       generation: 3,
@@ -150,7 +144,6 @@ describe("CanvasPresenceHub", () => {
     hub.adoptBoundary("b", 1);
     const publish = (clock: number, nextState: ReturnType<typeof state> | null) =>
       hub.publish("a", {
-        version: DOCUMENT_PRESENCE_VERSION,
         engine: "canvas_scene",
         documentId: "document-1",
         generation: 1,

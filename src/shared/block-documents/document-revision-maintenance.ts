@@ -1,8 +1,6 @@
-export const DOCUMENT_REVISION_MAINTENANCE_VERSION = 1;
 export const MAX_DOCUMENT_REVISION_MAINTENANCE_DOCUMENTS = 200;
 
 export interface MaintainDocumentRevisionHistoryInput {
-  readonly version: typeof DOCUMENT_REVISION_MAINTENANCE_VERSION;
   readonly storeEpoch: string;
   readonly now: string;
   readonly force?: boolean;

@@ -1,14 +1,12 @@
 import type { BlockPropertyJsonValue } from "../block-property-mutations";
 import type { BlockTreeNode } from "./block-document-codec";
 
-export const ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION = 1;
 
 export type AdditionalDocumentBearingActor = Readonly<
   Record<string, BlockPropertyJsonValue>
 >;
 
 interface AdditionalDocumentBearingOperationBase {
-  readonly version: typeof ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -57,7 +55,6 @@ export interface InstantiateReusableTemplate
 }
 
 export interface AdditionalDocumentBearingMutationResult {
-  readonly version: typeof ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;

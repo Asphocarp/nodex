@@ -8,8 +8,8 @@ use sha2::{Digest, Sha256};
 
 use super::sqlite::{StoreError, StoreErrorCode};
 
-pub const TYPESCRIPT_SCHEMA_VERSION: i64 = 84;
-pub const CORE_SCHEMA_VERSION: i64 = 128;
+pub const LEGACY_TYPESCRIPT_STORE_REVISION: i64 = 84;
+pub const CURRENT_STORE_REVISION: i64 = nodex_store_format::CURRENT_STORE_VERSION as i64;
 pub const V84_SCHEMA_SQL: &str = include_str!("../../schema/v84.sql");
 
 pub fn v84_schema_objects_sql() -> &'static str {
@@ -51,7 +51,7 @@ pub fn install_v84_schema(connection: &Connection) -> Result<(), StoreError> {
     }
     connection.execute_batch(V84_SCHEMA_SQL)?;
     let installed: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    if installed != TYPESCRIPT_SCHEMA_VERSION {
+    if installed != LEGACY_TYPESCRIPT_STORE_REVISION {
         return Err(StoreError::new(
             StoreErrorCode::StoreCorrupt,
             format!("v84 schema artifact published v{installed}"),

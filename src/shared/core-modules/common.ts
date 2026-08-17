@@ -1,4 +1,3 @@
-export const CORE_MODULE_CONTRACT_VERSION = 1 as const;
 export type StoreEpoch = string;
 
 export type CoreModuleName =
@@ -26,19 +25,16 @@ export interface BoundModuleContext {
 }
 
 export interface ModuleReadRequest<Read> {
-  readonly version: typeof CORE_MODULE_CONTRACT_VERSION;
   readonly read: Read;
 }
 
 export interface ModuleApplyRequest<Intent> {
-  readonly version: typeof CORE_MODULE_CONTRACT_VERSION;
   readonly operationId: string;
   readonly storeEpoch: string;
   readonly intent: Intent;
 }
 
 export interface ModuleReadSnapshot<Value> {
-  readonly version: typeof CORE_MODULE_CONTRACT_VERSION;
   readonly storeEpoch: string;
   readonly eventHead: number;
   readonly value: Value;

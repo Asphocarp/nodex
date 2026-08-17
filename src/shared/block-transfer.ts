@@ -8,10 +8,6 @@ import type {
 } from "./block-documents/contracts";
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 
-/** Exact writer request/receipt protocol. */
-export const BLOCK_TRANSFER_CONTRACT_VERSION = 3 as const;
-/** Public logical parent protocol compiled by the SQLite writer. */
-export const BLOCK_TRANSFER_INTENT_CONTRACT_VERSION = 3 as const;
 export const MAX_BLOCK_TRANSFER_ROOTS = 10_000;
 export const MAX_BLOCK_TRANSFER_ID_LENGTH = 512;
 
@@ -55,7 +51,6 @@ export type BlockTransferIntentTarget =
  * only the SQLite writer may compile those from current authority.
  */
 export interface BlockTransferIntent {
-  readonly version: typeof BLOCK_TRANSFER_INTENT_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -139,7 +134,6 @@ export type BlockTransferTarget =
     };
 
 export interface BlockTransferRequest {
-  readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -197,7 +191,6 @@ export type BlockTransferPromotionEvidence =
     };
 
 export interface BlockTransferReceipt {
-  readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -223,7 +216,6 @@ export interface BlockTransferUndoToken {
 }
 
 export interface BlockTransferUndoIntent {
-  readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -231,7 +223,6 @@ export interface BlockTransferUndoIntent {
 }
 
 export interface BlockTransferUndoReceipt {
-  readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -946,7 +937,6 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
     intent,
     "blockTransferIntent",
     [
-      "version",
       "operationId",
       "projectId",
       "storeEpoch",
@@ -959,11 +949,6 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
     ],
     ["clientSessionId", "causalDependencies"],
   );
-  if (intent.version !== BLOCK_TRANSFER_INTENT_CONTRACT_VERSION) {
-    throw new BlockTransferContractError(
-      `blockTransferIntent.version must be ${BLOCK_TRANSFER_INTENT_CONTRACT_VERSION}`,
-    );
-  }
   if (intent.mode !== "move" && intent.mode !== "copy") {
     throw new BlockTransferContractError(
       "blockTransferIntent.mode must be move or copy",
@@ -983,7 +968,6 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
   const target = parseIntentTarget(intent.target, rootBlockIds);
   assertParentChange(intent.mode, source, target, "BlockTransfer");
   return {
-    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
     operationId: readString(intent, "operationId", "blockTransferIntent"),
     projectId: readString(intent, "projectId", "blockTransferIntent"),
     storeEpoch: readString(intent, "storeEpoch", "blockTransferIntent"),
@@ -1059,7 +1043,6 @@ export const blockTransferIntentFromRequest = (
     };
   })();
   return {
-    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -1079,7 +1062,6 @@ export const blockTransferIntentFromRequest = (
 export const canonicalizeBlockTransferLogicalIntent = (value: unknown): string => {
   const intent = parseBlockTransferIntent(value);
   return stableStringifyDatabaseJson({
-    version: intent.version,
     operationId: intent.operationId,
     projectId: intent.projectId,
     storeEpoch: intent.storeEpoch,
@@ -1100,7 +1082,6 @@ export const parseBlockTransferRequest = (
     request,
     "blockTransfer",
     [
-      "version",
       "operationId",
       "projectId",
       "storeEpoch",
@@ -1113,11 +1094,6 @@ export const parseBlockTransferRequest = (
     ],
     ["clientSessionId"],
   );
-  if (request.version !== BLOCK_TRANSFER_CONTRACT_VERSION) {
-    throw new BlockTransferContractError(
-      `blockTransfer.version must be ${BLOCK_TRANSFER_CONTRACT_VERSION}`,
-    );
-  }
   if (request.mode !== "move" && request.mode !== "copy") {
     throw new BlockTransferContractError(
       "blockTransfer.mode must be move or copy",
@@ -1128,7 +1104,6 @@ export const parseBlockTransferRequest = (
   const target = parseTarget(request.target, rootBlockIds);
   assertParentChange(request.mode, source, target, "BlockTransfer");
   return {
-    version: BLOCK_TRANSFER_CONTRACT_VERSION,
     operationId: readString(request, "operationId", "blockTransfer"),
     projectId: readString(request, "projectId", "blockTransfer"),
     storeEpoch: readString(request, "storeEpoch", "blockTransfer"),
@@ -1189,17 +1164,11 @@ export const parseBlockTransferUndoIntent = (
 ): BlockTransferUndoIntent => {
   const intent = readRecord(value, "blockTransferUndo");
   assertExactKeys(intent, "blockTransferUndo", [
-    "version",
     "operationId",
     "projectId",
     "storeEpoch",
     "token",
   ]);
-  if (intent.version !== BLOCK_TRANSFER_CONTRACT_VERSION) {
-    throw new BlockTransferContractError(
-      `blockTransferUndo.version must be ${BLOCK_TRANSFER_CONTRACT_VERSION}`,
-    );
-  }
   const storeEpoch = readString(intent, "storeEpoch", "blockTransferUndo");
   const token = parseBlockTransferUndoToken(intent.token);
   if (token.storeEpoch !== storeEpoch) {
@@ -1208,7 +1177,6 @@ export const parseBlockTransferUndoIntent = (
     );
   }
   return {
-    version: BLOCK_TRANSFER_CONTRACT_VERSION,
     operationId: readString(intent, "operationId", "blockTransferUndo"),
     projectId: readString(intent, "projectId", "blockTransferUndo"),
     storeEpoch,
@@ -1220,7 +1188,6 @@ export const parseBlockTransferUndoIntent = (
 export const canonicalizeBlockTransferIntent = (value: unknown): string => {
   const request = parseBlockTransferRequest(value);
   return stableStringifyDatabaseJson({
-    version: request.version,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,

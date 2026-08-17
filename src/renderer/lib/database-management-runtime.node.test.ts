@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
   type DatabaseContainerDescriptorV2,
@@ -103,7 +102,6 @@ const snapshot = (
   value: DatabaseModuleReadSnapshotV2["value"],
   commitSeq = 4,
 ): DatabaseModuleReadSnapshotV2 => ({
-  version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   projectId,
   libraryId,
   storeEpoch: "epoch-1",
@@ -124,7 +122,6 @@ const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
   ok: true,
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: request.operationId,
     projectId,
     libraryId,

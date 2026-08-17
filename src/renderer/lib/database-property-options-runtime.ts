@@ -4,7 +4,6 @@ import type {
   DataSourcePropertyRecordV2,
   DatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import type { DatabaseViewAccessContext } from "./database-view-render-model";
 import { readDatabaseModule, readLibraryDatabaseModule } from "./api";
 
@@ -43,11 +42,9 @@ export const readPropertyOptionWindow = async (
   };
   const result = accessContext.kind === "library"
     ? await readLibraryDatabaseModule({
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         read,
       })
     : await readDatabaseModule(accessContext.projectId, {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: accessContext.projectId,
         read,
       });

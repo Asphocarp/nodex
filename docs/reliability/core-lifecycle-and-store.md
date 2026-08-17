@@ -47,12 +47,21 @@ bounded retry without delivering a notification or starting an agent run.
 
 ## Store formats and migrations
 
-Core owns the current executable Store schema in
-`crates/nodex-core/src/infrastructure/schema.rs`. The migration implementation,
-accepted frozen inventories, exact current version, and validation gates live
-in `crates/nodex-core/src/infrastructure/migration.rs`,
-`legacy_migration.rs`, the checked-in schema artifacts, and their tests. Those
-files are the only source of truth for a version inventory.
+The leaf `nodex-store-format` crate owns the published Store catalog: lineage,
+supported revisions, exact normalized schema fingerprints, and current
+identity. Core protocol manifests and Host requirements derive their Store
+identities from that catalog instead of restating version or fingerprint
+constants. `PRAGMA user_version` is the only revision authority in the SQLite
+file. `core_store_metadata` records Rust Core ownership and migration evidence;
+current Stores do not duplicate the revision there.
+
+`StoreMigrationLedger::prepare` is the only live Store-open entry point. The
+ledger classifies recognized sources through the published catalog, validates
+their exact physical inventory and revision-specific semantics, orders the
+forward migration, and applies the complete current validation set before a
+Store becomes ready. Schema construction and fingerprinting share the same
+revision-aware inventory builder, so manifest identity and migration acceptance
+cannot drift into parallel schema descriptions.
 
 A migration follows one durable pattern:
 
@@ -68,6 +77,16 @@ fail closed. Import compatibility is staging-only and never becomes a live
 runtime branch. Reopening a current Store validates its exact physical and
 semantic invariants rather than silently repairing damage.
 
+Every Store revision bump must check in a database produced by the exact
+previously published Core under
+`crates/nodex-core/tests/fixtures/store-v<revision>.db`. The aggregate migration
+gate copies that frozen artifact into a disposable Profile, opens it through the
+real Store path, proves the content-addressed backup and source revision,
+validates the complete current Store, closes it, and reopens it without another
+migration. Reverse-removing current schema objects remains acceptable only for
+narrow historical migration unit cases; it is not evidence for the
+previous-published boundary.
+
 Migration progress is authoritative evidence, not elapsed-time estimation. The
 startup UI remains quiet for ordinary opening, shows migration language only
 after Core classifies a supported older Store, and changes to opening language
@@ -75,7 +94,12 @@ as soon as Store readiness commits.
 
 ## Validation owner
 
-The source gate, migration matrix, current/frozen inventory tests, process-
-lifecycle tests, and packaged runtime verification are executable authority.
+The version-surface source gate, Store catalog continuity test, migration
+matrix, current/frozen inventory tests, previous-published reopen gate,
+process-lifecycle tests, and packaged runtime verification are executable
+authority. Every retained Rust and TypeScript version declaration is classified
+as runtime compatibility, durable format, or algorithm identity with an owner
+and a coexistence, migration, invalidation, or rejection strategy. Same-build
+DTO contract versions are forbidden.
 Release packaging and frozen legacy acceptance are documented operationally in
 [the macOS Release Runbook](../release-macos.md).

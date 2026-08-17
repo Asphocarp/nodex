@@ -173,7 +173,6 @@ function makeManifest(): BrowserRuntimeManifest {
       },
     },
     codexCompatibilityVersion: "0.144.6",
-    contractVersion: 1,
     desktopBuild: "test-build",
     desktopBuildNumber: "123",
     entrypoints: {

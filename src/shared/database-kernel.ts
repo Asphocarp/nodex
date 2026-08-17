@@ -9,7 +9,6 @@ import {
   MAX_DATA_SOURCE_PROPERTY_OPTIONS,
 } from "./data-source-option-registry";
 
-export const DATABASE_MUTATION_CONTRACT_VERSION = 3 as const;
 export const MAX_DATABASE_MUTATION_OPERATIONS = 64;
 export const MAX_DATABASE_MUTATION_BULK_ENTRIES = 4_096;
 
@@ -364,7 +363,6 @@ export type DatabaseMutationOperation =
   | UpdateDatabaseSetValueOperation;
 
 export interface DatabaseMutationRequest {
-  readonly version: typeof DATABASE_MUTATION_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -380,7 +378,6 @@ export interface DatabaseMutationRequest {
 }
 
 export interface DatabaseMutationReceipt {
-  readonly version: typeof DATABASE_MUTATION_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -2351,7 +2348,6 @@ export const parseDatabaseMutationRequest = (
     request,
     "databaseMutation",
     [
-      "version",
       "operationId",
       "projectId",
       "storeEpoch",
@@ -2360,11 +2356,6 @@ export const parseDatabaseMutationRequest = (
     ],
     ["clientSessionId"],
   );
-  if (request.version !== DATABASE_MUTATION_CONTRACT_VERSION) {
-    throw new DatabaseMutationContractError(
-      `databaseMutation.version must be ${DATABASE_MUTATION_CONTRACT_VERSION}`,
-    );
-  }
   if (!Array.isArray(request.operations)) {
     throw new DatabaseMutationContractError(
       "databaseMutation.operations must be an array",
@@ -2375,7 +2366,6 @@ export const parseDatabaseMutationRequest = (
   );
   validateDatabaseMutationOperations(operations);
   const parsed: DatabaseMutationRequest = {
-    version: DATABASE_MUTATION_CONTRACT_VERSION,
     operationId: readString(request, "operationId", "databaseMutation"),
     projectId: readString(request, "projectId", "databaseMutation"),
     storeEpoch: readString(request, "storeEpoch", "databaseMutation"),
@@ -2463,11 +2453,10 @@ export const evaluateDatabaseViewFilter = (
 /** Actor/session are first-seen audit attribution, not logical retry identity. */
 export const canonicalizeDatabaseMutationIntent = (value: unknown): string => {
   const request =
-    isRecord(value) && value.version === DATABASE_MUTATION_CONTRACT_VERSION
+    isRecord(value)
       ? (value as unknown as DatabaseMutationRequest)
       : parseDatabaseMutationRequest(value);
   return stableStringifyDatabaseJson({
-    version: request.version,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -2480,7 +2469,6 @@ export const parseDatabaseMutationReceipt = (
 ): DatabaseMutationReceipt => {
   const receipt = readRecord(value, "databaseMutationReceipt");
   assertExactKeys(receipt, "databaseMutationReceipt", [
-    "version",
     "operationId",
     "projectId",
     "storeEpoch",
@@ -2491,11 +2479,6 @@ export const parseDatabaseMutationReceipt = (
     "commitSeq",
     "committedAt",
   ]);
-  if (receipt.version !== DATABASE_MUTATION_CONTRACT_VERSION) {
-    throw new DatabaseMutationContractError(
-      `databaseMutationReceipt.version must be ${DATABASE_MUTATION_CONTRACT_VERSION}`,
-    );
-  }
   const supportedKinds = new Set<DatabaseMutationOperation["kind"]>([
     "create_database",
     "put_property",
@@ -2526,7 +2509,6 @@ export const parseDatabaseMutationReceipt = (
   const operationKinds =
     receipt.operationKinds as DatabaseMutationOperation["kind"][];
   return {
-    version: DATABASE_MUTATION_CONTRACT_VERSION,
     operationId: readString(receipt, "operationId", "databaseMutationReceipt"),
     projectId: readString(receipt, "projectId", "databaseMutationReceipt"),
     storeEpoch: readString(receipt, "storeEpoch", "databaseMutationReceipt"),

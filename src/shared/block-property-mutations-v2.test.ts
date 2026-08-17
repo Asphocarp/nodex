@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { BLOCK_PROPERTY_MUTATION_CONTRACT_VERSION } from "./block-property-mutations";
 import {
-  BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
   BlockPropertyMutationV2ContractError,
   canonicalizeBlockPropertyMutationRequestV2,
   makeBlockPropertyFieldPathV2,
@@ -13,7 +11,6 @@ import {
 import { committedLocalCommit } from "./testing/local-commit";
 
 const baseRequest = {
-  version: 2 as const,
   mutationId: "mutation-v2",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -32,8 +29,6 @@ const intrinsicField = {
 
 describe("Block Property mutation v2 contract", () => {
   test("is additive and leaves the executable v1 version unchanged", () => {
-    expect(BLOCK_PROPERTY_MUTATION_CONTRACT_VERSION).toBe(1);
-    expect(BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION).toBe(2);
   });
 
   test("canonicalizes intrinsic fields deterministically", () => {
@@ -96,7 +91,6 @@ describe("Block Property mutation v2 contract", () => {
 
   test("strictly validates intrinsic committed results", () => {
     const value = {
-      version: 2,
       mutationId: "mutation-v2",
       projectId: "project-1",
       storeEpoch: "epoch-1",

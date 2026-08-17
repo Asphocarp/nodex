@@ -14398,7 +14398,6 @@
       "LibraryPageContent": {
         "type": "object",
         "required": [
-          "version",
           "library_id",
           "store_epoch",
           "commit_seq",
@@ -14481,11 +14480,6 @@
           },
           "title": {
             "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -14829,7 +14823,6 @@
       "LibraryPageDetail": {
         "type": "object",
         "required": [
-          "version",
           "library_id",
           "store_epoch",
           "commit_seq",
@@ -14865,11 +14858,6 @@
           "page": {},
           "store_epoch": {
             "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -15399,7 +15387,6 @@
       "LibraryPageHistoryPage": {
         "type": "object",
         "required": [
-          "version",
           "library_id",
           "page_id",
           "document_id",
@@ -15430,11 +15417,6 @@
           },
           "page_id": {
             "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -16419,7 +16401,6 @@
       "LibraryPageLifecyclePreflight": {
         "type": "object",
         "required": [
-          "version",
           "default_view",
           "tags_property"
         ],
@@ -16441,12 +16422,7 @@
               "null"
             ]
           },
-          "tags_property": {},
-          "version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
+          "tags_property": {}
         }
       },
       "LibraryPageLifecycleRestoreEvidence": {

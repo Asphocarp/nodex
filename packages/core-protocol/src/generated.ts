@@ -3701,8 +3701,6 @@ export interface components {
             readonly schema_version: number;
             readonly store_epoch: string;
             readonly title: string;
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly LibraryPageCopyDestination: {
             readonly before?: null | components["schemas"]["LibraryPlacementAnchor"];
@@ -3797,8 +3795,6 @@ export interface components {
             readonly library_id: string;
             readonly page: unknown;
             readonly store_epoch: string;
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly LibraryPageDocumentDescriptor: {
             readonly readiness: string;
@@ -3931,8 +3927,6 @@ export interface components {
             readonly library_id: string;
             readonly next_cursor?: null | components["schemas"]["LibraryPageHistoryCursor"];
             readonly page_id: string;
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly LibraryPageHistoryRecovery: {
             readonly document_id: string;
@@ -4168,8 +4162,6 @@ export interface components {
             readonly page?: null | components["schemas"]["LibraryPageLifecycleAuthority"];
             readonly reserved_block_type?: string | null;
             readonly tags_property: unknown;
-            /** Format: int32 */
-            readonly version: number;
         };
         readonly LibraryPageLifecycleRestoreEvidence: {
             readonly delete_operation_id: string;

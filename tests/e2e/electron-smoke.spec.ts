@@ -20,12 +20,10 @@ import {
 } from "../../config/renderer-vite-shared";
 import { CoreClient } from "../../src/main/core-client/core-client";
 import { LARGE_CONTENT_FIXTURE_SIZES } from "../../src/main/performance/large-content-fixtures";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../src/shared/database-module-v2";
 import {
   compilePageLifecycleRequestV2,
   type PageLifecyclePreflightSnapshotV2,
 } from "../../src/shared/page-lifecycle-v2-runtime";
-import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../src/shared/library-module";
 import { createUuidV7 } from "../../src/shared/uuid-v7";
 import {
   ElectronScenarioHarness,
@@ -113,7 +111,6 @@ async function createConvergenceProject(
       "library-module:read",
       { kind: "library" },
       {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         read: { mode: "metadata" },
       },
     ),
@@ -139,7 +136,6 @@ async function createConvergencePage(
       "library-module:apply",
       { kind: "library" },
       {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: createUuidV7(),
         storeEpoch: project.storeEpoch,
         operation: {
@@ -165,7 +161,6 @@ async function createConvergencePage(
       "library-module:apply",
       { kind: "library" },
       {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: createUuidV7(),
         storeEpoch: project.storeEpoch,
         operation: {
@@ -919,7 +914,6 @@ async function readConvergenceDatabase(
       "database-module:read",
       project.projectId,
       {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: project.projectId,
         read: {
           target: { kind: "project_default" },
@@ -1537,12 +1531,11 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     const canvasId = await canvasBlock.getAttribute("data-canvas-block");
     if (!canvasId) throw new Error("Canvas block has no owner identity");
     const readCanvasHead = async (): Promise<number> =>
-      await page.evaluate(async ({ targetCanvasId, contractVersion }) => {
+      await page.evaluate(async ({ targetCanvasId }) => {
         const raw = await window.api?.invoke(
           "library-module:read",
           { kind: "library" },
           {
-            version: contractVersion,
             read: { mode: "canvas_target", canvasId: targetCanvasId },
           },
         ) as {
@@ -1568,7 +1561,6 @@ test("creates and draws in an inline Canvas without taking over the Page", async
         return target.value.summary?.documentHeadSeq ?? -1;
       }, {
         targetCanvasId: canvasId,
-        contractVersion: LIBRARY_MODULE_CONTRACT_VERSION,
       });
     const initialHead = await readCanvasHead();
 
@@ -1654,7 +1646,6 @@ test("converges a Move to operation in the live standalone Pages projection", as
         "library-module:read",
         { kind: "library" },
         {
-          version: LIBRARY_MODULE_CONTRACT_VERSION,
           read: { mode: "path", target: { kind: "page", pageId: source.pageId } },
         },
       ),
@@ -2447,7 +2438,6 @@ test("opens and pointer-reorders a nested List subtree without changing its inte
         "database-module:apply",
         project.projectId,
         {
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           operationId: createUuidV7(),
           projectId: project.projectId,
           storeEpoch: project.storeEpoch,

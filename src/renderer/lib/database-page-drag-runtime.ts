@@ -1,5 +1,4 @@
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyReceiptV2,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
@@ -39,7 +38,6 @@ export const databaseViewRenderModelToDragSnapshot = (
     throw new Error("Project Page drag requires Project Database authority");
   }
   return {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: view.accessContext.projectId,
     libraryId: view.libraryId,
     storeEpoch: view.storeEpoch,
@@ -59,7 +57,6 @@ const commitCompiledDrag = async (input: {
   readonly dependencies: DatabasePageDragRuntimeDependencies;
 }): Promise<DatabaseApplyReceiptV2> => {
   const request: DatabaseApplyV2 = {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId,
     projectId: input.projectId,
     storeEpoch: input.snapshot.storeEpoch,

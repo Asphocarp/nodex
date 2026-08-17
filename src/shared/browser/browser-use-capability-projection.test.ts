@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  BROWSER_USE_CAPABILITY_CONTRACT_VERSION,
+  BROWSER_USE_CAPABILITY_FORMAT_VERSION,
   projectBrowserUseCapabilities,
   type BrowserUseBackendInfo,
   type BrowserUseCompatibleArtifact,
@@ -9,7 +9,7 @@ import {
 
 const artifact: BrowserUseCompatibleArtifact = {
   status: "compatible",
-  contractVersion: BROWSER_USE_CAPABILITY_CONTRACT_VERSION,
+  contractVersion: BROWSER_USE_CAPABILITY_FORMAT_VERSION,
   apiMembers: [
     {
       id: "Tabs.new",

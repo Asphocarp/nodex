@@ -140,7 +140,6 @@ export const buildPageDetailStoryResult = (
   return {
     ok: true,
     value: {
-      version: 4,
       projectId,
       libraryId,
       storeEpoch,

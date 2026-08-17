@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-  BLOCK_TRANSFER_CONTRACT_VERSION,
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
 import { createCoreBlockTransferAdapter } from "./block-transfer-adapter";
@@ -16,7 +14,6 @@ const identity = {
 } as const;
 
 const intent: BlockTransferIntent = {
-  version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
   operationId: "transfer:test",
   projectId: identity.projectId,
   storeEpoch: identity.storeEpoch,
@@ -261,7 +258,6 @@ describe("Core Block Transfer Adapter", () => {
     });
 
     const result = await adapter.undo({
-      version: BLOCK_TRANSFER_CONTRACT_VERSION,
       operationId: "undo:test",
       projectId: identity.projectId,
       storeEpoch: identity.storeEpoch,

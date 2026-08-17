@@ -15,7 +15,6 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::cursor;
 
-const PAGE_CONTENT_VERSION: u32 = 1;
 const MAX_IDENTITY_BYTES: usize = 512;
 const MAX_CONTENT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DERIVED_JSON_BYTES: usize = 2 * 1024 * 1024;
@@ -172,7 +171,6 @@ pub(super) fn page_content(
     )?;
 
     Ok(LibraryPageContent {
-        version: PAGE_CONTENT_VERSION,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
         commit_seq: commit_head,

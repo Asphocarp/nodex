@@ -5,10 +5,8 @@ import {
 } from "./database-identities";
 import type { DatabaseViewLayout } from "./database-kernel";
 import {
-  BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
   parseLibraryBlockPropertyMutationRequestV2,
 } from "./block-property-mutations-v2";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
 import { bindLibraryDatabaseApplyV2 } from "./database-module-v2-transport";
 import { parseLocalCommitApply } from "./local-commit-delivery";
 import {
@@ -17,7 +15,6 @@ import {
 } from "./block-documents/canvas-document-identity";
 import {
   DEFAULT_LIBRARY_READ_LIMIT,
-  LIBRARY_MODULE_CONTRACT_VERSION,
   MAX_LIBRARY_CURSOR_LENGTH,
   MAX_LIBRARY_QUERY_LENGTH,
   MAX_LIBRARY_PROJECT_ACCESS_CHANGES,
@@ -432,16 +429,10 @@ export const bindLibraryModuleApply = (
 ): LibraryModuleApplyRequest => {
   const request = record(value, "libraryModuleApply");
   exactKeys(request, "libraryModuleApply", [
-    "version",
     "operationId",
     "storeEpoch",
     "operation",
   ]);
-  if (request.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
-    throw new TypeError(
-      `libraryModuleApply.version must be ${LIBRARY_MODULE_CONTRACT_VERSION}`,
-    );
-  }
   const operationId = uuidV7(request.operationId, "operationId");
   const storeEpoch = string(request.storeEpoch, "libraryModuleApply.storeEpoch");
   const operation = record(request.operation, "libraryModuleApply.operation");
@@ -454,7 +445,6 @@ export const bindLibraryModuleApply = (
       "parent",
     ]);
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -476,7 +466,6 @@ export const bindLibraryModuleApply = (
       "parent",
     ]);
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -498,7 +487,6 @@ export const bindLibraryModuleApply = (
       "destination",
     ]);
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -525,7 +513,6 @@ export const bindLibraryModuleApply = (
       "expectedMetadataRevision",
     ]);
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -551,7 +538,6 @@ export const bindLibraryModuleApply = (
       "destination",
     ]);
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -589,7 +575,6 @@ export const bindLibraryModuleApply = (
       256,
     );
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -635,7 +620,6 @@ export const bindLibraryModuleApply = (
           "libraryModuleApply.operation.containingDocumentHead",
         );
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -670,7 +654,6 @@ export const bindLibraryModuleApply = (
       throw new TypeError("libraryModuleApply.operation.target.expectedLocationRevision must be positive");
     }
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -695,7 +678,6 @@ export const bindLibraryModuleApply = (
       throw new TypeError("libraryModuleApply.operation.target.expectedMetadataRevision must be positive");
     }
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -715,7 +697,6 @@ export const bindLibraryModuleApply = (
       throw new TypeError("libraryModuleApply.operation.access is unsupported");
     }
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -774,7 +755,6 @@ export const bindLibraryModuleApply = (
       throw new TypeError("libraryModuleApply.operation.changes must contain unique Projects");
     }
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -795,7 +775,6 @@ export const bindLibraryModuleApply = (
       ["clientSessionId"],
     );
     const database = bindLibraryDatabaseApplyV2({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operations: operation.databaseOperations,
@@ -806,7 +785,6 @@ export const bindLibraryModuleApply = (
       );
     }
     const intrinsic = parseLibraryBlockPropertyMutationRequestV2({
-      version: BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
       mutationId: operationId,
       storeEpoch,
       ...(operation.clientSessionId === undefined
@@ -815,7 +793,6 @@ export const bindLibraryModuleApply = (
       fields: operation.intrinsicFields,
     });
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
       storeEpoch,
       operation: {
@@ -856,21 +833,15 @@ export const bindLibraryModuleRead = (
   value: unknown,
 ): LibraryModuleReadRequest => {
   const request = record(value, "libraryModuleRead");
-  exactKeys(request, "libraryModuleRead", ["version", "read"]);
-  if (request.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
-    throw new TypeError(
-      `libraryModuleRead.version must be ${LIBRARY_MODULE_CONTRACT_VERSION}`,
-    );
-  }
+  exactKeys(request, "libraryModuleRead", ["read"]);
   const read = record(request.read, "libraryModuleRead.read");
   if (read.mode === "metadata") {
     exactKeys(read, "libraryModuleRead.read", ["mode"]);
-    return { version: LIBRARY_MODULE_CONTRACT_VERSION, read: { mode: "metadata" } };
+    return { read: { mode: "metadata" } };
   }
   if (read.mode === "resource_project_access") {
     exactKeys(read, "libraryModuleRead.read", ["mode", "target"]);
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "resource_project_access",
         target: parseApplyResourceTarget(
@@ -883,7 +854,6 @@ export const bindLibraryModuleRead = (
   if (read.mode === "canvas_target") {
     exactKeys(read, "libraryModuleRead.read", ["mode", "canvasId"]);
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "canvas_target",
         canvasId: existingCanvasBlockId(
@@ -913,7 +883,6 @@ export const bindLibraryModuleRead = (
           "libraryModuleRead.read.forceIncludeTarget",
         );
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "children",
         parent: parseNavigationParent(
@@ -946,7 +915,6 @@ export const bindLibraryModuleRead = (
           "libraryModuleRead.read.forceIncludeTarget",
         );
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "standalone_roots",
         ...(cursor === undefined ? {} : { cursor }),
@@ -958,7 +926,6 @@ export const bindLibraryModuleRead = (
   if (read.mode === "path") {
     exactKeys(read, "libraryModuleRead.read", ["mode", "target"]);
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "path",
         target: parseRouteTarget(read.target, "libraryModuleRead.read.target"),
@@ -992,7 +959,6 @@ export const bindLibraryModuleRead = (
     );
     const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "catalog",
         ...(query === undefined ? {} : { query }),
@@ -1019,7 +985,6 @@ export const bindLibraryModuleRead = (
     );
     const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "move_destinations",
         target: parseApplyResourceTarget(
@@ -1059,7 +1024,6 @@ export const bindLibraryModuleRead = (
           "libraryModuleRead.read.sourcePageId",
         );
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "page_reference_candidates",
         query,
@@ -1082,7 +1046,6 @@ export const bindLibraryModuleRead = (
     );
     const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
     return {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: {
         mode: "page_backlinks",
         targetPageId: string(
@@ -1935,7 +1898,6 @@ export const parseLibraryModuleReadResult = (
   exactKeys(result, "libraryModuleReadResult", ["ok", "value"]);
   const snapshot = record(result.value, "libraryModuleReadResult.value");
   exactKeys(snapshot, "libraryModuleReadResult.value", [
-    "version",
     "profileId",
     "libraryId",
     "storeEpoch",
@@ -1943,13 +1905,9 @@ export const parseLibraryModuleReadResult = (
     "authorization",
     "value",
   ]);
-  if (snapshot.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
-    throw new TypeError("libraryModuleReadResult.value.version is unsupported");
-  }
   return {
     ok: true,
     value: {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       profileId: string(snapshot.profileId, "libraryModuleReadResult.value.profileId"),
       libraryId: string(snapshot.libraryId, "libraryModuleReadResult.value.libraryId"),
       storeEpoch: string(snapshot.storeEpoch, "libraryModuleReadResult.value.storeEpoch"),
@@ -1968,7 +1926,6 @@ export const parseLibraryModuleReadResult = (
 const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
   const receipt = record(value, "libraryModuleApplyResult.value");
   exactKeys(receipt, "libraryModuleApplyResult.value", [
-    "version",
     "operationId",
     "storeEpoch",
     "libraryId",
@@ -1985,9 +1942,6 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     "commitSeq",
     "committedAt",
   ]);
-  if (receipt.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
-    throw new TypeError("libraryModuleApplyResult.value.version is unsupported");
-  }
   const operationKinds = new Set([
     "create_page",
     "create_database",
@@ -2117,7 +2071,6 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     };
   })();
   return {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: string(receipt.operationId, "libraryModuleApplyResult.value.operationId"),
     storeEpoch: string(receipt.storeEpoch, "libraryModuleApplyResult.value.storeEpoch"),
     libraryId: string(receipt.libraryId, "libraryModuleApplyResult.value.libraryId"),

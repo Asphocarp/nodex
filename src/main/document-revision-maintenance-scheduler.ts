@@ -1,5 +1,4 @@
 import {
-  DOCUMENT_REVISION_MAINTENANCE_VERSION,
   type MaintainDocumentRevisionHistoryInput,
   type MaintainDocumentRevisionHistoryResult,
 } from "../shared/block-documents/document-revision-maintenance";
@@ -73,7 +72,6 @@ export const startDocumentRevisionMaintenanceScheduler = (
       }
       void options.writer
         .maintainDocumentRevisionHistory({
-          version: DOCUMENT_REVISION_MAINTENANCE_VERSION,
           storeEpoch,
           now: now(),
         })

@@ -17,7 +17,6 @@ import type {
 } from "./database-kernel";
 import type { Page } from "./page";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 13 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -396,13 +395,11 @@ export type DatabaseReadValueV2 =
     };
 
 export interface DatabaseModuleReadRequestV2 {
-  readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
   readonly projectId: string;
   readonly read: DatabaseReadV2;
 }
 
 export interface DatabaseModuleReadSnapshotV2 {
-  readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
   readonly projectId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
@@ -449,7 +446,6 @@ export type LibraryDatabaseReadV2 = Exclude<
 >;
 
 export interface LibraryDatabaseModuleReadRequestV2 {
-  readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
   readonly read: LibraryDatabaseReadV2;
 }
 
@@ -761,7 +757,6 @@ export type DatabaseApplyOperationV2 =
   | SetDatabaseViewOccurrenceDisclosureOperationV2;
 
 export interface DatabaseApplyV2 {
-  readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -775,7 +770,6 @@ export type LibraryDatabaseApplyV2 = Omit<
 >;
 
 export interface DatabaseApplyReceiptV2 {
-  readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly libraryId: string;

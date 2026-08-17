@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES,
-  ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   AdditionalDocumentCommandContractError,
   AdditionalDocumentExecutionProofError,
   MAX_ADDITIONAL_DOCUMENT_BLOCK_DEPTH,
@@ -66,7 +65,6 @@ const lease = (
 ) => ({ kind: "hub_lease" as const, leaseId, documents });
 
 const request = (operation: unknown, coordination: unknown = fifo) => ({
-  version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   operationId: "operation:1",
   projectId: "project:1",
   storeEpoch: "epoch:1",
@@ -469,7 +467,6 @@ describe("additional document command contract", () => {
 
 describe("additional document command result contract", () => {
   const receipt = {
-    version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
     operationId: "operation:1",
     projectId: "project:1",
     storeEpoch: "epoch:1",

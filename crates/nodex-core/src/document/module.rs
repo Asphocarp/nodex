@@ -2300,7 +2300,6 @@ impl OwnedDocumentModule {
                                 scope.evidence(),
                             )?;
                             let canvas_result = json!({
-                                "version": 1,
                                 "kind": "tombstone_compaction",
                                 "operationId": operation_id,
                                 "libraryId": authority.head.library_id,
@@ -2360,7 +2359,6 @@ impl OwnedDocumentModule {
                         ],
                     )?;
                     let canvas_result = json!({
-                        "version": 1,
                         "kind": "tombstone_compaction",
                         "operationId": operation_id,
                         "libraryId": authority.head.library_id,

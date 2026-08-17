@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseModuleReadSnapshotV2,
   type DatabaseViewQueryResultV2,
 } from "../../shared/database-module-v2";
@@ -161,7 +160,6 @@ const makeSnapshot = (input: {
     }],
   };
   return {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     libraryId,
     storeEpoch: "epoch-alpha",

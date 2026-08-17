@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   materializePortableCanvasScene,
   type CanvasSceneMutationCommandResult,
   type CanvasSceneMutationError,
@@ -81,7 +80,6 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
       ok: true,
       value: {
         kind: "snapshot",
-        version: CANVAS_SCENE_SYNC_VERSION,
         syncRequestId: request.syncRequestId,
         libraryId,
         accessContext,
@@ -130,7 +128,6 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
       ok: true,
       localCommit: noOpLocalCommit(request.storeEpoch, this.headSeq),
       value: {
-        version: CANVAS_SCENE_SYNC_VERSION,
         mutationId: request.mutationId,
         libraryId,
         accessContext: request.accessContext,
@@ -235,7 +232,6 @@ describe("CanvasSceneProvider", () => {
     adapter.syncImplementation = async (request) => {
       adapter.presenceListener?.({
         type: "canvas_presence_snapshot",
-        version: 1,
         libraryId,
         accessContext,
         documentId: "document-1",
@@ -246,7 +242,6 @@ describe("CanvasSceneProvider", () => {
         ok: true,
         value: {
           kind: "snapshot",
-          version: CANVAS_SCENE_SYNC_VERSION,
           syncRequestId: request.syncRequestId,
           libraryId: "library-1",
           accessContext,
@@ -313,7 +308,6 @@ describe("CanvasSceneProvider", () => {
       ok: true,
       value: {
         kind: "up_to_date",
-        version: CANVAS_SCENE_SYNC_VERSION,
         syncRequestId: request.syncRequestId,
         libraryId: "library-1",
         accessContext: request.accessContext,
@@ -327,7 +321,6 @@ describe("CanvasSceneProvider", () => {
 
     adapter.listener?.({
       type: "canvas_scene_resync_required",
-      version: CANVAS_SCENE_SYNC_VERSION,
       libraryId,
       accessContext,
       documentId: "document-1",
@@ -350,7 +343,6 @@ describe("CanvasSceneProvider", () => {
       ok: true,
       value: {
         kind: "up_to_date",
-        version: CANVAS_SCENE_SYNC_VERSION,
         syncRequestId: request.syncRequestId,
         libraryId: "library-1",
         accessContext: request.accessContext,
@@ -376,7 +368,6 @@ describe("CanvasSceneProvider", () => {
       ok: true,
       value: {
         kind: "snapshot",
-        version: CANVAS_SCENE_SYNC_VERSION,
         syncRequestId: `${request.syncRequestId}:stale`,
         libraryId: "library-1",
         accessContext: request.accessContext,
@@ -624,7 +615,6 @@ describe("CanvasSceneProvider", () => {
     adapter.headSeq = 3;
     adapter.listener?.({
       type: "canvas_scene_resync_required",
-      version: CANVAS_SCENE_SYNC_VERSION,
       libraryId,
       accessContext,
       documentId: "document-1",
@@ -650,7 +640,6 @@ describe("CanvasSceneProvider", () => {
     });
     adapter.listener?.({
       type: "canvas_scene_resync_required",
-      version: 1,
       libraryId,
       accessContext,
       documentId: "document-1",
@@ -662,7 +651,6 @@ describe("CanvasSceneProvider", () => {
     for (const [headSeq, version] of [[1, 2], [2, 3]] as const) {
       adapter.listener?.({
         type: "canvas_scene_committed",
-        version: 1,
         libraryId,
         accessContext,
         documentId: "document-1",
@@ -680,7 +668,6 @@ describe("CanvasSceneProvider", () => {
     }
     resolveSync({ ok: true, value: {
       kind: "snapshot",
-      version: 1,
       syncRequestId: pendingSyncRequestId,
       libraryId,
       accessContext,
@@ -746,7 +733,6 @@ describe("CanvasSceneProvider", () => {
       ok: true,
       localCommit: noOpLocalCommit(request.storeEpoch, request.baseHeadSeq + 1),
       value: {
-        version: 1,
         mutationId: request.mutationId,
         libraryId,
         accessContext: { kind: "project", projectId: "other-project" },
@@ -785,7 +771,6 @@ describe("CanvasSceneProvider", () => {
     const adapter = new MemoryAdapter();
     const outbox = new MemoryCanvasSceneOutbox(libraryId);
     await outbox.put({
-      version: CANVAS_SCENE_SYNC_VERSION,
       mutationId: "old-mutation",
       accessContext,
       documentId: "document-1",
@@ -808,7 +793,6 @@ describe("CanvasSceneProvider", () => {
     adapter.generation = 2;
     const outbox = new MemoryCanvasSceneOutbox(libraryId);
     await outbox.put({
-      version: CANVAS_SCENE_SYNC_VERSION,
       mutationId: "old-generation-mutation",
       accessContext,
       documentId: "document-1",

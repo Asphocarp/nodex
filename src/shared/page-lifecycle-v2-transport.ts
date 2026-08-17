@@ -1,7 +1,6 @@
 import type { BlockPropertyJsonValue } from "./block-property-mutations";
 import { stableStringifyBlockPropertyJson } from "./block-property-mutations";
 import { parseDatabaseModuleReadResultV2 } from "./database-module-v2-transport";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
 import {
   PageLifecycleV2ContractError,
   parsePageLifecycleMutationRequestV2,
@@ -10,7 +9,6 @@ import {
   type PageLifecycleMutationRequestV2,
 } from "./page-lifecycle-v2";
 import {
-  PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
   type PageLifecyclePreflightErrorCodeV2,
   type PageLifecyclePreflightResultV2,
 } from "./page-lifecycle-v2-runtime";
@@ -110,16 +108,12 @@ export const parsePageLifecyclePreflightResultV2 = (
   const snapshot = readRecord(result.value);
   if (!snapshot) throw new TypeError("Page lifecycle v2 preflight snapshot is invalid");
   assertExactKeys(snapshot, "Page lifecycle v2 preflight snapshot", [
-    "version",
     "projectId",
     "libraryId",
     "storeEpoch",
     "commitSeq",
     "value",
   ]);
-  if (snapshot.version !== PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION) {
-    throw new TypeError("Page lifecycle v2 preflight snapshot version is invalid");
-  }
   const projectId = readCanonicalIdentity(snapshot.projectId, "projectId");
   const libraryId = readCanonicalIdentity(snapshot.libraryId, "libraryId");
   const storeEpoch = readCanonicalIdentity(snapshot.storeEpoch, "storeEpoch");
@@ -127,19 +121,14 @@ export const parsePageLifecyclePreflightResultV2 = (
   const preflight = readRecord(snapshot.value);
   if (!preflight) throw new TypeError("Page lifecycle v2 preflight is invalid");
   assertExactKeys(preflight, "Page lifecycle v2 preflight", [
-    "version",
     "defaultView",
     "tagsProperty",
     "reservedBlockType",
     "page",
   ]);
-  if (preflight.version !== PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION) {
-    throw new TypeError("Page lifecycle v2 preflight version is invalid");
-  }
   const parsedQuery = parseDatabaseModuleReadResultV2({
     ok: true,
     value: {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId,
       libraryId,
       storeEpoch,

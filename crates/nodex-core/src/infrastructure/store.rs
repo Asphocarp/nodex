@@ -10,7 +10,7 @@ use super::migration::{
     StorePreparation, StorePreparationEvent, prepare_profile_store_with_observer,
 };
 #[cfg(test)]
-use super::schema::CORE_SCHEMA_VERSION;
+use super::schema::CURRENT_STORE_REVISION;
 use super::sqlite::{StoreError, StoreErrorCode, open_writer};
 use super::store_lock::ProfileStoreLock;
 use super::store_replacement::recover_interrupted_store_replacement;
@@ -44,7 +44,7 @@ impl SqliteStoreKernel {
         Self::start_runtime(
             database_path,
             StorePreparation {
-                schema_version: CORE_SCHEMA_VERSION,
+                schema_version: CURRENT_STORE_REVISION,
                 created_fresh: false,
                 migrated_from_version: None,
                 migration_backup_path: None,

@@ -15,7 +15,6 @@ import {
 } from "../../shared/database-identities";
 import { BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS } from "../../shared/data-source-built-ins";
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyOperationV2,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
@@ -24,7 +23,6 @@ import {
   type LibraryDatabaseApplyV2,
 } from "../../shared/database-module-v2";
 import {
-  LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryModuleApplyRequest,
   type LibraryModuleApplyResult,
 } from "../../shared/library-module";
@@ -557,7 +555,6 @@ export const commitPageDetailMetadataPatchWithReceipt = async (input: {
     const result = await retryMetadataPropertiesMutation(
       input.projectId,
       {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: input.operationId,
         storeEpoch: detail.storeEpoch,
         operation: {
@@ -596,7 +593,6 @@ export const commitPageDetailMetadataPatchWithReceipt = async (input: {
     const databaseResult = await retryDatabaseMutation(
       input.projectId,
       {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: input.operationId,
         projectId: input.projectId,
         storeEpoch: detail.storeEpoch,
@@ -628,7 +624,6 @@ export const commitPageDetailMetadataPatchWithReceipt = async (input: {
     const result = await retryPropertyMutation(
       input.projectId,
       {
-        version: 2,
         mutationId: input.operationId,
         projectId: input.projectId,
         storeEpoch: detail.storeEpoch,
@@ -790,7 +785,6 @@ export const commitPageDetailPropertyEdit = async (input: {
   const result = await retryDatabaseMutation(
     input.projectId,
     {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: input.operationId,
       projectId: input.projectId,
       storeEpoch: detail.storeEpoch,
@@ -868,7 +862,6 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
 
   if (dataSourceOperations.length > 0 && intrinsicFields.length > 0) {
     const result = await retryLibraryMetadataPropertiesMutation({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: input.operationId,
       storeEpoch: detail.storeEpoch,
       operation: {
@@ -896,7 +889,6 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
 
   if (dataSourceOperations.length > 0) {
     const databaseResult = await retryLibraryDatabaseMutation({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: input.operationId,
       storeEpoch: detail.storeEpoch,
       operations: dataSourceOperations,
@@ -913,7 +905,6 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
 
   if (intrinsicFields.length > 0) {
     const result = await retryLibraryPropertyMutation({
-      version: 2,
       mutationId: input.operationId,
       storeEpoch: detail.storeEpoch,
       ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
@@ -955,7 +946,6 @@ export const commitLibraryPageDetailPropertyEdit = async (input: {
     return { status: "updated", didMutate: false };
   }
   const result = await retryLibraryDatabaseMutation({
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId,
     storeEpoch: detail.storeEpoch,
     operations,

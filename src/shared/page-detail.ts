@@ -21,7 +21,6 @@ import {
 import type { DatabasePropertyValueType } from "./database-kernel";
 import { parsePage, type Page } from "./page";
 
-export const PAGE_DETAIL_CONTRACT_VERSION = 4 as const;
 
 export interface PageIntrinsicProperty {
   readonly key: string;
@@ -48,7 +47,6 @@ export type PageDataSourceContext =
     };
 
 export interface PageDetail {
-  readonly version: typeof PAGE_DETAIL_CONTRACT_VERSION;
   readonly projectId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
@@ -543,7 +541,6 @@ const parsePageDetailBody = (
   detail: Readonly<Record<string, unknown>>,
 ): Omit<PageDetail, "projectId"> => {
   if (
-    detail.version !== PAGE_DETAIL_CONTRACT_VERSION ||
     !isRecord(detail.document) ||
     !Array.isArray(detail.intrinsicProperties) ||
     !isRecord(detail.dataSourceContext)
@@ -639,7 +636,6 @@ const parsePageDetailBody = (
     );
   }
   return {
-    version: PAGE_DETAIL_CONTRACT_VERSION,
     libraryId,
     storeEpoch,
     commitSeq,
@@ -700,7 +696,6 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
   exactKeys(value, "pageDetailResult", ["ok", "value"]);
   const detail = value.value;
   exactKeys(detail, "pageDetail", [
-    "version",
     "projectId",
     "libraryId",
     "storeEpoch",
@@ -740,7 +735,6 @@ export const parseLibraryPageDetailResult = (
   exactKeys(value, "libraryPageDetailResult", ["ok", "value"]);
   const detail = value.value;
   exactKeys(detail, "libraryPageDetail", [
-    "version",
     "accessContext",
     "libraryId",
     "storeEpoch",

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
-  LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryCanvasSummary,
   type LibraryModuleApplyRequest,
   type LibraryModuleApplyResult,
@@ -120,7 +119,6 @@ const receiptFor = (
   ok: true,
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: request.operationId,
     storeEpoch: request.storeEpoch,
     libraryId: "library-1",
@@ -150,7 +148,6 @@ describe("Canvas host operations", () => {
       return {
         ok: true,
         value: {
-          version: LIBRARY_MODULE_CONTRACT_VERSION,
           profileId: "profile-1",
           libraryId: "library-1",
           storeEpoch: "epoch-1",
@@ -325,7 +322,6 @@ describe("Canvas host operations", () => {
     vi.mocked(readLibraryModule).mockResolvedValueOnce({
       ok: true,
       value: {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-2",
@@ -355,7 +351,6 @@ describe("Canvas host operations", () => {
 
   test("retries transport ambiguity with the exact same operation request", async () => {
     const request = {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "operation-1",
       storeEpoch: "epoch-1",
       operation: {
@@ -380,7 +375,6 @@ describe("Canvas host operations", () => {
       .mockResolvedValueOnce({
         ok: true,
         value: {
-          version: LIBRARY_MODULE_CONTRACT_VERSION,
           operationId: "operation-1",
           storeEpoch: "epoch-1",
           libraryId: "library-1",
@@ -416,7 +410,6 @@ describe("Canvas host operations", () => {
         ok: true,
         localCommit: noOpLocalCommit(request.storeEpoch),
         value: {
-          version: LIBRARY_MODULE_CONTRACT_VERSION,
           operationId: request.operationId,
           storeEpoch: request.storeEpoch,
           libraryId: "library-1",
@@ -473,7 +466,6 @@ describe("Canvas host operations", () => {
     });
 
     expect(apply).toHaveBeenCalledWith(accessContext, {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "delete-1",
       storeEpoch: "epoch-1",
       operation: {

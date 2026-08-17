@@ -83,7 +83,6 @@ export const restorePackagedBrowserRuntimeClosure = ({
   const manifest = JSON.parse(sourceManifestBytes.toString("utf8"));
   if (
     manifest.schemaVersion !== 4
-    || manifest.contractVersion !== 1
     || !Array.isArray(manifest.artifacts)
   ) {
     throw new Error(`Unsupported Browser runtime manifest: ${sourceManifestPath}`);

@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  BROWSER_RUNTIME_CONTRACT_VERSION,
   BROWSER_RUNTIME_MANIFEST_FILENAME,
   BROWSER_RUNTIME_SCHEMA_VERSION,
   parseBrowserRuntimeManifest,
@@ -531,7 +530,6 @@ export function vendorBrowserRuntime(
         },
       },
       codexCompatibilityVersion: options.codexCompatibilityVersion,
-      contractVersion: BROWSER_RUNTIME_CONTRACT_VERSION,
       desktopBuild,
       desktopBuildNumber,
       entrypoints: {

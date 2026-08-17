@@ -6,6 +6,7 @@ members = [
   "crates/nodex-core-contracts",
   "crates/nodex-core-protocol",
   "crates/nodex-core-server",
+  "crates/nodex-store-format",
 ]
 resolver = "3"
 
@@ -18,6 +19,7 @@ license = "MIT"
 [workspace.dependencies]
 nodex-core-contracts = { path = "crates/nodex-core-contracts" }
 nodex-core-protocol = { path = "crates/nodex-core-protocol" }
+nodex-store-format = { path = "crates/nodex-store-format" }
 async-stream = "0.3.6"
 axum = "=0.8.4"
 base64 = "0.22.1"

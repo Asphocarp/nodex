@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::migration::{
     validate_codex_thread_timestamp_invariants, validate_database_priority_invariants,
 };
-use super::schema::CORE_SCHEMA_VERSION;
+use super::schema::CURRENT_STORE_REVISION;
 use super::sqlite::{StoreError, StoreErrorCode, open_writer, validate_store};
 use super::store::STORE_FILE_NAME;
 
@@ -384,10 +384,10 @@ pub fn validate_store_path(path: &Path) -> Result<String, StoreError> {
 fn validate_core_metadata(connection: &rusqlite::Connection) -> Result<(), StoreError> {
     let schema_version =
         connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))?;
-    if schema_version != CORE_SCHEMA_VERSION {
+    if schema_version != CURRENT_STORE_REVISION {
         return Err(StoreError::new(
             StoreErrorCode::UnsupportedSchema,
-            format!("Store replacement requires schema v{CORE_SCHEMA_VERSION}"),
+            format!("Store replacement requires schema v{CURRENT_STORE_REVISION}"),
             false,
         ));
     }

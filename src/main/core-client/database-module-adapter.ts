@@ -18,7 +18,6 @@ import type {
   LibraryDatabaseModuleReadRequestV2,
   LibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -1125,7 +1124,6 @@ export const createCoreDatabaseModuleAdapter = (
       return parseDatabaseModuleReadResultV2({
         ok: true,
         value: {
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           projectId: input.projectId,
           libraryId: input.libraryId,
           storeEpoch: snapshot.store_epoch,
@@ -1187,7 +1185,6 @@ export const createCoreDatabaseModuleAdapter = (
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
           value: {
-            version: request.version,
             projectId: input.projectId,
             libraryId: input.libraryId,
             storeEpoch,
@@ -1221,7 +1218,6 @@ export const createCoreLibraryDatabaseModuleAdapter = (
       return parseLibraryDatabaseModuleReadResultV2({
         ok: true,
         value: {
-          version: request.version,
           accessContext: { kind: "library" },
           libraryId: input.libraryId,
           storeEpoch: snapshot.store_epoch,
@@ -1260,7 +1256,6 @@ export const createCoreLibraryDatabaseModuleAdapter = (
         ok: true,
         localCommit: rendererLocalCommitApply(committed),
         value: {
-          version: request.version,
           accessContext: { kind: "library" },
           libraryId: input.libraryId,
           storeEpoch,

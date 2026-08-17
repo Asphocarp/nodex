@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  BLOCK_TRANSFER_CONTRACT_VERSION,
   BlockTransferContractError,
   canonicalizeBlockTransferIntent,
   canonicalizeBlockTransferLogicalIntent,
@@ -11,7 +10,6 @@ import {
 } from "./block-transfer";
 
 const request = (): BlockTransferRequest => ({
-  version: BLOCK_TRANSFER_CONTRACT_VERSION,
   operationId: "transfer-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",

@@ -19,7 +19,6 @@ import {
   type DocumentSyncResponse,
 } from "./document-sync";
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
   type CanvasSceneSyncRequest,
   type CanvasSceneSyncResponse,
@@ -846,7 +845,6 @@ export const decodeCanvasSceneSyncHttpRequest = (
     0,
   );
   return {
-    version: CANVAS_SCENE_SYNC_VERSION,
     syncRequestId: envelope.metadata.syncRequestId,
     accessContext,
     documentId: assertRouteDocument(routeDocumentId),
@@ -905,7 +903,6 @@ export const decodeCanvasSceneSyncHttpResponse = (
     MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
   );
   const common = {
-    version: CANVAS_SCENE_SYNC_VERSION,
     syncRequestId: envelope.metadata.syncRequestId,
     libraryId: envelope.metadata.libraryId,
     accessContext: envelope.metadata.accessContext,

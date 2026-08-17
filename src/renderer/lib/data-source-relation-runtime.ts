@@ -1,5 +1,4 @@
 import {
-  DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DataSourcePropertyRecordV2,
   type LibraryDatabaseReadV2,
 } from "../../shared/database-module-v2";
@@ -11,12 +10,10 @@ const readInContext = async (
   read: LibraryDatabaseReadV2,
 ) => accessContext.kind === "project"
   ? await readDatabaseModule(accessContext.projectId, {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId: accessContext.projectId,
       read,
     })
   : await readLibraryDatabaseModule({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       read,
     });
 

@@ -4,12 +4,10 @@ import {
   canonicalizeCanvasPresencePublication,
   canonicalizeCanvasPresencePublishRequest,
   canonicalizeCanvasPresenceRealtimeEvent,
-  DOCUMENT_PRESENCE_VERSION,
   MAX_CANVAS_PRESENCE_SELECTION_IDS,
 } from "./document-presence";
 
 const publication = {
-  version: DOCUMENT_PRESENCE_VERSION,
   engine: "canvas_scene" as const,
   documentId: "document-1",
   generation: 3,
@@ -109,7 +107,6 @@ describe("Canvas document presence contract", () => {
     };
     expect(canonicalizeCanvasPresenceRealtimeEvent({
       type: "canvas_presence_snapshot",
-      version: DOCUMENT_PRESENCE_VERSION,
       libraryId: "library-1",
       accessContext: { kind: "project", projectId: "project-1" },
       documentId: publication.documentId,
@@ -119,7 +116,6 @@ describe("Canvas document presence contract", () => {
     expect(() =>
       canonicalizeCanvasPresenceRealtimeEvent({
         type: "canvas_presence_snapshot",
-        version: DOCUMENT_PRESENCE_VERSION,
         libraryId: "library-1",
         accessContext: { kind: "project", projectId: "project-1" },
         documentId: publication.documentId,
@@ -130,7 +126,6 @@ describe("Canvas document presence contract", () => {
     expect(() =>
       canonicalizeCanvasPresenceRealtimeEvent({
         type: "canvas_presence_snapshot",
-        version: DOCUMENT_PRESENCE_VERSION,
         libraryId: "library-1",
         accessContext: { kind: "project", projectId: "project-1" },
         documentId: publication.documentId,
@@ -141,7 +136,6 @@ describe("Canvas document presence contract", () => {
     expect(() =>
       canonicalizeCanvasPresenceRealtimeEvent({
         type: "canvas_presence_snapshot",
-        version: DOCUMENT_PRESENCE_VERSION,
         libraryId: "library-1",
         accessContext: { kind: "project", projectId: "project-1" },
         documentId: publication.documentId,

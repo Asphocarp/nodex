@@ -1507,7 +1507,6 @@ pub(crate) fn persist_canvas_mutation(
     };
     let outcome = if changed { "committed" } else { "no_change" };
     let mut result = json!({
-        "version": 1,
         "mutationId": operation_id,
         "libraryId": authority.head.library_id,
         "accessContext": access_context,
@@ -1672,7 +1671,6 @@ pub(crate) fn persist_prepared_canvas_mutation(
     };
     let outcome = if changed { "committed" } else { "no_change" };
     let mut result = json!({
-        "version": 1,
         "mutationId": operation_id,
         "libraryId": authority.head.library_id,
         "accessContext": access_context,

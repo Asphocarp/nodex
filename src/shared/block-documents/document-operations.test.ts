@@ -12,7 +12,6 @@ import {
 import { committedLocalCommit } from "../testing/local-commit";
 
 const BASE = {
-  version: 1,
   mutationId: "operation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -125,7 +124,6 @@ describe("Document operation contract", () => {
       storeEpoch: "epoch-1",
       projectId: "project-1",
       mutationId: "operation-1",
-      version: 1,
       clientSessionId: "session-1",
       actor: { id: "agent-1", kind: "agent" },
       operations: [
@@ -270,7 +268,6 @@ describe("Document operation contract", () => {
       ok: true,
       localCommit: committedLocalCommit("epoch-1", 7),
       value: {
-        version: 1,
         mutationKind: "document_operation_batch",
         mutationId: "operation-1",
         projectId: "project-1",

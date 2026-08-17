@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::migration::{StorePreparation, StorePreparationEvent, prepare_legacy_import_candidate};
-use super::schema::{CORE_SCHEMA_VERSION, read_schema_inventory, validate_exact_v84_schema};
+use super::schema::{CURRENT_STORE_REVISION, read_schema_inventory, validate_exact_v84_schema};
 use super::sqlite::{StoreError, StoreErrorCode, open_reader, open_writer, validate_store};
 use super::store::STORE_FILE_NAME;
 
@@ -122,7 +122,7 @@ pub(crate) fn migrate_legacy_profile_if_needed_with_observer(
     let migrator = LegacyMigratorCommand::from_environment()?;
     observer(StorePreparationEvent::MigrationStarted {
         from_version: source.version,
-        to_version: CORE_SCHEMA_VERSION,
+        to_version: CURRENT_STORE_REVISION,
     });
     migrate_legacy_source(profile_home, source, &migrator, observer).map(Some)
 }
@@ -135,7 +135,7 @@ fn migrate_legacy_source(
 ) -> Result<StorePreparation, StoreError> {
     let migration_id = migration_id()?;
     let backup_directory_name = format!(
-        "v{}-to-v{CORE_SCHEMA_VERSION}-{}-{migration_id}",
+        "v{}-to-v{CURRENT_STORE_REVISION}-{}-{migration_id}",
         source.version,
         unix_time_millis()?
     );
@@ -240,7 +240,7 @@ fn migrate_legacy_source(
     let installed_preparation =
         super::migration::prepare_profile_store(&mut installed, profile_home)?;
     drop(installed);
-    if installed_preparation.schema_version != CORE_SCHEMA_VERSION {
+    if installed_preparation.schema_version != CURRENT_STORE_REVISION {
         return Err(corrupt(
             "Legacy import did not install the current Core schema",
         ));
@@ -777,7 +777,7 @@ fn move_candidate_out_of_live(profile_home: &Path, staging: &Path) -> Result<(),
     let connection = open_writer(&live)?;
     let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     drop(connection);
-    if version != CORE_SCHEMA_VERSION {
+    if version != CURRENT_STORE_REVISION {
         return Err(corrupt(
             "Legacy import recovery found an unexpected live database",
         ));
@@ -1332,7 +1332,7 @@ mod tests {
                 .expect("legacy source");
             let preparation = migrate_legacy_source(&home, source, &migrator, &mut |_| {})
                 .unwrap_or_else(|error| panic!("v{version} import failed: {error}"));
-            assert_eq!(preparation.schema_version, CORE_SCHEMA_VERSION);
+            assert_eq!(preparation.schema_version, CURRENT_STORE_REVISION);
             assert_eq!(preparation.migrated_from_version, Some(*version));
             assert!(!home.join(source_file_name(*version)).exists() || *version != 26);
 
@@ -1348,9 +1348,9 @@ mod tests {
             assert_eq!(
                 published,
                 (
-                    CORE_SCHEMA_VERSION,
+                    CURRENT_STORE_REVISION,
                     "rust_core".to_owned(),
-                    CORE_SCHEMA_VERSION
+                    CURRENT_STORE_REVISION
                 )
             );
             if *fixture_name == "v57-early" {
@@ -1444,7 +1444,10 @@ mod tests {
             assert!(!home.join(JOURNAL_FILE_NAME).exists());
 
             let reopened = SqliteStoreKernel::open(&home).expect("reopen current Profile");
-            assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
+            assert_eq!(
+                reopened.preparation().schema_version,
+                CURRENT_STORE_REVISION
+            );
             drop(reopened);
             assert_eq!(backup_directories(&home), backups);
         }
@@ -1712,7 +1715,7 @@ mod tests {
         assert!(
             backup_entries[0]
                 .to_string_lossy()
-                .starts_with(&format!("v82-to-v{CORE_SCHEMA_VERSION}-"))
+                .starts_with(&format!("v82-to-v{CURRENT_STORE_REVISION}-"))
         );
     }
 }

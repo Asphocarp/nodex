@@ -10,7 +10,6 @@ import {
 import { useEffect, useRef } from "react";
 
 import {
-  LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryApplyOperation,
   type LibraryModuleReadRequest,
   type LibraryNavigationParent,
@@ -53,7 +52,6 @@ export const libraryMetadataQueryOptions = () => queryOptions({
   queryKey: queryKeys.library.metadata(),
   queryFn: async () => {
     const result = await readLibraryModule(libraryContentAccess, {
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "metadata" },
     });
     if (!result.ok) throw new Error(result.error.message);
@@ -113,7 +111,6 @@ export const libraryChildrenQueryOptions = (
 ) => queryOptions({
   queryKey: queryKeys.library.children(parentKey(parent), input),
   queryFn: () => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: {
       mode: "children",
       parent,
@@ -132,7 +129,6 @@ export const libraryStandaloneRootsQueryOptions = (
 ) => queryOptions({
   queryKey: queryKeys.library.standaloneRoots(input),
   queryFn: () => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "standalone_roots", ...input },
   }, "standalone_roots"),
   meta: libraryReadAuthorityMeta,
@@ -147,7 +143,6 @@ export const libraryCatalogQueryOptions = (
 ) => queryOptions({
   queryKey: queryKeys.library.catalog(input),
   queryFn: () => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "catalog", ...input },
   }, "catalog"),
   meta: libraryReadAuthorityMeta,
@@ -163,7 +158,6 @@ export const libraryMoveDestinationsQueryOptions = (
 ) => queryOptions({
   queryKey: queryKeys.library.moveDestinations(target, input),
   queryFn: () => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "move_destinations", target, ...input },
   }, "move_destinations"),
   meta: libraryReadAuthorityMeta,
@@ -174,7 +168,6 @@ export const libraryPathQueryOptions = (target: LibraryRouteTarget) =>
   queryOptions({
     queryKey: queryKeys.library.path(target),
     queryFn: () => requireReadValue({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "path", target },
     }, "path"),
     meta: libraryReadAuthorityMeta,
@@ -185,7 +178,6 @@ export const libraryCanvasTargetQueryOptions = (canvasId: string) =>
   queryOptions({
     queryKey: queryKeys.library.canvasTarget(canvasId),
     queryFn: () => requireReadValue({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "canvas_target", canvasId },
     }, "canvas_target"),
     meta: libraryReadAuthorityMeta,
@@ -197,7 +189,6 @@ export const libraryResourceProjectAccessQueryOptions = (
 ) => queryOptions({
   queryKey: queryKeys.library.resourceProjectAccess(target),
   queryFn: () => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "resource_project_access", target },
   }, "resource_project_access"),
   meta: libraryReadAuthorityMeta,
@@ -253,7 +244,6 @@ export const useApplyLibraryOperation = () => {
     mutationFn: async (operation: LibraryApplyOperation) => {
       if (!metadata.data) throw new Error("Library identity is not ready");
       const result = await applyLibraryModule(libraryContentAccess, {
-        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: createUuidV7(),
         storeEpoch: metadata.data.storeEpoch,
         operation,
@@ -288,7 +278,6 @@ export const useInfiniteLibraryChildren = (
   queryKey: queryKeys.library.childrenPages(parentKey(parent), input),
   initialPageParam: undefined as string | undefined,
   queryFn: ({ pageParam }) => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: {
       mode: "children",
       parent,
@@ -312,7 +301,6 @@ export const useInfiniteLibraryStandaloneRoots = (
   queryKey: queryKeys.library.standaloneRootPages(input),
   initialPageParam: undefined as string | undefined,
   queryFn: ({ pageParam }) => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: {
       mode: "standalone_roots",
       ...input,
@@ -360,7 +348,6 @@ export const useInfiniteLibraryMoveDestinations = (
   queryKey: queryKeys.library.moveDestinationPages(target, input),
   initialPageParam: undefined as string | undefined,
   queryFn: ({ pageParam }) => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: {
       mode: "move_destinations",
       target,
@@ -397,7 +384,6 @@ export const useInfiniteLibraryCatalog = (
   queryKey: queryKeys.library.catalogPages(input),
   initialPageParam: undefined as string | undefined,
   queryFn: ({ pageParam }) => requireReadValue({
-    version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: {
       mode: "catalog",
       ...input,

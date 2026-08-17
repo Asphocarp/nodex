@@ -60,7 +60,6 @@ pub(super) fn read_preflight(
     let tags_property = read_tags_property(connection, &default_view)?;
     let Some(row) = read_page_authority(connection, page_id)? else {
         return Ok(LibraryPageLifecyclePreflight {
-            version: 3,
             default_view,
             tags_property,
             reserved_block_type: None,
@@ -69,7 +68,6 @@ pub(super) fn read_preflight(
     };
     if row.block_type != "page" {
         return Ok(LibraryPageLifecyclePreflight {
-            version: 3,
             default_view,
             tags_property,
             reserved_block_type: Some(row.block_type),
@@ -81,7 +79,6 @@ pub(super) fn read_preflight(
     )?;
     let page = project_page_authority(connection, library_id, page_id, row)?;
     Ok(LibraryPageLifecyclePreflight {
-        version: 3,
         default_view,
         tags_property,
         reserved_block_type: None,

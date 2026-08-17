@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import { parseDatabaseId } from "../../shared/database-identities";
 import type { DatabasePageKeyRuntimeDependencies } from "./database-page-key-runtime";
 import {
@@ -16,7 +15,6 @@ const dependencies = (
   readProject: async (projectId, request) => ({
     ok: true,
     value: {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId,
       libraryId: "library:test",
       storeEpoch: "epoch:test",
@@ -53,7 +51,6 @@ const dependencies = (
     return {
       ok: true,
       value: {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         accessContext: { kind: "library" },
         libraryId: "library:test",
         storeEpoch: "epoch:test",

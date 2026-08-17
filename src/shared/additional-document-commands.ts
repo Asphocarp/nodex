@@ -7,7 +7,6 @@ import type {
   BlockTreeValue,
 } from "./block-documents/block-document-codec";
 
-export const ADDITIONAL_DOCUMENT_COMMAND_VERSION = 2 as const;
 
 export const MAX_ADDITIONAL_DOCUMENT_COMMAND_LENGTH = 2_000_000;
 export const MAX_ADDITIONAL_DOCUMENT_ACTOR_LENGTH = 64 * 1024;
@@ -135,7 +134,6 @@ export type AdditionalDocumentOperation =
 export type AdditionalDocumentCommandKind = AdditionalDocumentOperation["kind"];
 
 export interface AdditionalDocumentCommandRequest {
-  readonly version: typeof ADDITIONAL_DOCUMENT_COMMAND_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -210,7 +208,6 @@ export interface AdditionalDocumentMutationEffect {
 }
 
 export interface AdditionalDocumentCommandReceipt {
-  readonly version: typeof ADDITIONAL_DOCUMENT_COMMAND_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -919,7 +916,6 @@ export const parseAdditionalDocumentCommandRequest = (
   const label = "additionalDocument";
   const request = readRecord(value, label);
   assertExactKeys(request, label, [
-    "version",
     "operationId",
     "projectId",
     "storeEpoch",
@@ -928,14 +924,8 @@ export const parseAdditionalDocumentCommandRequest = (
     "coordination",
     "operation",
   ]);
-  if (request.version !== ADDITIONAL_DOCUMENT_COMMAND_VERSION) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.version must be ${ADDITIONAL_DOCUMENT_COMMAND_VERSION}`,
-    );
-  }
   const operation = parseOperation(request.operation);
   const parsed: AdditionalDocumentCommandRequest = {
-    version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
     operationId: readString(request, "operationId", label),
     projectId: readString(request, "projectId", label),
     storeEpoch: readString(request, "storeEpoch", label),
@@ -963,7 +953,6 @@ export const canonicalizeAdditionalDocumentCommandIntent = (
 ): string => {
   const request = parseAdditionalDocumentCommandRequest(value);
   return stableStringify({
-    version: request.version,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -1191,7 +1180,6 @@ export const parseAdditionalDocumentCommandReceipt = (
   const label = "additionalDocumentReceipt";
   const receipt = readRecord(value, label);
   assertExactKeys(receipt, label, [
-    "version",
     "operationId",
     "projectId",
     "storeEpoch",
@@ -1202,11 +1190,6 @@ export const parseAdditionalDocumentCommandReceipt = (
     "commitSeq",
     "committedAt",
   ]);
-  if (receipt.version !== ADDITIONAL_DOCUMENT_COMMAND_VERSION) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.version must be ${ADDITIONAL_DOCUMENT_COMMAND_VERSION}`,
-    );
-  }
   const operationKind = readCommandKind(
     receipt.operationKind,
     `${label}.operationKind`,
@@ -1225,7 +1208,6 @@ export const parseAdditionalDocumentCommandReceipt = (
     );
   }
   const parsed: AdditionalDocumentCommandReceipt = {
-    version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
     operationId: readString(receipt, "operationId", label),
     projectId: readString(receipt, "projectId", label),
     storeEpoch: readString(receipt, "storeEpoch", label),

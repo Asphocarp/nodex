@@ -20,7 +20,6 @@ import {
   type ContentAccessContext,
 } from "../content-access-context";
 
-export const CANVAS_SCENE_SYNC_VERSION = 1 as const;
 export const MAX_CANVAS_SCENE_MUTATION_BYTES = 2 * 1024 * 1024;
 export const MAX_CANVAS_SCENE_SNAPSHOT_BYTES = 16 * 1024 * 1024;
 
@@ -38,7 +37,6 @@ export type CanvasSceneAppStateIntents = Readonly<
 >;
 
 export interface CanvasSceneMutationIntent {
-  readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly mutationId: string;
   readonly accessContext: ContentAccessContext;
   readonly documentId: string;
@@ -61,7 +59,6 @@ export interface CanvasSceneMutationRequest extends CanvasSceneMutationIntent {
 }
 
 export interface CanvasSceneMutationResult {
-  readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly mutationId: string;
   readonly libraryId: string;
   readonly accessContext: ContentAccessContext;
@@ -122,7 +119,6 @@ export type CanvasSceneSyncCommandResult =
   | { readonly ok: false; readonly error: CanvasSceneMutationError };
 
 export interface CanvasSceneSubscribeRequest {
-  readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly clientSessionId: string;
@@ -144,7 +140,6 @@ export type CanvasSceneSubscriptionCommandResult =
   | { readonly ok: false; readonly error: CanvasSceneMutationError };
 
 export interface CanvasSceneSyncRequest {
-  readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly syncRequestId: string;
   readonly accessContext: ContentAccessContext;
   readonly documentId: string;
@@ -156,7 +151,6 @@ export interface CanvasSceneSyncRequest {
 }
 
 interface CanvasSceneSyncResponseBase {
-  readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly syncRequestId: string;
   readonly libraryId: string;
   readonly accessContext: ContentAccessContext;
@@ -178,7 +172,6 @@ export type CanvasSceneSyncResponse =
 
 export interface CanvasSceneCommittedEvent {
   readonly type: "canvas_scene_committed";
-  readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly libraryId: string;
   readonly accessContext: ContentAccessContext;
   readonly documentId: string;
@@ -196,7 +189,6 @@ export interface CanvasSceneCommittedEvent {
 
 export interface CanvasSceneResyncRequiredEvent {
   readonly type: "canvas_scene_resync_required";
-  readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly libraryId: string;
   readonly accessContext: ContentAccessContext;
   readonly documentId: string;
@@ -288,7 +280,6 @@ export const canonicalizeCanvasSceneMutationIntent = (
     );
   }
   exactKeys(input, "Canvas scene mutation intent", [
-    "version",
     "mutationId",
     "accessContext",
     "documentId",
@@ -299,11 +290,6 @@ export const canonicalizeCanvasSceneMutationIntent = (
     "appStateIntents",
     "fileAdditions",
   ]);
-  if (input.version !== CANVAS_SCENE_SYNC_VERSION) {
-    throw new CanvasSceneContractError(
-      `Canvas scene mutation.version must be ${CANVAS_SCENE_SYNC_VERSION}`,
-    );
-  }
   if (!Array.isArray(input.elementCandidates)) {
     throw new CanvasSceneContractError(
       "Canvas scene mutation.elementCandidates must be an array",
@@ -380,7 +366,6 @@ export const canonicalizeCanvasSceneMutationIntent = (
       ]),
   );
   const intent: CanvasSceneMutationIntent = {
-    version: CANVAS_SCENE_SYNC_VERSION,
     mutationId: requireCanvasSceneIdentity(input.mutationId, "mutationId"),
     accessContext: requireAccessContext(input.accessContext, "accessContext"),
     documentId: requireCanvasSceneIdentity(input.documentId, "documentId"),
@@ -411,7 +396,6 @@ export const canonicalizeCanvasSceneMutationRequest = (
     throw new CanvasSceneContractError("Canvas scene mutation must be an object");
   }
   exactKeys(input, "Canvas scene mutation", [
-    "version",
     "mutationId",
     "accessContext",
     "documentId",
@@ -480,7 +464,6 @@ export const canonicalizeCanvasSceneMutationResult = (
   }
   const outcome = input.outcome;
   exactKeys(input, "Canvas scene mutation result", [
-    "version",
     "mutationId",
     "libraryId",
     "accessContext",
@@ -500,11 +483,6 @@ export const canonicalizeCanvasSceneMutationResult = (
     "committedAt",
     ...(outcome === "committed" ? ["committedDelta"] : []),
   ]);
-  if (input.version !== CANVAS_SCENE_SYNC_VERSION) {
-    throw new CanvasSceneContractError(
-      `Canvas scene mutation result.version must be ${CANVAS_SCENE_SYNC_VERSION}`,
-    );
-  }
   if (typeof input.duplicate !== "boolean") {
     throw new CanvasSceneContractError(
       "Canvas scene mutation result.duplicate must be boolean",
@@ -636,7 +614,6 @@ export const canonicalizeCanvasSceneMutationResult = (
     };
   }
   return {
-    version: CANVAS_SCENE_SYNC_VERSION,
     mutationId: requireCanvasSceneIdentity(input.mutationId, "mutationId"),
     libraryId: requireCanvasSceneIdentity(input.libraryId, "libraryId"),
     accessContext: requireAccessContext(input.accessContext, "accessContext"),
