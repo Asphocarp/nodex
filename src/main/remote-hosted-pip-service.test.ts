@@ -65,7 +65,7 @@ class FakeWindow implements RemoteHostedPipWindowLike {
 }
 
 class FakeSkyAddon implements SkyNativeAddon {
-  activePresentation = false;
+  activeTaskIds: string[] = [];
   anyPresentation = false;
   activeThreadIds: Array<string | null> = [];
   completedThreads: string[] = [];
@@ -78,7 +78,8 @@ class FakeSkyAddon implements SkyNativeAddon {
   suppressedThreadIds: string[][] = [];
   upserts: Array<[string, string, string, string | null]> = [];
   unregisteredHostIds: string[] = [];
-  visibleValues: boolean[] = [];
+  refreshVisibilityCalls: Array<string[] | undefined> = [];
+  shouldShowTaskHandler: ((threadId: string) => boolean) | null = null;
   visibilityHandler: ((isVisible: boolean, threadIds: string[]) => void) | null = null;
 
   completeRemoteHostedPIPContentThread(threadId: string): boolean {
@@ -87,7 +88,9 @@ class FakeSkyAddon implements SkyNativeAddon {
   }
 
   computerUseServiceProcessMatchesExecutablePath(): boolean { return true; }
-  hasRemoteHostedPIPContentActivePresentation(): boolean { return this.activePresentation; }
+  getRemoteHostedPIPContentActiveTaskIDs(): string[] {
+    return this.activeTaskIds;
+  }
   hasRemoteHostedPIPContentAnyPresentation(): boolean { return this.anyPresentation; }
   invalidateBrowserUsePIPContent(id: string): boolean {
     this.invalidatedPresentations.push(id);
@@ -130,8 +133,14 @@ class FakeSkyAddon implements SkyNativeAddon {
     this.visibilityHandler = handler;
     return true;
   }
-  setRemoteHostedPIPContentVisible(visible: boolean): boolean {
-    this.visibleValues.push(visible);
+  refreshRemoteHostedPIPContentVisibility(threadIds?: string[]): boolean {
+    this.refreshVisibilityCalls.push(threadIds);
+    return true;
+  }
+  setRemoteHostedPIPContentShouldShowTaskHandler(
+    handler: ((threadId: string) => boolean) | null,
+  ): boolean {
+    this.shouldShowTaskHandler = handler;
     return true;
   }
   async spawnComputerUseService(): Promise<number | null> { return 123; }
@@ -225,6 +234,7 @@ describe("RemoteHostedPipService", () => {
     expect(addon.registrations.at(-1)).toMatchObject({
       contentBounds: { height: 800, width: 1200, x: 10, y: 20 },
       id: "codex-main-thread",
+      isCodexHomeAvailable: false,
       presentationScope: "thread",
       title: "Window 1",
     });
@@ -233,7 +243,7 @@ describe("RemoteHostedPipService", () => {
 
     addon.maxDisplaySizeChangedHandler?.(340);
 
-    addon.activePresentation = true;
+    addon.activeTaskIds = ["thread-1"];
     addon.anyPresentation = true;
     service.handleCodexNotification(browserNotification({
       screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
@@ -261,19 +271,20 @@ describe("RemoteHostedPipService", () => {
 
     service.dispose();
     expect(addon.maxDisplaySizeChangedHandler).toBeNull();
+    expect(addon.shouldShowTaskHandler).toBeNull();
   });
 
-  test("persists the global always-hide setting and drives native visibility", () => {
+  test("persists the global always-hide setting and refreshes native visibility", () => {
     const { addon, getAlwaysHide, service, window } = createHarness();
     attachThread(service, window);
 
     service.setAlwaysHide(true);
     expect(getAlwaysHide()).toBe(true);
     expect(service.getAlwaysHide()).toBe(true);
-    expect(addon.visibleValues.at(-1)).toBe(false);
+    expect(addon.refreshVisibilityCalls.length).toBeGreaterThan(0);
 
     service.setAlwaysHide(false);
-    expect(addon.visibleValues.at(-1)).toBe(true);
+    expect(addon.refreshVisibilityCalls.length).toBeGreaterThan(1);
     service.dispose();
   });
 
@@ -310,11 +321,14 @@ describe("RemoteHostedPipService", () => {
       type: "remote-hosted-pip-hidden-thread-ids-changed",
     });
     expect(addon.suppressedThreadIds.at(-1)).toEqual(["thread-hidden"]);
+    expect(addon.shouldShowTaskHandler?.("thread-1")).toBe(true);
+    expect(addon.shouldShowTaskHandler?.("thread-hidden")).toBe(false);
 
     setSurfacePresented(true);
     await service.handleBrowserUseStateSnapshot();
     expect(addon.suppressedThreadIds.at(-1)).toEqual(["thread-1", "thread-hidden"]);
     expect(addon.activeThreadIds.at(-1)).toBe(null);
+    expect(addon.shouldShowTaskHandler?.("thread-1")).toBe(false);
 
     addon.visibilityHandler?.(false, ["thread-1"]);
     expect(service.getHiddenThreadIds()).toEqual(["thread-1", "thread-hidden"]);

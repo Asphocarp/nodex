@@ -98,7 +98,10 @@ describe("BrowserUseThreadConfigBuilder", () => {
         NODE_REPL_NODE_PATH: path.join(bundleRoot, "bin", "node"),
         NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S:
           browserRuntime.bundle.browserPluginClientSha256,
-        NODE_REPL_TRUSTED_CODE_PATHS: path.resolve(runtimeStateHome),
+        NODE_REPL_TRUSTED_CODE_PATHS: [
+          path.resolve(runtimeStateHome),
+          bundleRoot,
+        ].join(path.delimiter),
       },
     });
     expect(config?.[
@@ -129,7 +132,7 @@ describe("BrowserUseThreadConfigBuilder", () => {
   });
 
   test("builds Computer Use config independently of Browser backend availability", async () => {
-    const { browserRuntime } = makeVerifiedRuntime();
+    const { browserRuntime, bundleRoot } = makeVerifiedRuntime();
     const runtimeStateHome = "/tmp/nodex-agent";
     const builder = new BrowserUseThreadConfigBuilder({
       availableBackends: () => [],
@@ -170,7 +173,10 @@ describe("BrowserUseThreadConfigBuilder", () => {
         "/tmp/nodex-host-services/runtime.sock",
       NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE:
         "Control desktop apps on macOS through Computer Use.",
-      NODE_REPL_TRUSTED_CODE_PATHS: runtimeStateHome,
+      NODE_REPL_TRUSTED_CODE_PATHS: [
+        path.resolve(runtimeStateHome),
+        bundleRoot,
+      ].join(path.delimiter),
       SKY_CUA_SERVICE_PATH:
         "/tmp/nodex-agent/computer-use/Codex Computer Use.app",
     });

@@ -191,7 +191,7 @@ export class RemoteHostedPipService {
     this.alwaysHide = alwaysHide;
     this.deps.writeAlwaysHide?.(alwaysHide);
     if (this.contentHostStarted) {
-      this.deps.addon?.setRemoteHostedPIPContentVisible(!alwaysHide);
+      this.deps.addon?.refreshRemoteHostedPIPContentVisibility();
     }
     this.reconcileNativeState();
   }
@@ -221,6 +221,7 @@ export class RemoteHostedPipService {
     this.deps.addon?.setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(null);
     this.deps.addon?.setRemoteHostedPIPContentComputerUseCursorLocationHandler(null);
     this.deps.addon?.setRemoteHostedPIPContentPetWakeRequestHandler(null);
+    this.deps.addon?.setRemoteHostedPIPContentShouldShowTaskHandler(null);
     if (this.contentHostStarted) this.deps.addon?.stopRemoteHostedPIPContentHost();
     this.contentHostStarted = false;
   }
@@ -278,6 +279,7 @@ export class RemoteHostedPipService {
       animated: layout.animated && this.deps.addon.hasRemoteHostedPIPContentAnyPresentation(),
       contentBounds: window.getContentBounds(),
       id: layout.hostId,
+      isCodexHomeAvailable: false,
       nativeWindowHandle: window.getNativeWindowHandle?.() ?? null,
       presentationScope: layout.presentationScope,
       title: window.getTitle(),
@@ -308,6 +310,9 @@ export class RemoteHostedPipService {
     this.deps.addon.setRemoteHostedPIPContentVisibilityRequestHandler(
       (isVisible, threadIds) => this.handleNativeVisibilityRequest(isVisible, threadIds),
     );
+    this.deps.addon.setRemoteHostedPIPContentShouldShowTaskHandler(
+      (threadId) => this.shouldShowNativeTask(threadId),
+    );
     this.deps.addon.setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(
       (size) => {
         if (Number.isFinite(size) && size > 0) {
@@ -322,7 +327,7 @@ export class RemoteHostedPipService {
     this.deps.addon.setRemoteHostedPIPContentComputerUseCursorLocationHandler(null);
     this.deps.addon.setRemoteHostedPIPContentPetWakeRequestHandler(null);
     this.alwaysHide = this.deps.readAlwaysHide?.() ?? false;
-    this.deps.addon.setRemoteHostedPIPContentVisible(!this.alwaysHide);
+    this.deps.addon.refreshRemoteHostedPIPContentVisibility();
     this.pollTimer = setInterval(
       () => this.pollNativePresentationState(),
       REMOTE_HOSTED_PIP_POLL_INTERVAL_MS,
@@ -379,10 +384,16 @@ export class RemoteHostedPipService {
     if (!this.contentHostStarted || !this.deps.addon) return;
     const selectedThreadId = this.selectedThreadId;
     if (!selectedThreadId) return;
+    const activeThreadIds = this.deps.addon.getRemoteHostedPIPContentActiveTaskIDs();
     this.publishStreamState(
       selectedThreadId,
-      this.deps.addon.hasRemoteHostedPIPContentActivePresentation(),
+      activeThreadIds.includes(selectedThreadId),
     );
+  }
+
+  private shouldShowNativeTask(threadId: string): boolean {
+    if (this.alwaysHide || this.hiddenThreadIds.has(threadId)) return false;
+    return this.deps.isThreadSurfacePresented?.(threadId) !== true;
   }
 
   private publishStreamState(conversationId: string, isActive: boolean): void {

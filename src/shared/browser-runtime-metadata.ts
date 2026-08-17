@@ -434,7 +434,10 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
       artifactsByPath.get(capabilities.computerUse.serviceExecutable),
     ];
     if (computerUseArtifacts.some((artifact) => artifact === undefined)) return null;
-    if (computerUseArtifacts.slice(0, 4).some((artifact) => artifact?.kind !== "data")) return null;
+    if (computerUseArtifacts.slice(0, 3).some((artifact) => artifact?.kind !== "data")) return null;
+    if (computerUseArtifacts[3]?.kind !== "data" && computerUseArtifacts[3]?.kind !== "executable") {
+      return null;
+    }
     if (computerUseArtifacts[4]?.kind !== "executable") return null;
   }
   if (targetArch === "x64" && capabilities.computerUse.status !== "unavailable") return null;

@@ -73,7 +73,7 @@ export function readCuaRuntimeVersion(
   manifest: Record<string, unknown>,
 ): string {
   return readNonEmptyString(
-    manifest.runtime_archive_version ?? manifest.node_repl_archive_path,
+    manifest.runtime_archive_version,
     "CUA runtime version",
   );
 }
@@ -367,6 +367,7 @@ export function vendorBrowserRuntime(
   );
   const computerUseAvailable = options.targetArch === "arm64"
     && fs.existsSync(computerUsePluginRoot);
+  const computerUseClientRelativePath = "bin/computer-use-client-launcher";
   const computerUseAppPath = path.join(
     cuaRoot,
     "lib",
@@ -390,6 +391,14 @@ export function vendorBrowserRuntime(
     assertArchitecture(binaryPath, options.targetArch);
   }
   if (computerUseAvailable) assertArchitecture(computerUseServicePath, options.targetArch);
+  if (
+    computerUseAvailable
+    && !fs.existsSync(path.join(computerUsePluginRoot, ...computerUseClientRelativePath.split("/")))
+  ) {
+    throw new Error(
+      `Computer Use plugin is missing its launcher: ${computerUseClientRelativePath}`,
+    );
+  }
   assertPeerAddonLoads(nodePath, peerAddonPath);
 
   const outputPath = path.resolve(options.outputPath);
@@ -494,7 +503,7 @@ export function vendorBrowserRuntime(
               path.join(computerUseAppPath, "Contents", "Info.plist"),
               "CFBundleIdentifier",
             ),
-            client: "marketplace/plugins/computer-use/scripts/computer-use-client.mjs",
+            client: `marketplace/plugins/computer-use/${computerUseClientRelativePath}`,
             ipcProtocol: "CodexComputerUseIPC-2",
             minimumMacOSVersion: "14.4",
             plugin: {

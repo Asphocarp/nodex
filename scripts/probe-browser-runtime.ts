@@ -74,11 +74,16 @@ export async function cleanupBrowserRuntime(
 }
 
 function makeComputerUseProbeCode(computerUsePluginRoot: string): string {
+  const launcherPath = path.join(
+    computerUsePluginRoot,
+    "bin",
+    "computer-use-client-launcher",
+  );
+  if (!fs.existsSync(launcherPath)) {
+    throw new Error(`Installed Computer Use launcher is missing: ${launcherPath}`);
+  }
   return `
-var computerUseModule = await import(${JSON.stringify(
-    path.join(computerUsePluginRoot, "scripts", "computer-use-client.mjs"),
-  )});
-await computerUseModule.setupComputerUseRuntime({ globals: globalThis });
+globalThis.sky = (await import("@oai/sky")).sky;
 var computerUseApps = await sky.list_apps();
 nodeRepl.write("__NODEX_CUA_PROBE__" + JSON.stringify({ appCount: computerUseApps.length }));
 `;
@@ -96,14 +101,9 @@ function resolveInstalledComputerUsePluginRoot(
     "computer-use",
     version,
   );
-  const clientPath = path.join(
-    pluginRoot,
-    "scripts",
-    "computer-use-client.mjs",
-  );
-  if (!fs.existsSync(clientPath)) {
+  if (!fs.existsSync(path.join(pluginRoot, "bin", "computer-use-client-launcher"))) {
     throw new Error(
-      `Installed Computer Use client is missing from the app-server plugin cache: ${clientPath}`,
+      `Installed Computer Use client is missing from the app-server plugin cache: ${pluginRoot}`,
     );
   }
   return pluginRoot;
@@ -179,10 +179,13 @@ function makeBrowserClientProbeCode(
 const { inspectTrustedBridge } = await import(${JSON.stringify(trustedBridgeProbePath)});
 if (globalThis.agent?.browsers == null) {
   const { setupBrowserRuntime } = await import(${JSON.stringify(browserClientPath)});
-  await setupBrowserRuntime({ globals: globalThis });
+  globalThis.agent = await setupBrowserRuntime({ globals: globalThis });
 }
-globalThis.browser = await agent.browsers.get("iab");
-const probeInfo = (await agent.browsers.list()).find(
+if (globalThis.agent?.browsers == null) {
+  throw new Error("Browser client setup did not provide an agent runtime");
+}
+globalThis.browser = await globalThis.agent.browsers.get("iab");
+const probeInfo = (await globalThis.agent.browsers.list()).find(
   (candidate) => candidate.id === browser.browserId,
 );
 nodeRepl.write(JSON.stringify({

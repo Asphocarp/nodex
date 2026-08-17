@@ -79,7 +79,7 @@ function buildAvailableConfig(
   // Trust the app-server-owned home so both the marketplace source and the
   // effective installed copy receive the privileged Node REPL bridge. Browser
   // clients remain independently constrained by their verified SHA-256.
-  const trustedCodePaths = runtimeStateHome;
+  const trustedCodePaths = [runtimeStateHome, bundle.rootPath].join(path.delimiter);
   const env: Record<string, string> = {
     BROWSER_USE_AVAILABLE_BACKENDS: availableBackendsValue,
     BROWSER_USE_CODEX_APP_BUILD_FLAVOR: bundle.manifest.buildFlavor,
