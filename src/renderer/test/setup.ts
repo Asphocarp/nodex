@@ -140,6 +140,7 @@ Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 
 const browserWindow = window;
 const browserDocument = document;
+const browserCustomEvent = browserWindow.CustomEvent;
 const browserWindowApiDescriptor = Object.getOwnPropertyDescriptor(browserWindow, "api");
 function createDefaultRendererApi(): NonNullable<Window["api"]> {
   let persistedAtomRevision = 0;
@@ -294,6 +295,11 @@ function restoreBrowserGlobals() {
     configurable: true,
     writable: true,
     value: browserEvent,
+  });
+  Object.defineProperty(globalThis, "CustomEvent", {
+    configurable: true,
+    writable: true,
+    value: browserCustomEvent,
   });
   Object.defineProperty(globalThis, "KeyboardEvent", {
     configurable: true,
