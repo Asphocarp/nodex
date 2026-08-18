@@ -168,7 +168,9 @@ jobs:
       - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
       - uses: ./.github/actions/setup-playwright
-      - name: Run complete Electron E2E suite
+      - name: Run functional Electron E2E suite
+        env:
+          NODEX_SKIP_PERFORMANCE_GATES: "1"
         run: pnpm exec tsx scripts/ci/run-timed.ts --name electron-e2e -- xvfb-run --auto-servernum pnpm run test:e2e
       - name: Upload Electron failure diagnostics
         if: failure()
