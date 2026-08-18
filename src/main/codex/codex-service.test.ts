@@ -418,7 +418,8 @@ function makeProtocolThread(
     parentThreadId: null,
     preview: "",
     ephemeral: false,
-    isPinned: false,
+    section: null,
+    sectionEnteredAt: null,
     historyMode: "paginated",
     modelProvider: "openai",
     createdAt: 1_711_278_000,
@@ -2686,6 +2687,7 @@ test("history projection applies MCP, dynamic, collab, and web special-family ru
           arguments: { code: "fixture()" },
           appContext: null,
           pluginId: null,
+          readOnlyHint: false,
           result: { content: [], structuredContent: null, _meta: null },
           error: null,
           durationMs: 5,
@@ -2818,6 +2820,7 @@ test("history timeline projects turn diff before canonical request rows", async 
               isSecret: false,
               options: [{ label: "Yes", description: "Continue." }],
             }],
+            isBlocking: true,
             autoResolutionMs: null,
           },
         },
@@ -11640,6 +11643,7 @@ describe("codex-service approval fallback", () => {
           threadId,
           turnId: "turn-1",
           itemId: "item-1",
+          isBlocking: false,
           questions: [{
             id: "scope",
             header: "Scope",
@@ -11715,6 +11719,7 @@ describe("codex-service approval fallback", () => {
           threadId,
           turnId: "turn-1",
           itemId: "item-1",
+          isBlocking: false,
           questions: [{
             id: "scope",
             header: "Scope",
@@ -11763,6 +11768,61 @@ describe("codex-service approval fallback", () => {
     }
   });
 
+  test("keeps blocking user-input requests pending until the user responds", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      getUserInputAutoResolutionSnapshot: () =>
+        CodexUserInputAutoResolutionEntry[];
+      respondToUserInput: (
+        requestId: string | number,
+        answers: Record<string, string[]>,
+        conversationId: string,
+      ) => Promise<boolean>;
+    };
+    const threadId = "thread-blocking-user-input";
+    const requestId = "request-blocking-user-input";
+
+    try {
+      const request = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId,
+          turnId: "turn-1",
+          itemId: "item-1",
+          isBlocking: true,
+          questions: [{
+            id: "scope",
+            header: "Scope",
+            question: "Continue?",
+            isOther: false,
+            isSecret: false,
+          }],
+        },
+      });
+      await Promise.resolve();
+
+      expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toEqual([]);
+      expect(await serviceInternals.respondToUserInput(
+        requestId,
+        { scope: ["yes"] },
+        threadId,
+      )).toBe(true);
+      expect(await request).toEqual({
+        answers: {
+          scope: { answers: ["yes"] },
+        },
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("tracks only the latest typed user-input request per conversation", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -11788,6 +11848,7 @@ describe("codex-service approval fallback", () => {
           threadId,
           turnId: "turn-1",
           itemId,
+          isBlocking: false,
           questions: [{
             id: "scope",
             header: "Scope",
@@ -11881,6 +11942,7 @@ describe("codex-service approval fallback", () => {
         params: {
           turnId: "turn-user-input",
           itemId: "user-input-1",
+          isBlocking: true,
           questions: [],
         },
       },
@@ -13906,6 +13968,7 @@ describe("codex-service approval fallback", () => {
           threadId: "thr_request_empty_turns",
           turnId: "turn_absent",
           itemId: "user-input-empty-turn",
+          isBlocking: true,
           questions: [{
             id: "q-empty",
             header: "Empty",
@@ -14474,6 +14537,7 @@ describe("codex-service approval fallback", () => {
           threadId,
           turnId,
           itemId: "user-interrupt",
+          isBlocking: true,
           questions: [{
             id: "q-interrupt",
             header: "Interrupt",
@@ -16524,6 +16588,7 @@ describe("codex-service terminal turn reconciliation", () => {
           callId: "item_mcp",
           functionName: "docs__search",
           pluginId: null,
+          readOnlyHint: true,
           mcpAppResourceUri: undefined,
           source: null,
           invocation: {
@@ -18358,6 +18423,7 @@ describe("codex-service terminal turn reconciliation", () => {
           threadId,
           turnId,
           itemId: "user-request-hot-path",
+          isBlocking: true,
           questions: [{
             id: "q-hot-path",
             header: "Hot path",

@@ -8,6 +8,7 @@ import {
   parseBrowserRuntimeManifest,
   type BrowserRuntimeManifest,
 } from "../src/shared/browser-runtime-metadata";
+import { isBrowserRuntimeCompatibleWithCodex } from "../src/shared/browser-runtime-codex-compatibility";
 import { resolveBrowserRuntimeBundle } from "../src/main/codex/browser-runtime-bundle";
 import type { BrowserRuntimePlatformArtifactVerifier } from "../src/main/codex/browser-runtime-bundle";
 import { replaceOwnedDirectory } from "./replace-owned-directory";
@@ -117,7 +118,10 @@ export function stageBrowserRuntime(
 
   const manifest = readBrowserRuntimeSourceManifest(sourceRoot);
   if (
-    manifest.codexCompatibilityVersion !== options.expectedCodexCompatibilityVersion
+    !isBrowserRuntimeCompatibleWithCodex(
+      manifest,
+      options.expectedCodexCompatibilityVersion,
+    )
     || manifest.targetArch !== options.targetArch
     || manifest.targetPlatform !== options.targetPlatform
   ) {

@@ -203,6 +203,22 @@ describe("parseBrowserRuntimeManifest", () => {
     expect(parseBrowserRuntimeManifest(makeManifest())).toEqual(makeManifest());
   });
 
+  test("accepts an executable Computer Use launcher entrypoint", () => {
+    const manifest = makeManifest();
+    if (manifest.capabilities.computerUse.status !== "available") {
+      throw new Error("Computer Use fixture is unavailable");
+    }
+    const computerUse = manifest.capabilities.computerUse;
+    const client = manifest.artifacts.find(
+      (artifact) => artifact.path === computerUse.client,
+    );
+    if (!client) throw new Error("Computer Use fixture client is missing");
+    client.kind = "executable";
+    client.executable = true;
+
+    expect(parseBrowserRuntimeManifest(manifest)).toEqual(manifest);
+  });
+
   test("rejects paths that escape the bundle root", () => {
     const manifest = makeManifest();
     manifest.browserPlugin.client = "../client.js";

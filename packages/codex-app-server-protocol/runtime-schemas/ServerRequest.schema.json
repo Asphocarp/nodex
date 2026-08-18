@@ -1362,12 +1362,16 @@
       "properties": {
         "autoResolutionMs": {
           "default": null,
+          "description": "@deprecated Use `isBlocking` to decide whether the request should block.",
           "format": "uint64",
           "minimum": 0,
           "type": [
             "integer",
             "null"
           ]
+        },
+        "isBlocking": {
+          "type": "boolean"
         },
         "itemId": {
           "type": "string"
@@ -1386,6 +1390,7 @@
         }
       },
       "required": [
+        "isBlocking",
         "itemId",
         "questions",
         "threadId",
@@ -1499,7 +1504,7 @@
               "type": "string"
             },
             "path": {
-              "$ref": "#/definitions/definitions__v2__AbsolutePathBuf"
+              "$ref": "#/definitions/definitions__v2__LegacyAppPathString"
             },
             "type": {
               "enum": [

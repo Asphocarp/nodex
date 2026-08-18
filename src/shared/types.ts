@@ -3153,6 +3153,7 @@ export interface CodexMcpToolCallView {
   callId: ProtocolMcpToolCallItem["id"];
   functionName: string;
   pluginId: ProtocolMcpToolCallItem["pluginId"];
+  readOnlyHint: ProtocolMcpToolCallItem["readOnlyHint"];
   mcpAppResourceUri: ProtocolMcpToolCallItem["mcpAppResourceUri"];
   source: CodexMcpToolCallSource | null;
   invocation: CodexMcpToolCallInvocation;
@@ -3337,6 +3338,7 @@ export interface CodexUserInputRequest {
   turnId: string;
   itemId: string;
   questions: CodexUserInputQuestion[];
+  isBlocking: boolean;
   isOnboardingDynamicInput?: boolean;
   autoResolutionMs?: number | null;
   createdAt: number;

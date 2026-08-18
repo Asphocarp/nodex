@@ -82,7 +82,7 @@
               "type": "string"
             },
             "path": {
-              "$ref": "#/definitions/definitions__AbsolutePathBuf"
+              "$ref": "#/definitions/definitions__LegacyAppPathString"
             },
             "type": {
               "enum": [
@@ -1183,6 +1183,12 @@
             "null"
           ]
         },
+        "readOnlyHint": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "result": {
           "anyOf": [
             {
@@ -1517,6 +1523,13 @@
         },
         "status": {
           "type": "string"
+        },
+        "transparentBackground": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "type": {
           "enum": [

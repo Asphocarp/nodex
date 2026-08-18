@@ -2,39 +2,39 @@
   "schemaVersion": 1,
   "runtimeFamily": "browser",
   "repository": "junyudev/nodex",
-  "tag": "browser-runtime-v26.727.51351.1",
+  "tag": "browser-runtime-v26.810.52044",
   "source": {
     "product": "chatgpt-desktop",
-    "desktopBuild": "26.727.51351",
-    "buildNumber": "6119"
+    "desktopBuild": "26.810.52044",
+    "buildNumber": "6662"
   },
-  "browserPluginVersion": "26.727.51351",
+  "browserPluginVersion": "26.810.52044",
   "codexCompatibilityVersion": "0.146.0",
   "assets": {
     "darwin-arm64": {
-      "assetName": "nodex-browser-runtime-26.727.51351.1-darwin-arm64.tar.gz",
-      "url": "https://github.com/junyudev/nodex/releases/download/browser-runtime-v26.727.51351.1/nodex-browser-runtime-26.727.51351.1-darwin-arm64.tar.gz",
-      "archiveSha256": "0f03d2a09934b453a6a9609376768eba0e09b1a394f8e7ad19ca01c9c698baeb",
-      "archiveSize": 248297966,
-      "manifestSha256": "a5bd8b21b5d63850d344f5e228ebf6c0cd7560c7a29e925571495d36c420c70b",
+      "assetName": "nodex-browser-runtime-26.810.52044-darwin-arm64.tar.gz",
+      "url": "https://github.com/junyudev/nodex/releases/download/browser-runtime-v26.810.52044/nodex-browser-runtime-26.810.52044-darwin-arm64.tar.gz",
+      "archiveSha256": "e1ac03b4b1ba2bd9a92da71a4ab3cdf16f138019a91b71c931131deb4d7df812",
+      "archiveSize": 240822946,
+      "manifestSha256": "4a1420bede2cf6984e7169994a749d989a4fe01eb23ddf655212724662bc8336",
       "runtimeVersions": {
-        "codexCli": "0.146.0-alpha.9.2",
-        "cuaRuntime": "0.0.6/20260723162306-088049353ddc",
-        "node": "24.14.0",
-        "peerAuthorization": "sha256:46dcdb080a54c8cd987646527ff08d5e9bfa28dd46d24727277afd5456561115"
+        "codexCli": "0.148.0-alpha.9",
+        "cuaRuntime": "0.0.8/20260812163607-f77e89a843fc",
+        "node": "24.19.0",
+        "peerAuthorization": "sha256:f92934881023ba799076b8d148f7b7d6e6efde9bc334a3923bddce4ba8e8798b"
       }
     },
     "darwin-x64": {
-      "assetName": "nodex-browser-runtime-26.727.51351.1-darwin-x64.tar.gz",
-      "url": "https://github.com/junyudev/nodex/releases/download/browser-runtime-v26.727.51351.1/nodex-browser-runtime-26.727.51351.1-darwin-x64.tar.gz",
-      "archiveSha256": "3910b61ca2a90669155a92370a51281290588cdb1740a292622643b7327d621b",
-      "archiveSize": 228604007,
-      "manifestSha256": "0b6a29abdc2b80ba2b6b0c918f42b616e5c43166410ed11d20912d54b844a728",
+      "assetName": "nodex-browser-runtime-26.810.52044-darwin-x64.tar.gz",
+      "url": "https://github.com/junyudev/nodex/releases/download/browser-runtime-v26.810.52044/nodex-browser-runtime-26.810.52044-darwin-x64.tar.gz",
+      "archiveSha256": "6005ac1b783ae94cc22166182ad3aa9f2d6e9c15963d9631d7270a4e434e699f",
+      "archiveSize": 186281873,
+      "manifestSha256": "81d0229824a30f367403305cf2e3464236a793ab412a582aff9f593a89c033a5",
       "runtimeVersions": {
-        "codexCli": "0.146.0-alpha.9.2",
-        "cuaRuntime": "0.0.6/20260723162306-088049353ddc",
-        "node": "24.14.0",
-        "peerAuthorization": "sha256:37f78f5b1d7094af9bb3e9ba7eb046c8d206b7026effc611b719ef15ba7256a7"
+        "codexCli": "0.148.0-alpha.9",
+        "cuaRuntime": "0.0.8/20260812163607-f77e89a843fc",
+        "node": "24.19.0",
+        "peerAuthorization": "sha256:bc99dca46b082a7e4a28a59d4605c230f883d941fedf5816169d08602522cca6"
       }
     }
   }

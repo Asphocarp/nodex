@@ -12,6 +12,7 @@ const optionRequest: CodexUserInputRequest = {
   turnId: "turn_1",
   itemId: "item_1",
   createdAt: Date.now(),
+  isBlocking: true,
   questions: [
     {
       id: "q_1",

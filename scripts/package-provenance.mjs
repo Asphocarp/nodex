@@ -13,6 +13,7 @@ import {
 import path from "node:path";
 
 import { inspectOfficialAgentSkillsArtifact } from "./official-agent-skills-artifact.mjs";
+import { isBrowserRuntimeCompatibleWithCodex } from "../src/shared/browser-runtime-codex-compatibility.mjs";
 
 const PROVENANCE_SCHEMA_VERSION = 4;
 const PREPARED_SCHEMA_VERSION = 3;
@@ -149,6 +150,14 @@ const optionalFileIdentity = (appPath, relativePath) => (
   existsSync(path.join(appPath, ...relativePath.split("/")))
     ? fileIdentity(appPath, relativePath)
     : null
+);
+
+const isBrowserRuntimeCompatible = (browserManifest, agentManifest) => (
+  browserManifest === null
+    || isBrowserRuntimeCompatibleWithCodex(
+      browserManifest,
+      agentManifest.codexCompatibilityVersion,
+    )
 );
 
 const contentsFileIdentity = (appPath, relativePath) => {
@@ -299,7 +308,7 @@ export const writePackagedBuildProvenance = (appPath) => {
     || (browserManifest !== null && (
       browserManifest.targetPlatform !== "darwin"
       || browserManifest.targetArch !== targetArch
-      || browserManifest.codexCompatibilityVersion !== agentManifest.codexCompatibilityVersion
+      || !isBrowserRuntimeCompatible(browserManifest, agentManifest)
     ))
   ) {
     throw new Error("Packaged runtime targets do not agree");
@@ -597,7 +606,7 @@ export const verifyPackagedBuildProvenance = (
     || (browserManifest !== null && (
       browserManifest.targetPlatform !== value.target.platform
       || browserManifest.targetArch !== value.target.arch
-      || browserManifest.codexCompatibilityVersion !== agentManifest.codexCompatibilityVersion
+      || !isBrowserRuntimeCompatible(browserManifest, agentManifest)
     ))
   ) {
     throw new Error("Packaged runtime target does not match provenance");

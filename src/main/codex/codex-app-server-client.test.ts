@@ -393,7 +393,9 @@ describe("codex-app-server-client", () => {
       await client.start();
       expect(JSON.parse(client.getInitializeResponse()?.userAgent ?? "null")).toEqual({
         experimentalApi: true,
-        mcpServerOpenaiFormElicitation: true,
+        extensions: {
+          "openai/form": {},
+        },
         requestAttestation: false,
       });
     } finally {

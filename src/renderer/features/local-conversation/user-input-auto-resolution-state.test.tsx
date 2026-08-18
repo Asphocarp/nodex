@@ -74,6 +74,7 @@ const draftRequest: CodexUserInputRequest = {
     isSecret: true,
     options: undefined,
   }],
+  isBlocking: false,
   createdAt: 1,
 };
 

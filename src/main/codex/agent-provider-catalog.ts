@@ -143,6 +143,10 @@ function parseModel(value: unknown, providerId: string, index: number): Model {
     availabilityNux: null,
     displayName: typeof value.displayName === "string" ? value.displayName.trim() : id,
     description: typeof value.description === "string" ? value.description.trim() : "",
+    modelSpecialty: parseOptionalCatalogString(
+      value.modelSpecialty,
+      `model ${providerId}/${id} specialty`,
+    ),
     hidden: value.hidden === true,
     supportedReasoningEfforts: reasoning,
     defaultReasoningEffort,

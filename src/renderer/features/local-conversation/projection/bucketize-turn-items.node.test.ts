@@ -949,6 +949,7 @@ describe("bucketizeTurnItems", () => {
               callId: "mcp",
               functionName: "docs__search",
               pluginId: null,
+              readOnlyHint: true,
               mcpAppResourceUri: undefined,
               source: null,
               invocation: {
@@ -1010,6 +1011,7 @@ describe("bucketizeTurnItems", () => {
               callId: "mcp",
               functionName: "docs__search",
               pluginId: null,
+              readOnlyHint: true,
               mcpAppResourceUri: undefined,
               source: null,
               invocation: {
@@ -1069,6 +1071,7 @@ describe("bucketizeTurnItems", () => {
               callId: "mcp",
               functionName: "docs__search",
               pluginId: null,
+              readOnlyHint: true,
               mcpAppResourceUri: undefined,
               source: null,
               invocation: {

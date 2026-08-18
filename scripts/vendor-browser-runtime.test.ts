@@ -9,9 +9,9 @@ describe("readCuaRuntimeVersion", () => {
     })).toBe("0.0.6/current");
   });
 
-  test("keeps old manifests readable only in the explicit vendor workflow", () => {
-    expect(readCuaRuntimeVersion({
-      node_repl_archive_path: "0.0.5/legacy",
-    })).toBe("0.0.5/legacy");
+  test("requires the current runtime manifest field", () => {
+    expect(() => readCuaRuntimeVersion({
+      node_repl_archive_path: "legacy",
+    })).toThrow("CUA runtime version");
   });
 });

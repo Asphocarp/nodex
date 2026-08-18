@@ -3,25 +3,19 @@
   "runtimeFamily": "open-interpreter",
   "source": {
     "repository": "openinterpreter/openinterpreter",
-    "commit": "855ab60c0e10dac6bc89f3e248cba3746d44f034",
-    "patches": [
-      {
-        "sourcePath": "resources/agent-runtime/patches/0001-fix-release-update-prompt-emoji-padding.patch",
-        "artifactPath": "third-party/open-interpreter/patches/0001-fix-release-update-prompt-emoji-padding.patch",
-        "sha256": "8724d2b87f66f6be6734b109fe3ec46e26612dec91ae7fce28ba12ada4e3cf79"
-      }
-    ]
+    "commit": "8e5d19bfcd705c3786c5641971dce5c2dc1aa64d",
+    "patches": []
   },
   "release": {
-    "repository": "junyudev/nodex",
-    "tag": "agent-runtime-v0.146.0-855ab60c"
+    "repository": "openinterpreter/openinterpreter",
+    "tag": "rust-v0.0.38"
   },
-  "runtimeVersion": "0.146.0",
-  "codexCompatibilityVersion": "0.146.0",
-  "protocolSchemaSha256": "48d3c8ac11b9ee84c80965a3f603426cb522236966362f4daa23d6ac1965bc1f",
+  "runtimeVersion": "0.0.38",
+  "codexCompatibilityVersion": "0.147.0",
+  "protocolSchemaSha256": "3bcd7e76679bc3747991a1d4d5604ac5a892cd59836554bd95e55e70f4be462f",
   "packageManifest": {
     "layoutVersion": 1,
-    "version": "0.146.0",
+    "version": "0.0.38",
     "variant": "open-interpreter",
     "entrypoint": "bin/interpreter",
     "resourcesDir": "codex-resources",
@@ -38,18 +32,18 @@
     "darwin-arm64": {
       "targetTriple": "aarch64-apple-darwin",
       "assetName": "open-interpreter-package-aarch64-apple-darwin.tar.gz",
-      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.146.0-855ab60c/open-interpreter-package-aarch64-apple-darwin.tar.gz",
-      "archiveSha256": "b270d2e5e62cced68e1a719d93ff98fd103af2c0c4534ccdab3d83a8825e5bda",
-      "archiveSize": 261646233,
-      "runtimeMetadataSha256": "60bb2b8895c6d09ca7fe5d7993cd539027c98333ef8a7de3448347121cf591ef"
+      "url": "https://github.com/openinterpreter/openinterpreter/releases/download/rust-v0.0.38/open-interpreter-package-aarch64-apple-darwin.tar.gz",
+      "archiveSha256": "844ce0366125314113b1db6dbbbe76bcbf45d89f18784d1edba46999528fedae",
+      "archiveSize": 221517446,
+      "runtimeMetadataSha256": "5234b3cbc1d983d75007e67b25e0449c2c36ef0f0badfb186cf7f3e7d7757128"
     },
     "darwin-x64": {
       "targetTriple": "x86_64-apple-darwin",
       "assetName": "open-interpreter-package-x86_64-apple-darwin.tar.gz",
-      "url": "https://github.com/junyudev/nodex/releases/download/agent-runtime-v0.146.0-855ab60c/open-interpreter-package-x86_64-apple-darwin.tar.gz",
-      "archiveSha256": "cfd11d068ce30c93b949c4f0163eb92802d48c8080f8ffddb6596aedcec21a93",
-      "archiveSize": 273832651,
-      "runtimeMetadataSha256": "5f882a6a5e04532f2e3c63f6db82428876dde1685adbe0f131691ad72daaac9b"
+      "url": "https://github.com/openinterpreter/openinterpreter/releases/download/rust-v0.0.38/open-interpreter-package-x86_64-apple-darwin.tar.gz",
+      "archiveSha256": "a861caad9380674e8efb7993c58f7b8a0e5c12f52f9c53971e0e59cec4c31fa0",
+      "archiveSize": 233593785,
+      "runtimeMetadataSha256": "87c19b5422ef0a962c71b16e551743a82684d741253eaf7b2b27cf7bbbac329e"
     }
   },
   "notices": {

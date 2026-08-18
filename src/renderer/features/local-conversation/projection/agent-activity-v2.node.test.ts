@@ -99,6 +99,7 @@ function buildMcpBlock(input: {
       callId: "mcp-1",
       functionName: `${input.server ?? "docs"}__search`,
       pluginId: null,
+      readOnlyHint: null,
       mcpAppResourceUri: input.mcpAppResourceUri,
       source: input.source ?? null,
       invocation: {

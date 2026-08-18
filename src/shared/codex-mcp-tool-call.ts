@@ -571,6 +571,7 @@ export function projectCodexMcpToolCall(
     functionName: `${item.server}__${item.tool}`,
     mcpAppResourceUri: item.appContext?.resourceUri ?? item.mcpAppResourceUri,
     pluginId: item.pluginId,
+    readOnlyHint: item.readOnlyHint,
     source: resolveCodexMcpToolCallSource(item.server, item.result?._meta ?? null),
     invocation: {
       server: item.server,

@@ -20,7 +20,16 @@ snapshot. When `codexCompatibilityVersion` changes, rebuild and relock the Open
 Interpreter artifacts, regenerate the committed protocol package from that
 runtime, and run `pnpm run verify:runtime:mac`.
 
-## Rebuild procedure
+## Upgrade procedure
+
+Prefer an immutable upstream Open Interpreter release when its tag resolves to
+the reviewed source commit and it publishes both required macOS package
+archives. Verify each package manifest, required artifact, archive size and
+SHA-256, then update the lock and stage both architectures. Keep
+`source.patches` empty when the release already contains every required fix.
+
+Build and publish a Nodex-owned runtime only when the reviewed source needs a
+local patch or upstream does not provide the required package closure.
 
 Clone `source.repository` into a disposable directory, detach at the exact
 `source.commit`, verify the clean tree, then apply `source.patches` in listed

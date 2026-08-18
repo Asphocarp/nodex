@@ -890,6 +890,7 @@ function buildMcpToolCallItem(
       callId: itemId,
       functionName: "docs__search",
       pluginId: null,
+      readOnlyHint: true,
       mcpAppResourceUri: undefined,
       source: null,
       invocation: {
@@ -1912,6 +1913,7 @@ describe("local-conversation-store", () => {
             threadId: "thread-1",
             turnId: "turn-1",
             itemId: "assistant-1",
+            isBlocking: true,
             autoResolutionMs: null,
             questions: [{
               id: "q1",
@@ -2294,6 +2296,7 @@ describe("local-conversation-store", () => {
             threadId: "thread-1",
             turnId: "turn-replacement",
             itemId: "assistant-replacement",
+            isBlocking: true,
             autoResolutionMs: null,
             questions: [{
               id: "q1",
@@ -3389,6 +3392,7 @@ describe("local-conversation-store", () => {
             threadId: "thread-1",
             turnId: "turn-1",
             itemId: "input-call-1",
+            isBlocking: true,
             autoResolutionMs: null,
             questions: [{
               id: "q1",
@@ -5055,7 +5059,8 @@ describe("local-conversation-store", () => {
               parentThreadId: null,
               preview: "Started preview",
               ephemeral: false,
-              isPinned: false,
+              section: null,
+              sectionEnteredAt: null,
               historyMode: "legacy",
               modelProvider: "openai-responses",
               createdAt: 10,
@@ -5377,6 +5382,7 @@ describe("local-conversation-store", () => {
             threadId: "thread-1",
             turnId: "turn-1",
             itemId: "input-call-1",
+            isBlocking: true,
             autoResolutionMs: null,
             questions: [{
               id: "q1",
@@ -5802,6 +5808,7 @@ describe("local-conversation-store", () => {
             threadId: "thread-1",
             turnId: "turn-1",
             itemId: "input-call-1",
+            isBlocking: true,
             autoResolutionMs: null,
             questions: [{
               id: "q1",
@@ -7121,6 +7128,7 @@ describe("local-conversation-store", () => {
             threadId,
             turnId: "turn-1",
             itemId: "input-unread-race",
+            isBlocking: true,
             autoResolutionMs: null,
             questions: [{
               id: "q1",
@@ -12773,6 +12781,7 @@ describe("local-conversation-store", () => {
                 threadId: "thread-1",
                 turnId: "turn-1",
                 itemId: "user-input-response-input-1",
+                isBlocking: true,
                 questions: [{
                   id: "q1",
                   header: "Question",
@@ -13009,6 +13018,7 @@ describe("local-conversation-store", () => {
                 threadId: "thread-1",
                 turnId: "turn-1",
                 itemId: "user-input-response-input-1",
+                isBlocking: true,
                 questions: [{
                   id: "q1",
                   header: "Question",
@@ -14101,6 +14111,7 @@ describe("local-conversation-store", () => {
             threadId: "thread-1",
             turnId: "turn-1",
             itemId: "input-call-1",
+            isBlocking: true,
             autoResolutionMs: null,
             questions: [{
               id: "q1",

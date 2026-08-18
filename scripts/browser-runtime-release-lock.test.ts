@@ -11,6 +11,7 @@ import {
   readOpenInterpreterReleaseLock,
   resolveOpenInterpreterReleaseLockPath,
 } from "./agent-runtime-release-lock";
+import { isBrowserRuntimeCompatibleWithCodex } from "../src/shared/browser-runtime-codex-compatibility";
 
 const HASH = "a".repeat(64);
 
@@ -92,8 +93,13 @@ describe("parseBrowserRuntimeReleaseLock", () => {
       resolveOpenInterpreterReleaseLockPath(projectRoot),
     );
 
-    expect(browserLock.codexCompatibilityVersion).toBe(
-      agentLock.codexCompatibilityVersion,
-    );
+    const browserVersions = Object.values(browserLock.assets);
+    expect(browserVersions).not.toHaveLength(0);
+    for (const asset of browserVersions) {
+      expect(isBrowserRuntimeCompatibleWithCodex({
+        codexCompatibilityVersion: browserLock.codexCompatibilityVersion,
+        runtimeVersions: asset.runtimeVersions,
+      }, agentLock.codexCompatibilityVersion)).toBe(true);
+    }
   });
 });
