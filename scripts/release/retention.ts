@@ -36,6 +36,9 @@ const fetchText = (url: string): string => execFileSync("curl", [
   "--fail",
   "--silent",
   "--show-error",
+  "--connect-timeout", "10",
+  "--max-time", "60",
+  "--retry", "2",
   url,
 ], {
   encoding: "utf8",
@@ -195,8 +198,16 @@ export function runNightlyRetention(options: {
     verifiedTags,
   });
   if (options.destructive) {
+    const failures: string[] = [];
     for (const release of plan.delete) {
-      gh(["api", "--method", "DELETE", `repos/${options.repo}/releases/${release.id}`]);
+      try {
+        gh(["api", "--method", "DELETE", `repos/${options.repo}/releases/${release.id}`]);
+      } catch {
+        failures.push(release.tag);
+      }
+    }
+    if (failures.length > 0) {
+      throw new Error(`Nightly retention failed to delete: ${failures.join(", ")}.`);
     }
   }
   return plan;

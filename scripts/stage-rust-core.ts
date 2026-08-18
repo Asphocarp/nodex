@@ -97,7 +97,9 @@ const readProductVersion = (repositoryRoot: string): string => {
   ) as { readonly version?: unknown };
   const version = process.env.NODEX_RELEASE_VERSION ?? value.version;
   if (typeof version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-nightly\.\d{8}\.[1-9]\d*)?$/u.test(version)) {
-    throw new Error("package.json must contain a stable product version");
+    throw new Error(
+      "Product version must be a stable semantic version or <stable>-nightly.YYYYMMDD.N.",
+    );
   }
   return version;
 };

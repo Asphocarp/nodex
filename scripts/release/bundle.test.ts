@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 
 import {
   assembleReleaseBundle,
+  parseArchitectureBuildManifest,
+  parseReleaseBundleManifest,
   type ArchitectureBuildManifest,
   type MacArchitecture,
 } from "./bundle";
@@ -347,6 +349,34 @@ test("rejects architecture and update manifests from different source commits", 
     x64Directory: x64,
     x64UpdateDirectory: makeUpdate("x64", x64),
   })).toThrow("one release identity");
+});
+
+test("rejects top-level source identity fields that diverge from the embedded identity", () => {
+  const arm64 = makeArchitecture("arm64");
+  const architecturePath = join(arm64, "architecture-build.json");
+  const architecture = JSON.parse(readFileSync(architecturePath, "utf8")) as ArchitectureBuildManifest;
+  expect(() => parseArchitectureBuildManifest({
+    ...architecture,
+    sourceTree: "7".repeat(40),
+  })).toThrow("source identity");
+
+  const x64 = makeArchitecture("x64");
+  const output = join(fixture, "output");
+  assembleReleaseBundle({
+    arm64Directory: arm64,
+    arm64UpdateDirectory: makeUpdate("arm64", arm64),
+    outputDirectory: output,
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
+    x64Directory: x64,
+    x64UpdateDirectory: makeUpdate("x64", x64),
+  });
+  const bundlePath = join(output, "release-bundle.json");
+  const bundle = JSON.parse(readFileSync(bundlePath, "utf8")) as ReturnType<typeof assembleReleaseBundle>;
+  expect(() => parseReleaseBundleManifest({
+    ...bundle,
+    sourceSha: "8".repeat(40),
+  })).toThrow("source identity");
 });
 
 test("rejects unlisted architecture artifacts", () => {

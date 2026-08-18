@@ -204,7 +204,12 @@ export function parseArchitectureBuildManifest(value: unknown): ArchitectureBuil
   const releaseIdentity = candidate.releaseIdentity
     ? parseReleaseIdentity(candidate.releaseIdentity)
     : legacyStableIdentity({ sourceSha: candidate.sourceSha, sourceTree: candidate.sourceTree, version });
-  if (candidate.tag !== releaseIdentity.tag || version !== releaseIdentity.version) throw new Error("Architecture build tag does not match its identity.");
+  if (
+    candidate.tag !== releaseIdentity.tag
+    || version !== releaseIdentity.version
+    || candidate.sourceSha !== releaseIdentity.sourceSha
+    || candidate.sourceTree !== releaseIdentity.sourceTree
+  ) throw new Error("Architecture build source identity does not match its release identity.");
   if (!/^[a-f0-9]{40}$/u.test(candidate.sourceSha) || !/^[a-f0-9]{40}$/u.test(candidate.sourceTree)) {
     throw new Error("Architecture build source identity is invalid.");
   }
@@ -244,7 +249,12 @@ export function parseReleaseBundleManifest(value: unknown): ReleaseBundleManifes
   const releaseIdentity = candidate.releaseIdentity
     ? parseReleaseIdentity(candidate.releaseIdentity)
     : legacyStableIdentity({ sourceSha: candidate.sourceSha, sourceTree: candidate.sourceTree, version });
-  if (candidate.tag !== releaseIdentity.tag || version !== releaseIdentity.version) throw new Error("Release Bundle tag does not match its identity.");
+  if (
+    candidate.tag !== releaseIdentity.tag
+    || version !== releaseIdentity.version
+    || candidate.sourceSha !== releaseIdentity.sourceSha
+    || candidate.sourceTree !== releaseIdentity.sourceTree
+  ) throw new Error("Release Bundle source identity does not match its release identity.");
   if (!/^[a-f0-9]{40}$/u.test(candidate.sourceSha) || !/^[a-f0-9]{40}$/u.test(candidate.sourceTree)) {
     throw new Error("Release Bundle source identity is invalid.");
   }
@@ -342,7 +352,9 @@ export function recordArchitectureBuild(options: {
   const actualHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
   const sourceTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd, encoding: "utf8" }).trim();
   const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd, encoding: "utf8" }).trim();
-  if (actualHead !== sourceSha || status) throw new Error("Architecture build must come from the exact clean source commit.");
+  if (actualHead !== sourceSha || sourceTree !== releaseIdentity.sourceTree || status) {
+    throw new Error("Architecture build must come from the exact clean release identity.");
+  }
   if (process.platform !== "darwin" || process.arch !== options.architecture) {
     throw new Error(`Architecture build must run natively on darwin ${options.architecture}.`);
   }
@@ -492,6 +504,8 @@ export function assembleReleaseBundle(options: {
   if (
     arm64.sourceSha !== sourceSha
     || x64.sourceSha !== sourceSha
+    || arm64.sourceTree !== releaseIdentity.sourceTree
+    || x64.sourceTree !== releaseIdentity.sourceTree
     || JSON.stringify(arm64.releaseIdentity) !== JSON.stringify(releaseIdentity)
     || JSON.stringify(x64.releaseIdentity) !== JSON.stringify(releaseIdentity)
     || arm64.sourceTree !== x64.sourceTree

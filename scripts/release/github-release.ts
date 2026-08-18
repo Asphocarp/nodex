@@ -134,7 +134,7 @@ export const remoteReleaseAssetIdentities = (
 export function planPublication(
   release: GitHubRelease | null,
   expected: ReadonlyMap<string, ReleaseAssetIdentity>,
-  expectedPrerelease = false,
+  expectedPrerelease: boolean,
 ): PublicationPlan {
   if (!release) return { kind: "create" };
   if (release.prerelease !== expectedPrerelease) throw new Error("GitHub release channel does not match the Release Bundle.");
@@ -381,7 +381,8 @@ export function verifyRemoteRelease(options: {
   if (!tagReference || resolveTagTargetSha(options.repo, tagReference) !== bundle.sourceSha) {
     throw new Error("Published release tag does not target the Release Bundle source SHA.");
   }
-  const latest = JSON.parse(gh(["api", `repos/${options.repo}/releases/latest`])) as { readonly tag_name?: unknown };
+  const latestResponse = gh(["api", `repos/${options.repo}/releases/latest`], { allowFailure: true });
+  const latest = (latestResponse ? JSON.parse(latestResponse) : {}) as { readonly tag_name?: unknown };
   if (!prerelease && latest.tag_name !== bundle.tag) {
     throw new Error(`GitHub Latest is ${String(latest.tag_name)}, expected ${bundle.tag}.`);
   }

@@ -192,6 +192,7 @@ export class AppUpdateService {
         throw error;
       }
       if (channelChanged) {
+        this.automaticCheckStarted = false;
         this.setStatus({
           ...this.status,
           availableVersion: null,

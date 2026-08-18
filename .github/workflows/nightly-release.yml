@@ -74,26 +74,31 @@ jobs:
             const fs = require("node:fs");
             const result = require(process.argv[1]);
             if (!result.shouldRelease) {
-              fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_release=false\nsource_sha=${result.sourceSha}\n`);
+              fs.writeFileSync(process.env.GITHUB_OUTPUT, `should_release=false\nsource_sha=${result.sourceSha}\n`);
               fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Nightly decision: \`${result.reason}\` for \`${result.sourceSha}\`.\n`);
               process.exit(0);
             }
             fs.writeFileSync(process.argv[2], `${JSON.stringify(result.identity, null, 2)}\n`);
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, [
-              "should_release=true",
-              `source_sha=${result.identity.sourceSha}`,
-              `tag=${result.identity.tag}`,
-              `version=${result.identity.version}`,
-              "",
-            ].join("\n"));
           ' "${result}" "${identity}"
           if [[ "$(node -p "require('${result}').shouldRelease")" != "true" ]]; then exit 0; fi
           tag="$(node -p "require('${identity}').tag")"
           pnpm release:check:nightly-remote -- --repo "${GITHUB_REPOSITORY}" --identity "${identity}" --output "${RUNNER_TEMP}/remote.json"
-          if [[ "$(node -p "require('${RUNNER_TEMP}/remote.json').decision")" == "already-published" ]]; then
-            echo "should_release=false" >> "${GITHUB_OUTPUT}"
+          remote_decision="$(node -p "require('${RUNNER_TEMP}/remote.json').decision")"
+          if [[ "${remote_decision}" == "already-published" ]]; then
+            printf 'should_release=false\nsource_sha=%s\n' "${source_sha}" > "${GITHUB_OUTPUT}"
             echo 'Nightly decision: `no-source-change`; the exact source identity is already published.' >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
           fi
+          if [[ "${remote_decision}" != "publish" && "${remote_decision}" != "resume-draft" ]]; then
+            echo "Unknown Nightly remote decision: ${remote_decision}" >&2
+            exit 1
+          fi
+          {
+            echo "should_release=true"
+            echo "source_sha=$(node -p "require('${identity}').sourceSha")"
+            echo "tag=${tag}"
+            echo "version=$(node -p "require('${identity}').version")"
+          } > "${GITHUB_OUTPUT}"
 
       - name: Upload Release Identity
         if: steps.candidate.outputs.should_release == 'true'

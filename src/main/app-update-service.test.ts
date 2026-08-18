@@ -164,6 +164,19 @@ describe("AppUpdateService", () => {
       .rejects.toThrow("cannot change during an update session");
   });
 
+  test("starts a fresh automatic check after switching channels", async () => {
+    const { service, updater } = createService();
+    service.maybeStartAutomaticChecks(automaticChecksEnabled);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    updater?.emit({ type: "up-to-date", version: "0.2.1" });
+
+    await service.updateSettings({ channel: "nightly" });
+    service.maybeStartAutomaticChecks({ automaticChecksEnabled: true, channel: "nightly" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(updater?.checkKinds).toEqual(["background", "background"]);
+  });
+
   test("tracks download progress and installs only after download completes", async () => {
     const { service, updater } = createService();
     await service.checkForUpdates("manual");

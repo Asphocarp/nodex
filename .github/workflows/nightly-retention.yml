@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: nightly-retention
+  cancel-in-progress: false
+  queue: max
+
 jobs:
   plan:
     if: github.event_name == 'schedule' || inputs.destructive != true

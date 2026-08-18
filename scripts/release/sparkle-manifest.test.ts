@@ -74,3 +74,29 @@ describe("Sparkle architecture update manifest", () => {
     expect(() => parseSparkleArchitectureUpdateManifest(candidate)).toThrow("target identity");
   });
 });
+
+test("accepts a nightly feed identity and rejects a stable feed path", () => {
+  const nightly = manifest();
+  nightly.channel = "nightly";
+  nightly.target.version = "0.2.2-nightly.20260813.842";
+  nightly.target.buildVersion = "1.8.42";
+  nightly.tag = `v${nightly.target.version}`;
+  nightly.appcast.name = `Nodex-${nightly.target.version}-appcast-arm64.xml`;
+  nightly.appcast.feedPath = "updates/nightly/arm64/appcast.xml";
+  nightly.full.name = `Nodex-${nightly.target.version}-arm64.zip`;
+  nightly.full.url = `https://github.com/junyudev/nodex/releases/download/${nightly.tag}/${nightly.full.name}`;
+  nightly.deltas[0]!.toBuildVersion = "1.8.42";
+  nightly.deltas[0]!.toVersion = nightly.target.version;
+  nightly.deltas[0]!.name = `Nodex-0.2.1-to-${nightly.target.version}-arm64.delta`;
+  nightly.deltas[0]!.url = `https://github.com/junyudev/nodex/releases/download/${nightly.tag}/${nightly.deltas[0]!.name}`;
+  nightly.deltas[0]!.toVersion = nightly.target.version;
+
+  expect(parseSparkleArchitectureUpdateManifest(nightly)).toMatchObject({
+    channel: "nightly",
+    appcast: { feedPath: "updates/nightly/arm64/appcast.xml" },
+    target: { buildVersion: "1.8.42", version: nightly.target.version },
+  });
+
+  const mismatched = { ...nightly, appcast: { ...nightly.appcast, feedPath: "updates/stable/arm64/appcast.xml" } };
+  expect(() => parseSparkleArchitectureUpdateManifest(mismatched)).toThrow("projection identity");
+});

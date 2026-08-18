@@ -22,7 +22,23 @@ concurrency:
   queue: max
 
 jobs:
+  guard:
+    name: require protected-main source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false, ref: main }
+      - name: Require a protected-main ancestor
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]
+          git merge-base --is-ancestor "${SOURCE_SHA}" origin/main
+
   restore:
+    needs: guard
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.bundle.outputs.version }}

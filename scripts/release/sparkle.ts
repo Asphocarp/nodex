@@ -278,9 +278,12 @@ const normalizeGeneratedAppcast = (options: {
     const shortVersion = textFor(item, "shortVersionString") ?? textFor(item, "version");
     const buildVersion = textFor(item, "version");
     if (shortVersion && buildVersion) displayVersionByBuildVersion.set(buildVersion, shortVersion);
-    if (shortVersion === options.version && buildVersion === options.buildVersion) {
+    if (
+      !currentItem
+      && shortVersion === options.version
+      && buildVersion === options.buildVersion
+    ) {
       currentItem = item;
-      break;
     }
   }
   if (!currentItem) throw new Error("Generated appcast does not contain the current release item.");
@@ -312,7 +315,10 @@ const normalizeGeneratedAppcast = (options: {
     if (!enclosure) continue;
     const fromBuildVersion = enclosure.getAttributeNS(SPARKLE_NAMESPACE, "deltaFrom");
     if (!fromBuildVersion) continue;
-    const fromVersion = displayVersionByBuildVersion.get(fromBuildVersion) ?? fromBuildVersion;
+    const fromVersion = displayVersionByBuildVersion.get(fromBuildVersion);
+    if (!fromVersion) {
+      throw new Error(`Generated appcast has no display version for delta source build ${fromBuildVersion}.`);
+    }
     const originalUrl = enclosure.getAttribute("url");
     if (!originalUrl) throw new Error("Generated Sparkle delta omits its URL.");
     const originalName = decodeURIComponent(new URL(originalUrl).pathname.split("/").at(-1) ?? "");

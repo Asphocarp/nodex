@@ -7,7 +7,7 @@ const expected = new Map([
 ]);
 
 test("planPublication creates when no release exists", () => {
-  expect(planPublication(null, expected)).toEqual({ kind: "create" });
+  expect(planPublication(null, expected, false)).toEqual({ kind: "create" });
 });
 
 test("planPublication resumes only missing draft assets", () => {
@@ -16,7 +16,7 @@ test("planPublication resumes only missing draft assets", () => {
     draft: true,
     prerelease: false,
     tag_name: "v0.2.0",
-  }, expected)).toEqual({ kind: "resume-draft", missingAssetNames: ["release-bundle.json"] });
+  }, expected, false)).toEqual({ kind: "resume-draft", missingAssetNames: ["release-bundle.json"] });
 });
 
 test("planPublication rejects mismatched assets instead of clobbering", () => {

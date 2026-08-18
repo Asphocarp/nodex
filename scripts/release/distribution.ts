@@ -84,10 +84,14 @@ const requireNativeMac = (architecture: MacArchitecture): void => {
 };
 
 const assertSourceIdentity = (cwd: string, identity: ReleaseIdentity): void => {
-  const { sourceSha } = identity;
+  const { sourceSha, sourceTree } = identity;
   if (!/^[a-f0-9]{40}$/u.test(sourceSha)) throw new Error("Source SHA must be a full commit SHA.");
+  if (!/^[a-f0-9]{40}$/u.test(sourceTree)) throw new Error("Source tree must be a full tree SHA.");
   if (run(cwd, "git", ["rev-parse", "HEAD"]) !== sourceSha) {
     throw new Error("Release distribution checkout does not match the requested source SHA.");
+  }
+  if (run(cwd, "git", ["rev-parse", "HEAD^{tree}"]) !== sourceTree) {
+    throw new Error("Release distribution checkout does not match the requested source tree.");
   }
   if (run(cwd, "git", ["status", "--porcelain", "--untracked-files=normal"])) {
     throw new Error("Release distribution requires a clean source checkout.");

@@ -95,6 +95,12 @@ jobs:
           target_dir="${RUNNER_TEMP}/target-site"
           rsync -a --delete --exclude ".git" --exclude "updates/" "packages/landing/dist/" "${target_dir}/"
           if [[ "${PUBLISH_UPDATES}" == "true" ]]; then
+            bundle="${RUNNER_TEMP}/release-bundle/release-bundle.json"
+            channel="$(node -e 'const channel = require(process.argv[1]).releaseIdentity?.channel; process.stdout.write(typeof channel === "string" ? channel : "")' "${bundle}")"
+            if [[ "${channel}" != "stable" ]]; then
+              echo "Only stable bundles may publish the stable update feed (got: ${channel})." >&2
+              exit 1
+            fi
             mkdir -p "${target_dir}/updates/stable"
             rsync -a --delete "packages/landing/dist/updates/stable/" "${target_dir}/updates/stable/"
           fi
