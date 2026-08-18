@@ -32,6 +32,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
       - name: Verify runner CLI tools
         run: rg --version
@@ -59,6 +60,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
       - name: Verify runner CLI tools
         run: rg --version
@@ -161,6 +163,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
       - uses: ./.github/actions/setup-playwright
       - name: Run complete Electron E2E suite

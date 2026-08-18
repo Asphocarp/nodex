@@ -41,7 +41,7 @@ describe("third-party notices", () => {
 
     await expect(readThirdPartyNotices(location)).resolves.toEqual({ text: null });
 
-    const resourceDirectory = join(appPath, "resources");
+    const resourceDirectory = join(appPath, ".generated", "build-resources");
     await mkdir(resourceDirectory, { recursive: true });
     await writeFile(
       join(resourceDirectory, THIRD_PARTY_NOTICES_FILENAME),
@@ -62,9 +62,9 @@ describe("third-party notices", () => {
       resourcesPath: "/electron/resources",
     })).toEqual([
       "/electron/resources/THIRD_PARTY_NOTICES.txt",
+      "/repo/nodex/.generated/build-resources/THIRD_PARTY_NOTICES.txt",
       "/repo/nodex/assets/THIRD_PARTY_NOTICES.txt",
       "/repo/nodex/electron/assets/THIRD_PARTY_NOTICES.txt",
-      "/repo/nodex/resources/THIRD_PARTY_NOTICES.txt",
     ]);
   });
 });

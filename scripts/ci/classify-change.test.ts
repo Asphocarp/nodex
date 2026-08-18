@@ -5,6 +5,7 @@ describe("CI change classification", () => {
   test("keeps documentation and landing changes out of expensive application jobs", () => {
     expect(classifyChangedPaths(["docs/release-macos.md", "docs/ARCHITECTURE.md"])).toEqual({
       app: false,
+      dependencyKind: "none",
       browser: false,
       docsOnly: true,
       electronMain: false,
@@ -21,6 +22,7 @@ describe("CI change classification", () => {
     });
     expect(classifyChangedPaths(["packages/landing/src/App.tsx"])).toEqual({
       app: false,
+      dependencyKind: "none",
       browser: false,
       docsOnly: false,
       electronMain: false,
@@ -45,6 +47,7 @@ describe("CI change classification", () => {
       "package.json",
     ])).toEqual({
       app: true,
+      dependencyKind: "none",
       browser: false,
       docsOnly: false,
       electronMain: false,
@@ -111,6 +114,21 @@ describe("CI change classification", () => {
       rust: true,
       stressRelevant: true,
     });
+  });
+
+  test("identifies dependency-only scopes without weakening the current gates", () => {
+    expect(classifyChangedPaths([".github/workflows/ci.yml"]).dependencyKind)
+      .toBe("github-actions");
+    expect(classifyChangedPaths([".github/actions/setup-rust-ci/action.yml"]).dependencyKind)
+      .toBe("github-actions");
+    expect(classifyChangedPaths(["Cargo.lock", "crates/nodex-core/Cargo.toml"]).dependencyKind)
+      .toBe("rust");
+    expect(classifyChangedPaths(["package.json", "pnpm-lock.yaml"]).dependencyKind)
+      .toBe("javascript");
+    expect(classifyChangedPaths([
+      "third_party/blocknote/packages/core/package.json",
+      "pnpm-lock.yaml",
+    ]).dependencyKind).toBe("editor");
   });
 
   test("chooses the stronger gate for unknown, empty, and explicit full inputs", () => {

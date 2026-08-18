@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import {
   copyFileSync,
   lstatSync,
@@ -11,36 +12,73 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
 
 import {
   LEGACY_PROFILE_MIGRATOR_LEGAL_PATH,
+  LEGACY_PROFILE_MIGRATOR_LEGAL_FILENAME,
   LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH,
+  LEGACY_PROFILE_MIGRATOR_BUNDLE_FILENAME,
   LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH,
   LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT,
   LEGACY_PROFILE_MIGRATOR_SOURCE_VERSIONS,
   type LegacyProfileMigratorManifest,
   serializeLegacyProfileMigratorManifest,
+  resolveLegacyProfileMigratorResourcePath,
   verifyLegacyProfileMigratorArtifacts,
 } from "./legacy-profile-migrator-artifacts";
 import { sha256File } from "./native-runtime-manifest";
 
-type Command = "build" | "verify" | "verify-reproducible";
+type Command = "build" | "verify";
+
+const require = createRequire(import.meta.url);
 
 interface GeneratedArtifacts {
   readonly bundlePath: string;
+  readonly dependencyClosure: LegacyProfileMigratorDependencyClosure;
   readonly legalPath: string;
   readonly manifest: LegacyProfileMigratorManifest;
   readonly temporaryRoot: string;
 }
 
-const repositoryRoot = path.resolve(".");
-const sourceRoot = path.join(repositoryRoot, "scripts/legacy-profile-migrator");
-const scratchRoot = path.join(
-  repositoryRoot,
-  ".generated/legacy-profile-migrator-builds",
-);
+export interface LegacyProfileMigratorDependencyClosure {
+  readonly dependencyFingerprint: string;
+  readonly esbuildVersion: string;
+  readonly nodeVersion: string;
+  readonly pnpmVersion: string;
+  readonly sourceLockfileSha256: string;
+  readonly sourcePackageJsonSha256: string;
+  readonly sourceWorkspaceSha256: string;
+}
+
+export interface LegacyProfileMigratorBuildResult {
+  readonly bundlePath: string;
+  readonly dependencyClosure: LegacyProfileMigratorDependencyClosure;
+  readonly legalPath: string;
+  readonly manifest: LegacyProfileMigratorManifest;
+  readonly manifestPath: string;
+}
+
+const defaultRepositoryRoot = path.resolve(".");
+const defaultOutputRoot = path.join(defaultRepositoryRoot, ".generated/build-resources");
+
+const packageVersion = (packageName: string): string => {
+  const packageJson = require(`${packageName}/package.json`) as { version?: unknown };
+  if (typeof packageJson.version !== "string" || packageJson.version.length === 0) {
+    throw new Error(`Cannot resolve ${packageName} version`);
+  }
+  return packageJson.version;
+};
+
+const pnpmExecutable = (): string => process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+const resolvePnpmVersion = (repositoryRoot: string): string => execFileSync(
+  pnpmExecutable(),
+  ["--version"],
+  { cwd: repositoryRoot, encoding: "utf8" },
+).trim();
 
 const parseCommand = (): Command => {
   const [argument, ...extraArguments] = process.argv.slice(2);
@@ -49,11 +87,12 @@ const parseCommand = (): Command => {
   }
   if (argument === undefined) return "build";
   if (argument === "--verify") return "verify";
-  if (argument === "--verify-reproducible") return "verify-reproducible";
   throw new Error(`Unknown legacy profile migrator build command: ${argument}`);
 };
 
-const resolveSourceCommit = (): typeof LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT => {
+const resolveSourceCommit = (
+  repositoryRoot: string,
+): typeof LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT => {
   let sourceCommit: string;
   try {
     sourceCommit = execFileSync(
@@ -72,15 +111,59 @@ const resolveSourceCommit = (): typeof LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT => 
   return LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT;
 };
 
-const assertPortableBundle = (bundle: string): void => {
-  const candidateRoots = new Set([
-    repositoryRoot,
-    repositoryRoot.split(path.sep).join("/"),
-    repositoryRoot.split(path.sep).join("\\"),
+const assertPortableBundle = (
+  bundle: string,
+  forbiddenRoots: readonly string[],
+): void => {
+  const candidateRoots = forbiddenRoots.flatMap((root) => [
+    root,
+    root.split(path.sep).join("/"),
+    root.split(path.sep).join("\\"),
   ]);
   if ([...candidateRoots].some((candidate) => bundle.includes(candidate))) {
     throw new Error("Legacy profile migrator bundle contains its build checkout path");
   }
+};
+
+const dependencyClosureFor = (
+  checkoutRoot: string,
+  repositoryRoot: string,
+  sourceCommit: typeof LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT,
+): LegacyProfileMigratorDependencyClosure => {
+  const sourcePackageJsonSha256 = sha256File(path.join(checkoutRoot, "package.json"));
+  const sourceLockfileSha256 = sha256File(path.join(checkoutRoot, "pnpm-lock.yaml"));
+  const sourceWorkspaceSha256 = sha256File(path.join(checkoutRoot, "pnpm-workspace.yaml"));
+  const nodeVersion = process.version;
+  const pnpmVersion = resolvePnpmVersion(repositoryRoot);
+  const esbuildVersion = packageVersion("esbuild");
+  const dependencyFingerprint = createHash("sha256")
+    .update(JSON.stringify({
+      esbuildVersion,
+      nodeVersion,
+      pnpmVersion,
+      sourceCommit,
+      sourceLockfileSha256,
+      sourcePackageJsonSha256,
+      sourceWorkspaceSha256,
+    }))
+    .digest("hex");
+  return {
+    dependencyFingerprint,
+    esbuildVersion,
+    nodeVersion,
+    pnpmVersion,
+    sourceLockfileSha256,
+    sourcePackageJsonSha256,
+    sourceWorkspaceSha256,
+  };
+};
+
+const installPinnedDependencies = (checkoutRoot: string): void => {
+  execFileSync(
+    pnpmExecutable(),
+    ["install", "--frozen-lockfile", "--ignore-scripts", "--prefer-offline"],
+    { cwd: checkoutRoot, stdio: "inherit" },
+  );
 };
 
 const replaceExactOnce = (
@@ -430,19 +513,26 @@ const containsChangedIdentity = (
   );
 };
 
-const generateArtifacts = async (): Promise<GeneratedArtifacts> => {
-  const sourceCommit = resolveSourceCommit();
+const generateArtifacts = async (
+  repositoryRoot: string,
+): Promise<GeneratedArtifacts> => {
+  const sourceCommit = resolveSourceCommit(repositoryRoot);
+  const sourceRoot = path.join(repositoryRoot, "scripts/legacy-profile-migrator");
+  const scratchRoot = path.join(
+    repositoryRoot,
+    ".generated/legacy-profile-migrator-builds",
+  );
   mkdirSync(scratchRoot, { recursive: true });
   const temporaryRoot = mkdtempSync(path.join(scratchRoot, "build-"));
   const archivePath = path.join(temporaryRoot, "source.tar");
   const checkoutRoot = path.join(temporaryRoot, "checkout");
-  const outputRoot = path.join(temporaryRoot, "output");
-  const bundlePath = path.join(outputRoot, path.basename(LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH));
-  const legalPath = `${bundlePath}.LEGAL.txt`;
+  const stagedOutputRoot = path.join(temporaryRoot, "output");
+  const bundlePath = path.join(stagedOutputRoot, LEGACY_PROFILE_MIGRATOR_BUNDLE_FILENAME);
+  const legalPath = path.join(stagedOutputRoot, LEGACY_PROFILE_MIGRATOR_LEGAL_FILENAME);
 
   try {
     mkdirSync(checkoutRoot, { recursive: true });
-    mkdirSync(outputRoot, { recursive: true });
+    mkdirSync(stagedOutputRoot, { recursive: true });
     execFileSync(
       "git",
       [
@@ -455,12 +545,6 @@ const generateArtifacts = async (): Promise<GeneratedArtifacts> => {
     );
     execFileSync("tar", ["-xf", archivePath, "-C", checkoutRoot]);
 
-    const migrationSource = path.join(checkoutRoot, "legacy-source");
-    mkdirSync(migrationSource, { recursive: true });
-    for (const entry of ["src", "packages", "third_party"]) {
-      renameSync(path.join(checkoutRoot, entry), path.join(migrationSource, entry));
-    }
-    applyCompatibilityOverlays(migrationSource);
     copyFileSync(
       path.join(sourceRoot, "entry.ts.template"),
       path.join(checkoutRoot, "entry.ts"),
@@ -469,6 +553,9 @@ const generateArtifacts = async (): Promise<GeneratedArtifacts> => {
       path.join(sourceRoot, "sqlite-adapter.ts.template"),
       path.join(checkoutRoot, "sqlite-adapter.ts"),
     );
+    installPinnedDependencies(checkoutRoot);
+    applyCompatibilityOverlays(checkoutRoot);
+    const dependencyClosure = dependencyClosureFor(checkoutRoot, repositoryRoot, sourceCommit);
 
     await build({
       absWorkingDir: checkoutRoot,
@@ -477,7 +564,7 @@ const generateArtifacts = async (): Promise<GeneratedArtifacts> => {
       entryPoints: ["entry.ts"],
       format: "esm",
       legalComments: "linked",
-      nodePaths: [path.join(repositoryRoot, "node_modules")],
+      nodePaths: [path.join(checkoutRoot, "node_modules")],
       outfile: bundlePath,
       platform: "node",
       plugins: [
@@ -494,7 +581,7 @@ const generateArtifacts = async (): Promise<GeneratedArtifacts> => {
       target: "node24",
     });
     const normalizedBundle = readFileSync(bundlePath, "utf8").replace(/[ \t]+$/gmu, "");
-    assertPortableBundle(normalizedBundle);
+    assertPortableBundle(normalizedBundle, [repositoryRoot, temporaryRoot, checkoutRoot]);
     writeFileSync(bundlePath, normalizedBundle);
     const manifest: LegacyProfileMigratorManifest = {
       schemaVersion: 1,
@@ -512,7 +599,7 @@ const generateArtifacts = async (): Promise<GeneratedArtifacts> => {
         size: lstatSync(legalPath).size,
       },
     };
-    return { bundlePath, legalPath, manifest, temporaryRoot };
+    return { bundlePath, dependencyClosure, legalPath, manifest, temporaryRoot };
   } catch (error) {
     rmSync(temporaryRoot, { force: true, recursive: true });
     throw error;
@@ -539,69 +626,59 @@ const promoteText = (contents: string, destinationPath: string): void => {
   }
 };
 
-const installGeneratedArtifacts = (artifacts: GeneratedArtifacts): void => {
-  const bundlePath = path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH);
-  const legalPath = path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_LEGAL_PATH);
-  const manifestPath = path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH);
-  mkdirSync(path.dirname(bundlePath), { recursive: true });
-  promoteFile(artifacts.bundlePath, bundlePath);
-  promoteFile(artifacts.legalPath, legalPath);
-  promoteText(serializeLegacyProfileMigratorManifest(artifacts.manifest), manifestPath);
-};
-
-const assertEqualFile = (actualPath: string, expectedPath: string, label: string): void => {
-  if (readFileSync(actualPath).equals(readFileSync(expectedPath))) return;
-  throw new Error(`Legacy profile migrator ${label} is not reproducible`);
-};
-
-const verifyReproducibleArtifacts = async (): Promise<LegacyProfileMigratorManifest> => {
-  const checkedManifest = verifyLegacyProfileMigratorArtifacts(repositoryRoot);
-  const generated = await generateArtifacts();
+export async function buildLegacyProfileMigrator(input: {
+  readonly outputRoot: string;
+  readonly repositoryRoot: string;
+}): Promise<LegacyProfileMigratorBuildResult> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const outputRoot = path.resolve(input.outputRoot);
+  const generated = await generateArtifacts(repositoryRoot);
   try {
-    const generatedManifest = serializeLegacyProfileMigratorManifest(generated.manifest);
-    const checkedManifestPath = path.join(
-      repositoryRoot,
+    const bundlePath = resolveLegacyProfileMigratorResourcePath(
+      outputRoot,
+      LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH,
+    );
+    const legalPath = resolveLegacyProfileMigratorResourcePath(
+      outputRoot,
+      LEGACY_PROFILE_MIGRATOR_LEGAL_PATH,
+    );
+    const manifestPath = resolveLegacyProfileMigratorResourcePath(
+      outputRoot,
       LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH,
     );
-    if (readFileSync(checkedManifestPath, "utf8") !== generatedManifest) {
-      throw new Error("Legacy profile migrator manifest is not reproducible");
-    }
-    assertEqualFile(
-      generated.bundlePath,
-      path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH),
-      "bundle",
-    );
-    assertEqualFile(
-      generated.legalPath,
-      path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_LEGAL_PATH),
-      "legal notices",
-    );
-    return checkedManifest;
+    mkdirSync(outputRoot, { recursive: true });
+    promoteFile(generated.bundlePath, bundlePath);
+    promoteFile(generated.legalPath, legalPath);
+    promoteText(serializeLegacyProfileMigratorManifest(generated.manifest), manifestPath);
+    return {
+      bundlePath,
+      dependencyClosure: generated.dependencyClosure,
+      legalPath,
+      manifest: generated.manifest,
+      manifestPath,
+    };
   } finally {
     rmSync(generated.temporaryRoot, { force: true, recursive: true });
   }
-};
+}
 
 const main = async (): Promise<void> => {
   const command = parseCommand();
+  const repositoryRoot = defaultRepositoryRoot;
+  const outputRoot = defaultOutputRoot;
   if (command === "verify") {
-    const manifest = verifyLegacyProfileMigratorArtifacts(repositoryRoot);
+    const manifest = verifyLegacyProfileMigratorArtifacts(outputRoot);
     process.stdout.write(`${JSON.stringify(manifest)}\n`);
     return;
   }
-  if (command === "verify-reproducible") {
-    const manifest = await verifyReproducibleArtifacts();
-    process.stdout.write(`${JSON.stringify(manifest)}\n`);
-    return;
-  }
-
-  const generated = await generateArtifacts();
-  try {
-    installGeneratedArtifacts(generated);
-    process.stdout.write(`${JSON.stringify(generated.manifest)}\n`);
-  } finally {
-    rmSync(generated.temporaryRoot, { force: true, recursive: true });
-  }
+  const generated = await buildLegacyProfileMigrator({ outputRoot, repositoryRoot });
+  process.stdout.write(`${JSON.stringify(generated.manifest)}\n`);
 };
 
-void main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exitCode = 1;
+  });
+}

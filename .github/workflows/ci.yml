@@ -25,6 +25,7 @@ jobs:
     outputs:
       app: ${{ steps.classify.outputs.app }}
       browser: ${{ steps.classify.outputs.browser }}
+      dependency_kind: ${{ steps.classify.outputs.dependency_kind }}
       docs_only: ${{ steps.classify.outputs.docs_only }}
       electron_main: ${{ steps.classify.outputs.electron_main }}
       full_required: ${{ steps.classify.outputs.full_required }}
@@ -65,7 +66,7 @@ jobs:
             const fs = require("node:fs");
             const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
             const keys = [
-              "app", "browser", "docsOnly", "electronMain", "fullRequired", "landingOnly",
+              "app", "browser", "dependencyKind", "docsOnly", "electronMain", "fullRequired", "landingOnly",
               "migration", "protocol", "releaseMetadata", "renderer", "rust", "runtime",
               "storage", "stressRelevant",
             ];
@@ -95,11 +96,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/setup-rust-ci
-      - name: Fetch pinned legacy migrator source
-        shell: bash
-        run: |
-          source_sha="$(node -p 'require("./resources/legacy-profile-migrator.json").sourceCommit')"
-          git fetch --no-tags --depth=1 origin "${source_sha}"
+      - uses: ./.github/actions/fetch-legacy-migrator
       - name: Run static contracts
         run: pnpm exec tsx scripts/ci/run-timed.ts --name static-contracts -- pnpm run verify:static
       - name: Show Rust compiler cache statistics
@@ -126,6 +123,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
         with:
           nextest: true
@@ -169,6 +167,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
       - name: Run migration compatibility suite
         run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-migration -- pnpm run core:test:migration
@@ -283,6 +282,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
       - uses: ./.github/actions/setup-playwright
       - name: Run functional Electron E2E

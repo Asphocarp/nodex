@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export interface ChangeClassification {
   readonly app: boolean;
+  readonly dependencyKind: "editor" | "github-actions" | "javascript" | "none" | "rust" | "source";
   readonly browser: boolean;
   readonly docsOnly: boolean;
   readonly electronMain: boolean;
@@ -52,16 +53,23 @@ const isRuntimePath = (path: string): boolean =>
   || path === "pnpm-lock.yaml"
   || path === "rust-toolchain.toml"
   || path.startsWith(".github/workflows/")
+  || path.startsWith(".github/actions/")
   || path.startsWith("crates/")
   || path.startsWith("packages/codex-app-server-protocol/")
   || path.startsWith("resources/agent-runtime/")
   || path.startsWith("resources/browser-runtime/")
   || path.startsWith("resources/macos/")
   || path.startsWith("scripts/ci/")
+  || path.startsWith("scripts/legacy-profile-migrator/")
+  || path === "scripts/build-resources.ts"
+  || path === "scripts/build-legacy-profile-migrator.ts"
+  || path === "scripts/generate-third-party-notices.ts"
+  || path === "scripts/legacy-profile-migrator-artifacts.ts"
   || path.startsWith("scripts/release/")
   || /^(scripts\/(archive|materialize|probe|sign|stage|verify)-.*runtime)/u.test(path)
   || path.startsWith("src/main/codex/")
   || path.startsWith("src/main/core-client/")
+  || path === "src/shared/build-resources.ts"
   || path.startsWith("src/shared/codex-")
   || path.startsWith("src/shared/core-");
 
@@ -102,7 +110,11 @@ const isStoragePath = (path: string): boolean =>
   || path.startsWith("crates/nodex-store-format/")
   || path.startsWith("resources/legacy-profile-migrator/")
   || path.startsWith("scripts/legacy-profile-migrator/")
-  || path === "scripts/build-legacy-profile-migrator.ts";
+  || path === "scripts/build-resources.ts"
+  || path === "scripts/build-legacy-profile-migrator.ts"
+  || path === "scripts/generate-third-party-notices.ts"
+  || path === "scripts/legacy-profile-migrator-artifacts.ts"
+  || path === "src/shared/build-resources.ts";
 
 const isMigrationPath = (path: string): boolean =>
   path === "crates/nodex-core/src/infrastructure/migration.rs"
@@ -111,7 +123,11 @@ const isMigrationPath = (path: string): boolean =>
   || path.startsWith("crates/nodex-store-format/")
   || path.startsWith("resources/legacy-profile-migrator/")
   || path.startsWith("scripts/legacy-profile-migrator/")
-  || path === "scripts/build-legacy-profile-migrator.ts";
+  || path === "scripts/build-resources.ts"
+  || path === "scripts/build-legacy-profile-migrator.ts"
+  || path === "scripts/generate-third-party-notices.ts"
+  || path === "scripts/legacy-profile-migrator-artifacts.ts"
+  || path === "src/shared/build-resources.ts";
 
 const isProtocolPath = (path: string): boolean =>
   path.startsWith("crates/nodex-core-contracts/")
@@ -157,6 +173,35 @@ const isKnownAppPath = (path: string): boolean =>
   || path === "electron-builder.yml"
   || path === "pnpm-workspace.yaml";
 
+const isGitHubActionPath = (path: string): boolean =>
+  path.startsWith(".github/workflows/")
+  || path.startsWith(".github/actions/");
+
+const isRustDependencyPath = (path: string): boolean =>
+  path === "Cargo.lock"
+  || path === "Cargo.toml"
+  || (/^crates\/[^/]+\/Cargo\.toml$/u.test(path));
+
+const isJavaScriptDependencyPath = (path: string): boolean =>
+  path === "package.json"
+  || path === "pnpm-lock.yaml"
+  || /^(?:packages|third_party\/blocknote\/packages)\/[^/]+\/package\.json$/u.test(path);
+
+const isEditorDependencyPath = (path: string): boolean =>
+  path.startsWith("third_party/blocknote/") && path.endsWith("/package.json");
+
+const dependencyKindFor = (
+  paths: readonly string[],
+): ChangeClassification["dependencyKind"] => {
+  if (paths.length === 0) return "source";
+  if (paths.every(isGitHubActionPath)) return "github-actions";
+  if (paths.every(isRustDependencyPath)) return "rust";
+  if (paths.every(isJavaScriptDependencyPath)) {
+    return paths.some(isEditorDependencyPath) ? "editor" : "javascript";
+  }
+  return "none";
+};
+
 const normalizePath = (value: string): string => {
   const path = value.trim().replaceAll("\\", "/");
   if (!path || path.startsWith("/") || path.split("/").includes("..")) {
@@ -173,6 +218,7 @@ export function classifyChangedPaths(
   if (options.full || paths.length === 0) {
     return {
       app: true,
+      dependencyKind: "source",
       browser: true,
       docsOnly: false,
       electronMain: true,
@@ -200,9 +246,11 @@ export function classifyChangedPaths(
     && !RELEASE_PATHS.has(path)
   ));
   const fullRequired = paths.some(isFullRequiredPath) || hasUnknownPath || releaseMetadata;
+  const dependencyKind = dependencyKindFor(paths);
 
   return {
     app: releaseMetadata || (!docsOnly && !landingOnly),
+    dependencyKind,
     browser: paths.some(isBrowserPath),
     docsOnly,
     electronMain: paths.some(isElectronMainPath),
