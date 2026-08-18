@@ -143,8 +143,12 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             .map(CommandOutput::Json)
             .map_err(internal);
     }
-    let client =
-        connect_or_launch(&home, env!("CARGO_PKG_VERSION"), None).map_err(map_client_error)?;
+    let client = connect_or_launch(
+        &home,
+        option_env!("NODEX_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
+        None,
+    )
+    .map_err(map_client_error)?;
     validate_profile_selector(cli.profile.as_deref(), &client)?;
 
     match cli.command {

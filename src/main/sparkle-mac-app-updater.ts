@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type {
   MacAppUpdater,
+  AppUpdateChannel,
   MacAppUpdaterCheckKind,
   MacAppUpdaterEvent,
 } from "./mac-app-updater";
@@ -19,8 +20,8 @@ const SPARKLE_VERSION = "2.9.4";
 
 interface SparkleRuntimeConfig {
   readonly architecture: RuntimeArchitecture;
-  readonly channel: "disabled" | "stable";
-  readonly feedUrl: string | null;
+  readonly buildChannel: "disabled" | AppUpdateChannel;
+  readonly feedUrls: null | Readonly<Record<AppUpdateChannel, string>>;
   readonly publicKey: string;
   readonly sparkleVersion: string;
 }
@@ -46,24 +47,29 @@ export function parseSparkleRuntimeConfig(value: unknown): SparkleRuntimeConfig 
   assertExactKeys(value, [
     "architecture",
     "artifacts",
-    "channel",
-    "feedUrl",
+    "buildChannel",
+    "feedUrls",
     "minimumMacOS",
     "publicKey",
     "schemaVersion",
     "sparkleArchiveSha256",
     "sparkleVersion",
   ]);
-  if (value.schemaVersion !== 2 || (value.architecture !== "arm64" && value.architecture !== "x64")) {
+  if (value.schemaVersion !== 3 || (value.architecture !== "arm64" && value.architecture !== "x64")) {
     throw new Error("Packaged Sparkle runtime manifest version or architecture is invalid.");
   }
-  if (value.channel !== "disabled" && value.channel !== "stable") {
+  if (value.buildChannel !== "disabled" && value.buildChannel !== "stable" && value.buildChannel !== "nightly") {
     throw new Error("Packaged Sparkle update channel is invalid.");
   }
-  const expectedFeed = `https://nodex.jyu.app/updates/stable/${value.architecture}/appcast.xml`;
+  const expectedFeeds = {
+    stable: `https://nodex.jyu.app/updates/stable/${value.architecture}/appcast.xml`,
+    nightly: `https://nodex.jyu.app/updates/nightly/${value.architecture}/appcast.xml`,
+  };
   if (
-    (value.channel === "disabled" && value.feedUrl !== null)
-    || (value.channel === "stable" && value.feedUrl !== expectedFeed)
+    (value.buildChannel === "disabled" && value.feedUrls !== null)
+    || (value.buildChannel !== "disabled" && (!isRecord(value.feedUrls)
+      || value.feedUrls.stable !== expectedFeeds.stable
+      || value.feedUrls.nightly !== expectedFeeds.nightly))
   ) {
     throw new Error("Packaged Sparkle feed does not match its architecture and channel.");
   }
@@ -78,8 +84,8 @@ export function parseSparkleRuntimeConfig(value: unknown): SparkleRuntimeConfig 
   }
   return {
     architecture: value.architecture,
-    channel: value.channel,
-    feedUrl: value.feedUrl as string | null,
+    buildChannel: value.buildChannel,
+    feedUrls: value.feedUrls as SparkleRuntimeConfig["feedUrls"],
     publicKey: value.publicKey,
     sparkleVersion: value.sparkleVersion,
   };
@@ -98,20 +104,42 @@ export class SparkleMacAppUpdater implements MacAppUpdater {
   private disposed = false;
   private readyToInstall = false;
   private started = false;
+  private channel: AppUpdateChannel;
 
   constructor(options: SparkleMacAppUpdaterOptions, config: SparkleRuntimeConfig) {
     this.options = options;
     this.config = config;
+    if (config.buildChannel === "disabled") throw new Error("Disabled Sparkle updater cannot be constructed.");
+    this.channel = config.buildChannel;
+  }
+
+  getBuildDefaultChannel(): AppUpdateChannel {
+    if (this.config.buildChannel === "disabled") throw new Error("Updates are disabled in this build.");
+    return this.config.buildChannel;
+  }
+
+  getChannel(): AppUpdateChannel {
+    return this.channel;
+  }
+
+  async setChannel(channel: AppUpdateChannel): Promise<void> {
+    if (channel === this.channel) return;
+    if (this.checkInFlight || this.readyToInstall) throw new Error("Update channel cannot change during an update session.");
+    const feedUrl = this.config.feedUrls?.[channel];
+    if (!feedUrl) throw new Error("Update channel is unavailable in this build.");
+    this.binding?.setFeedUrl(feedUrl);
+    this.channel = channel;
   }
 
   async start(onEvent: (event: MacAppUpdaterEvent) => void): Promise<void> {
     if (this.disposed) throw new Error("Sparkle updater has been disposed.");
     if (this.started) throw new Error("Sparkle updater has already started.");
-    if (!this.config.feedUrl) throw new Error("Disabled Sparkle updater cannot be started.");
+    const feedUrl = this.config.feedUrls?.[this.channel];
+    if (!feedUrl) throw new Error("Disabled Sparkle updater cannot be started.");
     const binding = loadSparkleNativeBinding(this.options.resourcesPath);
     const runtime = binding.initialize({
       applicationBundlePath: this.options.applicationBundlePath,
-      feedUrl: this.config.feedUrl,
+      feedUrl,
       hostBundlePath: this.options.applicationBundlePath,
     }, (value) => {
       if (this.disposed) return;
@@ -172,6 +200,6 @@ export function createPackagedMacAppUpdater(
   if (config.architecture !== options.architecture) {
     throw new Error("Packaged Sparkle architecture does not match Electron.");
   }
-  if (config.channel === "disabled") return null;
+  if (config.buildChannel === "disabled") return null;
   return new SparkleMacAppUpdater(options, config);
 }

@@ -53,6 +53,7 @@ interface ServerTomlConfig {
   thread_notifications_questions_enabled?: boolean;
   history_retention?: number;
   app_updates_auto_check_enabled?: boolean;
+  app_updates_channel?: "stable" | "nightly";
   window_restore_policy?: WindowRestorePolicy;
   diagnostics_enabled?: boolean;
   diagnostics_dsn?: string;
@@ -307,12 +308,18 @@ function threadNotificationSettingsFromConfig(config: ServerTomlConfig): ThreadN
   };
 }
 
-function appUpdateSettingsFromConfig(config: ServerTomlConfig): AppUpdateSettings {
+function appUpdateSettingsFromConfig(
+  config: ServerTomlConfig,
+  buildDefaultChannel: AppUpdateSettings["channel"] = "stable",
+): AppUpdateSettings {
   return {
     automaticChecksEnabled:
       typeof config.app_updates_auto_check_enabled === "boolean"
         ? config.app_updates_auto_check_enabled
         : APP_UPDATES_AUTO_CHECK_DEFAULT,
+    channel: config.app_updates_channel === "stable" || config.app_updates_channel === "nightly"
+      ? config.app_updates_channel
+      : buildDefaultChannel,
   };
 }
 
@@ -951,22 +958,38 @@ export function updateThreadNotificationSettings(
   return getThreadNotificationSettings();
 }
 
-export function getAppUpdateSettings(): AppUpdateSettings {
-  return appUpdateSettingsFromConfig(userServerToml);
+export function getAppUpdateSettings(
+  buildDefaultChannel: AppUpdateSettings["channel"] = "stable",
+): AppUpdateSettings {
+  return appUpdateSettingsFromConfig(userServerToml, buildDefaultChannel);
 }
 
 export function updateAppUpdateSettings(
   input: UpdateAppUpdateSettingsInput,
+  buildDefaultChannel: AppUpdateSettings["channel"] = "stable",
 ): AppUpdateSettings {
-  if (typeof input.automaticChecksEnabled !== "boolean") {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new Error("App update settings input must be an object");
+  }
+  const keys = Object.keys(input);
+  if (keys.length === 0 || keys.some((key) => key !== "automaticChecksEnabled" && key !== "channel")) {
+    throw new Error("App update settings input contains unsupported keys");
+  }
+  if (input.automaticChecksEnabled !== undefined && typeof input.automaticChecksEnabled !== "boolean") {
     throw new Error("automaticChecksEnabled must be a boolean");
+  }
+  if (input.channel !== undefined && input.channel !== "stable" && input.channel !== "nightly") {
+    throw new Error("channel must be stable or nightly");
   }
 
   const userConfigPath = getUserConfigPath();
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer = {
     ...(nextToml.server ?? {}),
-    app_updates_auto_check_enabled: input.automaticChecksEnabled,
+    ...(input.automaticChecksEnabled === undefined ? {} : {
+      app_updates_auto_check_enabled: input.automaticChecksEnabled,
+    }),
+    ...(input.channel === undefined ? {} : { app_updates_channel: input.channel }),
   };
 
   nextToml.server = nextServer;
@@ -978,7 +1001,7 @@ export function updateAppUpdateSettings(
   userServerToml = loadUserServerTomlConfig();
   serverToml = loadServerTomlConfig();
 
-  return getAppUpdateSettings();
+  return getAppUpdateSettings(buildDefaultChannel);
 }
 
 export function getWindowRestoreSettings(): WindowRestoreSettings {

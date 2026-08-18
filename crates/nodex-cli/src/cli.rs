@@ -8,7 +8,7 @@ use crate::skills::SkillAgent;
 #[derive(Clone, Debug, Parser, PartialEq)]
 #[command(
     name = "nodex",
-    version,
+    version = option_env!("NODEX_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
     about = "Read and change Nodex through the native Core",
     arg_required_else_help = true
 )]

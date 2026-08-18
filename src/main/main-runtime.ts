@@ -75,6 +75,7 @@ import {
   getNodexHome,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
+  updateAppUpdateSettings,
 } from "./local-store/config";
 import { createBrowserUsePeerAuthorizer } from "./browser-use/browser-use-peer-authorizer";
 import { BrowserUseSessionRegistry } from "./browser-use/browser-use-session-registry";
@@ -440,6 +441,9 @@ function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
     totalBytes: null,
     checkedAt: null,
     message: "App updates are only available in packaged macOS builds.",
+    channel: "stable",
+    buildDefaultChannel: "stable",
+    channelChangeAllowed: false,
   };
 }
 
@@ -882,7 +886,7 @@ function maybeStartAutomaticAppUpdateChecks(): void {
     return;
   }
 
-  appUpdateService.maybeStartAutomaticChecks(getAppUpdateSettings());
+  appUpdateService.maybeStartAutomaticChecks();
 }
 
 function registerInitializationIpcHandlers(): void {
@@ -2702,6 +2706,13 @@ export async function runMainAppStartup(
     logger,
     platform: process.platform,
     updater: packagedMacAppUpdater,
+    initialSettings: getAppUpdateSettings(
+      packagedMacAppUpdater?.getBuildDefaultChannel() ?? "stable",
+    ),
+    persistSettings: (input) => updateAppUpdateSettings(
+      input,
+      packagedMacAppUpdater?.getBuildDefaultChannel() ?? "stable",
+    ),
   });
   appUpdateService.onStatusChange((status) => {
     broadcastAppUpdateStatus(status);
@@ -3005,8 +3016,12 @@ export async function runMainAppStartup(
     onInstallAppUpdate: async () => await (
       appUpdateService?.installUpdateAndRestart() ?? Promise.resolve(false)
     ),
-    onAppUpdateSettingsChanged: () => {
+    onGetAppUpdateSettings: () => appUpdateService?.getSettings() ?? getAppUpdateSettings(),
+    onUpdateAppUpdateSettings: async (input) => {
+      const settings = await (appUpdateService?.updateSettings(input)
+        ?? Promise.resolve(updateAppUpdateSettings(input)));
       maybeStartAutomaticAppUpdateChecks();
+      return settings;
     },
     onCommandKeybindingsChanged: (state) => {
       configureApplicationMenus(state);

@@ -1,4 +1,5 @@
 export type MacAppUpdaterCheckKind = "background" | "user";
+export type AppUpdateChannel = "stable" | "nightly";
 
 export type MacAppUpdaterEvent =
   | { readonly type: "check-started"; readonly kind: MacAppUpdaterCheckKind }
@@ -34,6 +35,9 @@ export type MacAppUpdaterEvent =
     };
 
 export interface MacAppUpdater {
+  getBuildDefaultChannel(): AppUpdateChannel;
+  getChannel(): AppUpdateChannel;
+  setChannel(channel: AppUpdateChannel): Promise<void>;
   start(onEvent: (event: MacAppUpdaterEvent) => void): Promise<void>;
   check(kind: MacAppUpdaterCheckKind): Promise<void>;
   installDownloadedUpdate(): Promise<void>;

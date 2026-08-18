@@ -19,12 +19,13 @@ import {
 let fixture = "";
 const VERSION = "0.2.2";
 const PREVIOUS_VERSION = "0.2.1";
+const BUILD_VERSION = "1.0.1";
 const SOURCE_SHA = "1".repeat(40);
 const SIGNATURE = `${"A".repeat(86)}==`;
 
 const appcastFor = (version: string): string => `<?xml version="1.0"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-  <channel><item><sparkle:shortVersionString>${version}</sparkle:shortVersionString></item></channel>
+  <channel><item><sparkle:version>${version}</sparkle:version><sparkle:shortVersionString>${version}</sparkle:shortVersionString></item></channel>
 </rss>
 `;
 
@@ -63,6 +64,18 @@ const makeArchitecture = (architecture: MacArchitecture, sourceSha = SOURCE_SHA)
       sparkleSha256: "b".repeat(64),
     },
     schemaVersion: 2,
+    releaseIdentity: {
+      schemaVersion: 1,
+      channel: "stable",
+      sourceSha,
+      sourceTree: "6".repeat(40),
+      sourceVersion: VERSION,
+      version: VERSION,
+      buildVersion: BUILD_VERSION,
+      tag: `v${VERSION}`,
+      mainlineOrdinal: 1,
+      sourceDate: "1970-01-01",
+    },
     sourceSha,
     sourceTree: "6".repeat(40),
     tag: `v${VERSION}`,
@@ -94,7 +107,7 @@ const makeUpdate = (
     fromVersion: PREVIOUS_VERSION,
     name: deltaName,
     sha256: sha256File(deltaPath),
-    toBuildVersion: VERSION,
+    toBuildVersion: BUILD_VERSION,
     toVersion: VERSION,
     url: `https://github.com/junyudev/nodex/releases/download/v${VERSION}/${deltaName}`,
   }] : [];
@@ -104,13 +117,14 @@ const makeUpdate = (
       <sparkle:deltas><enclosure url="${delta.url}" length="${delta.bytes}" sparkle:edSignature="${delta.edSignature}" sparkle:deltaFrom="${delta.fromBuildVersion}" /></sparkle:deltas>`).join("");
   writeFileSync(appcastPath, `<?xml version="1.0"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>
-  <sparkle:version>${VERSION}</sparkle:version>
+  <sparkle:version>${BUILD_VERSION}</sparkle:version>
   <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
   <enclosure url="${fullUrl}" length="${readFileSync(fullPath).byteLength}" sparkle:edSignature="${SIGNATURE}" />${deltaXml}
 </item></channel></rss>
 `);
   const manifest: SparkleArchitectureUpdateManifest = {
     architecture,
+    channel: "stable",
     appcast: {
       bytes: readFileSync(appcastPath).byteLength,
       feedPath: `updates/stable/${architecture}/appcast.xml`,
@@ -125,11 +139,11 @@ const makeUpdate = (
       sha256: sha256File(fullPath),
       url: fullUrl,
     },
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha,
     tag: `v${VERSION}`,
     target: {
-      buildVersion: VERSION,
+      buildVersion: BUILD_VERSION,
       bundleId: "app.jyu.nodex",
       packageProvenanceSchema: 4,
       teamIdentifier: NODEX_MACOS_TEAM_IDENTIFIER,
@@ -177,6 +191,7 @@ test("assembles the exact dual-architecture Sparkle asset closure", () => {
     `Nodex-${PREVIOUS_VERSION}-to-${VERSION}-x64.delta`,
     "Nodex-latest-arm64.dmg",
     "Nodex-latest-x64.dmg",
+    "release-identity.json",
   ].sort());
   expect(bundle.assets.some(({ name }) => name.endsWith(".blockmap"))).toBe(false);
   expect(bundle.assets.some(({ name }) => name === "latest-mac.yml")).toBe(false);
@@ -197,7 +212,7 @@ test("assembles the exact dual-architecture Sparkle asset closure", () => {
     .toBe(readFileSync(join(output, `Nodex-${VERSION}-appcast-arm64.xml`), "utf8"));
   expect(readFileSync(join(site, "updates/stable/x64/appcast.xml"), "utf8"))
     .toBe(readFileSync(join(output, `Nodex-${VERSION}-appcast-x64.xml`), "utf8"));
-  writeFileSync(join(currentSite, "updates/stable/arm64/appcast.xml"), appcastFor("0.2.3"));
+  writeFileSync(join(currentSite, "updates/stable/arm64/appcast.xml"), appcastFor("2.0.0"));
   expect(() => projectReleaseAppcasts({
     bundlePath: join(output, "release-bundle.json"),
     existingSiteDirectory: currentSite,

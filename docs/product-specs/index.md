@@ -23,7 +23,7 @@
 | codex-thread-owner-follower-streaming.md | Active | 2026-07-17 | Contract for multi-window Codex thread owner/follower streaming, revisioned patches, follower routing, queue/drain, complete-history, resume, and owner recovery |
 | thread-summary-panel-behavior.md | Active | 2026-08-12 | Focused contract for Thread Summary section ordering, visibility, artifacts, Git actions, auxiliary conversations, Browser, and PiP rows |
 | scheduled-route-behavior.md | Active | 2026-08-12 | Focused contract for Scheduled route navigation, task/template lists, drafts, previous runs, save guards, and deletion |
-| settings-route-behavior.md | Active | 2026-08-12 | Focused contract for Settings routing, canonical section catalog, local search, shared page composition, and feature deep links |
+| settings-route-behavior.md | Active | 2026-08-18 | Focused contract for Settings routing, canonical section catalog, app update channels, shared page composition, and feature deep links |
 | review-right-panel-behavior.md | Active | 2026-06-09 | Detailed Review right-panel contract for toolbar controls, diff sources, Git IPC, large-diff limits, file tree behavior, and code-comment annotations |
 | board-drag-and-drop-behavior.md | Active | 2026-03-17 | Detailed Board DnD contract covering same-column reorder, filtered/sorted behavior, editor interop, and persistence invariants |
 | command-palette-behavior.md | Active | 2026-03-14 | Detailed command-palette launch, mode switching, ranking, previews, highlights, and execution behavior |

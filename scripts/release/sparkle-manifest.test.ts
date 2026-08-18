@@ -10,6 +10,7 @@ const SIGNATURE = `${"A".repeat(86)}==`;
 
 const manifest = () => ({
   architecture: "arm64",
+  channel: "stable",
   appcast: {
     bytes: 123,
     feedPath: "updates/stable/arm64/appcast.xml",
@@ -34,7 +35,7 @@ const manifest = () => ({
     sha256: "c".repeat(64),
     url: `https://github.com/junyudev/nodex/releases/download/v${VERSION}/Nodex-${VERSION}-arm64.zip`,
   },
-  schemaVersion: 1,
+  schemaVersion: 2,
   sourceSha: "d".repeat(40),
   tag: `v${VERSION}`,
   target: {
@@ -64,7 +65,7 @@ describe("Sparkle architecture update manifest", () => {
   test("rejects deltas that do not terminate at the target build", () => {
     const candidate = manifest();
     candidate.deltas[0]!.toBuildVersion = "0.2.3";
-    expect(() => parseSparkleArchitectureUpdateManifest(candidate)).toThrow("version range");
+    expect(() => parseSparkleArchitectureUpdateManifest(candidate)).toThrow("target release");
   });
 
   test("rejects an update signed by a different Developer ID team", () => {

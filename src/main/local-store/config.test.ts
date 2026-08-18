@@ -357,19 +357,24 @@ describe("app update settings config", () => {
       const config = await importConfigModule();
 
       expect(config.getAppUpdateSettings().automaticChecksEnabled).toBe(true);
+      expect(config.getAppUpdateSettings("nightly").channel).toBe("nightly");
 
       const updated = config.updateAppUpdateSettings({
         automaticChecksEnabled: false,
+        channel: "nightly",
       });
 
       expect(updated.automaticChecksEnabled).toBe(false);
+      expect(updated.channel).toBe("nightly");
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
       expect(written.includes("app_updates_auto_check_enabled = false")).toBe(true);
+      expect(written.includes('app_updates_channel = "nightly"')).toBe(true);
 
       const reloaded = await importConfigModule();
       expect(reloaded.getAppUpdateSettings().automaticChecksEnabled).toBe(false);
+      expect(reloaded.getAppUpdateSettings().channel).toBe("nightly");
     });
   });
 

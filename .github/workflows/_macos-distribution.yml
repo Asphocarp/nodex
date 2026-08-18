@@ -69,6 +69,10 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-release-identity-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/identity
 
       - name: Verify exact clean release source
         shell: bash
@@ -77,7 +81,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_SHA}"
           test -z "$(git status --porcelain)"
           pnpm install --frozen-lockfile
-          pnpm release:check -- --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
+          pnpm release:verify:identity -- --identity "${RUNNER_TEMP}/identity/release-identity.json" --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
           node -e '
             const source = require(process.argv[1]);
             if (source.version !== process.env.RELEASE_VERSION || source.tag !== process.env.RELEASE_TAG) {
@@ -118,8 +122,7 @@ jobs:
           fi
           pnpm release:build:mac -- \
             --arch "${RELEASE_ARCH}" \
-            --source-sha "${RELEASE_SOURCE_SHA}" \
-            --version "${RELEASE_VERSION}" \
+            --identity "${RUNNER_TEMP}/identity/release-identity.json" \
             --output "${RELEASE_OUTPUT}"
 
       - name: Summarize architecture identity
@@ -180,6 +183,10 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-release-identity-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/identity
 
       - name: Verify exact clean release source
         shell: bash
@@ -188,7 +195,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_SHA}"
           test -z "$(git status --porcelain)"
           pnpm install --frozen-lockfile
-          pnpm release:check -- --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
+          pnpm release:verify:identity -- --identity "${RUNNER_TEMP}/identity/release-identity.json" --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
           node -e '
             const source = require(process.argv[1]);
             if (source.version !== process.env.RELEASE_VERSION || source.tag !== process.env.RELEASE_TAG) {
@@ -224,8 +231,7 @@ jobs:
         run: |
           pnpm release:build:mac -- \
             --arch "${RELEASE_ARCH}" \
-            --source-sha "${RELEASE_SOURCE_SHA}" \
-            --version "${RELEASE_VERSION}" \
+            --identity "${RUNNER_TEMP}/identity/release-identity.json" \
             --output "${RELEASE_OUTPUT}"
 
       - name: Summarize architecture identity

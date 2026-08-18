@@ -113,8 +113,8 @@ export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifes
     throw new Error("Native runtime minimum macOS must be 12.0");
   }
   const productVersion = requireString(value.productVersion, "productVersion");
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(productVersion)) {
-    throw new Error("Native runtime productVersion must be a stable semantic version");
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-nightly\.\d{8}\.[1-9]\d*)?$/.test(productVersion)) {
+    throw new Error("Native runtime productVersion must be a release semantic version");
   }
   if (!Array.isArray(value.binaries)) {
     throw new Error("Invalid native runtime binary inventory");

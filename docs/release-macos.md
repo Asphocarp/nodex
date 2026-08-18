@@ -15,6 +15,9 @@ The release system has one deep repository-owned Release Module under
   without publishing anything.
 - `Release` observes a successful protected-main CI run, recognizes an exact
   version transition, builds one verified Release Bundle, then promotes it.
+- `Nightly Release` samples the exact green protected-main commit every three
+  hours, skips stable metadata transitions and already-published identities,
+  and publishes a prerelease plus only the Nightly feed subtree.
 - `Release Recovery` is the only manual production recovery Interface. It
   accepts an exact source SHA and version and applies the same validation,
   Distribution, and promotion logic idempotently.
@@ -31,6 +34,7 @@ manifests only when they describe one source and one Skill artifact, then emits:
 - versioned arm64/x64 full-update ZIPs
 - signed arm64/x64 appcast snapshots and closed update manifests
 - any architecture-qualified deltas the official Sparkle generator retained
+- `release-identity.json`, identical across both architecture builds
 - `release-bundle.json`
 - `SHA256SUMS`
 - `release-notes.md` for the publisher (not a public asset)
@@ -58,8 +62,17 @@ authorization enabled; a successful staging probe cannot substitute for it.
 
 ## Release Identity
 
-`package.json` is the canonical version input. The Release Module requires the
-same stable `x.y.z` value in:
+`package.json` remains the canonical source version. The Release Module derives
+one exact-key Release Identity from the protected-main commit and passes that
+artifact through every architecture, Sparkle finalizer, assembler, and
+publisher. Stable keeps the source `x.y.z` as its display version. Both channels
+encode the first-parent ordinal as a monotonic Apple build version (`842`
+becomes `1.8.42`); Nightly derives its display version as
+`x.y.(z+1)-nightly.YYYYMMDD.<first-parent-ordinal>`.
+Workflow inputs and arbitrary environment variables cannot replace the
+verified identity artifact.
+
+Stable source metadata requires the same `x.y.z` value in:
 
 - root `package.json`
 - `[workspace.package].version` in `Cargo.toml`
@@ -76,6 +89,10 @@ Cargo.lock
 Cargo.toml
 package.json
 ```
+
+Ordinary source commits never rewrite those files for Nightly. A stable
+metadata transition is owned only by `Release`; the Nightly resolver reports
+`source-is-stable-transition` and exits successfully.
 
 Any source, workflow, runtime lock, generated file, or second version change in
 that commit makes release detection fail closed.
@@ -179,14 +196,34 @@ https://nodex.jyu.app/updates/stable/arm64/appcast.xml
 https://nodex.jyu.app/updates/stable/x64/appcast.xml
 ```
 
+The isolated Nightly feeds are:
+
+```text
+https://nodex.jyu.app/updates/nightly/arm64/appcast.xml
+https://nodex.jyu.app/updates/nightly/x64/appcast.xml
+```
+
 GitHub Release is the immutable data plane for full ZIPs, deltas, update
-manifests, and signed appcast snapshots. Pages contains only the two stable
-appcast projections. Every enclosure URL uses its exact `vX.Y.Z` tag; no feed
+manifests, and signed appcast snapshots. Stable releases are Latest; Nightly
+releases are prereleases and never update Homebrew or official Agent Skills.
+Stable site deploys replace only `updates/stable/`; Nightly publication stages
+and commits only `updates/nightly/`, so neither channel can delete the other.
+Every enclosure URL uses its exact tag; no feed
 uses `/latest/download`. The finalizer accepts history only from an immutable
-Release whose tag resolves to the Release Bundle source SHA. Before it signs a
+Release in the same channel whose tag resolves to the Release Bundle source SHA. Before it signs a
 release, it proves the protected private key matches the reviewed public key
 and that the extracted App plist/runtime carry that key; both architectures
 must also use the pinned Developer ID Team ID `8HGUT3HC4Z`.
+
+`Nightly Retention` keeps the newest 20 published Nightly releases and every
+release younger than 14 days. It also protects every tag referenced by either
+live Nightly appcast and deletes only immutable releases whose downloaded
+Release Bundle index exactly matches the remote asset digests. A feed fetch or
+Bundle verification failure fails closed. Scheduled runs are dry-run only.
+Destructive mode is available only through manual dispatch and the protected
+`nightly-retention` environment. Deleting an immutable Nightly release is
+irreversible for recovery purposes; its identity and tag are never reused or
+rebuilt in place.
 
 The key was created with the official tool under Keychain account `NodexApp`.
 These commands recover or inspect it without generating a second identity:

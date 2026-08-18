@@ -34,7 +34,7 @@ export interface PackagedNativeRuntimeStructureOptions {
   readonly expectedVersion: string;
   readonly requireDeveloperId: boolean;
   readonly targetArch: NativeRuntimeArchitecture;
-  readonly expectedUpdateChannel?: "disabled" | "stable";
+  readonly expectedUpdateChannel?: "disabled" | "stable" | "nightly";
   readonly verifyNotarization: boolean;
   readonly verifySignatures: boolean;
 }
@@ -169,8 +169,8 @@ const verifySparkleRuntime = (
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
     readonly architecture?: unknown;
     readonly artifacts?: Record<string, { readonly path?: unknown; readonly sha256?: unknown; readonly size?: unknown }>;
-    readonly channel?: unknown;
-    readonly feedUrl?: unknown;
+    readonly buildChannel?: unknown;
+    readonly feedUrls?: Record<string, unknown> | null;
     readonly minimumMacOS?: unknown;
     readonly publicKey?: unknown;
     readonly schemaVersion?: unknown;
@@ -184,10 +184,10 @@ const verifySparkleRuntime = (
     updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
   };
   if (
-    manifest.schemaVersion !== 2
+    manifest.schemaVersion !== 3
     || manifest.architecture !== options.targetArch
-    || (manifest.channel !== "disabled" && manifest.channel !== "stable")
-    || (options.expectedUpdateChannel && manifest.channel !== options.expectedUpdateChannel)
+    || (manifest.buildChannel !== "disabled" && manifest.buildChannel !== "stable" && manifest.buildChannel !== "nightly")
+    || (options.expectedUpdateChannel && manifest.buildChannel !== options.expectedUpdateChannel)
     || manifest.minimumMacOS !== "12.0"
     || manifest.sparkleVersion !== "2.9.4"
     || typeof manifest.publicKey !== "string"
@@ -195,10 +195,16 @@ const verifySparkleRuntime = (
   ) {
     throw new Error("Packaged Sparkle runtime manifest is invalid.");
   }
-  const expectedFeed = `https://nodex.jyu.app/updates/stable/${options.targetArch}/appcast.xml`;
+  const expectedFeeds = {
+    stable: `https://nodex.jyu.app/updates/stable/${options.targetArch}/appcast.xml`,
+    nightly: `https://nodex.jyu.app/updates/nightly/${options.targetArch}/appcast.xml`,
+  };
   if (
-    (manifest.channel === "disabled" && manifest.feedUrl !== null)
-    || (manifest.channel === "stable" && manifest.feedUrl !== expectedFeed)
+    (manifest.buildChannel === "disabled" && manifest.feedUrls !== null)
+    || (manifest.buildChannel !== "disabled" && (
+      manifest.feedUrls?.stable !== expectedFeeds.stable
+      || manifest.feedUrls?.nightly !== expectedFeeds.nightly
+    ))
   ) {
     throw new Error("Packaged Sparkle feed does not match its channel.");
   }
@@ -814,7 +820,7 @@ const main = async (): Promise<void> => {
       "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 "
       + "--expected-version <semver> [--legacy-profile-fixture <legacy.db>] [--verify-signatures] "
       + "[--require-developer-id] [--verify-notarization] [--launch-app] "
-      + "[--expected-update-channel disabled|stable]",
+      + "[--expected-update-channel disabled|stable|nightly]",
     );
   }
   const requireDeveloperId = arguments_.includes("--require-developer-id");
@@ -824,8 +830,9 @@ const main = async (): Promise<void> => {
     expectedUpdateChannel !== null
     && expectedUpdateChannel !== "disabled"
     && expectedUpdateChannel !== "stable"
+    && expectedUpdateChannel !== "nightly"
   ) {
-    throw new Error("--expected-update-channel must be disabled or stable");
+    throw new Error("--expected-update-channel must be disabled, stable, or nightly");
   }
   await verifyPackagedNativeRuntimeSmoke({
     appPath,

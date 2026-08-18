@@ -20,10 +20,14 @@ import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { materializeSparkleRuntime } from "../materialize-sparkle-runtime";
 import {
   compareStableVersions,
-  normalizeStableVersion,
+  compareBuildVersions,
+  buildVersionForMainlineOrdinal,
+  normalizeReleaseVersion,
+  normalizeAppleBuildVersion,
   sha256File,
   stableVersionFromAppTag,
-  tagForVersion,
+  tagForReleaseVersion,
+  type ReleaseChannel,
 } from "./model";
 import {
   parseSparkleArchitectureUpdateManifest,
@@ -40,6 +44,7 @@ const PRODUCT_BUNDLE_ID = "app.jyu.nodex";
 
 interface FinalizeSparkleOptions {
   readonly architecture: MacArchitecture;
+  readonly channel: ReleaseChannel;
   readonly architectureDirectory: string;
   readonly historyDirectories?: readonly string[];
   readonly outputDirectory: string;
@@ -266,11 +271,13 @@ const normalizeGeneratedAppcast = (options: {
   }
   const items = document.getElementsByTagName("item");
   let currentItem: Element | null = null;
+  const displayVersionByBuildVersion = new Map<string, string>();
   for (let index = 0; index < items.length; index += 1) {
     const item = items.item(index);
     if (!item) continue;
     const shortVersion = textFor(item, "shortVersionString") ?? textFor(item, "version");
     const buildVersion = textFor(item, "version");
+    if (shortVersion && buildVersion) displayVersionByBuildVersion.set(buildVersion, shortVersion);
     if (shortVersion === options.version && buildVersion === options.buildVersion) {
       currentItem = item;
       break;
@@ -305,7 +312,7 @@ const normalizeGeneratedAppcast = (options: {
     if (!enclosure) continue;
     const fromBuildVersion = enclosure.getAttributeNS(SPARKLE_NAMESPACE, "deltaFrom");
     if (!fromBuildVersion) continue;
-    const fromVersion = fromBuildVersion;
+    const fromVersion = displayVersionByBuildVersion.get(fromBuildVersion) ?? fromBuildVersion;
     const originalUrl = enclosure.getAttribute("url");
     if (!originalUrl) throw new Error("Generated Sparkle delta omits its URL.");
     const originalName = decodeURIComponent(new URL(originalUrl).pathname.split("/").at(-1) ?? "");
@@ -369,19 +376,28 @@ const verifyDeltaRoundTrip = (options: {
 };
 
 export function selectLatestSparkleHistoryAppcast(paths: readonly string[]): string | null {
-  const candidates: Array<{ readonly path: string; readonly version: string }> = [];
+  const candidates: Array<{ readonly buildVersion: string; readonly path: string }> = [];
   for (const candidatePath of paths) {
-    const appcastMatch = /^Nodex-(\d+\.\d+\.\d+)-appcast-(?:arm64|x64)\.xml$/u
-      .exec(path.basename(candidatePath));
-    if (appcastMatch?.[1]) {
-      candidates.push({
-        path: candidatePath,
-        version: normalizeStableVersion(appcastMatch[1]),
-      });
+    const nameMatch = /^Nodex-(.+)-appcast-(?:arm64|x64)\.xml$/u.exec(path.basename(candidatePath));
+    if (!nameMatch) continue;
+    if (!existsSync(candidatePath)) {
+      try {
+        candidates.push({ buildVersion: normalizeAppleBuildVersion(nameMatch[1]), path: candidatePath });
+      } catch {
+        // A Nightly appcast needs its XML build version and cannot be inferred from the filename.
+      }
+      continue;
     }
+    const document = new DOMParser().parseFromString(readFileSync(candidatePath, "utf8"), "application/xml");
+    const buildVersions = [...Array.from({ length: document.getElementsByTagName("item").length }, (_, index) => index)]
+      .map((index) => document.getElementsByTagName("item").item(index))
+      .map((item) => item ? textFor(item, "version") : null)
+      .filter((value): value is string => value !== null);
+    const buildVersion = buildVersions.sort((left, right) => compareBuildVersions(right, left))[0];
+    if (buildVersion) candidates.push({ buildVersion, path: candidatePath });
   }
   return candidates
-    .sort((left, right) => compareStableVersions(right.version, left.version))
+    .sort((left, right) => compareBuildVersions(right.buildVersion, left.buildVersion))
     .at(0)?.path ?? null;
 }
 
@@ -409,8 +425,8 @@ export async function finalizeSparkleArchitectureUpdate(
   options: FinalizeSparkleOptions,
 ): Promise<SparkleArchitectureUpdateManifest> {
   if (process.platform !== "darwin") throw new Error("Sparkle finalization requires macOS.");
-  const version = normalizeStableVersion(options.version);
-  const tag = tagForVersion(version);
+  const version = normalizeReleaseVersion(options.version);
+  const tag = tagForReleaseVersion(version);
   if (!/^[a-f0-9]{40}$/u.test(options.sourceSha)) throw new Error("Sparkle source SHA is invalid.");
   if (!options.privateKey.trim()) throw new Error("Sparkle private key is required.");
   const architectureRoot = path.resolve(options.architectureDirectory);
@@ -486,15 +502,16 @@ export async function finalizeSparkleArchitectureUpdate(
     }
     const manifest: SparkleArchitectureUpdateManifest = {
       architecture: options.architecture,
+      channel: options.channel,
       appcast: {
         bytes: statSync(outputAppcastPath).size,
-        feedPath: `updates/stable/${options.architecture}/appcast.xml`,
+        feedPath: `updates/${options.channel}/${options.architecture}/appcast.xml`,
         name: appcastName,
         sha256: sha256File(outputAppcastPath),
       },
       deltas: normalized.deltas,
       full: normalized.full,
-      schemaVersion: 1,
+      schemaVersion: 2,
       sourceSha: options.sourceSha,
       tag,
       target: {
@@ -533,6 +550,11 @@ export async function runSparkleFinalizeCli(args: ReadonlyMap<string, string>): 
   };
   await finalizeSparkleArchitectureUpdate({
     architecture,
+    channel: (() => {
+      const channel = required("channel");
+      if (channel !== "stable" && channel !== "nightly") throw new Error("Sparkle --channel must be stable or nightly.");
+      return channel;
+    })(),
     architectureDirectory: required("architecture-dir"),
     historyDirectories: splitHistoryDirectories(args.get("history-dirs")),
     outputDirectory: required("output"),
@@ -564,7 +586,9 @@ interface GitHubReleaseSummary {
 export const isEligibleSparkleHistoryRelease = (release: Pick<
   GitHubReleaseSummary,
   "draft" | "immutable" | "prerelease"
->): boolean => !release.draft && !release.prerelease && release.immutable === true;
+>, channel: ReleaseChannel = "stable"): boolean => !release.draft
+  && release.prerelease === (channel === "nightly")
+  && release.immutable === true;
 
 const gh = (args: readonly string[]): string => run("gh", args);
 
@@ -583,24 +607,43 @@ const assertDownloadedGitHubAsset = (
 
 export function fetchSparkleHistory(options: {
   readonly architecture: MacArchitecture;
+  readonly channel?: ReleaseChannel;
+  readonly currentBuildVersion?: string;
   readonly currentVersion: string;
   readonly limit?: number;
   readonly outputDirectory: string;
   readonly repository: string;
 }): readonly string[] {
-  const currentVersion = normalizeStableVersion(options.currentVersion);
+  const channel = options.channel ?? "stable";
+  const currentVersion = normalizeReleaseVersion(options.currentVersion);
+  const nightlyOrdinal = /-nightly\.\d{8}\.([1-9]\d*)$/u.exec(currentVersion)?.[1];
+  const currentBuildVersion = options.currentBuildVersion
+    ? normalizeAppleBuildVersion(options.currentBuildVersion)
+    : channel === "stable"
+      ? normalizeAppleBuildVersion(currentVersion)
+      : buildVersionForMainlineOrdinal(Number(nightlyOrdinal));
   const output = path.resolve(options.outputDirectory);
   ensureEmptyDirectory(output);
   const releases = (JSON.parse(gh([
     "api",
     `repos/${options.repository}/releases?per_page=30`,
   ])) as GitHubReleaseSummary[])
-    .filter(isEligibleSparkleHistoryRelease)
-    .map((release) => ({ release, version: stableVersionFromAppTag(release.tag_name) }))
+    .filter((release) => isEligibleSparkleHistoryRelease(release, channel))
+    .map((release) => ({
+      release,
+      version: channel === "stable"
+        ? stableVersionFromAppTag(release.tag_name)
+        : (() => {
+            try { return normalizeReleaseVersion(release.tag_name.replace(/^v/u, "")); } catch { return null; }
+          })(),
+    }))
     .filter((entry): entry is { release: GitHubReleaseSummary; version: string } => (
-      entry.version !== null && compareStableVersions(entry.version, currentVersion) < 0
+      entry.version !== null && (channel === "nightly" || compareStableVersions(entry.version, currentVersion) < 0)
     ))
-    .sort((left, right) => compareStableVersions(right.version, left.version));
+    .sort((left, right) => channel === "stable"
+      ? compareStableVersions(right.version, left.version)
+      : Number(/\.([1-9]\d*)$/u.exec(right.version)?.[1] ?? 0)
+        - Number(/\.([1-9]\d*)$/u.exec(left.version)?.[1] ?? 0));
 
   const accepted: string[] = [];
   for (const { release, version } of releases) {
@@ -627,6 +670,11 @@ export function fetchSparkleHistory(options: {
       continue;
     }
     const bundle = parseReleaseBundleManifest(rawBundle);
+    if (bundle.releaseIdentity.channel !== channel
+      || compareBuildVersions(bundle.releaseIdentity.buildVersion, currentBuildVersion) >= 0) {
+      rmSync(releaseRoot, { force: true, recursive: true });
+      continue;
+    }
     if (bundle.tag !== release.tag_name) {
       throw new Error(`${release.tag_name} does not match its Release Bundle tag.`);
     }
@@ -676,6 +724,7 @@ export function fetchSparkleHistory(options: {
     const appcastAsset = selected.find(({ role }) => role === "sparkle-appcast");
     if (
       update.target.packageProvenanceSchema !== 4
+      || update.channel !== channel
       || update.sourceSha !== bundle.sourceSha
       || update.tag !== bundle.tag
       || update.target.version !== bundle.version
@@ -711,6 +760,12 @@ export function runSparkleHistoryCli(args: ReadonlyMap<string, string>): void {
   };
   const directories = fetchSparkleHistory({
     architecture,
+    channel: (() => {
+      const channel = args.get("channel") ?? "stable";
+      if (channel !== "stable" && channel !== "nightly") throw new Error("Sparkle history --channel must be stable or nightly.");
+      return channel;
+    })(),
+    currentBuildVersion: args.get("build-version"),
     currentVersion: required("version"),
     outputDirectory: required("output"),
     repository: required("repo"),

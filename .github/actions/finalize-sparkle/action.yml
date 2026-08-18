@@ -5,6 +5,9 @@ inputs:
   architecture:
     description: macOS release architecture
     required: true
+  channel:
+    description: stable or nightly update channel
+    required: true
   private_key:
     description: Sparkle Ed25519 private key from the protected environment
     required: true
@@ -43,8 +46,11 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        build_version="$(node -p "require('${RUNNER_TEMP}/architecture/architecture-build.json').releaseIdentity.buildVersion")"
         history_dirs="$(pnpm --silent release:fetch:sparkle-history -- \
           --arch "${RELEASE_ARCH}" \
+          --channel "${{ inputs.channel }}" \
+          --build-version "${build_version}" \
           --version "${RELEASE_VERSION}" \
           --repo "${GITHUB_REPOSITORY}" \
           --output "${RUNNER_TEMP}/sparkle-history")"
@@ -62,12 +68,15 @@ runs:
       run: |
         set -euo pipefail
         test -n "${SPARKLE_ED25519_PRIVATE_KEY}"
-        pnpm release:notes -- \
-          --version "${RELEASE_VERSION}" \
-          --output "${RUNNER_TEMP}/release-notes.md"
+        if [[ "${{ inputs.channel }}" == "stable" ]]; then
+          pnpm release:notes -- --version "${RELEASE_VERSION}" --output "${RUNNER_TEMP}/release-notes.md"
+        else
+          printf 'Nightly build from `%s`.\n' "${RELEASE_SOURCE_SHA}" > "${RUNNER_TEMP}/release-notes.md"
+        fi
         published_at="$(git show -s --format=%cI "${RELEASE_SOURCE_SHA}")"
         sparkle_args=(
           --arch "${RELEASE_ARCH}"
+          --channel "${{ inputs.channel }}"
           --architecture-dir "${RUNNER_TEMP}/architecture"
           --notes "${RUNNER_TEMP}/release-notes.md"
           --published-at "${published_at}"
