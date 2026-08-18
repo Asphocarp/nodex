@@ -223,6 +223,7 @@ const verify = (
   });
   verifyPackagedNativeRuntimeStructure({
     appPath,
+    expectedBuildVersion: provenance.product.version,
     expectedVersion: provenance.product.version,
     expectedUpdateChannel: "disabled",
     requireDeveloperId: false,

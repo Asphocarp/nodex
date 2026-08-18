@@ -31,7 +31,10 @@ import { createCoreProjectWorkspaceAdapter } from "../src/main/core-client/proje
 
 export interface PackagedNativeRuntimeStructureOptions {
   readonly appPath: string;
+  /** The human-facing CFBundleShortVersionString encoded in the app. */
   readonly expectedVersion: string;
+  /** The monotonic Apple CFBundleVersion used for update ordering. */
+  readonly expectedBuildVersion: string;
   readonly requireDeveloperId: boolean;
   readonly targetArch: NativeRuntimeArchitecture;
   readonly expectedUpdateChannel?: "disabled" | "stable" | "nightly";
@@ -729,8 +732,10 @@ export function verifyPackagedNativeRuntimeStructure(
     ["-extract", "CFBundleVersion", "raw", "-o", "-", infoPlist],
     "Read packaged app bundle version",
   ).stdout.trim();
-  if (bundleVersion !== expectedVersion) {
-    throw new Error(`Packaged app bundle version is ${bundleVersion}, expected ${expectedVersion}`);
+  if (bundleVersion !== options.expectedBuildVersion) {
+    throw new Error(
+      `Packaged app bundle version is ${bundleVersion}, expected build version ${options.expectedBuildVersion}`,
+    );
   }
   if (manifest.targetArch !== options.targetArch) {
     throw new Error(`Native runtime manifest is ${manifest.targetArch}, expected ${options.targetArch}`);
@@ -826,6 +831,7 @@ const main = async (): Promise<void> => {
   const requireDeveloperId = arguments_.includes("--require-developer-id");
   const verifyNotarization = arguments_.includes("--verify-notarization");
   const expectedUpdateChannel = readOption(arguments_, "--expected-update-channel");
+  const expectedBuildVersion = readOption(arguments_, "--expected-build-version") ?? expectedVersion;
   if (
     expectedUpdateChannel !== null
     && expectedUpdateChannel !== "disabled"
@@ -836,6 +842,7 @@ const main = async (): Promise<void> => {
   }
   await verifyPackagedNativeRuntimeSmoke({
     appPath,
+    expectedBuildVersion,
     expectedVersion,
     launchApp: arguments_.includes("--launch-app"),
     legacyProfileFixturePath:
