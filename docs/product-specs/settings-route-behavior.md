@@ -101,6 +101,20 @@ CSS shimmer and loading-placeholder media rules continue to honor the operating
 system directly. The preference is app-scoped presentation, persists in renderer
 storage, and is neither Window Session layout nor main-process state.
 
+General also owns application update preferences. Automatic checks remain a
+boolean preference. The channel is `stable` or `nightly`; Stable is the
+recommended default for stable builds, while Nightly builds default to Nightly
+until the user makes an explicit persisted choice. Main-owned updater status is
+the authority for the selected channel and whether it may change. Changes are
+allowed only while idle, up to date, or in a recoverable error state. A
+successful change clears stale update metadata and does not start a check.
+Switching from Nightly to Stable never offers an older Stable build.
+
+The selector uses the shared Settings dropdown and is disabled during checks,
+downloads, ready-to-install state, and installation. Main switches the packaged
+updater before persisting the choice, rolls it back if persistence fails, and
+serializes mutations across windows.
+
 ## Deep links and feature-owned state
 
 Feature entry points may open a Settings section with explicit context. Card

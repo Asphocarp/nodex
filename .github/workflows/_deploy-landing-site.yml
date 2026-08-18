@@ -20,8 +20,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-landing-site
+  group: release-site-publication
   cancel-in-progress: false
+  queue: max
 
 jobs:
   deploy:
@@ -92,10 +93,16 @@ jobs:
         run: |
           set -euo pipefail
           target_dir="${RUNNER_TEMP}/target-site"
+          rsync -a --delete --exclude ".git" --exclude "updates/" "packages/landing/dist/" "${target_dir}/"
           if [[ "${PUBLISH_UPDATES}" == "true" ]]; then
-            rsync -a --delete --exclude ".git" "packages/landing/dist/" "${target_dir}/"
-          else
-            rsync -a --delete --exclude ".git" --exclude "updates/" "packages/landing/dist/" "${target_dir}/"
+            bundle="${RUNNER_TEMP}/release-bundle/release-bundle.json"
+            channel="$(node -e 'const channel = require(process.argv[1]).releaseIdentity?.channel; process.stdout.write(typeof channel === "string" ? channel : "")' "${bundle}")"
+            if [[ "${channel}" != "stable" ]]; then
+              echo "Only stable bundles may publish the stable update feed (got: ${channel})." >&2
+              exit 1
+            fi
+            mkdir -p "${target_dir}/updates/stable"
+            rsync -a --delete "packages/landing/dist/updates/stable/" "${target_dir}/updates/stable/"
           fi
           if [[ -z "$(git -C "${target_dir}" status --porcelain)" ]]; then
             echo "No landing-site changes to publish."

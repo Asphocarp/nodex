@@ -85,7 +85,8 @@ const makePreparedManifest = (
       size: 10,
     }],
     product: { name: "nodex", version: "0.1.10" },
-    schemaVersion: 3,
+    releaseIdentity: null,
+    schemaVersion: 4,
     source: {
       baseCommit: "3".repeat(40),
       baseTree: "4".repeat(40),
@@ -164,11 +165,14 @@ const writeSparkleRuntime = (appPath: string): void => {
   writeJson(path.join(appPath, "Contents/Resources/native/sparkle-runtime.json"), {
     artifacts,
     architecture: "arm64",
-    channel: "stable",
-    feedUrl: "https://nodex.jyu.app/updates/stable/arm64/appcast.xml",
+    buildChannel: "stable",
+    feedUrls: {
+      stable: "https://nodex.jyu.app/updates/stable/arm64/appcast.xml",
+      nightly: "https://nodex.jyu.app/updates/nightly/arm64/appcast.xml",
+    },
     minimumMacOS: "12.0",
     publicKey: "YNySLZ74gjVAOpEdMo9OOEPvuTEMZf8fMnI+oQD7Ifs=",
-    schemaVersion: 2,
+    schemaVersion: 3,
     sparkleArchiveSha256: "6".repeat(64),
     sparkleVersion: "2.9.4",
   });

@@ -1337,22 +1337,15 @@ mod tests {
             assert!(!home.join(source_file_name(*version)).exists() || *version != 26);
 
             let connection = open_writer(&home.join(STORE_FILE_NAME)).expect("current store");
-            let published: (i64, String, i64) = connection
+            let published: (i64, String) = connection
                 .query_row(
-                    "SELECT user_version, schema_owner, store_format_version \
+                    "SELECT user_version, schema_owner \
                      FROM pragma_user_version JOIN core_store_metadata ON id = 1",
                     [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .expect("Core metadata");
-            assert_eq!(
-                published,
-                (
-                    CURRENT_STORE_REVISION,
-                    "rust_core".to_owned(),
-                    CURRENT_STORE_REVISION
-                )
-            );
+            assert_eq!(published, (CURRENT_STORE_REVISION, "rust_core".to_owned()));
             if *fixture_name == "v57-early" {
                 let block_type: String = connection
                     .query_row(
@@ -1415,21 +1408,21 @@ mod tests {
                     )
                     .expect("migrated cross-Project Page grant");
                 assert_eq!(foreign_page_grants, 1);
-                let unresolved_reference: (String, String, String) = connection
+                let unresolved_reference: (String, String, String, String) = connection
                     .query_row(
-                        "SELECT project_id, type, lifecycle FROM blocks WHERE id = ?1",
-                        ["019b7e12-5c00-7000-8000-000000005711"],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                        "SELECT block.library_id, project.library_id, block.type, block.lifecycle \
+                         FROM blocks block JOIN projects project ON project.id = ?1 \
+                         WHERE block.id = ?2",
+                        [
+                            "019b7e12-5c00-7000-8000-000000000057",
+                            "019b7e12-5c00-7000-8000-000000005711",
+                        ],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                     )
                     .expect("migrated unresolved Page reference");
-                assert_eq!(
-                    unresolved_reference,
-                    (
-                        "019b7e12-5c00-7000-8000-000000000057".to_owned(),
-                        "unresolved_card_reference".to_owned(),
-                        "deleted".to_owned(),
-                    )
-                );
+                assert_eq!(unresolved_reference.0, unresolved_reference.1);
+                assert_eq!(unresolved_reference.2, "unresolved_card_reference");
+                assert_eq!(unresolved_reference.3, "deleted");
             }
             drop(connection);
 

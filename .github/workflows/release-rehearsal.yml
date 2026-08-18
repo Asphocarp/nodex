@@ -68,15 +68,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pnpm release:check -- \
-            --head "${{ inputs.source_sha }}" \
-            --output "${RUNNER_TEMP}/source.json"
+          pnpm release:resolve:source -- --channel stable --head "${{ inputs.source_sha }}" --output "${RUNNER_TEMP}/release-identity.json"
           # shellcheck disable=SC2016
           node -e '
             const fs = require("node:fs");
             const value = require(process.argv[1]);
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `source_sha=${value.sourceSha}\ntag=${value.tag}\nversion=${value.version}\n`);
-          ' "${RUNNER_TEMP}/source.json"
+          ' "${RUNNER_TEMP}/release-identity.json"
+
+      - name: Upload Release Identity
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-release-identity-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/release-identity.json
+          if-no-files-found: error
+          retention-days: 14
 
   distribution:
     name: rehearse native distributions
@@ -120,6 +126,7 @@ jobs:
       - uses: ./.github/actions/finalize-sparkle
         with:
           architecture: ${{ matrix.arch }}
+          channel: stable
           private_key: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
           retention_days: 14
           source_sha: ${{ needs.validate.outputs.source_sha }}

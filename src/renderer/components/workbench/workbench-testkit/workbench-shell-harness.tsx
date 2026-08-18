@@ -1691,6 +1691,7 @@ vi.mock("@/lib/use-board", () => ({
       loading: false,
       error: null,
       groupPagination: new Map(),
+      setPresentationOverride: () => undefined,
       loadMoreGroup: async () => undefined,
       refresh: async () => undefined,
       patchPage: () => undefined,

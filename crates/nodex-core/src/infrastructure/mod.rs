@@ -13,6 +13,7 @@ pub(crate) mod library_content_migration;
 pub(crate) mod local_commit;
 pub mod metrics;
 pub mod migration;
+pub(crate) mod migration_progress;
 pub mod module_receipts;
 pub mod projection_impact;
 pub(crate) mod projection_requirement_extractor;

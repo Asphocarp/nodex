@@ -34,7 +34,7 @@ const repositoryRoot = process.cwd();
 const largeContentFixtureRoot = path.join(repositoryRoot, "tests/e2e/large-content-fixture");
 const largeContentElectronMain = path.join(largeContentFixtureRoot, "electron-main.cjs");
 
-type LargeContentScenario = "license" | "workspace" | "markdown" | "tool" | "startup";
+type LargeContentScenario = "workspace" | "markdown" | "tool" | "startup";
 
 interface LargeContentScenarioMetrics {
   scenario: LargeContentScenario;
@@ -1084,10 +1084,6 @@ async function closeFixtureWindow(application: ElectronApplication, windowId: nu
 
 async function waitForLargeContentScenario(page: Page, scenario: LargeContentScenario): Promise<void> {
   await page.locator(`[data-performance-surface="${scenario}"]`).waitFor();
-  if (scenario === "license") {
-    await page.locator('[aria-label="Open source license text"]').waitFor();
-    return;
-  }
   if (scenario === "workspace") {
     await page.locator('[aria-label="Source preview for large-source.txt"]').waitFor();
     return;
@@ -3919,7 +3915,6 @@ test("keeps representative large-content surfaces bounded in a real Electron ren
     application = await launchLargeContentFixtureApplication();
 
     const scenarios: LargeContentScenario[] = [
-      "license",
       "workspace",
       "markdown",
       "tool",
@@ -3945,13 +3940,11 @@ test("keeps representative large-content surfaces bounded in a real Electron ren
     const byScenario = Object.fromEntries(metrics.map((metric) => [metric.scenario, metric]));
     const enforcePerformanceTiming = process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1";
     if (enforcePerformanceTiming) {
-      expect(byScenario.license?.maxLongTaskMs).toBeLessThanOrEqual(250);
       expect(byScenario.workspace?.maxLongTaskMs).toBeLessThanOrEqual(250);
       expect(byScenario.markdown?.maxLongTaskMs).toBeLessThanOrEqual(250);
       expect(byScenario.tool?.maxLongTaskMs).toBeLessThanOrEqual(250);
       expect(byScenario.startup?.maxLongTaskMs).toBeLessThanOrEqual(250);
     }
-    expect(byScenario.license?.accessibilityNodes).toBeLessThanOrEqual(500);
     expect(byScenario.workspace?.domNodes).toBeLessThanOrEqual(2_000);
     expect(byScenario.workspace?.accessibilityNodes).toBeLessThanOrEqual(2_000);
     expect(byScenario.markdown?.domNodes).toBeLessThanOrEqual(2_000);

@@ -15,6 +15,7 @@ import { generateHomebrewCaskFromBundle } from "./homebrew";
 import {
   assertRemoteReleaseCandidate,
   ensureGitHubReleaseTag,
+  inspectNightlyRemoteCandidate,
   publishGitHubRelease,
   releaseAssetPaths,
   verifyRemoteRelease,
@@ -26,8 +27,16 @@ import {
   prepareReleaseSource,
 } from "./source";
 import { tagForVersion } from "./model";
+import { parseReleaseIdentity } from "./model";
+import {
+  resolveNightlyCandidate,
+  resolveReleaseIdentity,
+  resolveStableReleaseIdentity,
+  verifyReleaseIdentityAtRef,
+} from "./candidate";
 import { runSparkleFinalizeCli, runSparkleHistoryCli } from "./sparkle";
 import { projectReleaseAppcasts, verifyPublishedAppcasts } from "./pages";
+import { runNightlyRetention } from "./retention";
 
 const projectRoot = resolve(import.meta.dirname, "../..");
 
@@ -113,6 +122,51 @@ const main = async (): Promise<void> => {
     ));
     return;
   }
+  if (command === "resolve-stable") {
+    writeJson(required(flags, "output"), resolveStableReleaseIdentity({
+      base: required(flags, "base"),
+      cwd: projectRoot,
+      head: required(flags, "head"),
+    }));
+    return;
+  }
+  if (command === "resolve-source") {
+    const channel = required(flags, "channel");
+    if (channel !== "stable" && channel !== "nightly") throw new Error("--channel must be stable or nightly.");
+    writeJson(required(flags, "output"), resolveReleaseIdentity({
+      channel,
+      cwd: projectRoot,
+      ref: flags.get("head") ?? "HEAD",
+    }));
+    return;
+  }
+  if (command === "resolve-nightly") {
+    writeJson(required(flags, "output"), resolveNightlyCandidate({
+      cwd: projectRoot,
+      head: flags.get("head") ?? "HEAD",
+    }));
+    return;
+  }
+  if (command === "verify-identity") {
+    const identity = parseReleaseIdentity(
+      JSON.parse(readFileSync(resolve(required(flags, "identity")), "utf8")),
+    );
+    writeJson(flags.get("output"), verifyReleaseIdentityAtRef({
+      cwd: projectRoot,
+      identity,
+      ref: required(flags, "head"),
+    }));
+    return;
+  }
+  if (command === "retain-nightlies") {
+    writeJson(flags.get("output"), runNightlyRetention({
+      destructive: flags.get("destructive") === "true",
+      keepCount: Number(flags.get("keep") ?? "20"),
+      minAgeDays: Number(flags.get("min-age-days") ?? "14"),
+      repo: required(flags, "repo"),
+    }));
+    return;
+  }
   if (command === "record-architecture") {
     const architecture = required(flags, "arch");
     if (architecture !== "arm64" && architecture !== "x64") throw new Error("--arch must be arm64 or x64.");
@@ -121,9 +175,8 @@ const main = async (): Promise<void> => {
       architecture: architecture as MacArchitecture,
       cwd: projectRoot,
       distDirectory: required(flags, "dist-dir"),
+      identityPath: required(flags, "identity"),
       outputDirectory: required(flags, "output"),
-      sourceSha: required(flags, "source-sha"),
-      version: required(flags, "version"),
     });
     return;
   }
@@ -133,9 +186,8 @@ const main = async (): Promise<void> => {
     await buildMacDistribution({
       architecture,
       cwd: projectRoot,
+      identityPath: required(flags, "identity"),
       outputDirectory: required(flags, "output"),
-      sourceSha: required(flags, "source-sha"),
-      version: required(flags, "version"),
     });
     return;
   }
@@ -143,9 +195,8 @@ const main = async (): Promise<void> => {
     assembleReleaseBundle({
       arm64Directory: required(flags, "arm64-dir"),
       arm64UpdateDirectory: required(flags, "arm64-update-dir"),
+      identityPath: required(flags, "identity"),
       outputDirectory: required(flags, "output"),
-      sourceSha: required(flags, "source-sha"),
-      version: required(flags, "version"),
       x64Directory: required(flags, "x64-dir"),
       x64UpdateDirectory: required(flags, "x64-update-dir"),
     });
@@ -200,6 +251,13 @@ const main = async (): Promise<void> => {
       sourceSha: required(flags, "source-sha"),
       version: required(flags, "version"),
     }));
+    return;
+  }
+  if (command === "check-nightly-remote") {
+    const identity = parseReleaseIdentity(JSON.parse(
+      readFileSync(resolve(required(flags, "identity")), "utf8"),
+    ));
+    writeJson(flags.get("output"), inspectNightlyRemoteCandidate(required(flags, "repo"), identity));
     return;
   }
   if (command === "ensure-tag") {

@@ -23,6 +23,9 @@ describe("AppUpdateRestartNotice", () => {
           totalBytes: 10,
           checkedAt: null,
           message: "Update ready. Restart Nodex to install it.",
+          channel: "stable",
+          buildDefaultChannel: "stable",
+          channelChangeAllowed: false,
         }}
         onDismiss={() => {
           dismissCalls += 1;
@@ -59,6 +62,9 @@ describe("AppUpdateRestartNotice", () => {
           totalBytes: null,
           checkedAt: null,
           message: "You’re up to date.",
+          channel: "stable",
+          buildDefaultChannel: "stable",
+          channelChangeAllowed: true,
         }}
         onDismiss={() => { }}
         onRestart={() => { }}

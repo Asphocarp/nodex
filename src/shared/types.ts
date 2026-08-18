@@ -1754,12 +1754,16 @@ export interface DesktopNotificationActionInvocation
   requestId: CodexAppServerRequestId | null;
 }
 
+export type AppUpdateChannel = "stable" | "nightly";
+
 export interface AppUpdateSettings {
   automaticChecksEnabled: boolean;
+  channel: AppUpdateChannel;
 }
 
 export interface UpdateAppUpdateSettingsInput {
-  automaticChecksEnabled: boolean;
+  automaticChecksEnabled?: boolean;
+  channel?: AppUpdateChannel;
 }
 
 export type {
@@ -1792,6 +1796,9 @@ export interface AppUpdateStatus {
   totalBytes: number | null;
   checkedAt: string | null;
   message: string | null;
+  channel: AppUpdateChannel;
+  buildDefaultChannel: AppUpdateChannel;
+  channelChangeAllowed: boolean;
 }
 
 export interface RestoreBackupInput {

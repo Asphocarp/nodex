@@ -15,7 +15,7 @@ vi.mock("./app-update-settings-control-deps", async (importOriginal) => ({
 
     switch (channel) {
       case "settings:app-updates:get":
-        return { automaticChecksEnabled: true };
+        return { automaticChecksEnabled: true, channel: "stable" };
       case "app:update:status":
         return {
           status: "idle",
@@ -30,9 +30,15 @@ vi.mock("./app-update-settings-control-deps", async (importOriginal) => ({
           totalBytes: null,
           checkedAt: "2026-03-18T09:10:11.000Z",
           message: "Automatic background checks are ready.",
+          channel: "stable",
+          buildDefaultChannel: "stable",
+          channelChangeAllowed: true,
         };
       case "settings:app-updates:update":
-        return { automaticChecksEnabled: (args[1] as { automaticChecksEnabled?: boolean }).automaticChecksEnabled };
+        return {
+          automaticChecksEnabled: (args[1] as { automaticChecksEnabled?: boolean }).automaticChecksEnabled ?? true,
+          channel: (args[1] as { channel?: "stable" | "nightly" }).channel ?? "stable",
+        };
       case "app:update:check":
         return {
           status: "checking",
@@ -47,6 +53,9 @@ vi.mock("./app-update-settings-control-deps", async (importOriginal) => ({
           totalBytes: null,
           checkedAt: "2026-03-18T10:00:00.000Z",
           message: "Checking for updates…",
+          channel: "stable",
+          buildDefaultChannel: "stable",
+          channelChangeAllowed: false,
         };
       case "app:update:install":
         return true;
@@ -105,6 +114,9 @@ describe("AppUpdateSettingsControl", () => {
         totalBytes: 12,
         checkedAt: "2026-03-18T10:10:00.000Z",
         message: "Update ready. Restart Nodex to install it.",
+        channel: "stable",
+        buildDefaultChannel: "stable",
+        channelChangeAllowed: false,
       });
     });
     await settleAsyncRender();

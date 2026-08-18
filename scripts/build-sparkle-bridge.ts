@@ -21,7 +21,7 @@ import { materializeSparkleRuntime, verifySparkleToolchain } from "./materialize
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export type SparkleRuntimeArchitecture = "arm64" | "x64";
-export type SparkleRuntimeChannel = "disabled" | "stable";
+export type SparkleRuntimeChannel = "disabled" | "stable" | "nightly";
 
 export interface SparkleRuntimeManifest {
   readonly artifacts: {
@@ -32,11 +32,11 @@ export interface SparkleRuntimeManifest {
     readonly updater: SparkleArtifactIdentity;
   };
   readonly architecture: SparkleRuntimeArchitecture;
-  readonly channel: SparkleRuntimeChannel;
-  readonly feedUrl: string | null;
+  readonly buildChannel: SparkleRuntimeChannel;
+  readonly feedUrls: null | Readonly<Record<"stable" | "nightly", string>>;
   readonly minimumMacOS: "12.0";
   readonly publicKey: string;
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly sparkleArchiveSha256: string;
   readonly sparkleVersion: string;
 }
@@ -55,8 +55,10 @@ export interface BuildSparkleBridgeOptions {
   readonly toolchainPath: string;
 }
 
-const feedUrlFor = (architecture: SparkleRuntimeArchitecture): string =>
-  `https://nodex.jyu.app/updates/stable/${architecture}/appcast.xml`;
+const feedUrlsFor = (architecture: SparkleRuntimeArchitecture) => ({
+  stable: `https://nodex.jyu.app/updates/stable/${architecture}/appcast.xml`,
+  nightly: `https://nodex.jyu.app/updates/nightly/${architecture}/appcast.xml`,
+});
 
 const readPublicKey = (projectRoot: string): string => {
   const publicKey = readFileSync(
@@ -233,11 +235,11 @@ export async function buildSparkleBridge(
         ),
       },
       architecture: options.architecture,
-      channel: options.channel,
-      feedUrl: options.channel === "stable" ? feedUrlFor(options.architecture) : null,
+      buildChannel: options.channel,
+      feedUrls: options.channel === "disabled" ? null : feedUrlsFor(options.architecture),
       minimumMacOS: "12.0",
       publicKey,
-      schemaVersion: 2,
+      schemaVersion: 3,
       sparkleArchiveSha256: lock.archive.sha256,
       sparkleVersion: lock.version,
     };
@@ -272,12 +274,12 @@ function parseCliOptions(argv: readonly string[]): BuildSparkleBridgeOptions {
     ?? path.join(repositoryRoot, ".generated", "sparkle-toolchain", "2.9.4");
   if (
     (architecture !== "arm64" && architecture !== "x64")
-    || (channel !== "disabled" && channel !== "stable")
+    || (channel !== "disabled" && channel !== "stable" && channel !== "nightly")
     || !outputPath
   ) {
     throw new Error(
       "Usage: build-sparkle-bridge.ts --arch <arm64|x64> "
-      + "--channel <disabled|stable> --out <runtime-directory>.",
+      + "--channel <disabled|stable|nightly> --out <runtime-directory>.",
     );
   }
   return { architecture, channel, outputPath, toolchainPath };

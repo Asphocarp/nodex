@@ -95,10 +95,13 @@ const readProductVersion = (repositoryRoot: string): string => {
   const value = JSON.parse(
     readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
   ) as { readonly version?: unknown };
-  if (typeof value.version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(value.version)) {
-    throw new Error("package.json must contain a stable product version");
+  const version = process.env.NODEX_RELEASE_VERSION ?? value.version;
+  if (typeof version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-nightly\.\d{8}\.[1-9]\d*)?$/u.test(version)) {
+    throw new Error(
+      "Product version must be a stable semantic version or <stable>-nightly.YYYYMMDD.N.",
+    );
   }
-  return value.version;
+  return version;
 };
 
 const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {

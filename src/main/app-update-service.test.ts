@@ -13,6 +13,19 @@ class FakeUpdater implements MacAppUpdater {
   installCount = 0;
   startCount = 0;
   private listener: ((event: MacAppUpdaterEvent) => void) | null = null;
+  private channel: AppUpdateSettings["channel"] = "stable";
+
+  getBuildDefaultChannel(): AppUpdateSettings["channel"] {
+    return "stable";
+  }
+
+  getChannel(): AppUpdateSettings["channel"] {
+    return this.channel;
+  }
+
+  async setChannel(channel: AppUpdateSettings["channel"]): Promise<void> {
+    this.channel = channel;
+  }
 
   async start(listener: (event: MacAppUpdaterEvent) => void): Promise<void> {
     this.startCount += 1;
@@ -62,12 +75,18 @@ function createService(overrides?: Partial<{
     logger: createLogger(),
     platform: overrides?.platform ?? "darwin",
     updater,
+    initialSettings: { automaticChecksEnabled: true, channel: "stable" },
+    persistSettings: (input) => ({
+      automaticChecksEnabled: input.automaticChecksEnabled ?? true,
+      channel: input.channel ?? "stable",
+    }),
   });
   return { service, updater };
 }
 
 const automaticChecksEnabled: AppUpdateSettings = {
   automaticChecksEnabled: true,
+  channel: "stable",
 };
 
 describe("AppUpdateService", () => {
@@ -123,6 +142,39 @@ describe("AppUpdateService", () => {
       supported: true,
     });
     expect(updater?.checkKinds).toEqual(["user"]);
+  });
+
+  test("switches channels only while idle and clears stale update metadata", async () => {
+    const { service, updater } = createService();
+    service.initialize();
+
+    await expect(service.updateSettings({ channel: "nightly" })).resolves.toEqual({
+      automaticChecksEnabled: true,
+      channel: "nightly",
+    });
+    expect(updater?.getChannel()).toBe("nightly");
+    expect(service.getStatus()).toMatchObject({
+      channel: "nightly",
+      channelChangeAllowed: true,
+      status: "idle",
+    });
+
+    await service.checkForUpdates("manual");
+    await expect(service.updateSettings({ channel: "stable" }))
+      .rejects.toThrow("cannot change during an update session");
+  });
+
+  test("starts a fresh automatic check after switching channels", async () => {
+    const { service, updater } = createService();
+    service.maybeStartAutomaticChecks(automaticChecksEnabled);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    updater?.emit({ type: "up-to-date", version: "0.2.1" });
+
+    await service.updateSettings({ channel: "nightly" });
+    service.maybeStartAutomaticChecks({ automaticChecksEnabled: true, channel: "nightly" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(updater?.checkKinds).toEqual(["background", "background"]);
   });
 
   test("tracks download progress and installs only after download completes", async () => {

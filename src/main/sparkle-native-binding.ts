@@ -15,6 +15,7 @@ interface SparkleNativeBinding {
     emit: (event: unknown) => void,
   ) => { readonly architecture: "arm64" | "x64"; readonly sparkleVersion: string };
   readonly installDownloadedUpdate: () => void;
+  readonly setFeedUrl: (feedUrl: string) => void;
 }
 
 const requireFromMain = createRequire(import.meta.url);
@@ -97,6 +98,7 @@ export function loadSparkleNativeBinding(resourcesPath: string): SparkleNativeBi
     || typeof candidate.initialize !== "function"
     || typeof candidate.checkForUpdates !== "function"
     || typeof candidate.installDownloadedUpdate !== "function"
+    || typeof candidate.setFeedUrl !== "function"
     || typeof candidate.dispose !== "function"
   ) {
     throw new Error("Packaged Sparkle native binding has an unsupported API.");

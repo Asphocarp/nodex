@@ -14,6 +14,7 @@ permissions:
 concurrency:
   group: release-main
   cancel-in-progress: false
+  queue: max
 
 jobs:
   detect:
@@ -77,12 +78,19 @@ jobs:
             --base "${base_sha}" \
             --head "${SOURCE_SHA}" \
             --output "${result}"
+          identity="${RUNNER_TEMP}/release-identity.json"
+          if [[ "$(node -p "require('${result}').shouldRelease")" == "true" ]]; then
+            pnpm release:resolve:stable -- --base "${base_sha}" --head "${SOURCE_SHA}" --output "${identity}"
+          fi
           # shellcheck disable=SC2016
           node -e '
             const fs = require("node:fs");
             const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
             const output = [`should_release=${result.shouldRelease}`, `source_sha=${process.env.SOURCE_SHA}`];
-            if (result.shouldRelease) output.push(`tag=${result.tag}`, `version=${result.version}`);
+            if (result.shouldRelease) {
+              const identity = require(`${process.env.RUNNER_TEMP}/release-identity.json`);
+              output.push(`tag=${identity.tag}`, `version=${identity.version}`);
+            }
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `${output.join("\n")}\n`);
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Release detection\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`);
           ' "${result}"
@@ -93,6 +101,15 @@ jobs:
               --source-sha "${SOURCE_SHA}" \
               --version "${version}"
           fi
+
+      - name: Upload Release Identity
+        if: steps.release.outputs.should_release == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-release-identity-${{ github.event.workflow_run.head_sha }}
+          path: ${{ runner.temp }}/release-identity.json
+          if-no-files-found: error
+          retention-days: 30
 
   distribution:
     name: build native distributions
@@ -141,6 +158,7 @@ jobs:
       - uses: ./.github/actions/finalize-sparkle
         with:
           architecture: ${{ matrix.arch }}
+          channel: stable
           private_key: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
           retention_days: 30
           source_sha: ${{ needs.detect.outputs.source_sha }}

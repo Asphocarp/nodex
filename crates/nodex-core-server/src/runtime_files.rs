@@ -386,7 +386,9 @@ impl RuntimePaths {
             requirements: candidate.requirements.clone(),
             client: ClientIdentity {
                 kind: ClientKind::Test,
-                build_id: env!("CARGO_PKG_VERSION").to_owned(),
+                build_id: option_env!("NODEX_RELEASE_VERSION")
+                    .unwrap_or(env!("CARGO_PKG_VERSION"))
+                    .to_owned(),
             },
             connection_id,
             expected_generation: RuntimeGenerationIdentity::from(descriptor.as_ref()),
@@ -813,7 +815,9 @@ pub(crate) fn current_artifact_identity() -> io::Result<CoreArtifactIdentity> {
     }
     Ok(CoreArtifactIdentity {
         sha256: hex::encode(digest.finalize()),
-        build_id: env!("CARGO_PKG_VERSION").to_owned(),
+        build_id: option_env!("NODEX_RELEASE_VERSION")
+            .unwrap_or(env!("CARGO_PKG_VERSION"))
+            .to_owned(),
     })
 }
 

@@ -12,11 +12,14 @@ import { parseSparkleNativeEvent } from "./sparkle-native-binding";
 const runtimeManifest = (overrides: Record<string, unknown> = {}) => ({
   architecture: "arm64",
   artifacts: {},
-  channel: "stable",
-  feedUrl: "https://nodex.jyu.app/updates/stable/arm64/appcast.xml",
+  buildChannel: "stable",
+  feedUrls: {
+    stable: "https://nodex.jyu.app/updates/stable/arm64/appcast.xml",
+    nightly: "https://nodex.jyu.app/updates/nightly/arm64/appcast.xml",
+  },
   minimumMacOS: "12.0",
   publicKey: "YNySLZ74gjVAOpEdMo9OOEPvuTEMZf8fMnI+oQD7Ifs=",
-  schemaVersion: 2,
+  schemaVersion: 3,
   sparkleArchiveSha256: "ce89daf967db1e1893ed3ebd67575ed82d3902563e3191ca92aaec9164fbdef9",
   sparkleVersion: "2.9.4",
   ...overrides,
@@ -26,11 +29,14 @@ describe("packaged Sparkle runtime boundary", () => {
   test("accepts only the pinned architecture-specific stable feed", () => {
     expect(parseSparkleRuntimeConfig(runtimeManifest())).toMatchObject({
       architecture: "arm64",
-      channel: "stable",
+      buildChannel: "stable",
       sparkleVersion: "2.9.4",
     });
     expect(() => parseSparkleRuntimeConfig(runtimeManifest({
-      feedUrl: "https://nodex.jyu.app/updates/stable/x64/appcast.xml",
+      feedUrls: {
+        stable: "https://nodex.jyu.app/updates/stable/x64/appcast.xml",
+        nightly: "https://nodex.jyu.app/updates/nightly/arm64/appcast.xml",
+      },
     }))).toThrow("does not match");
     expect(() => parseSparkleRuntimeConfig(runtimeManifest({
       sparkleVersion: "2.9.5",
@@ -39,11 +45,11 @@ describe("packaged Sparkle runtime boundary", () => {
 
   test("allows a disabled local build only when it has no feed", () => {
     expect(parseSparkleRuntimeConfig(runtimeManifest({
-      channel: "disabled",
-      feedUrl: null,
-    }))).toMatchObject({ channel: "disabled", feedUrl: null });
+      buildChannel: "disabled",
+      feedUrls: null,
+    }))).toMatchObject({ buildChannel: "disabled", feedUrls: null });
     expect(() => parseSparkleRuntimeConfig(runtimeManifest({
-      channel: "disabled",
+      buildChannel: "disabled",
     }))).toThrow("does not match");
   });
 
@@ -52,7 +58,7 @@ describe("packaged Sparkle runtime boundary", () => {
     try {
       mkdirSync(join(resourcesPath, "native"));
       writeFileSync(join(resourcesPath, "native", "sparkle-runtime.json"), JSON.stringify(
-        runtimeManifest({ channel: "disabled", feedUrl: null }),
+        runtimeManifest({ buildChannel: "disabled", feedUrls: null }),
       ));
 
       expect(createPackagedMacAppUpdater({

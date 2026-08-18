@@ -5,7 +5,7 @@ import { DOMParser } from "@xmldom/xmldom";
 
 import { parseReleaseBundleManifest } from "./bundle";
 import { releaseAssetPaths } from "./github-release";
-import { compareStableVersions, normalizeStableVersion, sha256File } from "./model";
+import { compareBuildVersions, normalizeAppleBuildVersion, sha256File } from "./model";
 import { verifySparkleAppcastContract } from "./sparkle-appcast-contract";
 import { parseSparkleArchitectureUpdateManifest } from "./sparkle-manifest";
 
@@ -25,14 +25,11 @@ export function latestVersionInAppcast(xml: string): string {
   for (let index = 0; index < items.length; index += 1) {
     const item = items.item(index);
     if (!item) continue;
-    const shortVersion = item
-      .getElementsByTagNameNS(SPARKLE_NAMESPACE, "shortVersionString")
-      .item(0)?.textContent?.trim();
     const buildVersion = item
       .getElementsByTagNameNS(SPARKLE_NAMESPACE, "version")
       .item(0)?.textContent?.trim();
-    const version = normalizeStableVersion(shortVersion || buildVersion || "");
-    if (latest === null || compareStableVersions(version, latest) > 0) latest = version;
+    const version = normalizeAppleBuildVersion(buildVersion || "");
+    if (latest === null || compareBuildVersions(version, latest) > 0) latest = version;
   }
   if (latest === null) throw new Error("Existing Sparkle appcast has no update items.");
   return latest;
@@ -40,7 +37,7 @@ export function latestVersionInAppcast(xml: string): string {
 
 const assertProjectionDoesNotMoveFeedBackwards = (options: {
   readonly candidateSha256: string;
-  readonly candidateVersion: string;
+  readonly candidateBuildVersion: string;
   readonly existingPath: string;
 }): void => {
   if (!existsSync(options.existingPath)) return;
@@ -49,9 +46,9 @@ const assertProjectionDoesNotMoveFeedBackwards = (options: {
     throw new Error(`Existing Sparkle feed must be a regular file: ${options.existingPath}`);
   }
   const existingVersion = latestVersionInAppcast(readFileSync(options.existingPath, "utf8"));
-  const order = compareStableVersions(options.candidateVersion, existingVersion);
+  const order = compareBuildVersions(options.candidateBuildVersion, existingVersion);
   if (order < 0) {
-    throw new Error(`Sparkle feed projection cannot move ${existingVersion} back to ${options.candidateVersion}.`);
+    throw new Error(`Sparkle feed projection cannot move build ${existingVersion} back to ${options.candidateBuildVersion}.`);
   }
   if (order === 0 && sha256File(options.existingPath) !== options.candidateSha256) {
     throw new Error(`Sparkle feed ${existingVersion} already exists with different bytes.`);
@@ -132,7 +129,7 @@ export function projectReleaseAppcasts(options: {
     if (options.existingSiteDirectory) {
       assertProjectionDoesNotMoveFeedBackwards({
         candidateSha256: update.appcast.sha256,
-        candidateVersion: update.target.version,
+        candidateBuildVersion: update.target.buildVersion,
         existingPath: path.join(
           path.resolve(options.existingSiteDirectory),
           ...update.appcast.feedPath.split("/"),

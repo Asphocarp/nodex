@@ -62,6 +62,9 @@ const INITIAL_APP_UPDATE_STATUS: AppUpdateStatus = {
   supported: false,
   totalBytes: null,
   transferredBytes: null,
+  channel: "stable",
+  buildDefaultChannel: "stable",
+  channelChangeAllowed: false,
 };
 
 function isAppUpdateStatus(value: unknown): value is AppUpdateStatus {

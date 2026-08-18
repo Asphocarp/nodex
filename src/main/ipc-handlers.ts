@@ -150,6 +150,7 @@ import type {
   WindowSessionNewWindowRequest,
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
+import type { UpdateAppUpdateSettingsInput } from "../shared/types";
 import { WorkbenchSceneSnapshotSchema } from "../shared/schemas/workbench-scene";
 import { readThirdPartyNotices } from "./third-party-notices";
 import type {
@@ -925,7 +926,8 @@ interface RegisterIpcHandlersOptions {
   onGetAppUpdateStatus?: () => AppUpdateStatus;
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
   onInstallAppUpdate?: () => boolean | Promise<boolean>;
-  onAppUpdateSettingsChanged?: (settings: AppUpdateSettings) => void;
+  onGetAppUpdateSettings?: () => AppUpdateSettings;
+  onUpdateAppUpdateSettings?: (input: UpdateAppUpdateSettingsInput) => Promise<AppUpdateSettings>;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;
   onHeartbeatAutomationsEnabledChanged?: (
@@ -2635,13 +2637,12 @@ export function registerIpcHandlers(
     },
   );
 
-  registerHandle("settings:app-updates:get", () => getAppUpdateSettings());
+  registerHandle("settings:app-updates:get", () =>
+    options.onGetAppUpdateSettings?.() ?? getAppUpdateSettings());
 
-  registerHandle("settings:app-updates:update", (_, input) => {
-    const settings = updateAppUpdateSettings(input);
-    options.onAppUpdateSettingsChanged?.(settings);
-    return settings;
-  });
+  registerHandle("settings:app-updates:update", async (_, input) =>
+    await (options.onUpdateAppUpdateSettings?.(input)
+      ?? Promise.resolve(updateAppUpdateSettings(input))));
 
   registerHandle("settings:window-restore:get", () =>
     getWindowRestoreSettings(),
@@ -2688,6 +2689,9 @@ export function registerIpcHandlers(
         totalBytes: null,
         checkedAt: null,
         message: "App updates are unavailable.",
+        channel: "stable",
+        buildDefaultChannel: "stable",
+        channelChangeAllowed: false,
       } satisfies AppUpdateStatus),
   );
 
@@ -2708,6 +2712,9 @@ export function registerIpcHandlers(
         totalBytes: null,
         checkedAt: null,
         message: "App updates are unavailable.",
+        channel: "stable",
+        buildDefaultChannel: "stable",
+        channelChangeAllowed: false,
       } satisfies AppUpdateStatus),
   );
 

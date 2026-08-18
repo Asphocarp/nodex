@@ -78,7 +78,7 @@ describe("native runtime manifest", () => {
 
   test("rejects an unstable or missing product version", () => {
     expect(() => parseNativeRuntimeManifest({ ...manifest, productVersion: "0.2.0-beta.1" }))
-      .toThrow("stable semantic version");
+      .toThrow("release semantic version");
     expect(() => parseNativeRuntimeManifest({ ...manifest, productVersion: undefined }))
       .toThrow("productVersion");
   });

@@ -1,6 +1,12 @@
 import { basename } from "node:path";
 
-import { compareStableVersions, normalizeStableVersion, tagForVersion } from "./model";
+import {
+  compareBuildVersions,
+  normalizeAppleBuildVersion,
+  normalizeReleaseVersion,
+  tagForReleaseVersion,
+  type ReleaseChannel,
+} from "./model";
 import type { MacArchitecture } from "./bundle";
 
 export interface SparkleFileIdentity {
@@ -20,6 +26,7 @@ export interface SparkleDeltaIdentity extends SparkleFileIdentity {
 
 export interface SparkleArchitectureUpdateManifest {
   readonly architecture: MacArchitecture;
+  readonly channel: ReleaseChannel;
   readonly appcast: {
     readonly bytes: number;
     readonly feedPath: string;
@@ -28,7 +35,7 @@ export interface SparkleArchitectureUpdateManifest {
   };
   readonly deltas: readonly SparkleDeltaIdentity[];
   readonly full: SparkleFileIdentity;
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly sourceSha: string;
   readonly tag: string;
   readonly target: {
@@ -129,20 +136,20 @@ const parseDelta = (value: unknown, tag: string): SparkleDeltaIdentity => {
     sha256: value.sha256,
     url: value.url,
   }, tag, "Sparkle delta");
-  const fromVersion = normalizeStableVersion(String(value.fromVersion));
-  const toVersion = normalizeStableVersion(String(value.toVersion));
+  const fromVersion = normalizeReleaseVersion(String(value.fromVersion));
+  const toVersion = normalizeReleaseVersion(String(value.toVersion));
+  const fromBuildVersion = normalizeAppleBuildVersion(String(value.fromBuildVersion));
+  const toBuildVersion = normalizeAppleBuildVersion(String(value.toBuildVersion));
   if (
-    value.fromBuildVersion !== fromVersion
-    || value.toBuildVersion !== toVersion
-    || compareStableVersions(fromVersion, toVersion) >= 0
+    compareBuildVersions(fromBuildVersion, toBuildVersion) >= 0
   ) {
     throw new Error("Sparkle delta version range is invalid.");
   }
   return {
     ...file,
-    fromBuildVersion: fromVersion,
+    fromBuildVersion,
     fromVersion,
-    toBuildVersion: toVersion,
+    toBuildVersion,
     toVersion,
   };
 };
@@ -151,8 +158,10 @@ export function parseSparkleArchitectureUpdateManifest(
   value: unknown,
 ): SparkleArchitectureUpdateManifest {
   if (!isRecord(value)) throw new Error("Sparkle architecture update manifest is invalid.");
+  const legacyStable = value.schemaVersion === 1;
   assertExactKeys(value, [
     "architecture",
+    ...(legacyStable ? [] : ["channel"]),
     "appcast",
     "deltas",
     "full",
@@ -161,7 +170,9 @@ export function parseSparkleArchitectureUpdateManifest(
     "tag",
     "target",
   ], "Sparkle architecture update manifest");
-  if (value.schemaVersion !== 1 || (value.architecture !== "arm64" && value.architecture !== "x64")) {
+  const channel = legacyStable ? "stable" : value.channel;
+  if ((!legacyStable && value.schemaVersion !== 2) || (value.architecture !== "arm64" && value.architecture !== "x64")
+    || (channel !== "stable" && channel !== "nightly")) {
     throw new Error("Sparkle architecture update manifest version or architecture is invalid.");
   }
   if (typeof value.sourceSha !== "string" || !/^[a-f0-9]{40}$/u.test(value.sourceSha)) {
@@ -177,24 +188,23 @@ export function parseSparkleArchitectureUpdateManifest(
     "teamIdentifier",
     "version",
   ], "Sparkle update target");
-  const version = normalizeStableVersion(String(value.target.version));
-  const tag = tagForVersion(version);
+  const version = normalizeReleaseVersion(String(value.target.version));
+  const tag = tagForReleaseVersion(version);
+  const targetBuildVersion = normalizeAppleBuildVersion(String(value.target.buildVersion));
   if (
     value.tag !== tag
     || value.target.bundleId !== "app.jyu.nodex"
     || value.target.packageProvenanceSchema !== 4
-    || value.target.buildVersion !== version
     || value.target.teamIdentifier !== NODEX_MACOS_TEAM_IDENTIFIER
   ) {
     throw new Error("Sparkle update target identity is invalid.");
   }
-  const targetBuildVersion = value.target.buildVersion;
   assertExactKeys(value.appcast, ["bytes", "feedPath", "name", "sha256"], "Sparkle appcast");
   const expectedAppcastName = `Nodex-${version}-appcast-${value.architecture}.xml`;
   const appcastName = requireSafeName(value.appcast.name, "Sparkle appcast name");
   if (
     appcastName !== expectedAppcastName
-    || value.appcast.feedPath !== `updates/stable/${value.architecture}/appcast.xml`
+    || value.appcast.feedPath !== `updates/${channel}/${value.architecture}/appcast.xml`
   ) {
     throw new Error("Sparkle appcast projection identity is invalid.");
   }
@@ -216,6 +226,7 @@ export function parseSparkleArchitectureUpdateManifest(
   }
   return {
     architecture: value.architecture,
+    channel,
     appcast: {
       bytes: requireBytes(value.appcast.bytes, "Sparkle appcast bytes"),
       feedPath: value.appcast.feedPath,
@@ -224,11 +235,11 @@ export function parseSparkleArchitectureUpdateManifest(
     },
     deltas,
     full,
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha: value.sourceSha,
     tag,
     target: {
-      buildVersion: value.target.buildVersion,
+      buildVersion: targetBuildVersion,
       bundleId: "app.jyu.nodex",
       packageProvenanceSchema: 4,
       teamIdentifier: value.target.teamIdentifier,

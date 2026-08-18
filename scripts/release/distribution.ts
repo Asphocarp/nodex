@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  readFileSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -15,7 +16,7 @@ import {
   verifyPackagedNativeRuntimeStructure,
 } from "../verify-native-runtime";
 import { recordArchitectureBuild, type ArchitectureBuildManifest, type MacArchitecture } from "./bundle";
-import { normalizeStableVersion } from "./model";
+import { parseReleaseIdentity, type ReleaseIdentity } from "./model";
 import { inspectReleaseSource } from "./source";
 
 const run = (
@@ -82,15 +83,20 @@ const requireNativeMac = (architecture: MacArchitecture): void => {
   }
 };
 
-const assertSourceIdentity = (cwd: string, sourceSha: string, version: string): void => {
+const assertSourceIdentity = (cwd: string, identity: ReleaseIdentity): void => {
+  const { sourceSha, sourceTree } = identity;
   if (!/^[a-f0-9]{40}$/u.test(sourceSha)) throw new Error("Source SHA must be a full commit SHA.");
+  if (!/^[a-f0-9]{40}$/u.test(sourceTree)) throw new Error("Source tree must be a full tree SHA.");
   if (run(cwd, "git", ["rev-parse", "HEAD"]) !== sourceSha) {
     throw new Error("Release distribution checkout does not match the requested source SHA.");
+  }
+  if (run(cwd, "git", ["rev-parse", "HEAD^{tree}"]) !== sourceTree) {
+    throw new Error("Release distribution checkout does not match the requested source tree.");
   }
   if (run(cwd, "git", ["status", "--porcelain", "--untracked-files=normal"])) {
     throw new Error("Release distribution requires a clean source checkout.");
   }
-  if (inspectReleaseSource(cwd).packageVersion !== version) {
+  if (inspectReleaseSource(cwd).packageVersion !== identity.sourceVersion) {
     throw new Error("Release distribution source version does not match the requested version.");
   }
 };
@@ -106,6 +112,7 @@ const appAtRoot = (root: string): string => {
 };
 
 interface VerifiedAppIdentity {
+  readonly buildVersion: string;
   readonly bundleId: string;
   readonly provenanceId: string;
   readonly teamIdentifier: string;
@@ -130,6 +137,7 @@ const readAppIdentity = (appPath: string): Omit<VerifiedAppIdentity, "provenance
     throw new Error("Packaged app does not have a Developer ID team identifier.");
   }
   return {
+    buildVersion: readPlist("CFBundleVersion"),
     bundleId: readPlist("CFBundleIdentifier"),
     teamIdentifier,
     version: readPlist("CFBundleShortVersionString"),
@@ -144,6 +152,8 @@ const verifyApp = async (options: {
     | { readonly kind: "smoke"; readonly launchApp: boolean }
     | { readonly kind: "structure" };
   readonly version: string;
+  readonly buildVersion: string;
+  readonly channel: ReleaseIdentity["channel"];
 }): Promise<VerifiedAppIdentity> => {
   const provenance = verifyPackagedBuildProvenance(options.appPath, {
     expectedArch: options.architecture,
@@ -151,6 +161,10 @@ const verifyApp = async (options: {
   });
   if (provenance.product.version !== options.version) {
     throw new Error("Packaged provenance product version does not match the release identity.");
+  }
+  const appIdentity = readAppIdentity(options.appPath);
+  if (appIdentity.buildVersion !== options.buildVersion) {
+    throw new Error("Packaged app build version does not match the release identity.");
   }
   verifyCodexRuntime({
     requireBrowserRuntime: true,
@@ -160,7 +174,7 @@ const verifyApp = async (options: {
   const runtimeOptions = {
     appPath: options.appPath,
     expectedVersion: options.version,
-    expectedUpdateChannel: "stable",
+    expectedUpdateChannel: options.channel,
     requireDeveloperId: true,
     targetArch: options.architecture,
     verifyNotarization: true,
@@ -181,21 +195,28 @@ const verifyApp = async (options: {
   } else {
     verifyPackagedNativeRuntimeStructure(runtimeOptions);
   }
-  return { ...readAppIdentity(options.appPath), provenanceId: provenance.provenanceId };
+  return { ...appIdentity, provenanceId: provenance.provenanceId };
 };
 
 export async function buildMacDistribution(options: {
   readonly architecture: MacArchitecture;
   readonly cwd: string;
   readonly outputDirectory: string;
-  readonly sourceSha: string;
-  readonly version: string;
+  readonly identityPath: string;
 }): Promise<ArchitectureBuildManifest> {
   const cwd = resolve(options.cwd);
-  const sourceSha = options.sourceSha.trim().toLowerCase();
-  const version = normalizeStableVersion(options.version);
+  const identity = parseReleaseIdentity(JSON.parse(readFileSync(resolve(options.identityPath), "utf8")) as unknown);
+  const version = identity.version;
   requireNativeMac(options.architecture);
-  assertSourceIdentity(cwd, sourceSha, version);
+  assertSourceIdentity(cwd, identity);
+
+  const releaseEnvironment = {
+    ...process.env,
+    NODEX_BUILD_VERSION: identity.buildVersion,
+    NODEX_RELEASE_IDENTITY_PATH: resolve(options.identityPath),
+    NODEX_RELEASE_VERSION: identity.version,
+    NODEX_SPARKLE_CHANNEL: identity.channel,
+  };
 
   const prerequisiteScripts = [
     "legacy-profile-migrator:verify-reproducible",
@@ -205,11 +226,16 @@ export async function buildMacDistribution(options: {
     "test:browser-runtime-conformance",
   ] as const;
   for (const script of prerequisiteScripts) runTask(cwd, "pnpm", ["run", script]);
-  runTask(cwd, "pnpm", ["run", `package:mac:${options.architecture}`], {
-    ...process.env,
-    NODEX_SPARKLE_CHANNEL: "stable",
-  });
-  assertSourceIdentity(cwd, sourceSha, version);
+  runTask(cwd, "pnpm", ["run", "build"], releaseEnvironment);
+  runTask(cwd, "pnpm", ["run", `stage:native-runtime:mac:${options.architecture}`], releaseEnvironment);
+  runTask(cwd, "pnpm", ["exec", "tsx", "scripts/prepared-electron-build.ts", "verify"], releaseEnvironment);
+  runTask(cwd, "pnpm", [
+    "exec", "electron-builder", "--mac", "dmg", `--${options.architecture}`,
+    "--publish", "never",
+    `--config.extraMetadata.version=${identity.version}`,
+    `--config.buildVersion=${identity.buildVersion}`,
+  ], releaseEnvironment);
+  assertSourceIdentity(cwd, identity);
 
   const distDirectory = join(cwd, "dist");
   const zipPath = join(distDirectory, `Nodex-${version}-${options.architecture}.zip`);
@@ -243,6 +269,8 @@ export async function buildMacDistribution(options: {
       preparedManifestPath,
       runtimeCheck: { kind: "smoke", launchApp: true },
       version,
+      buildVersion: identity.buildVersion,
+      channel: identity.channel,
     });
 
     mkdirSync(mountRoot);
@@ -262,6 +290,8 @@ export async function buildMacDistribution(options: {
       preparedManifestPath,
       runtimeCheck: { kind: "structure" },
       version,
+      buildVersion: identity.buildVersion,
+      channel: identity.channel,
     });
     if (JSON.stringify(zipProvenance) !== JSON.stringify(dmgProvenance)) {
       throw new Error("ZIP and DMG apps do not share one version, bundle, team, and package provenance identity.");
@@ -272,9 +302,8 @@ export async function buildMacDistribution(options: {
       architecture: options.architecture,
       cwd,
       distDirectory,
+      identityPath: options.identityPath,
       outputDirectory: options.outputDirectory,
-      sourceSha,
-      version,
     });
   } finally {
     if (mounted) {

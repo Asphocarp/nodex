@@ -1,0 +1,57 @@
+name: Nightly Retention
+
+on:
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      destructive:
+        description: Delete candidates instead of producing a dry-run plan
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-retention
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  plan:
+    if: github.event_name == 'schedule' || inputs.destructive != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version-file: .node-version, cache: pnpm, cache-dependency-path: pnpm-lock.yaml }
+      - run: pnpm install --frozen-lockfile
+      - name: Plan or apply Nightly retention
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm release:retain:nightlies -- --repo "${GITHUB_REPOSITORY}" --keep 20 --min-age-days 14 --destructive false --output "${RUNNER_TEMP}/retention.json"
+          cat "${RUNNER_TEMP}/retention.json" >> "${GITHUB_STEP_SUMMARY}"
+
+  apply:
+    if: github.event_name == 'workflow_dispatch' && inputs.destructive == true
+    runs-on: ubuntu-latest
+    environment: nightly-retention
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version-file: .node-version, cache: pnpm, cache-dependency-path: pnpm-lock.yaml }
+      - run: pnpm install --frozen-lockfile
+      - name: Apply approved Nightly retention
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          pnpm release:retain:nightlies -- --repo "${GITHUB_REPOSITORY}" --keep 20 --min-age-days 14 --destructive true --output "${RUNNER_TEMP}/retention.json"
+          cat "${RUNNER_TEMP}/retention.json" >> "${GITHUB_STEP_SUMMARY}"

@@ -66,6 +66,18 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   by protected environments for deployment policy and audit. Credentials are
   mapped only onto the steps that need them, and the temporary Apple API key is
   removed in an always-run cleanup step.
+- Scheduled Nightly resolution remains read-only and accepts only the exact
+  protected-main HEAD whose latest CI run succeeded. Nightly distribution uses
+  the same Developer ID, notarization, Sparkle key, dual-architecture Bundle,
+  and immutable-asset verification chain as Stable, but its promotion path has
+  no Homebrew or official Agent Skills credential. The landing credential can
+  change only `updates/nightly/`; Stable publication owns only
+  `updates/stable/` under the shared site-publication lock.
+- Nightly retention is a separate fail-closed capability. Scheduled runs have
+  read-only permissions and produce plans only. Deletion requires manual
+  dispatch plus the protected `nightly-retention` environment, and selects only
+  old immutable Nightly prereleases after protecting both live appcasts and
+  matching the downloaded Release Bundle index to every remote asset digest.
 - Sparkle 2.9.4 is pinned by official archive URL, byte size, SHA-256, source
   revision, framework identity, architectures, and license digest. Production
   packages remove its sandbox-only XPC services, sign the addon and remaining

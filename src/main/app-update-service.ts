@@ -1,4 +1,8 @@
-import type { AppUpdateSettings, AppUpdateStatus } from "../shared/types";
+import type {
+  AppUpdateSettings,
+  AppUpdateStatus,
+  UpdateAppUpdateSettingsInput,
+} from "../shared/types";
 import type {
   MacAppUpdater,
   MacAppUpdaterEvent,
@@ -19,6 +23,8 @@ interface AppUpdateServiceOptions {
   logger: LoggerLike;
   platform: NodeJS.Platform;
   updater: MacAppUpdater | null;
+  initialSettings: AppUpdateSettings;
+  persistSettings: (input: UpdateAppUpdateSettingsInput) => AppUpdateSettings;
 }
 
 const checkedNow = (): string => new Date().toISOString();
@@ -125,11 +131,18 @@ export class AppUpdateService {
   private readonly logger: LoggerLike;
   private readonly platform: NodeJS.Platform;
   private readonly updater: MacAppUpdater | null;
+  private readonly persistSettings: AppUpdateServiceOptions["persistSettings"];
   private readonly listeners = new Set<StatusListener>();
 
   private automaticCheckStarted = false;
   private initializePromise: Promise<void> | null = null;
   private status: AppUpdateStatus;
+  private settings: AppUpdateSettings;
+  private settingsMutation: Promise<AppUpdateSettings> = Promise.resolve({
+    automaticChecksEnabled: true,
+    channel: "stable",
+  });
+  private errorAllowsChannelChange = false;
 
   constructor(options: AppUpdateServiceOptions) {
     this.currentVersion = options.currentVersion;
@@ -138,6 +151,9 @@ export class AppUpdateService {
     this.logger = options.logger;
     this.platform = options.platform;
     this.updater = options.updater;
+    this.persistSettings = options.persistSettings;
+    this.settings = options.initialSettings;
+    this.settingsMutation = Promise.resolve(this.settings);
     this.status = this.buildInitialStatus();
   }
 
@@ -152,9 +168,55 @@ export class AppUpdateService {
     return this.status;
   }
 
+  getSettings(): AppUpdateSettings {
+    return this.settings;
+  }
+
+  updateSettings(input: UpdateAppUpdateSettingsInput): Promise<AppUpdateSettings> {
+    this.settingsMutation = this.settingsMutation.catch(() => this.settings).then(async () => {
+      const next = { ...this.settings, ...input };
+      const channelChanged = next.channel !== this.settings.channel;
+      if (channelChanged && !this.status.channelChangeAllowed) {
+        throw new Error("Update channel cannot change during an update session.");
+      }
+      if (channelChanged && this.updater) {
+        this.initialize();
+        await this.initializePromise;
+        await this.updater.setChannel(next.channel);
+      }
+      try {
+        const persisted = this.persistSettings(input);
+        this.settings = persisted;
+      } catch (error) {
+        if (channelChanged && this.updater) await this.updater.setChannel(this.settings.channel);
+        throw error;
+      }
+      if (channelChanged) {
+        this.automaticCheckStarted = false;
+        this.setStatus({
+          ...this.status,
+          availableVersion: null,
+          channel: this.settings.channel,
+          checkedAt: null,
+          message: null,
+          progressPercent: null,
+          releaseDate: null,
+          releaseName: null,
+          releaseNotes: null,
+          status: "idle",
+          totalBytes: null,
+          transferredBytes: null,
+        });
+      }
+      return this.settings;
+    });
+    return this.settingsMutation;
+  }
+
   initialize(): AppUpdateStatus {
     if (this.initializePromise || !this.status.supported || !this.updater) return this.status;
-    this.initializePromise = this.updater.start((event) => {
+    this.initializePromise = this.updater.setChannel(this.settings.channel).then(() => this.updater!.start((event) => {
+      this.errorAllowsChannelChange = event.type === "error" && event.recoverable;
       if (event.type === "error") {
         this.logger.error("App updater emitted an error", {
           code: event.code,
@@ -163,7 +225,7 @@ export class AppUpdateService {
         });
       }
       this.setStatus(reduceAppUpdateStatus(this.status, event));
-    }).then(() => {
+    })).then(() => {
       this.logger.info("App updater initialized", {
         currentVersion: this.currentVersion,
         platform: this.platform,
@@ -182,7 +244,7 @@ export class AppUpdateService {
     return this.status;
   }
 
-  maybeStartAutomaticChecks(settings: AppUpdateSettings): void {
+  maybeStartAutomaticChecks(settings: AppUpdateSettings = this.settings): void {
     this.initialize();
     if (!this.status.supported || !settings.automaticChecksEnabled || this.automaticCheckStarted) {
       return;
@@ -251,6 +313,9 @@ export class AppUpdateService {
     const supported = this.isSupportedRuntime();
     return {
       availableVersion: null,
+      buildDefaultChannel: this.updater?.getBuildDefaultChannel() ?? "stable",
+      channel: this.settings.channel,
+      channelChangeAllowed: supported,
       checkedAt: null,
       currentVersion: this.currentVersion,
       message: supported ? null : this.unsupportedRuntimeMessage(),
@@ -283,7 +348,12 @@ export class AppUpdateService {
   }
 
   private setStatus(nextStatus: AppUpdateStatus): void {
-    this.status = nextStatus;
+    const channelChangeAllowed = nextStatus.supported && (
+      nextStatus.status === "idle"
+      || nextStatus.status === "upToDate"
+      || (nextStatus.status === "error" && this.errorAllowsChannelChange)
+    );
+    this.status = { ...nextStatus, channelChangeAllowed };
     for (const listener of this.listeners) listener(this.status);
   }
 }

@@ -21,6 +21,9 @@ const meta = {
       supported: true,
       totalBytes: 512_000_000,
       transferredBytes: 512_000_000,
+      channel: "stable",
+      buildDefaultChannel: "stable",
+      channelChangeAllowed: false,
     },
   },
 } satisfies Meta<typeof AppUpdateRestartNotice>;

@@ -457,11 +457,13 @@ export function DbViewSessionTab({
     next: EffectiveDatabaseViewPresentation,
   ) => {
     if (!durableEffectivePresentation) return;
-    void personalPreference.setPresentationOverride(compactDatabaseViewPresentationOverride(
+    const nextOverride = compactDatabaseViewPresentationOverride(
       durableEffectivePresentation,
       next,
-    ));
-  }, [durableEffectivePresentation, personalPreference]);
+    );
+    runtime.setPresentationOverride(nextOverride);
+    void personalPreference.setPresentationOverride(nextOverride);
+  }, [durableEffectivePresentation, personalPreference, runtime]);
   const publishEffectivePresentation = useCallback(async () => {
     if (
       !databaseView

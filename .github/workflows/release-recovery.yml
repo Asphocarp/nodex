@@ -20,6 +20,7 @@ permissions:
 concurrency:
   group: release-main
   cancel-in-progress: false
+  queue: max
 
 jobs:
   validate:
@@ -82,6 +83,7 @@ jobs:
           base_sha="${parents#* }"
           result="${RUNNER_TEMP}/release-transition.json"
           pnpm release:detect -- --base "${base_sha}" --head "${SOURCE_SHA}" --output "${result}"
+          pnpm release:resolve:stable -- --base "${base_sha}" --head "${SOURCE_SHA}" --output "${RUNNER_TEMP}/release-identity.json"
           # shellcheck disable=SC2016
           node -e '
             const fs = require("node:fs");
@@ -99,6 +101,14 @@ jobs:
           EXPECTED_VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ inputs.source_sha }}
+
+      - name: Upload Release Identity
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-release-identity-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/release-identity.json
+          if-no-files-found: error
+          retention-days: 30
 
   restore-bundle:
     name: restore verified Release Bundle
@@ -244,6 +254,7 @@ jobs:
       - uses: ./.github/actions/finalize-sparkle
         with:
           architecture: ${{ matrix.arch }}
+          channel: stable
           private_key: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
           retention_days: 30
           source_sha: ${{ needs.validate.outputs.source_sha }}

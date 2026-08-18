@@ -2190,6 +2190,12 @@ class BoardProjectStore {
     const causalRuntime = mode === "active"
       ? this.ensureCausalProjectionRuntime()
       : null;
+    // Releasing a registration cannot cancel a callback that the registry has
+    // already selected for delivery. Fence every callback to the presentation
+    // coordinate that created it so a late predecessor cannot clear its successor.
+    const presentationGeneration = this.presentationGeneration;
+    const isCurrentPresentation = () =>
+      presentationGeneration === this.presentationGeneration;
     const release = registry.register({
       scope: {
         kind: "project",
@@ -2204,6 +2210,7 @@ class BoardProjectStore {
       ...(causalRuntime ? { causalRuntime } : {}),
       projectionEffects: causalRuntime ? "ignore" : "match",
       getDependencies: () => {
+        if (!isCurrentPresentation()) return {};
         const current = this.baseBoardAuthority;
         return {
           databaseIds: current ? [current.databaseId] : [],
@@ -2213,6 +2220,7 @@ class BoardProjectStore {
         };
       },
       getCursor: () => {
+        if (!isCurrentPresentation()) return null;
         const current = this.baseBoardAuthority;
         return current
           ? {
@@ -2221,11 +2229,20 @@ class BoardProjectStore {
             }
           : null;
       },
-      revoke: this.revokeFromProjection,
-      fence: this.fenceProjectionAuthority,
-      invalidate: causalRuntime
-        ? this.refreshFromProjection
-        : this.invalidateRetainedProjection,
+      revoke: (cause) => {
+        if (!isCurrentPresentation()) return;
+        this.revokeFromProjection(cause);
+      },
+      fence: (cause) => {
+        if (!isCurrentPresentation()) return;
+        this.fenceProjectionAuthority(cause);
+      },
+      invalidate: (cause) => {
+        if (!isCurrentPresentation()) return;
+        return causalRuntime
+          ? this.refreshFromProjection(cause)
+          : this.invalidateRetainedProjection(cause);
+      },
     });
     if (mode === "active") {
       this.releaseActiveProjectionInvalidation = release;

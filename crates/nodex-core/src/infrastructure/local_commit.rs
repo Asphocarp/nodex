@@ -14,13 +14,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use super::migration_progress::report_bounded_progress;
 use super::projection_impact::{canonicalize, decode, encode};
 use super::projection_scope_head;
 use super::sqlite::{StoreError, StoreErrorCode};
 
 const CANONICAL_HASH_VERSION: u32 = 7;
 const PROJECTION_SCHEMA_VERSION: u32 = 1;
-const MIGRATION_PROGRESS_STEPS: u64 = 20;
 const MIGRATION_BATCH_SIZE: i64 = 512;
 const PHYSICAL_EFFECT_EVIDENCE_SQL: &str =
     "SELECT effect.effect_order, effect.change_log_seq, effect.project_id,
@@ -2111,24 +2111,7 @@ fn report_migration_progress(
     let completed = u64::try_from(completed_index)
         .unwrap_or(u64::MAX)
         .saturating_add(1);
-    report_migration_progress_value(progress, completed, total, reported_step);
-}
-
-fn report_migration_progress_value(
-    progress: &mut dyn FnMut(u64, u64),
-    completed: u64,
-    total: u64,
-    reported_step: &mut u64,
-) {
-    if total == 0 {
-        return;
-    }
-    let step = completed.saturating_mul(MIGRATION_PROGRESS_STEPS) / total;
-    if completed < total && step <= *reported_step {
-        return;
-    }
-    *reported_step = step;
-    progress(completed.min(total), total);
+    report_bounded_progress(progress, completed, total, reported_step);
 }
 
 pub(crate) fn rebase_store_epoch(
@@ -3628,7 +3611,7 @@ fn backfill_v102_rows_paged(
         let batch_len = rows.len();
         backfill_v102_rows(connection, rows)?;
         completed = completed.saturating_add(u64::try_from(batch_len).unwrap_or(u64::MAX));
-        report_migration_progress_value(progress, completed, total, &mut reported_step);
+        report_bounded_progress(progress, completed, total, &mut reported_step);
     }
     if completed != total {
         return Err(corrupt(

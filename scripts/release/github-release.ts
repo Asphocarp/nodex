@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { parseReleaseBundleManifest } from "./bundle";
 import {
   compareStableVersions,
@@ -10,6 +11,7 @@ import {
   sha256File,
   stableVersionFromAppTag,
   tagForVersion,
+  type ReleaseIdentity,
 } from "./model";
 
 interface GitHubAsset {
@@ -132,9 +134,10 @@ export const remoteReleaseAssetIdentities = (
 export function planPublication(
   release: GitHubRelease | null,
   expected: ReadonlyMap<string, ReleaseAssetIdentity>,
+  expectedPrerelease: boolean,
 ): PublicationPlan {
   if (!release) return { kind: "create" };
-  if (release.prerelease) throw new Error("Stable app release cannot be a prerelease.");
+  if (release.prerelease !== expectedPrerelease) throw new Error("GitHub release channel does not match the Release Bundle.");
   const actualNames = new Set(release.assets.map((asset) => asset.name));
   for (const asset of release.assets) {
     const identity = expected.get(asset.name);
@@ -158,6 +161,51 @@ const readRelease = (repo: string, tag: string): GitHubRelease | null => {
   const response = gh(["api", `repos/${repo}/releases`, "--paginate", "--slurp"]);
   const releases = (JSON.parse(response) as GitHubRelease[][]).flat();
   return releases.find((release) => release.tag_name === tag) ?? null;
+};
+
+export function inspectNightlyRemoteCandidate(
+  repo: string,
+  identity: ReleaseIdentity,
+): { readonly decision: "publish" | "resume-draft" | "already-published"; readonly tagPlan: "create" | "reuse" } {
+  if (identity.channel !== "nightly") throw new Error("Nightly remote inspection requires a nightly identity.");
+  const reference = readTagReference(repo, identity.tag);
+  const tagPlan = planTag(reference ? resolveTagTargetSha(repo, reference) : null, identity.sourceSha);
+  const release = readRelease(repo, identity.tag);
+  if (!release) return { decision: "publish", tagPlan };
+  if (tagPlan !== "reuse") throw new Error("Existing Nightly release has no exact immutable tag target.");
+  if (!release.prerelease) throw new Error("Nightly tag is attached to a non-prerelease GitHub Release.");
+  if (release.draft) return { decision: "resume-draft", tagPlan };
+  if (release.immutable !== true) throw new Error("Published Nightly release is not immutable.");
+  verifyPublishedReleaseIndex(repo, release, identity);
+  const latest = gh(["api", `repos/${repo}/releases/latest`], { allowFailure: true });
+  if (latest && (JSON.parse(latest) as GitHubRelease).tag_name === identity.tag) {
+    throw new Error("Nightly release must not be GitHub Latest.");
+  }
+  return { decision: "already-published", tagPlan };
+}
+
+const verifyPublishedReleaseIndex = (
+  repo: string,
+  release: GitHubRelease,
+  identity: ReleaseIdentity,
+): void => {
+  const directory = mkdtempSync(join(tmpdir(), "nodex-nightly-candidate-"));
+  try {
+    for (const pattern of ["release-bundle.json", "SHA256SUMS"]) {
+      gh(["release", "download", identity.tag, "--repo", repo, "--pattern", pattern, "--dir", directory]);
+    }
+    const bundlePath = join(directory, "release-bundle.json");
+    const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
+    if (!isDeepStrictEqual(bundle.releaseIdentity, identity)) {
+      throw new Error("Published Nightly Bundle has a different Release Identity.");
+    }
+    const plan = planPublication(release, remoteReleaseAssetIdentities(bundlePath), true);
+    if (plan.kind !== "verify-published") {
+      throw new Error("Published Nightly release is incomplete.");
+    }
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
 };
 
 interface GitReference {
@@ -226,12 +274,15 @@ export function ensureGitHubReleaseTag(options: {
   const bundlePath = resolve(options.bundlePath);
   releaseAssetPaths(bundlePath);
   const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
-  const candidate = assertRemoteReleaseCandidate({
-    repo: options.repo,
-    sourceSha: bundle.sourceSha,
-    version: bundle.version,
-  });
-  if (candidate.tagPlan === "reuse") return "reuse";
+  const reference = readTagReference(options.repo, bundle.tag);
+  const tagPlan = bundle.releaseIdentity.channel === "stable"
+    ? assertRemoteReleaseCandidate({
+        repo: options.repo,
+        sourceSha: bundle.sourceSha,
+        version: bundle.version,
+      }).tagPlan
+    : planTag(reference ? resolveTagTargetSha(options.repo, reference) : null, bundle.sourceSha);
+  if (tagPlan === "reuse") return "reuse";
   const annotation = [
     `Nodex ${bundle.tag}`,
     "",
@@ -270,23 +321,24 @@ export function publishGitHubRelease(options: {
   const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
   const expected = expectedLocalAssets(bundlePath);
   const release = readRelease(options.repo, bundle.tag);
-  const plan = planPublication(release, expected);
+  const prerelease = bundle.releaseIdentity.channel === "nightly";
+  const plan = planPublication(release, expected, prerelease);
   const filesByName = new Map(releaseAssetPaths(bundlePath).map((filePath) => [basename(filePath), filePath]));
 
   if (plan.kind === "create") {
     gh([
       "release", "create", bundle.tag,
-      ...filesByName.values(),
       "--repo", options.repo,
       "--verify-tag",
-      "--latest",
+      "--draft",
+      ...(prerelease ? ["--prerelease"] : []),
       "--title", `Nodex ${bundle.tag}`,
       "--notes-file", resolve(options.notesPath),
     ]);
-    return plan;
+    gh(["release", "upload", bundle.tag, ...filesByName.values(), "--repo", options.repo]);
   }
-  if (plan.kind === "resume-draft") {
-    const missingPaths = plan.missingAssetNames.map((name) => {
+  if (plan.kind === "resume-draft" || plan.kind === "create") {
+    const missingPaths = (plan.kind === "resume-draft" ? plan.missingAssetNames : []).map((name) => {
       const filePath = filesByName.get(name);
       if (!filePath) throw new Error(`Missing local recovery asset ${name}.`);
       return filePath;
@@ -294,11 +346,15 @@ export function publishGitHubRelease(options: {
     if (missingPaths.length > 0) {
       gh(["release", "upload", bundle.tag, ...missingPaths, "--repo", options.repo]);
     }
+    const completedDraft = planPublication(readRelease(options.repo, bundle.tag), expected, prerelease);
+    if (completedDraft.kind !== "resume-draft" || completedDraft.missingAssetNames.length > 0) {
+      throw new Error("GitHub draft does not contain the exact verified Release Bundle assets.");
+    }
     gh([
       "release", "edit", bundle.tag,
       "--repo", options.repo,
       "--draft=false",
-      "--latest",
+      ...(prerelease ? ["--prerelease"] : ["--latest"]),
       "--title", `Nodex ${bundle.tag}`,
       "--notes-file", resolve(options.notesPath),
     ]);
@@ -313,10 +369,10 @@ export function verifyRemoteRelease(options: {
 }): void {
   const bundlePath = resolve(options.bundlePath);
   const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
-  if (!stableVersionFromAppTag(bundle.tag)) throw new Error("Release Bundle tag is not a stable app tag.");
   const release = readRelease(options.repo, bundle.tag);
   const expected = remoteReleaseAssetIdentities(bundlePath);
-  const plan = planPublication(release, expected);
+  const prerelease = bundle.releaseIdentity.channel === "nightly";
+  const plan = planPublication(release, expected, prerelease);
   if (plan.kind !== "verify-published" || !release) throw new Error("GitHub release is not fully published.");
   if (options.requireImmutable !== false && release.immutable !== true) {
     throw new Error("GitHub release is not immutable.");
@@ -325,8 +381,14 @@ export function verifyRemoteRelease(options: {
   if (!tagReference || resolveTagTargetSha(options.repo, tagReference) !== bundle.sourceSha) {
     throw new Error("Published release tag does not target the Release Bundle source SHA.");
   }
-  const latest = JSON.parse(gh(["api", `repos/${options.repo}/releases/latest`])) as { readonly tag_name?: unknown };
-  if (latest.tag_name !== bundle.tag) throw new Error(`GitHub Latest is ${String(latest.tag_name)}, expected ${bundle.tag}.`);
+  const latestResponse = gh(["api", `repos/${options.repo}/releases/latest`], { allowFailure: true });
+  const latest = (latestResponse ? JSON.parse(latestResponse) : {}) as { readonly tag_name?: unknown };
+  if (!prerelease && latest.tag_name !== bundle.tag) {
+    throw new Error(`GitHub Latest is ${String(latest.tag_name)}, expected ${bundle.tag}.`);
+  }
+  if (prerelease && latest.tag_name === bundle.tag) {
+    throw new Error("Nightly release must not be GitHub Latest.");
+  }
   gh(["release", "verify", bundle.tag, "--repo", options.repo]);
 
   const downloadRoot = mkdtempSync(join(tmpdir(), "nodex-release-redownload-"));

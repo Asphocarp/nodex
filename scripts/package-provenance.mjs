@@ -16,7 +16,7 @@ import { inspectOfficialAgentSkillsArtifact } from "./official-agent-skills-arti
 import { isBrowserRuntimeCompatibleWithCodex } from "../src/shared/browser-runtime-codex-compatibility.mjs";
 
 const PROVENANCE_SCHEMA_VERSION = 4;
-const PREPARED_SCHEMA_VERSION = 3;
+const PREPARED_SCHEMA_VERSION = 4;
 const resourcesRelativePath = "Contents/Resources";
 const provenanceRelativePath = `${resourcesRelativePath}/nodex-build-provenance.json`;
 const preparedRelativePath = `${resourcesRelativePath}/prepared-electron-build.json`;
@@ -206,20 +206,21 @@ const verifyContentsFileIdentity = (appPath, actual, relativePath, label) => {
 };
 
 const parseSparkleRuntimeManifest = (value) => {
-  if (!isObject(value) || value.schemaVersion !== 2 || !isObject(value.artifacts)) {
+  if (!isObject(value) || value.schemaVersion !== 3 || !isObject(value.artifacts)) {
     throw new Error("Packaged Sparkle runtime manifest is unsupported");
   }
   if (value.architecture !== "arm64" && value.architecture !== "x64") {
     throw new Error("Packaged Sparkle runtime architecture is invalid");
   }
-  if (value.channel !== "disabled" && value.channel !== "stable") {
+  if (value.buildChannel !== "disabled" && value.buildChannel !== "stable" && value.buildChannel !== "nightly") {
     throw new Error("Packaged Sparkle runtime channel is invalid");
   }
   if (
-    (value.channel === "disabled" && value.feedUrl !== null)
-    || (value.channel === "stable" && (
-      typeof value.feedUrl !== "string"
-      || value.feedUrl !== `https://nodex.jyu.app/updates/stable/${value.architecture}/appcast.xml`
+    (value.buildChannel === "disabled" && value.feedUrls !== null)
+    || (value.buildChannel !== "disabled" && (
+      !isObject(value.feedUrls)
+      || value.feedUrls.stable !== `https://nodex.jyu.app/updates/stable/${value.architecture}/appcast.xml`
+      || value.feedUrls.nightly !== `https://nodex.jyu.app/updates/nightly/${value.architecture}/appcast.xml`
     ))
   ) {
     throw new Error("Packaged Sparkle runtime feed is invalid");
@@ -293,7 +294,7 @@ export const writePackagedBuildProvenance = (appPath) => {
   if (
     agentSkills.manifestSha256 !== prepared.agentSkills.manifestSha256
     || agentSkills.treeSha256 !== prepared.agentSkills.treeSha256
-    || agentSkills.releaseVersion !== prepared.product.version
+    || agentSkills.releaseVersion !== (prepared.releaseIdentity?.sourceVersion ?? prepared.product.version)
   ) {
     throw new Error("Packaged Agent Skills do not match the prepared Electron source");
   }
@@ -342,8 +343,8 @@ export const writePackagedBuildProvenance = (appPath) => {
       ),
       sparkle: {
         artifacts: sparkleArtifacts,
-        channel: sparkleManifest.channel,
-        feedUrl: sparkleManifest.feedUrl,
+        buildChannel: sparkleManifest.buildChannel,
+        feedUrls: sparkleManifest.feedUrls,
         publicKey: sparkleManifest.publicKey,
         runtimeManifest: fileIdentity(resolvedAppPath, sparkleManifestRelativePath),
         sparkleVersion: sparkleManifest.sparkleVersion,
@@ -472,7 +473,7 @@ export const verifyPackagedBuildProvenance = (
       );
   assertExactKeys(
     value.payload.sparkle,
-    ["artifacts", "channel", "feedUrl", "publicKey", "runtimeManifest", "sparkleVersion"],
+    ["artifacts", "buildChannel", "feedUrls", "publicKey", "runtimeManifest", "sparkleVersion"],
     "Packaged Sparkle identity",
   );
   const sparkleRuntimeManifest = parseFileIdentity(
@@ -509,7 +510,7 @@ export const verifyPackagedBuildProvenance = (
     || prepared.agentSkills.treeSha256 !== value.agentSkills.treeSha256
     || agentSkills.manifestSha256 !== value.agentSkills.manifestSha256
     || agentSkills.treeSha256 !== value.agentSkills.treeSha256
-    || agentSkills.releaseVersion !== value.product.version
+    || agentSkills.releaseVersion !== (prepared.releaseIdentity?.sourceVersion ?? value.product.version)
   ) {
     throw new Error("Packaged prepared Electron manifest does not match provenance");
   }
@@ -599,8 +600,8 @@ export const verifyPackagedBuildProvenance = (
     || agentManifest.targetPlatform !== value.target.platform
     || agentManifest.targetArch !== value.target.arch
     || sparkleManifest.architecture !== value.target.arch
-    || sparkleManifest.channel !== value.payload.sparkle.channel
-    || sparkleManifest.feedUrl !== value.payload.sparkle.feedUrl
+    || sparkleManifest.buildChannel !== value.payload.sparkle.buildChannel
+    || JSON.stringify(sparkleManifest.feedUrls) !== JSON.stringify(value.payload.sparkle.feedUrls)
     || sparkleManifest.publicKey !== value.payload.sparkle.publicKey
     || sparkleManifest.sparkleVersion !== value.payload.sparkle.sparkleVersion
     || (browserManifest !== null && (

@@ -1,0 +1,176 @@
+name: Nightly Release
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: release-nightly
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  resolve:
+    name: resolve protected-main nightly candidate
+    if: vars.NODEX_NIGHTLY_RELEASES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.candidate.outputs.should_release }}
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
+      tag: ${{ steps.candidate.outputs.tag }}
+      version: ${{ steps.candidate.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      - name: Require green CI for the exact main commit
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          latest="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow CI --branch main --limit 1 --json headSha,status,conclusion)"
+          latest_sha="$(node -p "JSON.parse(process.argv[1])[0]?.headSha ?? ''" "${latest}")"
+          latest_status="$(node -p "JSON.parse(process.argv[1])[0]?.status ?? ''" "${latest}")"
+          latest_conclusion="$(node -p "JSON.parse(process.argv[1])[0]?.conclusion ?? ''" "${latest}")"
+          if [[ "${latest_sha}" != "${source_sha}" || "${latest_status}" != "completed" || "${latest_conclusion}" != "success" ]]; then
+            echo "eligible=false" >> "${GITHUB_OUTPUT}"
+            printf 'Nightly decision: `source-ci-not-successful` for `%s`.\n' "${source_sha}" >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo "eligible=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve deterministic candidate
+        id: candidate
+        if: steps.ci.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          result="${RUNNER_TEMP}/nightly-candidate.json"
+          identity="${RUNNER_TEMP}/release-identity.json"
+          pnpm release:resolve:nightly -- --head "${source_sha}" --output "${result}"
+          node -e '
+            const fs = require("node:fs");
+            const result = require(process.argv[1]);
+            if (!result.shouldRelease) {
+              fs.writeFileSync(process.env.GITHUB_OUTPUT, `should_release=false\nsource_sha=${result.sourceSha}\n`);
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Nightly decision: \`${result.reason}\` for \`${result.sourceSha}\`.\n`);
+              process.exit(0);
+            }
+            fs.writeFileSync(process.argv[2], `${JSON.stringify(result.identity, null, 2)}\n`);
+          ' "${result}" "${identity}"
+          if [[ "$(node -p "require('${result}').shouldRelease")" != "true" ]]; then exit 0; fi
+          tag="$(node -p "require('${identity}').tag")"
+          pnpm release:check:nightly-remote -- --repo "${GITHUB_REPOSITORY}" --identity "${identity}" --output "${RUNNER_TEMP}/remote.json"
+          remote_decision="$(node -p "require('${RUNNER_TEMP}/remote.json').decision")"
+          if [[ "${remote_decision}" == "already-published" ]]; then
+            printf 'should_release=false\nsource_sha=%s\n' "${source_sha}" > "${GITHUB_OUTPUT}"
+            echo 'Nightly decision: `no-source-change`; the exact source identity is already published.' >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          if [[ "${remote_decision}" != "publish" && "${remote_decision}" != "resume-draft" ]]; then
+            echo "Unknown Nightly remote decision: ${remote_decision}" >&2
+            exit 1
+          fi
+          {
+            echo "should_release=true"
+            echo "source_sha=$(node -p "require('${identity}').sourceSha")"
+            echo "tag=${tag}"
+            echo "version=$(node -p "require('${identity}').version")"
+          } > "${GITHUB_OUTPUT}"
+
+      - name: Upload Release Identity
+        if: steps.candidate.outputs.should_release == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-release-identity-${{ steps.candidate.outputs.source_sha }}
+          path: ${{ runner.temp }}/release-identity.json
+          if-no-files-found: error
+          retention-days: 14
+
+  distribution:
+    if: needs.resolve.outputs.should_release == 'true'
+    needs: resolve
+    uses: ./.github/workflows/_macos-distribution.yml
+    with:
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+      version: ${{ needs.resolve.outputs.version }}
+      tag: ${{ needs.resolve.outputs.tag }}
+      retention_days: 14
+      upload_sentry_sourcemaps: false
+    secrets:
+      apple_api_issuer: ${{ secrets.APPLE_API_ISSUER }}
+      apple_api_key_b64: ${{ secrets.APPLE_API_KEY_B64 }}
+      apple_api_key_id: ${{ secrets.APPLE_API_KEY_ID }}
+      csc_key_password: ${{ secrets.CSC_KEY_PASSWORD }}
+      csc_link: ${{ secrets.CSC_LINK }}
+
+  finalize-sparkle:
+    if: needs.resolve.outputs.should_release == 'true'
+    needs: [resolve, distribution]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-26 }
+          - { arch: x64, runner: macos-26-intel }
+    runs-on: ${{ matrix.runner }}
+    environment: sparkle-feed-finalization
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve.outputs.source_sha }}
+      - uses: ./.github/actions/finalize-sparkle
+        with:
+          architecture: ${{ matrix.arch }}
+          channel: nightly
+          private_key: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
+          retention_days: 14
+          source_sha: ${{ needs.resolve.outputs.source_sha }}
+          version: ${{ needs.resolve.outputs.version }}
+
+  assemble:
+    if: needs.resolve.outputs.should_release == 'true'
+    needs: [resolve, distribution, finalize-sparkle]
+    uses: ./.github/workflows/_assemble-release.yml
+    with:
+      retention_days: 14
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+      version: ${{ needs.resolve.outputs.version }}
+
+  promote:
+    if: needs.resolve.outputs.should_release == 'true'
+    needs: [resolve, assemble]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/_promote-nightly.yml
+    with:
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+      tag: ${{ needs.resolve.outputs.tag }}
+      version: ${{ needs.resolve.outputs.version }}
+    secrets:
+      landing_github_token: ${{ secrets.NODEXAPP_GITHUB_IO_TOKEN }}

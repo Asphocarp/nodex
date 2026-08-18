@@ -96,6 +96,7 @@ static NSDictionary<NSString *, id> *ItemIdentity(SUAppcastItem *item, NSString 
 - (BOOL)start:(NSError **)error;
 - (void)checkForUpdatesWithKind:(NSString *)kind;
 - (void)installDownloadedUpdate;
+- (BOOL)setFeedURLString:(NSString *)feedURLString error:(NSError **)error;
 
 @end
 
@@ -144,6 +145,23 @@ static NSDictionary<NSString *, id> *ItemIdentity(SUAppcastItem *item, NSString 
     return;
   }
   [self.updater checkForUpdates];
+}
+
+- (BOOL)setFeedURLString:(NSString *)feedURLString error:(NSError **)error {
+  if (self.updater.sessionInProgress || self.availableItem != nil || self.immediateInstallHandler != nil) {
+    if (error != nullptr) {
+      *error = [NSError errorWithDomain:@"app.jyu.nodex.sparkle"
+                                   code:1
+                               userInfo:@{NSLocalizedDescriptionKey: @"Update channel cannot change during an update session."}];
+    }
+    return NO;
+  }
+  self.feedURLString = [feedURLString copy];
+  self.installRequested = NO;
+  self.expectedBytes = 0;
+  self.receivedBytes = 0;
+  [self.updater resetUpdateCycle];
+  return YES;
 }
 
 - (NSString *)feedURLStringForUpdater:(SPUUpdater *)updater {
@@ -549,6 +567,29 @@ static napi_value InstallDownloadedUpdate(napi_env env, napi_callback_info info)
   return undefined;
 }
 
+static napi_value SetFeedUrl(napi_env env, napi_callback_info info) {
+  if (!RequireMainThread(env)) return nullptr;
+  if (g_controller == nil) {
+    napi_throw_error(env, "sparkle-not-initialized", "Sparkle binding is not initialized.");
+    return nullptr;
+  }
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  std::string feedURL;
+  if (argc != 1 || !ReadStringValue(env, argv[0], &feedURL)) return nullptr;
+  @autoreleasepool {
+    NSError *error = nil;
+    if (![g_controller setFeedURLString:[NSString stringWithUTF8String:feedURL.c_str()] error:&error]) {
+      napi_throw_error(env, "sparkle-session-in-progress", error.localizedDescription.UTF8String);
+      return nullptr;
+    }
+  }
+  napi_value undefined;
+  napi_get_undefined(env, &undefined);
+  return undefined;
+}
+
 static napi_value Dispose(napi_env env, napi_callback_info info) {
   (void)info;
   if (!RequireMainThread(env)) return nullptr;
@@ -567,6 +608,7 @@ static napi_value Init(napi_env env, napi_value exports) {
     {"initialize", nullptr, Initialize, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"checkForUpdates", nullptr, CheckForUpdates, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"installDownloadedUpdate", nullptr, InstallDownloadedUpdate, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"setFeedUrl", nullptr, SetFeedUrl, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"dispose", nullptr, Dispose, nullptr, nullptr, nullptr, napi_default, nullptr},
   };
   napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);
