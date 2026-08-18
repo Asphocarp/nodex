@@ -823,7 +823,8 @@ const main = async (): Promise<void> => {
   if (!appPath || !expectedVersion || (targetArch !== "arm64" && targetArch !== "x64")) {
     throw new Error(
       "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 "
-      + "--expected-version <semver> [--legacy-profile-fixture <legacy.db>] [--verify-signatures] "
+      + "--expected-version <semver> [--expected-build-version <build>] "
+      + "[--legacy-profile-fixture <legacy.db>] [--verify-signatures] "
       + "[--require-developer-id] [--verify-notarization] [--launch-app] "
       + "[--expected-update-channel disabled|stable|nightly]",
     );
