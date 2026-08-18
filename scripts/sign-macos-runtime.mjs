@@ -135,7 +135,7 @@ export const refreshSignedSparkleRuntimeManifest = (appPath) => {
     frameworkInfoPlist: "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
     updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
   };
-  if (manifest.schemaVersion !== 2 || !manifest.artifacts) {
+  if (manifest.schemaVersion !== 3 || !manifest.artifacts) {
     throw new Error(`Unsupported Sparkle runtime manifest: ${manifestPath}`);
   }
   const artifacts = Object.fromEntries(Object.entries(expectedArtifacts).map(([
