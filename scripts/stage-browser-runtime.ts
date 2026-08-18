@@ -178,13 +178,11 @@ export function stageBrowserRuntime(
   }
   const activeRoot = path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY);
   try {
-    const sourceManifest = fs.readFileSync(
-      path.join(sourceRoot, BROWSER_RUNTIME_MANIFEST_FILENAME),
-    );
+    const normalizedManifest = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     const activeManifest = fs.readFileSync(
       path.join(activeRoot, BROWSER_RUNTIME_MANIFEST_FILENAME),
     );
-    if (sourceManifest.equals(activeManifest)) {
+    if (normalizedManifest.equals(activeManifest)) {
       assertBrowserRuntimeSourceClosure(activeRoot, manifest);
       const verification = resolveBrowserRuntimeBundle({
         expectedCodexCompatibilityVersion: options.expectedCodexCompatibilityVersion,

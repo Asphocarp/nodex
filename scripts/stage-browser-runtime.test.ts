@@ -102,12 +102,24 @@ describe("stageBrowserRuntime", () => {
     expect(stagedManifest.browserPlugin.nodeModuleDirs).not.toContain(
       "marketplace/plugins/browser/scripts/node_modules",
     );
+    const activeRoot = path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY);
+    const activeRootInode = fs.statSync(activeRoot).ino;
+
+    stageBrowserRuntime({
+      expectedCodexCompatibilityVersion: "0.144.6",
+      runtimeRoot,
+      sourceRoot,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+
     expect(resolveBrowserRuntimeBundle({
       expectedCodexCompatibilityVersion: "0.144.6",
       runtimeRoot,
       targetArch: "arm64",
       targetPlatform: "darwin",
     }).status).toBe("available");
+    expect(fs.statSync(activeRoot).ino).toBe(activeRootInode);
   });
 
   test("preserves the previously active bundle when source verification fails", () => {
