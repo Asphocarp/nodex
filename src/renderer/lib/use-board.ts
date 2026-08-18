@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import {
   BOARD_PLACEMENT_REMOTE_LANE,
   boardContainsPageIds,
@@ -174,15 +179,22 @@ export function useBoard(options: UseBoardOptions) {
     () => getBoardProjectStore(projectId, databaseViewId ?? null),
     [databaseViewId, projectId],
   );
+  const setPresentationOverride = useCallback((
+    next: DatabaseViewPresentationOverride | null,
+  ) => {
+    store.setPresentationOverride(
+      next && Object.keys(next).length > 0 ? next : null,
+    );
+  }, [store]);
 
   useEffect(() => {
     if (!ownsPresentationOverride || !presentationOverrideReady) return;
-    store.setPresentationOverride(presentationOverride ?? null);
+    setPresentationOverride(presentationOverride ?? null);
   }, [
     ownsPresentationOverride,
     presentationOverride,
     presentationOverrideReady,
-    store,
+    setPresentationOverride,
   ]);
 
   const subscribe = useCallback(
@@ -652,6 +664,7 @@ export function useBoard(options: UseBoardOptions) {
     lastMutationError: snapshot.lastMutationError,
     groupPagination: snapshot.groupPagination,
     totalRows: snapshot.totalRows,
+    setPresentationOverride,
     clearLastMutationError,
     refresh: fetchBoard,
     loadMore,

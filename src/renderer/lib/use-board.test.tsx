@@ -147,6 +147,19 @@ describe("useBoard createPage result", () => {
     expect(testState.setPresentationOverride).toHaveBeenCalledWith(null);
   });
 
+  test("hands off the projection coordinate synchronously before persistence", () => {
+    const { result } = renderHook(() => useBoard({
+      projectId: "project-test",
+      databaseViewId: "view-test",
+    }));
+
+    act(() => result.current.setPresentationOverride({ group: null }));
+
+    expect(testState.setPresentationOverride).toHaveBeenCalledWith({
+      group: null,
+    });
+  });
+
   test("preserves the optimistic mutation error for the modal", async () => {
     const { result } = renderHook(() => useBoard({ projectId: "project-test" }));
 

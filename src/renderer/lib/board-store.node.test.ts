@@ -45,7 +45,10 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
-import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
+import {
+  ProjectionInvalidationRegistry,
+  type ProjectionRegistration,
+} from "./projection-invalidation-registry";
 import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import { groupScopeKeyForColumn } from "./database-view-render-model";
 
@@ -440,8 +443,15 @@ function createProjectionHarness() {
       return () => revocationListeners.delete(listener);
     },
   });
+  const registrations: ProjectionRegistration[] = [];
+  const register = registry.register.bind(registry);
+  registry.register = (registration) => {
+    registrations.push(registration);
+    return register(registration);
+  };
   return {
     getRegistry: () => registry,
+    registrations,
     publish: (message: ProjectionStreamMessage | ResourceRevocationMessage) => {
       latestMessage = message;
       if (message.version === 1) {
@@ -767,6 +777,59 @@ describe("board store", () => {
     expect(store.getSnapshot().databaseView?.columns
       .flatMap((column) => column.rows)
       .map((row) => row.title)).toContain("Atomically replaced");
+  });
+
+  test("ignores a released projection fence from the previous presentation", async () => {
+    const projection = createProjectionHarness();
+    const replacement = createDeferred<DatabaseViewWindowSnapshot>();
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        return readCount === 1
+          ? createBoardSnapshot(
+              createBoard("Visible during handoff"),
+              1,
+              "view-focused",
+              false,
+              1,
+            )
+          : replacement.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1", "view-focused");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+    const releasedRegistration = projection.registrations.at(-1);
+    if (!releasedRegistration) throw new Error("Board projection was not registered");
+
+    store.setPresentationOverride({ layout: "list", group: null });
+    releasedRegistration.fence?.({
+      version: 2,
+      kind: "checkpoint",
+      scope: {
+        kind: "project",
+        libraryId: "library-1",
+        projectId: "project-1",
+      },
+      stream: { storeEpoch: "epoch-1", commitSeq: 2 },
+    });
+
+    expect(store.getSnapshot().loading).toBe(false);
+    expect(store.getSnapshot().databaseView?.columns
+      .flatMap((column) => column.rows)
+      .map((row) => row.title)).toContain("Visible during handoff");
+    replacement.resolve(createBoardSnapshot(
+      createBoard("Replacement"),
+      2,
+      "view-focused",
+      false,
+      2,
+    ));
+    await waitForMicrotasks();
+    unsubscribe();
   });
 
   test("keeps the last readable projection when a presentation refresh fails", async () => {
