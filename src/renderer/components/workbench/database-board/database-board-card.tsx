@@ -1,4 +1,4 @@
-import type { DragEvent as ReactDragEvent } from "react";
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { BoardPageKey } from "@/components/board/board-page-key";
@@ -29,6 +29,23 @@ import { DatabaseListRowContextMenu } from "../database-list/database-list-row-c
 import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
 import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
 import { projectDatabaseBoardCardProperties } from "./database-board-model";
+
+const DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR = [
+  "button",
+  "a",
+  "input",
+  "textarea",
+  "select",
+  "[role=button]",
+  "[role=checkbox]",
+  "[role=combobox]",
+  "[role=listbox]",
+  "[role=menu]",
+  "[role=menuitem]",
+  "[role=option]",
+  "[contenteditable=true]",
+  "[data-database-view-property-id]",
+].join(",");
 
 export interface DatabaseBoardCardProps {
   readonly model: DatabaseViewRenderModel;
@@ -258,6 +275,25 @@ export function DatabaseBoardCard({
   const previewShadow = document.documentElement.classList.contains("dark")
     ? "0 4px 12px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1), 0 0 0 1px color-mix(in srgb, var(--column-accent, rgba(255,255,255,0.07)) 20%, transparent)"
     : "0 4px 12px rgba(25,25,25,0.027), 0 1px 2px rgba(25,25,25,0.02), 0 0 0 1px color-mix(in srgb, var(--column-accent, rgba(42,28,0,0.07)) 15%, transparent)";
+  const handleCardClick = (event: ReactMouseEvent<HTMLElement>): void => {
+    if (event.defaultPrevented) return;
+    if (
+      typeof Node === "undefined"
+      || !(event.target instanceof Node)
+      || !event.currentTarget.contains(event.target)
+    ) return;
+    if (
+      typeof Element !== "undefined"
+      && event.target instanceof Element
+      && event.target.closest(DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR)
+    ) return;
+    if (event.shiftKey) {
+      event.preventDefault();
+      onToggleSelection(row.pageId);
+      return;
+    }
+    onOpenPage(row.pageId, title);
+  };
   const renderCard = (previewRect: DOMRect | null) => (
     <article
       ref={previewRect ? undefined : cardRef}
@@ -274,6 +310,7 @@ export function DatabaseBoardCard({
       aria-label={!previewRect && draggable ? `Drag ${title}` : undefined}
       onPointerDown={previewRect ? undefined : () => onHighlight(row.pageId)}
       onFocus={previewRect ? undefined : () => onHighlight(row.pageId)}
+      onClick={previewRect ? undefined : handleCardClick}
       onDragStart={!previewRect && draggable ? (event) => onDragStartPage(row, event) : undefined}
       onDragEnd={!previewRect && draggable ? onDragEndPage : undefined}
       className={cn(
