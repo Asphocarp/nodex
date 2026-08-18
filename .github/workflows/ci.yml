@@ -195,6 +195,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/fetch-legacy-migrator
+      - run: pnpm run build-resources:prepare
       - uses: ./.github/actions/setup-rust-ci
       - name: Run application test suites
         run: pnpm exec tsx scripts/ci/run-timed.ts --name app-tests -- xvfb-run --auto-servernum pnpm test
