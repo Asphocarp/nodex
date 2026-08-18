@@ -44,7 +44,7 @@ rusqlite = { version = "=0.40.1", default-features = false, features = ["backup"
 rustix = { version = "=1.1.4", features = ["fs", "process"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-sha1 = "0.10.6"
+sha1 = "0.11.0"
 sha2 = "0.10.9"
 signal-hook = "=0.4.4"
 similar = "=3.1.1"
