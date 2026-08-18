@@ -2818,6 +2818,39 @@ mod tests {
                 .iter()
                 .any(|evidence| matches!(evidence, LibraryPageSearchMatch::Title { .. }))
         );
+        let LibraryReadValue::ProjectPageSearchMetadata { items: metadata } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearchMetadata {
+                        project_ids: vec!["project-1".to_owned()],
+                        page_ids: Some(vec![ROW_PAGE.to_owned()]),
+                    },
+                },
+            )
+            .expect("authorized Page metadata projection")
+            .value
+        else {
+            panic!("Page metadata projection");
+        };
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(metadata[0].page_id, ROW_PAGE);
+        assert_eq!(metadata[0].authorized_project_ids, ["project-1"]);
+        assert_eq!(metadata[0].data_source_ids, [SOURCE]);
+        let metadata_error = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearchMetadata {
+                        project_ids: vec!["project-1".to_owned()],
+                        page_ids: None,
+                    },
+                },
+            )
+            .expect_err("Project-bound clients cannot claim metadata search authority");
+        assert_eq!(metadata_error.code, CoreErrorCode::Unauthorized);
         let LibraryReadValue::ProjectPageSearch { items } = module
             .read(
                 &root_context,

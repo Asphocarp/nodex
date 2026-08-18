@@ -22,10 +22,10 @@ import type {
   Project,
 } from "./types";
 import { normalizeSearchText } from "./search-text";
+import { useInteractivePageSearch } from "./interactive-page-search";
 
 const DEFAULT_PAGE_SEARCH_LIMIT = 60;
 const ROOT_PAGE_SEARCH_LIMIT = 12;
-const PAGE_SEARCH_DEBOUNCE_MS = 150;
 const inFlightPageSearches = new Map<string, Promise<PageSearchResult[]>>();
 
 export type CommandPalettePageSearchStatus = "idle" | "pending" | "success" | "error";
@@ -264,7 +264,7 @@ export async function searchCommandPalettePages({
   const existing = inFlightPageSearches.get(requestKey);
   if (existing) return await existing;
   const pending = invoke("pages:search", request)
-    .then((results) => Array.isArray(results) ? results : []);
+    .then((snapshot) => snapshot.results);
   inFlightPageSearches.set(requestKey, pending);
   try {
     return await pending;
@@ -329,7 +329,7 @@ export function selectCommandPalettePageResults({
 }): CommandPalettePage[] {
   if (
     !pageSearchBatch
-    || pageSearchBatch.status !== "success"
+    || (pageSearchBatch.status !== "success" && pageSearchBatch.status !== "pending")
     || pageSearchBatch.query !== normalizeCommandPaletteSearchText(query)
     || (pageSearchScopeKey
       && pageSearchBatch.scopeKey !== pageSearchScopeKey)
@@ -366,82 +366,26 @@ export function useCommandPalettePageSearch({
     () => buildCommandPalettePageSearchScopeKey(projectIds),
     [projectIds],
   );
-  const requestKey = useMemo(
-    () => JSON.stringify({
-      scopeKey,
-      query: normalizeCommandPaletteSearchText(query),
-      filters,
-      preferredProjectId,
-      recentPageIds,
-      limit,
-    }),
-    [filters, limit, preferredProjectId, query, recentPageIds, scopeKey],
-  );
-  const [batch, setBatch] = useState<CommandPalettePageSearchBatch>({
-    query: "",
-    scopeKey: "",
-    results: [],
-    status: "idle",
-    error: null,
+  const search = useInteractivePageSearch({
+    projectIds: enabled ? projectIds : [],
+    query: normalizeCommandPaletteSearchText(query),
+    filters,
+    preferredProjectId,
+    recentPageIds,
+    limit,
+    complete: enabled,
   });
-
-  useEffect(() => {
-    const request = JSON.parse(requestKey) as {
-      scopeKey: string;
-      query: string;
-      filters?: PageSearchFilters;
-      preferredProjectId?: string | null;
-      recentPageIds: string[];
-      limit: number;
-    };
-    if (!enabled || !request.scopeKey) {
-      setBatch({ query: "", scopeKey: "", results: [], status: "idle", error: null });
-      return;
-    }
-    let cancelled = false;
-    setBatch({
-      query: request.query,
-      scopeKey: request.scopeKey,
-      results: [],
-      status: "pending",
-      error: null,
-    });
-    const timer = setTimeout(() => {
-      void searchCommandPalettePages({
-        projectIds: request.scopeKey.split("\n"),
-        query: request.query,
-        filters: request.filters,
-        preferredProjectId: request.preferredProjectId,
-        recentPageIds: request.recentPageIds,
-        limit: request.limit,
-      }).then((results) => {
-        if (!cancelled) {
-          setBatch({
-            query: request.query,
-            scopeKey: request.scopeKey,
-            results,
-            status: "success",
-            error: null,
-          });
-        }
-      }).catch((error: unknown) => {
-        if (!cancelled) {
-          setBatch({
-            query: request.query,
-            scopeKey: request.scopeKey,
-            results: [],
-            status: "error",
-            error: error instanceof Error ? error.message : "Page search is unavailable",
-          });
-        }
-      });
-    }, PAGE_SEARCH_DEBOUNCE_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [enabled, requestKey]);
-  return batch;
+  if (!enabled || !scopeKey) {
+    return { query: "", scopeKey: "", results: [], status: "idle", error: null };
+  }
+  return {
+    query: normalizeCommandPaletteSearchText(query),
+    scopeKey,
+    results: search.rows,
+    status: search.enrichment === "loading" ? "pending"
+      : search.enrichment === "unavailable" ? "error" : "success",
+    error: search.enrichment === "unavailable" ? "Full Page search is unavailable" : null,
+  };
 }
 
 export function useCommandPalettePageSearchFacets({

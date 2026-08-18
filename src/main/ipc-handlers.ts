@@ -943,6 +943,7 @@ interface RegisterIpcHandlersOptions {
     | "readLibraryPageDetail"
     | "listPageHistory"
     | "searchPages"
+    | "pageSearchMetadata"
     | "pageSearchFacets"
     | "resolvePageTarget"
     | "resolvePageOwnershipPath"
@@ -2457,15 +2458,28 @@ export function registerIpcHandlers(
   // Database Pages
   registerHandle("pages:search", async (_, input) => {
     const startedAt = performance.now();
-    const results = await libraryModule.searchPages(input);
+    const snapshot = await libraryModule.searchPages(input);
     ipcPayloadLogger.info("page search payload served", {
       channel: "pages:search",
       projectCount: input.projectIds.length,
-      resultCount: results.length,
-      approxPayloadBytes: approximateJsonPayloadBytes(results),
+      resultCount: snapshot.results.length,
+      approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
       durationMs: Math.round(performance.now() - startedAt),
     });
-    return results;
+    return snapshot;
+  });
+
+  registerHandle("pages:search-metadata", async (_, projectIds, pageIds) => {
+    const startedAt = performance.now();
+    const snapshot = await libraryModule.pageSearchMetadata(projectIds, pageIds);
+    ipcPayloadLogger.info("page search metadata payload served", {
+      channel: "pages:search-metadata",
+      projectCount: projectIds.length,
+      resultCount: snapshot.documents.length,
+      approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return snapshot;
   });
 
   registerHandle("pages:search-facets", async (_, projectIds) =>

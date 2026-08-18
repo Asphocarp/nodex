@@ -69,7 +69,10 @@ import { dateMentionPayloadToProps } from "./date-mention-inline-content";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
 import { toast } from "@/components/ui/toast";
 import { setCanvasCreatePending } from "./canvas-create-pending-extension";
-import { createPageReferenceSearchController } from "@/lib/page-reference-picker/search-controller";
+import {
+  createPageReferenceSearchController,
+  loadPageReferenceCandidatesSync,
+} from "@/lib/page-reference-picker/search-controller";
 import { presentPageReferenceCandidates } from "@/lib/page-reference-picker/candidate-model";
 import type {
   PageReferenceCandidate,
@@ -88,6 +91,7 @@ import {
 } from "@/lib/command-palette-highlight";
 import { StatusIcon } from "@/lib/status-presentation";
 import { WORKFLOW_STATUS_LABELS } from "../../../../shared/workflow-status";
+import { contentAccessContextKey } from "../../../../shared/content-access-context";
 
 interface NfmSlashMenuProps {
   executionProjectId: string | null;
@@ -468,7 +472,7 @@ export function NfmSuggestionMenuSurface({
 
       nodes.push(
         <NodexTooltip
-          key={`${item.title}:${index}`}
+          key={suggestionItem.key ?? `${item.title}:${index}`}
           tooltipContent={tooltipContent}
           disabled={!tooltipContent}
           side="right"
@@ -1102,28 +1106,66 @@ function usePageReferenceGetItems(
   const editor = useBlockNoteEditor();
   const hostRuntime = useBlockReferenceHostRuntime();
   const controllerRef = useRef(createPageReferenceSearchController());
-  return useCallback(async (query: string) => {
-    if (!hostRuntime) return [];
+  // A host wrapper may gain a fresh object identity while the menu is open.
+  // Keep the loader identity stable so a pointer gesture cannot lose its row
+  // between mousedown and click when async enrichment finishes.
+  const editorRef = useRef(editor);
+  const hostRuntimeRef = useRef(hostRuntime);
+  const beforeSelectRef = useRef(beforeSelect);
+  const requestScopeKey = hostRuntime
+    ? JSON.stringify([
+        contentAccessContextKey(hostRuntime.contentAccessContext),
+        hostRuntime.hostPageId,
+        ...hostRuntime.ancestorPageIds,
+      ])
+    : "no-page-context";
+  editorRef.current = editor;
+  hostRuntimeRef.current = hostRuntime;
+  beforeSelectRef.current = beforeSelect;
+  const getItems = useCallback(async (query: string) => {
+    const currentHostRuntime = hostRuntimeRef.current;
+    if (!currentHostRuntime) return [];
     try {
       const result = await controllerRef.current.search({
-        accessContext: hostRuntime.contentAccessContext,
-        hostPageId: hostRuntime.hostPageId,
-        ancestorPageIds: hostRuntime.ancestorPageIds,
+        accessContext: currentHostRuntime.contentAccessContext,
+        hostPageId: currentHostRuntime.hostPageId,
+        ancestorPageIds: currentHostRuntime.ancestorPageIds,
         intent,
         query,
         limit: 24,
       });
       if (result.status === "stale") return [];
       return buildPageReferenceCandidateSuggestionItems(
-        editor,
+        editorRef.current,
         result.items,
         intent,
-        beforeSelect,
+        beforeSelectRef.current,
       );
     } catch {
       return [buildPageSearchUnavailableSuggestionItem(intent)];
     }
-  }, [beforeSelect, editor, hostRuntime, intent]);
+  }, [intent]);
+  const getImmediateItems = useCallback((query: string) => {
+    const currentHostRuntime = hostRuntimeRef.current;
+    if (!currentHostRuntime) return [];
+    return buildPageReferenceCandidateSuggestionItems(
+      editorRef.current,
+      loadPageReferenceCandidatesSync({
+        accessContext: currentHostRuntime.contentAccessContext,
+        hostPageId: currentHostRuntime.hostPageId,
+        ancestorPageIds: currentHostRuntime.ancestorPageIds,
+        intent,
+        query,
+        limit: 24,
+      }),
+      intent,
+      beforeSelectRef.current,
+    );
+  }, [intent]);
+  return useMemo(
+    () => ({ getItems, getImmediateItems, requestScopeKey }),
+    [getImmediateItems, getItems, requestScopeKey],
+  );
 }
 
 function classifyThreadMentionMatch(
@@ -1527,7 +1569,7 @@ function MentionMenu({
     editor,
     activeProjectId,
   });
-  const getPageItems = usePageReferenceGetItems("mention");
+  const pageItems = usePageReferenceGetItems("mention");
   const [sectionExpansion, setSectionExpansion] = useState<{
     readonly query: string;
     readonly families: ReadonlySet<MentionSuggestionFamily>;
@@ -1544,7 +1586,7 @@ function MentionMenu({
   const getItems = useCallback(async (query: string) => {
     const [nonPageItems, pageResults] = await Promise.all([
       getNonPageItems(query),
-      allowPageReferences ? getPageItems(query) : Promise.resolve([]),
+      allowPageReferences ? pageItems.getItems(query) : Promise.resolve([]),
     ]);
     return selectNfmMentionSuggestionItems(
       query,
@@ -1560,9 +1602,19 @@ function MentionMenu({
     allowPageReferences,
     expandSection,
     getNonPageItems,
-    getPageItems,
+    pageItems,
     sectionExpansion,
   ]);
+  const getImmediateItems = useCallback((query: string) => selectNfmMentionSuggestionItems(
+    query,
+    allowPageReferences ? pageItems.getImmediateItems(query) : [],
+    {
+      expandedFamilies: sectionExpansion.query === query
+        ? sectionExpansion.families
+        : undefined,
+      onExpandSection: (family) => expandSection(query, family),
+    },
+  ), [allowPageReferences, expandSection, pageItems, sectionExpansion]);
   const shouldCloseOnItemClick = useCallback(
     (item: NfmSuggestionItem) => item.mentionUtility?.kind !== "expand_section",
     [],
@@ -1572,6 +1624,8 @@ function MentionMenu({
     <SuggestionMenuController
       triggerCharacter="@"
       getItems={getItems}
+      getImmediateItems={getImmediateItems}
+      requestScopeKey={pageItems.requestScopeKey}
       shouldCloseOnItemClick={shouldCloseOnItemClick}
       autoCloseWhenNoItems={false}
       {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
@@ -1595,7 +1649,7 @@ function EmbedPageMenu({ bookmarkRef }: {
     bookmarkRef.current = null;
     return true;
   }, [bookmarkRef, editor]);
-  const getPageItems = usePageReferenceGetItems(
+  const pageItems = usePageReferenceGetItems(
     "reference_block",
     beforeSelect,
   );
@@ -1603,7 +1657,9 @@ function EmbedPageMenu({ bookmarkRef }: {
   return (
     <SuggestionMenuController
       triggerCharacter={PAGE_EMBED_PICKER_TRIGGER}
-      getItems={getPageItems}
+      getItems={pageItems.getItems}
+      getImmediateItems={pageItems.getImmediateItems}
+      requestScopeKey={pageItems.requestScopeKey}
       {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
       suggestionMenuComponent={NfmPageSuggestionMenuSurface}
     />

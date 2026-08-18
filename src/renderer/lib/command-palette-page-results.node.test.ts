@@ -4,6 +4,7 @@ import {
   buildCommandPalettePagesFromSearchResults,
   isCommandPalettePageSearchPending,
   pageSearchOptionIdentityKey,
+  selectCommandPalettePageResults,
   toCorePageSearchFilters,
 } from "./command-palette-page-results";
 import type { PageSearchResult, Project } from "./types";
@@ -97,5 +98,24 @@ describe("Core-authoritative command palette Page results", () => {
       query: "",
       scopeKey: "project:one",
     })).toBe(true);
+  });
+
+  test("shows synchronous metadata rows while complete search is still pending", () => {
+    const pages = selectCommandPalettePageResults({
+      query: "search",
+      projects: [project],
+      activeProjectId: project.id,
+      recentPageIds: [],
+      pageSearchScopeKey: project.id,
+      pageSearchBatch: {
+        query: "search",
+        scopeKey: project.id,
+        results: [result()],
+        status: "pending",
+        error: null,
+      },
+    });
+
+    expect(pages.map((page) => page.page.title)).toEqual(["Search authority"]);
   });
 });

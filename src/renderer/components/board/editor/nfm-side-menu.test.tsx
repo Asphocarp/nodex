@@ -23,6 +23,29 @@ import {
   shouldReturnFocusAfterNfmSideMenuClose,
 } from "./nfm-side-menu";
 
+vi.mock("@/lib/interactive-page-search", () => ({
+  useInteractivePageSearch: ({ query }: { readonly query: string }) => ({
+    rows: query === "targt car" ? [{
+      projectId: "default",
+      pageId: "target-card",
+      pageKey: null,
+      title: "Target card",
+      status: "triage",
+      priority: null,
+      tags: [],
+      assignee: null,
+      locationLabel: "Default / Triage",
+      titleParts: [],
+      excerpt: null,
+      excerptParts: [],
+      matches: [],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }] : [],
+    enrichment: "loading",
+    queryRevision: query,
+  }),
+}));
+
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
 function renderWithQuery(children: ReactNode) {
@@ -294,6 +317,7 @@ function StatefulSideMenuSurface({
           pageBoardMap={MOVE_TO_BOARD_MAP}
           loading={moveToLoading}
           loadError={moveToError}
+          enableRemotePageSearch
         />
       )}
     />

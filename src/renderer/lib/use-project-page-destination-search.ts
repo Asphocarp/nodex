@@ -1,14 +1,18 @@
-import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import type { NfmMoveToSearchResult } from "@/components/board/editor/nfm-move-to-menu-search";
 import { normalizeSearchText } from "@/lib/search-text";
 import type { PageSearchResult, Project } from "@/lib/types";
-import { invoke } from "./api";
-import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
-import { queryKeys } from "./query-keys";
+import {
+  useInteractivePageSearch,
+  type InteractivePageSearchResult,
+} from "./interactive-page-search";
 import { WORKFLOW_STATUS_LABELS } from "../../shared/workflow-status";
 
 const DESTINATION_SEARCH_LIMIT = 60;
+
+export interface ProjectPageDestinationSearchResult extends NfmMoveToSearchResult {
+  readonly enrichment: InteractivePageSearchResult["enrichment"];
+}
 
 function emptyResult(query: string): NfmMoveToSearchResult {
   return {
@@ -115,73 +119,28 @@ export function useProjectPageDestinationSearch({
   enabled: boolean;
   sourceProjectId?: string | null;
   sourcePageId?: string | null;
-}): NfmMoveToSearchResult {
+}): ProjectPageDestinationSearchResult {
   const normalizedQuery = normalizeSearchText(query);
-  const queryClient = useQueryClient();
-  const projectionRegistry = useProjectionInvalidationRegistry();
   const projectIds = useMemo(
     () => projects.map((project) => project.id),
     [projects],
   );
-  const databaseIds = useMemo(
-    () => [...new Set(projects.map((project) => project.databaseId))],
-    [projects],
-  );
-  const libraryId = projects[0]?.libraryId ?? null;
-  const queryKey = useMemo(
-    () => queryKeys.pageSearch.destinations(projectIds, normalizedQuery),
-    [normalizedQuery, projectIds],
-  );
-  const search = useQuery({
-    queryKey,
-    enabled: enabled && normalizedQuery.length > 0 && projectIds.length > 0,
-    queryFn: () => invoke("pages:search", {
-      projectIds,
-      query: normalizedQuery,
-      limit: DESTINATION_SEARCH_LIMIT,
-    }),
-    staleTime: 30_000,
+  const search = useInteractivePageSearch({
+    projectIds: enabled ? projectIds : [],
+    query: normalizedQuery,
+    limit: DESTINATION_SEARCH_LIMIT,
+    excludePageIds: sourcePageId ? [sourcePageId] : [],
+    complete: enabled && normalizedQuery.length > 0,
   });
 
-  useEffect(() => {
-    if (!enabled || !libraryId || !normalizedQuery || projectIds.length === 0) {
-      return;
-    }
-    const consumerKey = hashKey(["projection", queryKey]);
-    return projectIds.reduce<() => void>((releaseAll, projectId) => {
-      const release = projectionRegistry.register({
-        scope: { kind: "project", libraryId, projectId },
-        consumerKey,
-        getDependencies: () => ({ databaseIds }),
-        getCursor: () => null,
-        invalidate: async () => {
-          await queryClient.invalidateQueries({ queryKey, exact: true });
-        },
-      });
-      return () => {
-        release();
-        releaseAll();
-      };
-    }, () => undefined);
-  }, [
-    databaseIds,
-    enabled,
-    libraryId,
-    normalizedQuery,
-    projectIds,
-    projectionRegistry,
-    queryClient,
-    queryKey,
-  ]);
-
-  return useMemo(
-    () => buildRemoteDestinationSearchResult({
+  return {
+    ...buildRemoteDestinationSearchResult({
       projects,
       query: normalizedQuery,
-      results: search.data ?? [],
+      results: search.rows,
       sourceProjectId,
       sourcePageId,
     }),
-    [normalizedQuery, projects, search.data, sourcePageId, sourceProjectId],
-  );
+    enrichment: search.enrichment,
+  };
 }

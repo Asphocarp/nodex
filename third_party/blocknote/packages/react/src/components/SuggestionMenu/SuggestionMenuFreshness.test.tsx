@@ -38,14 +38,23 @@ function createFakeEditor(domElement = document.createElement("div")): BlockNote
 
 function LoadItemsHarness<T>({
   getItems,
+  getImmediateItems,
   onSnapshot,
   query,
+  requestScopeKey,
 }: {
   getItems: (query: string) => Promise<T[]>;
+  getImmediateItems?: (query: string) => T[];
   onSnapshot: (snapshot: ReturnType<typeof useLoadSuggestionMenuItems<T>>) => void;
   query: string;
+  requestScopeKey?: string;
 }) {
-  const snapshot = useLoadSuggestionMenuItems(query, getItems);
+  const snapshot = useLoadSuggestionMenuItems(
+    query,
+    getItems,
+    getImmediateItems,
+    requestScopeKey,
+  );
 
   useEffect(() => {
     onSnapshot(snapshot);
@@ -59,15 +68,19 @@ function SuggestionNavigationHarness({
   liveQuery,
   onItemClick,
   query,
+  requestScopeKey,
   target,
   usedQuery,
+  usedRequestScopeKey,
 }: {
   items: string[];
   liveQuery: string;
   onItemClick: (item: string) => void;
   query: string;
+  requestScopeKey?: string;
   target: HTMLElement;
   usedQuery: string | undefined;
+  usedRequestScopeKey?: string;
   }) {
   useSuggestionMenuKeyboardNavigation(
     createFakeEditor(),
@@ -77,6 +90,8 @@ function SuggestionNavigationHarness({
     onItemClick,
     () => liveQuery,
     target,
+    requestScopeKey,
+    usedRequestScopeKey,
   );
 
   return null;
@@ -111,6 +126,89 @@ function GridNavigationHarness({
 }
 
 describe("suggestion menu freshness", () => {
+  test("publishes query-fresh synchronous items before async enrichment resolves", () => {
+    const deferred = createDeferred<string[]>();
+    let latest: ReturnType<typeof useLoadSuggestionMenuItems<string>> | undefined;
+    render(
+      <LoadItemsHarness
+        query="canon"
+        getItems={() => deferred.promise}
+        getImmediateItems={(query) => [`metadata:${query}`]}
+        onSnapshot={(snapshot) => {
+          latest = snapshot;
+        }}
+      />,
+    );
+
+    expect(latest?.items).toEqual(["metadata:canon"]);
+    expect(latest?.usedQuery).toBe("canon");
+    expect(latest?.loadingState).toBe("loading");
+  });
+
+  test("keeps immediate items after async enrichment rejects", async () => {
+    let latest: ReturnType<typeof useLoadSuggestionMenuItems<string>> | undefined;
+    render(
+      <LoadItemsHarness
+        query="canon"
+        getItems={async () => {
+          throw new Error("offline");
+        }}
+        getImmediateItems={(query) => [`metadata:${query}`]}
+        onSnapshot={(snapshot) => {
+          latest = snapshot;
+        }}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(latest?.items).toEqual(["metadata:canon"]);
+    expect(latest?.usedQuery).toBe("canon");
+    expect(latest?.loadingState).toBe("loaded");
+  });
+
+  test("invalidates same-query items when the authorization scope changes", async () => {
+    const first = createDeferred<string[]>();
+    const second = createDeferred<string[]>();
+    let latest: ReturnType<typeof useLoadSuggestionMenuItems<string>> | undefined;
+    const onSnapshot = (snapshot: ReturnType<typeof useLoadSuggestionMenuItems<string>>) => {
+      latest = snapshot;
+    };
+    const view = render(
+      <LoadItemsHarness
+        query="page"
+        requestScopeKey="project:one"
+        getItems={() => first.promise}
+        getImmediateItems={() => ["project-one"]}
+        onSnapshot={onSnapshot}
+      />,
+    );
+    expect(latest?.items).toEqual(["project-one"]);
+
+    view.rerender(
+      <LoadItemsHarness
+        query="page"
+        requestScopeKey="project:two"
+        getItems={() => second.promise}
+        getImmediateItems={() => ["project-two"]}
+        onSnapshot={onSnapshot}
+      />,
+    );
+    expect(latest?.items).toEqual(["project-two"]);
+    expect(latest?.usedRequestScopeKey).toBe("project:two");
+
+    await act(async () => {
+      first.resolve(["stale project-one"]);
+      await Promise.resolve();
+      second.resolve(["fresh project-two"]);
+      await Promise.resolve();
+    });
+    expect(latest?.items).toEqual(["fresh project-two"]);
+    expect(latest?.usedRequestScopeKey).toBe("project:two");
+  });
+
   test("ignores older same-query item requests when a newer request finishes first", async () => {
     const first = createDeferred<string[]>();
     const second = createDeferred<string[]>();
@@ -170,11 +268,13 @@ describe("suggestion menu freshness", () => {
       />,
     );
 
-    target.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "Enter",
-      bubbles: true,
-      cancelable: true,
-    }));
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
 
     expect(clickedItems.length).toBe(0);
 
@@ -195,6 +295,67 @@ describe("suggestion menu freshness", () => {
 
     expect(clickedItems.length).toBe(1);
     expect(clickedItems[0]).toBe("now item");
+  });
+
+  test("waits for a same-scope refresh before accepting stale Enter", async () => {
+    const target = document.createElement("div");
+    const clickedItems: string[] = [];
+    const onItemClick = (item: string) => {
+      clickedItems.push(item);
+    };
+    const view = render(
+      <SuggestionNavigationHarness
+        query="now"
+        requestScopeKey="scope-a"
+        usedQuery="now"
+        usedRequestScopeKey="scope-old"
+        liveQuery="now"
+        items={["old item"]}
+        target={target}
+        onItemClick={onItemClick}
+      />,
+    );
+
+    target.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    view.rerender(
+      <SuggestionNavigationHarness
+        query="now"
+        requestScopeKey="scope-a"
+        usedQuery={undefined}
+        usedRequestScopeKey={undefined}
+        liveQuery="now"
+        items={[]}
+        target={target}
+        onItemClick={onItemClick}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(clickedItems).toEqual([]);
+
+    view.rerender(
+      <SuggestionNavigationHarness
+        query="now"
+        requestScopeKey="scope-a"
+        usedQuery="now"
+        usedRequestScopeKey="scope-a"
+        liveQuery="now"
+        items={["fresh item"]}
+        target={target}
+        onItemClick={onItemClick}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(clickedItems).toEqual(["fresh item"]);
   });
 
   test("ignores stale mouse clicks in the wrapper without closing the menu", async () => {

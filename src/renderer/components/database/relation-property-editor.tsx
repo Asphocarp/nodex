@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   CloseIcon,
   PageIcon,
@@ -21,6 +21,10 @@ import { foldDataSourceRelationSearchText } from "@/lib/data-source-relation-run
 import { cn } from "@/lib/utils";
 import { PropertyEmptyValue } from "./property-empty-value";
 import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
+import {
+  configuredPageSearchProjectIds,
+  useInteractivePageSearch,
+} from "@/lib/interactive-page-search";
 
 const mergeCandidates = (
   left: readonly { readonly pageId: string; readonly title: string }[],
@@ -77,6 +81,7 @@ export function RelationPropertyEditor({
   disabled,
   pending = false,
   targetMatchesCurrentSource,
+  targetDataSourceId,
   onPatch,
   onReplace,
   onClear,
@@ -99,6 +104,7 @@ export function RelationPropertyEditor({
   readonly disabled: boolean;
   readonly pending?: boolean;
   readonly targetMatchesCurrentSource: boolean;
+  readonly targetDataSourceId?: string;
   readonly onPatch: (delta: {
     readonly addPageIds: readonly string[];
     readonly removeEdgeIds: readonly string[];
@@ -135,7 +141,6 @@ export function RelationPropertyEditor({
     onRequestClose?.();
   };
   const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
   const [targetName, setTargetName] = useState<string | null>(null);
   const [targetDescriptorLoaded, setTargetDescriptorLoaded] = useState(false);
   const [expandedTargets, setExpandedTargets] = useState<readonly RelationTargetWindowItem[] | null>(null);
@@ -182,6 +187,19 @@ export function RelationPropertyEditor({
   );
   const selectedIds = new Set(visibleTargets.map((target) => target.pageId));
   const normalizedQuery = foldDataSourceRelationSearchText(query.trim());
+  const metadataSearch = useInteractivePageSearch({
+    projectIds: configuredPageSearchProjectIds(),
+    query: normalizedQuery,
+    dataSourceIds: targetDataSourceId ? [targetDataSourceId] : [],
+    excludePageIds: excludedPageId ? [excludedPageId] : [],
+    limit: 60,
+    complete: false,
+  });
+  const metadataRows = editorOpen ? metadataSearch.rows : [];
+  const synchronousCandidates = metadataRows.map((row) => ({
+    pageId: row.pageId,
+    title: row.title,
+  }));
   const seedCandidates = targetMatchesCurrentSource
     ? candidates.filter((candidate) =>
         !normalizedQuery
@@ -195,8 +213,11 @@ export function RelationPropertyEditor({
     ? candidateCursor
     : null;
   const candidateError = candidateErrorQuery === query;
-  const candidateSearchPending = searching || query !== deferredQuery;
-  const available = mergeCandidates(seedCandidates, activeCandidateResults)
+  const candidateSearchPending = searching;
+  const available = mergeCandidates(
+    mergeCandidates(seedCandidates, synchronousCandidates),
+    activeCandidateResults,
+  )
     .filter((candidate) =>
       candidate.pageId !== excludedPageId
       && !selectedIds.has(candidate.pageId)
@@ -269,11 +290,11 @@ export function RelationPropertyEditor({
     const generation = ++searchGeneration.current;
     setSearching(true);
     setCandidateErrorQuery(null);
-    void searchCandidates(deferredQuery, null)
+    void searchCandidates(query, null)
       .then((window) => {
         if (generation !== searchGeneration.current) return;
         setCandidateResults(window.candidates);
-        setCandidateQuery(deferredQuery);
+        setCandidateQuery(query);
         setCandidateCursor(window.nextCursor);
         setCandidateProjectionRevision(window.projectionRevision);
       })
@@ -283,12 +304,12 @@ export function RelationPropertyEditor({
         setCandidateResults([]);
         setCandidateQuery(null);
         setCandidateCursor(null);
-        setCandidateErrorQuery(deferredQuery);
+        setCandidateErrorQuery(query);
       })
       .finally(() => {
         if (generation === searchGeneration.current) setSearching(false);
       });
-  }, [canSearchCandidates, deferredQuery, editorOpen, preview.valueRevision, searchRetry]);
+  }, [canSearchCandidates, editorOpen, preview.valueRevision, query, searchRetry]);
 
   const loadSelectedTargets = () => {
     if (!onLoadMore || loadingTargets || readOnly) return;
@@ -360,16 +381,16 @@ export function RelationPropertyEditor({
     const acceptFirstWindow = (window: RelationCandidateWindow) => {
       if (generation !== searchGeneration.current) return;
       setCandidateResults(window.candidates);
-      setCandidateQuery(deferredQuery);
+      setCandidateQuery(query);
       setCandidateCursor(window.nextCursor);
       setCandidateProjectionRevision(window.projectionRevision);
       setCandidateErrorQuery(null);
     };
     const refreshFirstWindow = async () => {
-      const refreshed = await onSearchCandidates(deferredQuery, null);
+      const refreshed = await onSearchCandidates(query, null);
       acceptFirstWindow(refreshed);
     };
-    void onSearchCandidates(deferredQuery, activeCandidateCursor)
+    void onSearchCandidates(query, activeCandidateCursor)
       .then(async (window) => {
         if (generation !== searchGeneration.current) return;
         if (
@@ -390,7 +411,7 @@ export function RelationPropertyEditor({
         } catch (refreshError) {
           if (generation === searchGeneration.current) {
             console.error("[relation-property:candidates]", cause, refreshError);
-            setCandidateErrorQuery(deferredQuery);
+            setCandidateErrorQuery(query);
           }
         }
       })
@@ -656,8 +677,10 @@ export function RelationPropertyEditor({
                   </button>
                 ))}
               </div>
-              {candidateSearchPending && available.length === 0 ? (
-                <p className="px-2 py-2 text-sm text-token-description-foreground">Searching…</p>
+              {candidateSearchPending ? (
+                <p className="px-2 py-2 text-sm text-token-description-foreground">
+                  {available.length > 0 ? "Loading more Pages…" : "Loading Pages…"}
+                </p>
               ) : null}
               {!candidateSearchPending && available.length === 0 && !candidateError ? (
                 <p className="px-2 py-2 text-sm text-token-description-foreground">No pages found</p>

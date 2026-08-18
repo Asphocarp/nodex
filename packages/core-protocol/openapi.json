@@ -17054,6 +17054,117 @@
           "fuzzy"
         ]
       },
+      "LibraryPageSearchMetadataDocument": {
+        "type": "object",
+        "description": "Core-authored, authorization-filtered metadata used by the renderer's\nsynchronous Page-search preview. It is always carried by a commit-fenced\nLibrary read snapshot and is not a second durable authority.",
+        "required": [
+          "page_id",
+          "page_key",
+          "title",
+          "preview",
+          "status",
+          "priority",
+          "tags",
+          "assignee",
+          "location_label",
+          "updated_at",
+          "properties",
+          "authorized_project_ids",
+          "data_source_ids"
+        ],
+        "properties": {
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authorized_project_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "data_source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "location_label": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preview": {
+            "type": "string"
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageSearchPriority"
+              }
+            ]
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchMetadataProperty"
+            }
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryPageSearchOption"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryPageSearchMetadataProperty": {
+        "type": "object",
+        "required": [
+          "property_id",
+          "property_name",
+          "text"
+        ],
+        "properties": {
+          "property_id": {
+            "type": "string"
+          },
+          "property_name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
       "LibraryPageSearchOption": {
         "type": "object",
         "required": [
@@ -17095,6 +17206,15 @@
             "type": "string"
           }
         }
+      },
+      "LibraryPageSearchPriority": {
+        "type": "string",
+        "enum": [
+          "p0-critical",
+          "p1-high",
+          "p2-medium",
+          "p3-low"
+        ]
       },
       "LibraryPageSearchTagMode": {
         "type": "string",
@@ -23664,6 +23784,36 @@
                     "enum": [
                       "project_page_search_facets"
                     ]
+                  },
+                  "project_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "project_page_search_metadata"
+                    ]
+                  },
+                  "page_ids": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "project_ids": {
                     "type": "array",
@@ -30943,6 +31093,27 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryProjectPageSearchFacets"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryPageSearchMetadataDocument"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "project_page_search_metadata"
+                            ]
                           }
                         }
                       },

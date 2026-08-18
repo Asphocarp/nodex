@@ -320,7 +320,8 @@ import type {
   DatabasePageSummary,
   PageSearchFacets,
   PageSearchInput,
-  PageSearchResult,
+  PageSearchSnapshot,
+  PageSearchMetadataSnapshot,
   CommandPaletteThreadSearchInput,
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadListInput,
@@ -967,7 +968,11 @@ export interface IpcApi {
   };
   "pages:search": {
     args: [input: PageSearchInput];
-    result: PageSearchResult[];
+    result: PageSearchSnapshot;
+  };
+  "pages:search-metadata": {
+    args: [projectIds: string[], pageIds?: string[]];
+    result: PageSearchMetadataSnapshot;
   };
   "pages:search-facets": {
     args: [projectIds: string[]];

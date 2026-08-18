@@ -229,6 +229,11 @@ export function DataSourcePropertyValueEditor({
           property.schema.kind === "relation"
           && property.schema.targetDataSourceId === property.dataSourceId
         }
+        targetDataSourceId={
+          property.schema.kind === "relation"
+            ? property.schema.targetDataSourceId
+            : undefined
+        }
         onPatch={onPatchRelation}
         onReplace={onReplaceOneRelation}
         onClear={() => onChange([])}

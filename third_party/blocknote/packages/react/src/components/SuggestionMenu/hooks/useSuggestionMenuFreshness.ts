@@ -5,9 +5,13 @@ import { useExtension } from "../../../hooks/useExtension.js";
 export function useSuggestionMenuFreshness({
   triggerCharacter,
   usedQuery,
+  requestScopeKey,
+  usedRequestScopeKey,
 }: {
   triggerCharacter: string;
   usedQuery: string | undefined;
+  requestScopeKey?: string;
+  usedRequestScopeKey?: string;
 }) {
   const suggestionMenu = useExtension(SuggestionMenuExtension);
 
@@ -30,9 +34,10 @@ export function useSuggestionMenuFreshness({
     return (
       liveQuery !== undefined &&
       usedQuery !== undefined &&
-      usedQuery === liveQuery
+      usedQuery === liveQuery &&
+      usedRequestScopeKey === requestScopeKey
     );
-  }, [getLiveQuery, usedQuery]);
+  }, [getLiveQuery, requestScopeKey, usedQuery, usedRequestScopeKey]);
 
   return { getLiveQuery, itemsFresh };
 }

@@ -38,6 +38,10 @@ import type {
   WorkbenchTabUpdateInput,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
+import type {
+  PageSearchMetadataSnapshot,
+  PageSearchSnapshot,
+} from "../../../../shared/types";
 import type { LibraryNavigationNode } from "../../../../shared/library-module";
 import type { WorkbenchLayoutSnapshot } from "../../../../shared/workbench-layout";
 import {
@@ -2322,38 +2326,99 @@ export function renderWorkbench({
       };
     }
     if (channel === "codex:pending-worktrees:list") return pendingWorktrees;
+    if (channel === "pages:search-metadata") {
+      const projectIds = [...new Set((args[0] as string[] | undefined) ?? [])];
+      const requestedPageIds = args[1] as string[] | undefined;
+      const documents = [
+        {
+          pageId: "card-1",
+          projectId: "alpha",
+          pageKey: "ALPHA-1",
+          title: "Card One",
+          status: "build",
+        },
+        {
+          pageId: "card-2",
+          projectId: "alpha",
+          pageKey: "ALPHA-2",
+          title: "Card Two",
+          status: "build",
+        },
+        {
+          pageId: "card-beta",
+          projectId: "beta",
+          pageKey: "BETA-1",
+          title: "Beta Card",
+          status: "build",
+        },
+      ]
+        .filter((document) => projectIds.includes(document.projectId))
+        .filter((document) => !requestedPageIds || requestedPageIds.includes(document.pageId))
+        .map((document) => ({
+          pageId: document.pageId,
+          pageKey: document.pageKey,
+          title: document.title,
+          preview: document.title,
+          status: document.status as "build",
+          priority: null,
+          tags: [],
+          assignee: null,
+          locationLabel: `${document.projectId} / Build`,
+          updatedAt: "2026-08-14T00:00:00.000Z",
+          properties: [],
+          authorizedProjectIds: [document.projectId],
+          dataSourceIds: [`data-source:${document.projectId}`],
+        }));
+      const snapshot: PageSearchMetadataSnapshot = {
+        libraryId: "library:test",
+        storeEpoch: "epoch:test",
+        commitSeq: 1,
+        authorization: {
+          libraryId: "library:test",
+          storeEpoch: "epoch:test",
+          coveredCommitSeq: 1,
+          projectIds,
+        },
+        documents,
+      };
+      return snapshot;
+    }
     if (channel === "pages:search") {
       const input = args[0] as {
         projectIds?: string[];
         query?: string;
         limit?: number;
       };
-      if (
-        input.projectIds?.includes("beta")
+      const results = input.projectIds?.includes("beta")
         && input.query?.toLowerCase().includes("beta")
-      ) {
-        return [{
-          projectId: "beta",
-          pageId: "card-beta",
-          pageKey: "BETA-1",
-          title: "Beta Card",
-          status: "build",
-          priority: null,
-          tags: [],
-          assignee: null,
-          locationLabel: "Beta / Build",
-          titleParts: [],
-          excerpt: "Beta Card",
-          excerptParts: [],
-          matches: [{
-            source: "title",
-            quality: "exact",
-            parts: [{ text: "Beta Card", highlight: true }],
-          }],
-          updatedAt: "2026-08-14T00:00:00.000Z",
-        }];
-      }
-      return [];
+        ? [{
+            projectId: "beta",
+            pageId: "card-beta",
+            pageKey: "BETA-1",
+            title: "Beta Card",
+            status: "build" as const,
+            priority: null,
+            tags: [],
+            assignee: null,
+            locationLabel: "Beta / Build",
+            titleParts: [],
+            excerpt: "Beta Card",
+            excerptParts: [],
+            matches: [{
+              source: "title" as const,
+              quality: "exact" as const,
+              parts: [{ text: "Beta Card", highlighted: true }],
+            }],
+            updatedAt: "2026-08-14T00:00:00.000Z",
+          }]
+        : [];
+      const snapshot: PageSearchSnapshot = {
+        libraryId: "library:test",
+        storeEpoch: "epoch:test",
+        commitSeq: 1,
+        results,
+      };
+      return snapshot;
     }
     if (channel === "project-sessions:list") {
       const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);

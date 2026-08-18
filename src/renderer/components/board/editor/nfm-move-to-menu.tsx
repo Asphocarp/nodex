@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -11,7 +10,6 @@ import {
 import { ActivitySpinnerIcon, NfmSideMenuChevronRightIcon } from "@/components/shared/icons";
 import {
   resolveQueryFreshAccept,
-  shouldConsumeStalePickerNavigation,
 } from "@/lib/query-fresh-picker";
 import { normalizeSearchText } from "@/lib/search-text";
 import { StatusIcon } from "@/lib/status-presentation";
@@ -339,7 +337,6 @@ export function NfmMoveToMenuSurface({
   const listboxId = useId();
   const comboboxId = useId();
   const [query, setQuery] = useState(initialQuery);
-  const deferredQuery = useDeferredValue(query);
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
     () => getDefaultNfmMoveToExpandedProjectIds(projects, sourceProjectId),
@@ -396,13 +393,14 @@ export function NfmMoveToMenuSurface({
     [pageBoardMap, projects, sourcePageId, sourceProjectId],
   );
   const searchResult = useMemo(
-    () => searchIndex.search(deferredQuery),
-    [deferredQuery, searchIndex],
+    () => searchIndex.search(query),
+    [query, searchIndex],
   );
+  const pageSearchEnabled = enableRemotePageSearch && resultScope !== "db-only";
   const remoteSearchResult = useProjectPageDestinationSearch({
     projects,
-    query: deferredQuery,
-    enabled: enableRemotePageSearch && resultScope !== "db-only",
+    query,
+    enabled: pageSearchEnabled,
     sourceProjectId,
     sourcePageId,
   });
@@ -417,15 +415,15 @@ export function NfmMoveToMenuSurface({
       sourceProjectId,
       sourcePageId,
       expandedProjectIds,
-      query: deferredQuery,
+      query,
       searchResult: resolvedSearchResult,
       resultScope,
     }),
     [
       pageBoardMap,
-      deferredQuery,
       expandedProjectIds,
       projects,
+      query,
       resultScope,
       resolvedSearchResult,
       sourcePageId,
@@ -458,14 +456,9 @@ export function NfmMoveToMenuSurface({
     sourcePageId,
     sourceProjectId,
   ]);
-  const rowsStale = shouldConsumeStalePickerNavigation({
-    liveQuery: query,
-    rowsQuery: deferredQuery,
-    normalizeQuery: normalizeSearchText,
-  });
   const resolvedFocusedRowId = resolveNfmMoveToFocusedRowId(
     focusedRowId,
-    deferredQuery,
+    query,
     rows,
   );
   const focusedIndex = resolvedFocusedRowId
@@ -524,10 +517,9 @@ export function NfmMoveToMenuSurface({
   const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         moveNfmMoveToFocusedRowId(
-          resolveNfmMoveToFocusedRowId(currentRowId, deferredQuery, rows),
+          resolveNfmMoveToFocusedRowId(currentRowId, query, rows),
           1,
           rows,
         )
@@ -536,10 +528,9 @@ export function NfmMoveToMenuSurface({
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         moveNfmMoveToFocusedRowId(
-          resolveNfmMoveToFocusedRowId(currentRowId, deferredQuery, rows),
+          resolveNfmMoveToFocusedRowId(currentRowId, query, rows),
           -1,
           rows,
         )
@@ -550,7 +541,7 @@ export function NfmMoveToMenuSurface({
       event.preventDefault();
       const result = resolveQueryFreshAccept({
         liveQuery: query,
-        rowsQuery: deferredQuery,
+        rowsQuery: query,
         rows,
         focusedIndex,
         buildFreshRows: buildRowsForQuery,
@@ -578,7 +569,7 @@ export function NfmMoveToMenuSurface({
       inputId={comboboxId}
       listboxId={listboxId}
       activeDescendantId={activeDescendantId}
-      busy={rowsStale || resolvedLoading}
+      busy={resolvedLoading}
       onQueryChange={(nextQuery) => {
         setAcceptError(null);
         setFocusedRowId(null);
@@ -599,18 +590,9 @@ export function NfmMoveToMenuSurface({
                 disabled={disabled}
                 acceptingRowId={acceptingRowId}
                 showProjectName={showProjectName}
-                onToggleProject={(projectId) => {
-                  if (rowsStale) return;
-                  toggleProject(projectId);
-                }}
-                onAccept={(row) => {
-                  if (rowsStale) return;
-                  void acceptRow(row);
-                }}
-                onFocusRowChange={(rowId) => {
-                  if (rowsStale) return;
-                  setFocusedRowId(rowId);
-                }}
+                onToggleProject={toggleProject}
+                onAccept={(row) => void acceptRow(row)}
+                onFocusRowChange={setFocusedRowId}
               />
             );
           })}
@@ -618,6 +600,16 @@ export function NfmMoveToMenuSurface({
             <NodexDestinationPickerStatus role="status">
               <ActivitySpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
               Loading…
+            </NodexDestinationPickerStatus>
+          ) : null}
+          {query && pageSearchEnabled && remoteSearchResult.enrichment === "loading" ? (
+            <NodexDestinationPickerStatus role="status">
+              {rows.length > 0 ? "Loading more Pages…" : "Loading Pages…"}
+            </NodexDestinationPickerStatus>
+          ) : null}
+          {query && pageSearchEnabled && remoteSearchResult.enrichment === "unavailable" ? (
+            <NodexDestinationPickerStatus role="status">
+              Full Page search is unavailable
             </NodexDestinationPickerStatus>
           ) : null}
           {displayError ? (

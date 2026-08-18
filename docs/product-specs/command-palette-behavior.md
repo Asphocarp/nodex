@@ -34,7 +34,7 @@ Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 - Root mode always searches command/action rows.
 - A root query shorter than `2` characters remains command-only.
 - At `2` Unicode characters, matching local chat and Page metadata appears in trailing `Chats` and `Pages` sections while commands remain visible.
-- At `2` Unicode characters, root mode starts one bounded Core Page search across metadata and body text. At `3` characters, the `Chats` section additionally merges bounded app-server chat-history results.
+- At `2` Unicode characters, root mode synchronously searches the warm, Core-authorized Page metadata projection and starts bounded Core body enrichment. At `3` characters, the `Chats` section additionally merges bounded app-server chat-history results.
 - Chats and Pages are represented as explicit command rows such as `Search chats` and `Search Pages`.
 - Executing `Search chats` switches to chats mode. Executing `Search Pages` switches to page mode.
 - `Search files` appears only in development as a disabled mock row until real file search exists.
@@ -64,8 +64,8 @@ Page mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode 
 - Commands and chats are hidden entirely in page mode.
 - Empty query shows default Page suggestions.
 - Page mode keeps a trailing `Filter` button on the search-input row.
-- A fixed-height `Searching pages...` status occupies the async result slot while the authoritative Core result is pending, and `No matching pages.` appears only after the current query, filters, and Project scope have settled with no matches.
-- A failed request shows `Page search is unavailable. Try again.` and never falls back to the renderer's incomplete set of already loaded Pages.
+- Query-fresh metadata rows appear in the input event. While Core body enrichment is pending, the final result slot is reserved for `Loading more Pages…`; `No matching pages.` appears only after the current query, filters, Project scope, and projection revision have settled with no matches.
+- A failed enrichment keeps synchronous metadata rows and shows `Full Page search is unavailable`. It never falls back to an incomplete corpus assembled from mounted Boards.
 - Clicking `Filter` opens a transient popover with property filters for status, priority, tags, assignee, and project.
 - When any palette filters are active, the palette shows a compact summary row directly under the input, using the same compact pill language as the DB view toolbar.
 - Palette Page filters persist across palette reopen and app reload, but the free-text query still clears on close.
@@ -90,7 +90,7 @@ Core Page search matches the following normalized fields:
 Normalization is Unicode NFKC normalization, lowercasing, and whitespace tokenization. A multi-term query requires every term to match somewhere on the same Page.
 
 ### Ranking
-Core produces the final Page order. Match classes are ordered by specificity:
+One Rust search kernel, used natively by Core and as renderer WASM, produces metadata order and evidence. Complete Core search may add body evidence/results. Match classes are ordered by specificity:
 
 - current or historical Page key
 - exact Page id, then Page-id prefix
@@ -125,7 +125,8 @@ For empty queries, Core returns suggestions ordered by:
 ### Projection lifecycle
 - SQLite remains the durable source of Page metadata, Properties, body-search rows, and authorization roots.
 - Core may reuse a derived in-memory Page-search projection only while both Store epoch and commit head still match the read snapshot. The first read after a committed change rebuilds it before answering.
-- The renderer issues one typed Core request per settled query and filter scope, deduplicates only identical concurrent requests, and does not persist, cache, or re-score Page results.
+- Core publishes a read-only metadata bootstrap fenced by Store epoch, commit head, and Project authorization scope. Library change events refresh affected Pages or replace the snapshot; an epoch/scope change revokes it before further synchronous reads.
+- The renderer prewarms this projection, queries it synchronously on every live input, and debounces only complete Core enrichment. It does not persist the projection or implement matching/ranking in TypeScript.
 - Root mode requests at most `12` Page results; focused Page mode requests at most `60`.
 - Filter facets come from the same authorized Core projection as search results.
 

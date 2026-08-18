@@ -481,6 +481,48 @@ export interface PageSearchResult {
   updatedAt: string;
 }
 
+export interface PageSearchSnapshot {
+  libraryId: string;
+  storeEpoch: string;
+  commitSeq: number;
+  results: PageSearchResult[];
+}
+
+export interface PageSearchMetadataProperty {
+  propertyId: string;
+  propertyName: string;
+  text: string;
+}
+
+export interface PageSearchMetadataDocument {
+  pageId: string;
+  pageKey: string | null;
+  title: string;
+  preview: string;
+  status: WorkflowStatus | null;
+  priority: Priority | null;
+  tags: PageSearchOption[];
+  assignee: string | null;
+  locationLabel: string;
+  updatedAt: string;
+  properties: PageSearchMetadataProperty[];
+  authorizedProjectIds: string[];
+  dataSourceIds: string[];
+}
+
+export interface PageSearchMetadataSnapshot {
+  libraryId: string;
+  storeEpoch: string;
+  commitSeq: number;
+  authorization: {
+    libraryId: string;
+    storeEpoch: string;
+    coveredCommitSeq: number;
+    projectIds: string[];
+  };
+  documents: PageSearchMetadataDocument[];
+}
+
 export interface CommandPaletteThreadSummary {
   threadId: string;
   sessionId: string | null;

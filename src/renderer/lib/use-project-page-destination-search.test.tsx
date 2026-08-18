@@ -1,187 +1,48 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ReactNode } from "react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
-
+import { renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
-import type { ProjectionScope, ProjectionStreamMessage } from "../../shared/projection-stream";
-import type { Project } from "./types";
-import { ProjectionInvalidationProvider } from "./projection-invalidation-context";
-import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
-import { invoke } from "./api";
+import type { PageSearchResult, Project } from "./types";
+import { __testing } from "./interactive-page-search";
 import { useProjectPageDestinationSearch } from "./use-project-page-destination-search";
 
-vi.mock("./api", () => ({ invoke: vi.fn() }));
+vi.mock("./api", () => ({
+  invoke: vi.fn(() => new Promise(() => undefined)),
+  subscribeLibraryChanges: () => () => undefined,
+}));
 
-const mockedInvoke = vi.mocked(invoke);
-
-const project = (): Project => ({
-  id: "project-1",
-  libraryId: "library-1",
-  databaseId: "database-1",
-  defaultDatabaseViewId: "view-1",
-  lifecycle: "active",
-  bindingRevision: 1,
-  name: "Lab",
-  description: "",
-  appearance: DEFAULT_PROJECT_APPEARANCE,
-  sources: [],
-  primaryWorkspaceRoot: null,
-  pinned: false,
-  pinnedOrder: null,
+const project: Project = {
+  id: "project-1", libraryId: "library-1", databaseId: "database-1",
+  defaultDatabaseViewId: "view-1", lifecycle: "active", bindingRevision: 1,
+  name: "Lab", description: "", appearance: DEFAULT_PROJECT_APPEARANCE,
+  sources: [], primaryWorkspaceRoot: null, pinned: false, pinnedOrder: null,
   created: new Date("2026-08-14T00:00:00.000Z"),
   updated: new Date("2026-08-14T00:00:00.000Z"),
-});
+};
 
-const databaseEffect = (
-  scope: ProjectionScope,
-  databaseId: string,
-  commitSeq: number,
-): ProjectionStreamMessage => ({
-  version: 2,
-  kind: "effect",
-  scope,
-  stream: { storeEpoch: "epoch-1", commitSeq },
-  delivery: {
-    storeEpoch: "epoch-1",
-    commitSeq,
-    manifestHash: "a".repeat(64),
-    operationId: `operation-${commitSeq}`,
-    committedAt: "2026-08-14T00:00:00.000Z",
-    impact: {
-      kind: "resources",
-      page_ids: [],
-      database_ids: [databaseId],
-      data_source_ids: [],
-      view_ids: [],
-      document_heads: [],
-    },
-    effect: {
-      scope: {
-        schema_version: 1,
-        canonical_key: `page-detail-database:${databaseId}`,
-        scope: {
-          kind: "page_detail_database",
-          project_id: "project-1",
-          database_id: databaseId,
-        },
-      },
-      baseRevision: commitSeq - 1,
-      resultRevision: commitSeq,
-      coveredCommitSeq: commitSeq,
-      patch: null,
-      requiresReadAtLeast: true,
-      effectHash: "b".repeat(64),
-    },
-  },
-});
+const result: PageSearchResult = {
+  projectId: "project-1", pageId: "page-1", pageKey: "LAB-13", title: "Launch",
+  status: "build", priority: null, tags: [], assignee: null,
+  locationLabel: "Lab", titleParts: [], excerpt: null, excerptParts: [], matches: [],
+  updatedAt: "2026-08-14T00:00:00.000Z",
+};
 
-describe("Project Page destination search freshness", () => {
-  beforeEach(() => {
-    mockedInvoke.mockReset();
-  });
+afterEach(() => __testing.reset());
 
-  test("refetches a warm query for the affected Database only", async () => {
-    const listeners = new Map<string, (message: ProjectionStreamMessage) => void>();
-    const registry = new ProjectionInvalidationRegistry({
-      subscribeProjection: (scope, listener) => {
-        listeners.set(JSON.stringify(scope), listener);
-        return () => listeners.delete(JSON.stringify(scope));
-      },
-      subscribeRevocations: () => () => undefined,
+describe("Project Page destination search", () => {
+  test("returns the live-query WASM metadata row without awaiting Core enrichment", () => {
+    __testing.installIndex([project.id], {
+      replace: () => undefined,
+      applyDelta: () => undefined,
+      search: (request: { query?: string }) => request.query === "lab-13" ? [result] : [],
     });
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    mockedInvoke
-      .mockResolvedValueOnce([{
-        projectId: "project-1",
-        pageId: "page-1",
-        pageKey: "LAB-13",
-        title: "Launch",
-        status: "build",
-        priority: null,
-        tags: [],
-        assignee: null,
-        locationLabel: "Lab / Build",
-        titleParts: [],
-        excerpt: "Launch",
-        excerptParts: [],
-        matches: [{
-          source: "page_key",
-          quality: "exact",
-          pageKey: "LAB-13",
-          isCurrent: true,
-          parts: [],
-        }],
-        updatedAt: "2026-08-14T00:00:00.000Z",
-      }])
-      .mockResolvedValueOnce([{
-        projectId: "project-1",
-        pageId: "page-1",
-        pageKey: "RND-13",
-        title: "Launch",
-        status: "build",
-        priority: null,
-        tags: [],
-        assignee: null,
-        locationLabel: "Lab / Build",
-        titleParts: [],
-        excerpt: "Launch",
-        excerptParts: [],
-        matches: [{
-          source: "page_key",
-          quality: "exact",
-          pageKey: "LAB-13",
-          isCurrent: false,
-          parts: [],
-        }],
-        updatedAt: "2026-08-14T00:00:00.000Z",
-      }]);
-    const wrapper = ({ children }: { readonly children: ReactNode }) => (
-      <QueryClientProvider client={queryClient}>
-        <ProjectionInvalidationProvider registry={registry}>
-          {children}
-        </ProjectionInvalidationProvider>
-      </QueryClientProvider>
-    );
     const hook = renderHook(() => useProjectPageDestinationSearch({
-      projects: [project()],
-      query: "LAB-13",
-      enabled: true,
-    }), { wrapper });
-
-    await waitFor(() => expect(hook.result.current.pageHits[0]?.pageKey).toBe("LAB-13"));
-    const listener = listeners.get(JSON.stringify({
-      kind: "project",
-      libraryId: "library-1",
-      projectId: "project-1",
+      projects: [project], query: "LAB-13", enabled: true,
     }));
-    expect(listener).toBeDefined();
 
-    await act(async () => {
-      listener?.(databaseEffect({
-        kind: "project",
-        libraryId: "library-1",
-        projectId: "project-1",
-      }, "database-unrelated", 1));
-      await Promise.resolve();
+    expect(hook.result.current.pageHits[0]).toMatchObject({
+      pageId: "page-1", pageKey: "LAB-13", pageTitle: "Launch",
     });
-    expect(mockedInvoke).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      listener?.(databaseEffect({
-        kind: "project",
-        libraryId: "library-1",
-        projectId: "project-1",
-      }, "database-1", 2));
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(hook.result.current.pageHits[0]).toMatchObject({
-      pageKey: "RND-13",
-      matchedPageKey: "LAB-13",
-      matchedPageKeyIsCurrent: false,
-    }));
-    expect(mockedInvoke).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.enrichment).toBe("loading");
+    hook.unmount();
   });
 });

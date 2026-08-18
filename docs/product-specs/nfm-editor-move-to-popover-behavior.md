@@ -34,9 +34,9 @@ The `Page in` row inside the side-menu `Turn into` submenu uses the same popover
 
 - Opening the popover resets its query and expands the current source DB when available.
 - With an empty query, the `Page` section shows the bounded first window from the current source Project. Without a source Project, no destination is executable.
-- Typing filters the current Project by DB name, status name, and Page title. Search visibility is not treated as write authority for another Project.
-- Search uses the shared command-palette text normalization, all-term matching, prefix matching for terms of at least two characters, and the same fuzzy threshold policy.
-- The popover intentionally does not search Page descriptions, tags, or assignees; those broader Page fields remain command-palette behavior.
+- Typing filters DB and status destinations locally while Page rows come from the prewarmed, Core-authorized metadata projection in the same input event. Search visibility is not treated as write authority for another Project.
+- Page metadata uses the shared Rust search kernel for normalization, all-term matching, prefixes, fuzzy thresholds, ranking, and highlights. Debounced complete Core search may add body-only Page matches; pending enrichment is a stable trailing status row and never clears synchronous rows.
+- The renderer does not inspect loaded Board cards or implement a second Page-title/Page-key matcher. The Core move command remains the final destination authority.
 - A non-empty query resets keyboard focus to the first visible row and auto-expands matching DB rows.
 - Arrow Up and Arrow Down move through visible rows.
 - Enter toggles a DB row or accepts a DB status/Page row.

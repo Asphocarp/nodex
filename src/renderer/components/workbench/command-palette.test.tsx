@@ -41,6 +41,7 @@ const apiMock: {
 
 vi.mock("../../lib/api", () => ({
   invoke: (...args: unknown[]) => apiMock.invokeImplementation(...args),
+  subscribeLibraryChanges: () => () => undefined,
 }));
 
 function makeCommandContext(
@@ -536,7 +537,7 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(container)).toContain("Searching pages");
+    expect(textContent(container)).toContain("Loading more Pages…");
     expect(textContent(container)).not.toContain("Release checklist");
     expect(textContent(container)).not.toContain("No matching pages");
   });
@@ -573,7 +574,7 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(container)).toContain("Page search is unavailable. Try again.");
+    expect(textContent(container)).toContain("Full Page search is unavailable");
     expect(textContent(container)).not.toContain("Incomplete local result");
     expect(textContent(container)).not.toContain("No matching pages");
   });
@@ -610,7 +611,7 @@ describe("CommandPaletteSurface", () => {
     await settleAsyncRender();
 
     expect(textContent(container)).toContain("No matching pages");
-    expect(textContent(container)).not.toContain("Searching pages");
+    expect(textContent(container)).not.toContain("Loading more Pages…");
   });
 
   test("fills the root discovery budget with Pages without an independent Page cap", async () => {
@@ -1006,7 +1007,7 @@ describe("CommandPaletteSurface", () => {
     await settleAsyncRender();
 
     expect(container.querySelectorAll("button[cmdk-item]")).toHaveLength(8);
-    expect(textContent(container)).toContain("Searching chat history");
+    expect(textContent(container)).toContain("Loading chats…");
   });
 
   test("keeps local chat matches visible when app-server search fails", async () => {

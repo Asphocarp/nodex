@@ -82,6 +82,8 @@ interface SemanticOperationSummary {
 const fixtureRoot = path.resolve(
   "crates/nodex-core/tests/fixtures/yjs-yrs",
 );
+// The first bridge invocation may cold-start rustup and compile the bridge on CI.
+const rustBridgeColdStartTimeoutMs = 300_000;
 const temporaryRoots: string[] = [];
 
 const firstXmlText = (node: Y.XmlFragment | Y.XmlElement): Y.XmlText => {
@@ -297,7 +299,7 @@ describe("Yjs/Yrs compatibility", () => {
         semanticXml(source.getXmlFragment("body")),
       );
     },
-    180_000,
+    rustBridgeColdStartTimeoutMs,
   );
 
   test(

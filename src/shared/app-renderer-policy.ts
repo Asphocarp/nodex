@@ -72,7 +72,7 @@ export function buildTopLevelRendererCsp(input: {
     "base-uri 'none'",
     "object-src 'none'",
     "form-action 'none'",
-    `script-src 'self' ${developmentScriptSources.join(" ")}`.trim(),
+    `script-src 'self' 'wasm-unsafe-eval' ${developmentScriptSources.join(" ")}`.trim(),
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "img-src 'self' nodex-asset: data: blob: https:",

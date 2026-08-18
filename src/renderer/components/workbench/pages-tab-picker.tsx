@@ -1,7 +1,7 @@
 import {
-  useDeferredValue,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -30,6 +30,10 @@ import {
   TOOLBAR_BUTTON_GHOST_CLASS,
 } from "@/lib/workbench-toolbar-control-styles";
 import { cn } from "@/lib/utils";
+import {
+  configuredPageSearchProjectIds,
+  useInteractivePageSearch,
+} from "@/lib/interactive-page-search";
 
 function targetIcon(target: LibraryRouteTarget) {
   if (target.kind === "database" || target.kind === "view") {
@@ -86,13 +90,11 @@ export function PagesTabPicker({
   const optionRefs = useRef(new Map<number, HTMLButtonElement>());
   const comboboxId = useId();
   const listboxId = `${comboboxId}-listbox`;
-  const deferredQuery = useDeferredValue(
-    query.trim().slice(0, MAX_LIBRARY_QUERY_LENGTH),
-  );
+  const liveQuery = query.trim().slice(0, MAX_LIBRARY_QUERY_LENGTH);
   const catalog = dataSource.useCatalog({
     lifecycle: "active",
     kinds: ["page", "database", "canvas"],
-    ...(deferredQuery ? { query: deferredQuery } : {}),
+    ...(liveQuery ? { query: liveQuery } : {}),
     limit: 40,
   });
   const createCommands = dataSource.useCreateCommands({
@@ -101,7 +103,29 @@ export function PagesTabPicker({
       onOpenTarget(target);
     },
   });
-  const items = catalog.data?.pages.flatMap((page) => page.items) ?? [];
+  const preview = useInteractivePageSearch({
+    projectIds: configuredPageSearchProjectIds(),
+    query: liveQuery,
+    limit: 40,
+  });
+  const catalogItems = useMemo(
+    () => catalog.data?.pages.flatMap((page) => page.items) ?? [],
+    [catalog.data?.pages],
+  );
+  const items = useMemo(() => {
+    if (!liveQuery || dataSource !== DEFAULT_DATA_SOURCE) return catalogItems;
+    const previewItems = preview.rows.map((row) => ({
+      target: { kind: "page" as const, pageId: row.pageId },
+      title: row.title,
+      locationLabel: row.locationLabel,
+    }));
+    const previewPageIds = new Set(preview.rows.map((row) => row.pageId));
+    return [
+      ...previewItems,
+      ...catalogItems.filter((item) =>
+        item.target.kind !== "page" || !previewPageIds.has(item.target.pageId)),
+    ];
+  }, [catalogItems, dataSource, liveQuery, preview.rows]);
   const resolvedActiveIndex = items.length === 0
     ? -1
     : Math.min(activeIndex, items.length - 1);
@@ -238,7 +262,7 @@ export function PagesTabPicker({
           ))}
           {catalog.isPending ? (
             <div role="status" className="px-3 py-6 text-center text-sm text-token-text-tertiary">
-              Loading…
+              {items.length > 0 ? "Loading more Pages…" : "Loading Pages…"}
             </div>
           ) : null}
           {catalog.isError ? (

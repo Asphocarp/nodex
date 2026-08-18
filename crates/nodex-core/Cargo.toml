@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 nodex-core-contracts.workspace = true
 nodex-store-format.workspace = true
+nodex-page-search-kernel.workspace = true
 base64.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true

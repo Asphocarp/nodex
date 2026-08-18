@@ -1,7 +1,6 @@
 
 import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -12,10 +11,7 @@ import {
 import { ActivitySpinnerIcon, SearchIcon } from "@/components/shared/icons";
 import { NodexDestinationPickerPageRowContent } from "@/components/ui/destination-picker";
 import { createNfmMoveToSearchIndex } from "@/components/board/editor/nfm-move-to-menu-search";
-import {
-  resolveQueryFreshAccept,
-  shouldConsumeStalePickerNavigation,
-} from "@/lib/query-fresh-picker";
+import { resolveQueryFreshAccept } from "@/lib/query-fresh-picker";
 import { normalizeSearchText } from "@/lib/search-text";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useBoardsForProjects } from "@/lib/use-project-board-windows";
@@ -68,11 +64,13 @@ function getPanelDestinationRowDomId(listboxId: string, index: number) {
 
 function PanelDestinationStatusRow({
   children,
+  role = "status",
 }: {
   children: ReactNode;
+  role?: "status" | "alert";
 }) {
   return (
-    <div className="flex h-9 items-center px-3 text-[13px] leading-5 text-token-description-foreground">
+    <div role={role} className="flex h-9 items-center px-3 text-[13px] leading-5 text-token-description-foreground">
       {children}
     </div>
   );
@@ -339,7 +337,6 @@ export function PanelDestinationPickerSurface({
   const listboxId = useId();
   const comboboxId = useId();
   const [query, setQuery] = useState(initialQuery);
-  const deferredQuery = useDeferredValue(query);
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
   const [acceptingRowId, setAcceptingRowId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
@@ -375,13 +372,14 @@ export function PanelDestinationPickerSurface({
     [boardMap, projects],
   );
   const searchResult = useMemo(
-    () => searchIndex.search(deferredQuery),
-    [deferredQuery, searchIndex],
+    () => searchIndex.search(query),
+    [query, searchIndex],
   );
+  const pageSearchEnabled = enableRemotePageSearch && scope !== "db-only";
   const remoteSearchResult = useProjectPageDestinationSearch({
     projects,
-    query: deferredQuery,
-    enabled: enableRemotePageSearch && scope !== "db-only",
+    query,
+    enabled: pageSearchEnabled,
   });
   const resolvedSearchResult = useMemo(
     () => mergeDestinationSearchResults(searchResult, remoteSearchResult),
@@ -392,12 +390,12 @@ export function PanelDestinationPickerSurface({
       projects,
       boardMap,
       databaseDescriptorMap,
-      query: deferredQuery,
+      query,
       searchResult: resolvedSearchResult,
       scope,
       currentProjectId,
     }),
-    [boardMap, currentProjectId, databaseDescriptorMap, deferredQuery, projects, resolvedSearchResult, scope],
+    [boardMap, currentProjectId, databaseDescriptorMap, projects, query, resolvedSearchResult, scope],
   );
   const rows = useMemo(() => flattenPanelDestinationRows(sections), [sections]);
   const buildRowsForQuery = useCallback((nextQuery: string): readonly PanelDestinationRow[] => {
@@ -423,14 +421,9 @@ export function PanelDestinationPickerSurface({
     scope,
     searchIndex,
   ]);
-  const rowsStale = shouldConsumeStalePickerNavigation({
-    liveQuery: query,
-    rowsQuery: deferredQuery,
-    normalizeQuery: normalizeSearchText,
-  });
   const resolvedFocusedRowId = resolvePanelDestinationFocusedRowId(
     focusedRowId,
-    deferredQuery,
+    query,
     rows,
   );
   const focusedIndex = resolvedFocusedRowId
@@ -463,10 +456,9 @@ export function PanelDestinationPickerSurface({
   const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         movePanelDestinationFocusedRowId(
-          resolvePanelDestinationFocusedRowId(currentRowId, deferredQuery, rows),
+          resolvePanelDestinationFocusedRowId(currentRowId, query, rows),
           1,
           rows,
         )
@@ -475,10 +467,9 @@ export function PanelDestinationPickerSurface({
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         movePanelDestinationFocusedRowId(
-          resolvePanelDestinationFocusedRowId(currentRowId, deferredQuery, rows),
+          resolvePanelDestinationFocusedRowId(currentRowId, query, rows),
           -1,
           rows,
         )
@@ -489,7 +480,7 @@ export function PanelDestinationPickerSurface({
       event.preventDefault();
       const result = resolveQueryFreshAccept({
         liveQuery: query,
-        rowsQuery: deferredQuery,
+        rowsQuery: query,
         rows,
         focusedIndex,
         buildFreshRows: buildRowsForQuery,
@@ -539,7 +530,7 @@ export function PanelDestinationPickerSurface({
         />
       </div>
       <div className="notion-scroller vertical h-[374px] min-h-0 overflow-y-auto pb-3">
-        <div id={listboxId} role="listbox" aria-labelledby={comboboxId} aria-busy={rowsStale || loading}>
+        <div id={listboxId} role="listbox" aria-labelledby={comboboxId} aria-busy={loading}>
           {sections.map((section) => {
             const startIndex = rowIndex;
             rowIndex += section.rows.length;
@@ -552,14 +543,8 @@ export function PanelDestinationPickerSurface({
                 focusedIndex={focusedIndex}
                 disabled={disabled}
                 acceptingRowId={acceptingRowId}
-                onAccept={(row) => {
-                  if (rowsStale) return;
-                  void acceptRow(row);
-                }}
-                onFocusRowChange={(rowId) => {
-                  if (rowsStale) return;
-                  setFocusedRowId(rowId);
-                }}
+                onAccept={(row) => void acceptRow(row)}
+                onFocusRowChange={setFocusedRowId}
               />
             );
           })}
@@ -569,8 +554,16 @@ export function PanelDestinationPickerSurface({
               Loading…
             </PanelDestinationStatusRow>
           ) : null}
+          {query && pageSearchEnabled && remoteSearchResult.enrichment === "loading" ? (
+            <PanelDestinationStatusRow>
+              {rows.length > 0 ? "Loading more Pages…" : "Loading Pages…"}
+            </PanelDestinationStatusRow>
+          ) : null}
+          {query && pageSearchEnabled && remoteSearchResult.enrichment === "unavailable" ? (
+            <PanelDestinationStatusRow role="alert">Full Page search is unavailable</PanelDestinationStatusRow>
+          ) : null}
           {displayError ? (
-            <PanelDestinationStatusRow>{PANEL_DESTINATION_ERROR}</PanelDestinationStatusRow>
+            <PanelDestinationStatusRow role="alert">{PANEL_DESTINATION_ERROR}</PanelDestinationStatusRow>
           ) : null}
           {!loading && !displayError && rows.length === 0 ? (
             <PanelDestinationStatusRow>No results</PanelDestinationStatusRow>

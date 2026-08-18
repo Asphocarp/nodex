@@ -11,10 +11,10 @@ describe("top-level renderer CSP", () => {
     expect(APP_RENDERER_URL).toBe("app://-/index.html");
   });
 
-  test("denies by default without inline script or eval", () => {
+  test("denies inline and JavaScript eval while allowing the bundled WASM kernel", () => {
     const csp = buildTopLevelRendererCsp({ mode: "production" });
     expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'");
     expect(csp).not.toContain("'unsafe-eval'");
     expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).toContain("https://api.statsigcdn.com");
