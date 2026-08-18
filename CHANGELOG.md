@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.2.2] - 2026-08-18
+
+### Added
 - Added an opt-in Nightly update channel with signed, notarized mainline builds, isolated Sparkle feeds, and an in-app Stable/Nightly selector.
 - Added coherent Page connections: inline `@Page` mentions, live `/Embed page` references, internal Page links and contextual deeplink paste, typed `/Subpage` creation, and authorized `Referenced by` navigation in Page Stage.
 - Added shared image preview and restorable right-panel editing for uploaded and generated images, including direct Composer entry, New Chat and queued edit submission, zoom and pan, positional comments, removal masks, aspect-ratio edits, and Focused/Canvas generated-image workflows.
@@ -19,18 +26,15 @@ All notable changes to this project will be documented in this file.
 - Added a searchable keyboard shortcut reference plus Board-first navigation, Peek, selection, property editing, reordering, expanded Page creation, and sequence shortcuts for opening and navigating Pages, chats, and Settings.
 
 ### Changed
-
 - Database Views now keep one durable identity and Filter while switching between Board and List; personal display changes persist per View and can be reset or published as the View default.
 - Board and List now share effective View authority and layout-independent manual order, and every Board grouping uses the same compact Column/Card UI, whole-card drag, column controls, Page menus, and keyboard behavior.
 - Replaced the Library workspace and ownership tree with a compact Pages section for standalone top-level resources; every Page, Database, and Canvas in a window now shares one restorable tablist with searchable open/new actions, breadcrumbs, and app-wide Back/Forward navigation without switching Projects.
 
 ### Removed
-
 - Removed the former Table, top-level expandable List, and Database Calendar presentations; scheduling, recurrence, reminders, and occurrence data remain available as independent domain capabilities.
 - Removed the `P4 - Later` priority tier; existing P4 assignments, saved View filters, and local UI filters migrate to `P3 - Low`.
 
 ### Fixed
-
 - Fixed NFM Block promotion so task shorthand such as `1XL(ui, unclear)` atomically becomes Page Priority, Estimate, and Tags; unsafe interpretations preserve the complete title, and the whole promotion can be safely undone.
 - Fixed Project New Chat Terminals failing before the first message; they now open in the Project workspace and remain the same Terminal when the Chat gains its Thread.
 - Fixed the NFM `Move to` picker so Page and Database-status destinations commit real atomic Block moves, stay inside the source Project's write authority, and show specific retryable errors instead of a generic failure.
