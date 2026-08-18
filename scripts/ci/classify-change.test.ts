@@ -39,28 +39,49 @@ describe("CI change classification", () => {
     });
   });
 
-  test("forces release metadata through both application and runtime gates", () => {
+  test("routes an exact release metadata set to the narrow release guard", () => {
     expect(classifyChangedPaths([
       "Cargo.lock",
       "Cargo.toml",
       "CHANGELOG.md",
       "package.json",
     ])).toEqual({
-      app: true,
+      app: false,
       dependencyKind: "none",
       browser: false,
       docsOnly: false,
       electronMain: false,
-      fullRequired: true,
+      fullRequired: false,
       landingOnly: false,
       migration: false,
       protocol: false,
       releaseMetadata: true,
       renderer: false,
-      runtime: true,
-      rust: true,
+      runtime: false,
+      rust: false,
       storage: false,
-      stressRelevant: true,
+      stressRelevant: false,
+    });
+  });
+
+  test("keeps an incomplete release metadata set on the ordinary gates", () => {
+    expect(classifyChangedPaths(["package.json"])).toMatchObject({
+      app: true,
+      fullRequired: true,
+      releaseMetadata: false,
+      runtime: true,
+    });
+    expect(classifyChangedPaths([
+      "Cargo.lock",
+      "Cargo.toml",
+      "CHANGELOG.md",
+      "package.json",
+      "README.md",
+    ])).toMatchObject({
+      app: true,
+      fullRequired: true,
+      releaseMetadata: false,
+      runtime: true,
     });
   });
 
