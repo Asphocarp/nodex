@@ -51,7 +51,7 @@ jobs:
           fi
           successful="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
             -f head_sha="${SOURCE_SHA}" -f event=push -f status=completed \
-            --jq '[.workflow_runs[] | select(.name == "CI" and .head_branch == "main" and .conclusion == "success")] | length')"
+            --jq '[.workflow_runs[] | select(.name == "Main CI" and .head_branch == "main" and .conclusion == "success")] | length')"
           if [[ "${successful}" == "0" ]]; then
             echo "Release SHA does not have a successful protected-main CI run." >&2
             exit 1

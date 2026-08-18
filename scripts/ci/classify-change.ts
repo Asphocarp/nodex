@@ -5,10 +5,19 @@ import { fileURLToPath } from "node:url";
 
 export interface ChangeClassification {
   readonly app: boolean;
+  readonly browser: boolean;
   readonly docsOnly: boolean;
+  readonly electronMain: boolean;
+  readonly fullRequired: boolean;
   readonly landingOnly: boolean;
+  readonly migration: boolean;
+  readonly protocol: boolean;
   readonly releaseMetadata: boolean;
+  readonly renderer: boolean;
+  readonly rust: boolean;
   readonly runtime: boolean;
+  readonly storage: boolean;
+  readonly stressRelevant: boolean;
 }
 
 const RELEASE_PATHS = new Set([
@@ -48,6 +57,7 @@ const isRuntimePath = (path: string): boolean =>
   || path.startsWith("resources/agent-runtime/")
   || path.startsWith("resources/browser-runtime/")
   || path.startsWith("resources/macos/")
+  || path.startsWith("scripts/ci/")
   || path.startsWith("scripts/release/")
   || /^(scripts\/(archive|materialize|probe|sign|stage|verify)-.*runtime)/u.test(path)
   || path.startsWith("src/main/codex/")
@@ -55,12 +65,91 @@ const isRuntimePath = (path: string): boolean =>
   || path.startsWith("src/shared/codex-")
   || path.startsWith("src/shared/core-");
 
+const isRendererPath = (path: string): boolean =>
+  path.startsWith("src/renderer/")
+  || path.startsWith("packages/storybook/")
+  || path.startsWith("src/shared/")
+  || path.startsWith("config/renderer-vite")
+  || path.startsWith("vitest.renderer")
+  || path.startsWith("vitest.browser");
+
+const isElectronMainPath = (path: string): boolean =>
+  path.startsWith("src/main/")
+  || path.startsWith("src/preload/")
+  || path === "electron.vite.config.ts"
+  || path === "electron-builder.yml"
+  || path === "scripts/run-vitest-in-electron.mjs"
+  || path.startsWith("scripts/scenarios/")
+  || path.startsWith("tests/e2e/");
+
+const isBrowserPath = (path: string): boolean =>
+  isRendererPath(path)
+  || path.startsWith("tests/e2e/")
+  || path.startsWith("vitest.browser")
+  || path.startsWith("playwright");
+
+const isRustPath = (path: string): boolean =>
+  path === "Cargo.toml"
+  || path === "Cargo.lock"
+  || path === "rust-toolchain.toml"
+  || path.startsWith("crates/")
+  || path.startsWith("scripts/legacy-profile-migrator/")
+  || path === "scripts/build-legacy-profile-migrator.ts";
+
+const isStoragePath = (path: string): boolean =>
+  path.startsWith("crates/nodex-core/src/infrastructure/")
+  || path.startsWith("crates/nodex-core/schema/")
+  || path.startsWith("crates/nodex-store-format/")
+  || path.startsWith("resources/legacy-profile-migrator/")
+  || path.startsWith("scripts/legacy-profile-migrator/")
+  || path === "scripts/build-legacy-profile-migrator.ts";
+
+const isMigrationPath = (path: string): boolean =>
+  path === "crates/nodex-core/src/infrastructure/migration.rs"
+  || path === "crates/nodex-core/src/infrastructure/legacy_migration.rs"
+  || path.startsWith("crates/nodex-core/schema/")
+  || path.startsWith("crates/nodex-store-format/")
+  || path.startsWith("resources/legacy-profile-migrator/")
+  || path.startsWith("scripts/legacy-profile-migrator/")
+  || path === "scripts/build-legacy-profile-migrator.ts";
+
+const isProtocolPath = (path: string): boolean =>
+  path.startsWith("crates/nodex-core-contracts/")
+  || path.startsWith("crates/nodex-core-protocol/")
+  || path.startsWith("packages/codex-app-server-protocol/")
+  || path.startsWith("packages/core-protocol/")
+  || path.startsWith("src/shared/core-")
+  || path.startsWith("src/shared/codex-")
+  || path.startsWith("src/main/core-client/");
+
+const isStressRelevantPath = (path: string): boolean =>
+  isRustPath(path)
+  || isStoragePath(path)
+  || path.includes(".stress.")
+  || path.includes("performance")
+  || path.includes("concurrency")
+  || path.includes("scheduler")
+  || path.includes("lifecycle")
+  || path.includes("canvas")
+  || path.startsWith("src/main/core-client/")
+  || path.startsWith("src/main/codex/");
+
+const isFullRequiredPath = (path: string): boolean =>
+  RELEASE_PATHS.has(path)
+  || path === "pnpm-lock.yaml"
+  || path === "rust-toolchain.toml"
+  || path.startsWith(".github/workflows/")
+  || path.startsWith(".github/actions/")
+  || path.startsWith("scripts/ci/");
+
 const isKnownAppPath = (path: string): boolean =>
   path.startsWith("src/")
   || path.startsWith("packages/storybook/")
   || path.startsWith("scripts/")
   || path.startsWith("resources/")
   || path.startsWith("crates/")
+  || path.startsWith(".config/")
+  || path.startsWith(".github/")
   || path.startsWith("playwright")
   || path.startsWith("vitest")
   || path.startsWith("tsconfig")
@@ -84,10 +173,19 @@ export function classifyChangedPaths(
   if (options.full || paths.length === 0) {
     return {
       app: true,
+      browser: true,
       docsOnly: false,
+      electronMain: true,
+      fullRequired: true,
       landingOnly: false,
+      migration: true,
+      protocol: true,
       releaseMetadata: false,
+      renderer: true,
+      rust: true,
       runtime: true,
+      storage: true,
+      stressRelevant: true,
     };
   }
 
@@ -101,13 +199,23 @@ export function classifyChangedPaths(
     && !isKnownAppPath(path)
     && !RELEASE_PATHS.has(path)
   ));
+  const fullRequired = paths.some(isFullRequiredPath) || hasUnknownPath || releaseMetadata;
 
   return {
     app: releaseMetadata || (!docsOnly && !landingOnly),
+    browser: paths.some(isBrowserPath),
     docsOnly,
+    electronMain: paths.some(isElectronMainPath),
+    fullRequired,
     landingOnly,
+    migration: paths.some(isMigrationPath),
+    protocol: paths.some(isProtocolPath),
     releaseMetadata,
+    renderer: paths.some(isRendererPath),
+    rust: paths.some(isRustPath),
     runtime: releaseMetadata || hasUnknownPath || paths.some(isRuntimePath),
+    storage: paths.some(isStoragePath),
+    stressRelevant: paths.some(isStressRelevantPath),
   };
 }
 

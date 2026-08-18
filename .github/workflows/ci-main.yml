@@ -1,0 +1,246 @@
+name: Main CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: main-ci
+  cancel-in-progress: false
+
+jobs:
+  static-contracts:
+    name: main static contracts
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: main-static-contracts
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Verify runner CLI tools
+        run: rg --version
+      - name: Run static contracts
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name static-contracts -- pnpm run verify:static
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  rust-full:
+    name: full Rust verification
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: main-rust-full
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Verify runner CLI tools
+        run: rg --version
+      - name: Check Rust formatting
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-format -- pnpm run core:fmt
+      - name: Run Rust lint
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-clippy -- pnpm run core:clippy
+      - name: Run full Rust suite
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-full -- pnpm run core:test:full
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  app-tests:
+    name: full app tests
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: main-app-tests
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Run full application suites
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name app-tests -- xvfb-run --auto-servernum pnpm test
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  stress-tests:
+    name: full stress tests
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: main-stress-tests
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
+      - uses: ./.github/actions/setup-playwright
+      - name: Run full stress suites
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name stress-tests -- xvfb-run --auto-servernum pnpm run test:stress
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  browser-tests:
+    name: full browser tests
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: main-browser-tests
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-playwright
+      - name: Run full browser suite
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name browser-tests -- pnpm run test:browser
+
+  electron-e2e:
+    name: full Electron E2E
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: main-electron-e2e
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
+      - uses: ./.github/actions/setup-playwright
+      - name: Run complete Electron E2E suite
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name electron-e2e -- xvfb-run --auto-servernum pnpm run test:e2e
+      - name: Upload Electron failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: main-electron-e2e-failure-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  runtime-contracts:
+    name: full runtime contracts
+    runs-on: macos-26
+    env:
+      CI_TIMING_JOB: main-runtime-contracts
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Run runtime contracts
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name runtime-contracts -- pnpm run verify:runtime:mac
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  complete:
+    name: main complete
+    if: always()
+    needs:
+      - static-contracts
+      - rust-full
+      - app-tests
+      - stress-tests
+      - browser-tests
+      - electron-e2e
+      - runtime-contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every main gate
+        env:
+          APP_RESULT: ${{ needs.app-tests.result }}
+          BROWSER_RESULT: ${{ needs.browser-tests.result }}
+          E2E_RESULT: ${{ needs.electron-e2e.result }}
+          RUNTIME_RESULT: ${{ needs.runtime-contracts.result }}
+          RUST_RESULT: ${{ needs.rust-full.result }}
+          STATIC_RESULT: ${{ needs.static-contracts.result }}
+          STRESS_RESULT: ${{ needs.stress-tests.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for gate in \
+            "static-contracts:${STATIC_RESULT}" \
+            "rust-full:${RUST_RESULT}" \
+            "app-tests:${APP_RESULT}" \
+            "stress-tests:${STRESS_RESULT}" \
+            "browser-tests:${BROWSER_RESULT}" \
+            "electron-e2e:${E2E_RESULT}" \
+            "runtime-contracts:${RUNTIME_RESULT}"; do
+            name="${gate%%:*}"
+            result="${gate#*:}"
+            if [[ "${result}" != "success" ]]; then
+              echo "${name} finished with ${result}; expected success." >&2
+              exit 1
+            fi
+          done

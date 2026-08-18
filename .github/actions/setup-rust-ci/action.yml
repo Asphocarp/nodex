@@ -1,0 +1,17 @@
+name: Set up Rust CI tools
+description: Install the shared Rust compiler cache and optional nextest runner.
+inputs:
+  nextest:
+    description: Install cargo-nextest for the fast Rust test tier.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Install sccache
+      uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+    - name: Install cargo-nextest
+      if: inputs.nextest == 'true'
+      uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
+      with:
+        tool: cargo-nextest

@@ -2,8 +2,6 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       full:
@@ -13,6 +11,7 @@ on:
         type: boolean
 
 permissions:
+  actions: write
   contents: read
 
 concurrency:
@@ -25,10 +24,19 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.classify.outputs.app }}
+      browser: ${{ steps.classify.outputs.browser }}
       docs_only: ${{ steps.classify.outputs.docs_only }}
+      electron_main: ${{ steps.classify.outputs.electron_main }}
+      full_required: ${{ steps.classify.outputs.full_required }}
       landing_only: ${{ steps.classify.outputs.landing_only }}
+      migration: ${{ steps.classify.outputs.migration }}
+      protocol: ${{ steps.classify.outputs.protocol }}
       release_metadata: ${{ steps.classify.outputs.release_metadata }}
+      renderer: ${{ steps.classify.outputs.renderer }}
+      rust: ${{ steps.classify.outputs.rust }}
       runtime: ${{ steps.classify.outputs.runtime }}
+      storage: ${{ steps.classify.outputs.storage }}
+      stress_relevant: ${{ steps.classify.outputs.stress_relevant }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,11 +61,14 @@ jobs:
             arguments+=(--full)
           fi
           node --no-warnings scripts/ci/classify-change.ts "${arguments[@]}"
-          # shellcheck disable=SC2016
           node -e '
             const fs = require("node:fs");
             const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const keys = ["app", "docsOnly", "landingOnly", "releaseMetadata", "runtime"];
+            const keys = [
+              "app", "browser", "docsOnly", "electronMain", "fullRequired", "landingOnly",
+              "migration", "protocol", "releaseMetadata", "renderer", "rust", "runtime",
+              "storage", "stressRelevant",
+            ];
             const snake = (key) => key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
             fs.appendFileSync(process.env.GITHUB_OUTPUT, keys.map((key) => `${snake(key)}=${value[key]}`).join("\n") + "\n");
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Change classification\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`);
@@ -65,8 +76,13 @@ jobs:
 
   static-contracts:
     name: static contracts
+    if: needs.classify.outputs.docs_only != 'true'
     needs: classify
     runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: static-contracts
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -78,46 +94,97 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
       - name: Fetch pinned legacy migrator source
         shell: bash
         run: |
           source_sha="$(node -p 'require("./resources/legacy-profile-migrator.json").sourceCommit')"
           git fetch --no-tags --depth=1 origin "${source_sha}"
-      - run: pnpm run verify:static
+      - name: Run static contracts
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name static-contracts -- pnpm run verify:static
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
 
-  rust:
-    name: Rust
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.landing_only != 'true'
+  rust-pr:
+    name: Rust fast suite
+    if: needs.classify.outputs.app == 'true' && (needs.classify.outputs.rust == 'true' || needs.classify.outputs.full_required == 'true')
     needs: classify
     runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: rust-pr
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - name: Install ripgrep for CLI functional tests
-        shell: bash
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          nextest: true
+      - name: Verify runner CLI tools
+        run: rg --version
+      - name: Check Rust formatting
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-format -- pnpm run core:fmt
+      - name: Run Rust lint
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-clippy -- pnpm run core:clippy
+      - name: Run selected Rust test tier
+        env:
+          FULL_REQUIRED: ${{ needs.classify.outputs.full_required }}
         run: |
-          if ! command -v rg >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install --yes ripgrep
+          set -euo pipefail
+          test_command=core:test:pr
+          if [[ "${FULL_REQUIRED}" == "true" ]]; then
+            test_command=core:test:full
           fi
-      - name: Test the Rust workspace
-        run: >-
-          cargo test --workspace --all-features --
-          --skip document::module::tests::canvas_incremental_hot_path_stays_bounded_at_twenty_thousand_elements
-      - name: Test the isolated Canvas performance contract
-        run: >-
-          cargo test -p nodex-core --all-features --lib
-          document::module::tests::canvas_incremental_hot_path_stays_bounded_at_twenty_thousand_elements --
-          --exact --test-threads=1
+          pnpm exec tsx scripts/ci/run-timed.ts --name "${test_command}" -- pnpm run "${test_command}"
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  rust-migration:
+    name: Rust migration compatibility
+    if: needs.classify.outputs.app == 'true' && needs.classify.outputs.migration == 'true'
+    needs: classify
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: rust-migration
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Run migration compatibility suite
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-migration -- pnpm run core:test:migration
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
 
   app-tests:
     name: app tests
     if: needs.classify.outputs.app == 'true'
     needs: classify
     runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: app-tests
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -129,33 +196,22 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: xvfb-run --auto-servernum pnpm test
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Run application test suites
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name app-tests -- xvfb-run --auto-servernum pnpm test
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
 
   stress-tests:
-    name: stress tests
-    if: needs.classify.outputs.app == 'true'
+    name: selected stress tests
+    if: needs.classify.outputs.app == 'true' && (needs.classify.outputs.stress_relevant == 'true' || needs.classify.outputs.full_required == 'true')
     needs: classify
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.1
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: cargo build -p nodex-core-server --all-targets
-      - run: xvfb-run --auto-servernum pnpm run test:stress
-
-  browser-e2e:
-    name: browser and Electron E2E
-    if: needs.classify.outputs.app == 'true'
-    needs: classify
-    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: stress-tests
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -167,29 +223,55 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: cargo build -p nodex-core-server --all-targets
-      - run: xvfb-run --auto-servernum pnpm test:browser
-      - name: Run functional Electron E2E
-        env:
-          NODEX_SKIP_PERFORMANCE_GATES: "1"
-        run: xvfb-run --auto-servernum pnpm test:e2e
-      - name: Upload failure diagnostics
+      - uses: ./.github/actions/setup-rust-ci
+      - uses: ./.github/actions/setup-playwright
+      - name: Run selected stress suites
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name stress-tests -- xvfb-run --auto-servernum pnpm run test:stress
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  browser-tests:
+    name: browser tests
+    if: needs.classify.outputs.app == 'true' && (needs.classify.outputs.browser == 'true' || needs.classify.outputs.full_required == 'true')
+    needs: classify
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: browser-tests
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-playwright
+      - name: Run browser tests
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name browser-tests -- pnpm run test:browser
+      - name: Upload browser diagnostics
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-e2e-failure-${{ github.run_attempt }}
+          name: browser-test-failure-${{ github.run_attempt }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
           retention-days: 7
 
-  runtime-contracts:
-    name: runtime contracts
-    if: needs.classify.outputs.runtime == 'true'
+  electron-e2e:
+    name: Electron E2E
+    if: needs.classify.outputs.app == 'true' && (needs.classify.outputs.electron_main == 'true' || needs.classify.outputs.browser == 'true' || needs.classify.outputs.full_required == 'true')
     needs: classify
-    runs-on: macos-26
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: electron-e2e
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -201,7 +283,52 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run verify:runtime:mac
+      - uses: ./.github/actions/setup-rust-ci
+      - uses: ./.github/actions/setup-playwright
+      - name: Run functional Electron E2E
+        env:
+          NODEX_SKIP_PERFORMANCE_GATES: "1"
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name electron-e2e -- xvfb-run --auto-servernum pnpm run test:e2e
+      - name: Upload Electron failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: electron-e2e-failure-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  runtime-contracts:
+    name: runtime contracts
+    if: needs.classify.outputs.runtime == 'true'
+    needs: classify
+    runs-on: macos-26
+    env:
+      CI_TIMING_JOB: runtime-contracts
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Run runtime contracts
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name runtime-contracts -- pnpm run verify:runtime:mac
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
 
   required:
     name: required
@@ -209,10 +336,12 @@ jobs:
     needs:
       - classify
       - static-contracts
-      - rust
+      - rust-pr
+      - rust-migration
       - app-tests
       - stress-tests
-      - browser-e2e
+      - browser-tests
+      - electron-e2e
       - runtime-contracts
     runs-on: ubuntu-latest
     steps:
@@ -220,15 +349,23 @@ jobs:
         env:
           APP: ${{ needs.classify.outputs.app }}
           APP_TESTS_RESULT: ${{ needs.app-tests.result }}
-          BROWSER_E2E_RESULT: ${{ needs.browser-e2e.result }}
+          BROWSER: ${{ needs.classify.outputs.browser }}
+          BROWSER_RESULT: ${{ needs.browser-tests.result }}
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          ELECTRON_MAIN: ${{ needs.classify.outputs.electron_main }}
+          ELECTRON_RESULT: ${{ needs.electron-e2e.result }}
+          FULL_REQUIRED: ${{ needs.classify.outputs.full_required }}
           LANDING_ONLY: ${{ needs.classify.outputs.landing_only }}
+          MIGRATION: ${{ needs.classify.outputs.migration }}
+          MIGRATION_RESULT: ${{ needs.rust-migration.result }}
           RUNTIME: ${{ needs.classify.outputs.runtime }}
           RUNTIME_RESULT: ${{ needs.runtime-contracts.result }}
-          RUST_RESULT: ${{ needs.rust.result }}
+          RUST: ${{ needs.classify.outputs.rust }}
+          RUST_RESULT: ${{ needs.rust-pr.result }}
           STATIC_RESULT: ${{ needs.static-contracts.result }}
-          STRESS_TESTS_RESULT: ${{ needs.stress-tests.result }}
+          STRESS_RELEVANT: ${{ needs.classify.outputs.stress_relevant }}
+          STRESS_RESULT: ${{ needs.stress-tests.result }}
         shell: bash
         run: |
           set -euo pipefail
@@ -241,14 +378,26 @@ jobs:
             fi
           }
           require_success classify "${CLASSIFY_RESULT}"
-          require_success static-contracts "${STATIC_RESULT}"
-          if [[ "${DOCS_ONLY}" != "true" && "${LANDING_ONLY}" != "true" ]]; then
-            require_success rust "${RUST_RESULT}"
+          if [[ "${DOCS_ONLY}" != "true" ]]; then
+            require_success static-contracts "${STATIC_RESULT}"
           fi
           if [[ "${APP}" == "true" ]]; then
             require_success app-tests "${APP_TESTS_RESULT}"
-            require_success stress-tests "${STRESS_TESTS_RESULT}"
-            require_success browser-e2e "${BROWSER_E2E_RESULT}"
+          fi
+          if [[ "${APP}" == "true" && ( "${RUST}" == "true" || "${FULL_REQUIRED}" == "true" ) ]]; then
+            require_success rust-fast "${RUST_RESULT}"
+          fi
+          if [[ "${APP}" == "true" && "${MIGRATION}" == "true" ]]; then
+            require_success rust-migration "${MIGRATION_RESULT}"
+          fi
+          if [[ "${APP}" == "true" && ( "${STRESS_RELEVANT}" == "true" || "${FULL_REQUIRED}" == "true" ) ]]; then
+            require_success stress-tests "${STRESS_RESULT}"
+          fi
+          if [[ "${APP}" == "true" && ( "${BROWSER}" == "true" || "${FULL_REQUIRED}" == "true" ) ]]; then
+            require_success browser-tests "${BROWSER_RESULT}"
+          fi
+          if [[ "${APP}" == "true" && ( "${ELECTRON_MAIN}" == "true" || "${BROWSER}" == "true" || "${FULL_REQUIRED}" == "true" ) ]]; then
+            require_success electron-e2e "${ELECTRON_RESULT}"
           fi
           if [[ "${RUNTIME}" == "true" ]]; then
             require_success runtime-contracts "${RUNTIME_RESULT}"
