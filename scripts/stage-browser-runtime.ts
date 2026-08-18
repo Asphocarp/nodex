@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BROWSER_PLUGIN_NODE_MODULE_DIR,
   BROWSER_RUNTIME_BUNDLE_DIRECTORY,
   BROWSER_RUNTIME_MANIFEST_FILENAME,
   parseBrowserRuntimeManifest,
@@ -15,6 +16,7 @@ import { replaceOwnedDirectory } from "./replace-owned-directory";
 
 const EXECUTABLE_RUNTIME_MODE = 0o755;
 const REGULAR_RUNTIME_MODE = 0o644;
+const LEGACY_BROWSER_PLUGIN_NODE_MODULE_DIR = "marketplace/plugins/browser/scripts/node_modules";
 
 type StageBrowserRuntimeOptions = {
   expectedCodexCompatibilityVersion: string;
@@ -106,6 +108,45 @@ export function assertBrowserRuntimeSourceClosure(
   }
 }
 
+function normalizeBrowserRuntimeManifest(
+  sourceRoot: string,
+  manifest: BrowserRuntimeManifest,
+): BrowserRuntimeManifest {
+  if (!manifest.browserPlugin.nodeModuleDirs.includes(LEGACY_BROWSER_PLUGIN_NODE_MODULE_DIR)) {
+    return manifest;
+  }
+
+  const canonicalDirectory = path.join(sourceRoot, ...BROWSER_PLUGIN_NODE_MODULE_DIR.split("/"));
+  let stats: fs.Stats;
+  try {
+    stats = fs.lstatSync(canonicalDirectory);
+  } catch {
+    throw new Error(
+      `Legacy Browser runtime manifest requires ${BROWSER_PLUGIN_NODE_MODULE_DIR}`,
+    );
+  }
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error(
+      `Legacy Browser runtime module directory is unavailable: ${BROWSER_PLUGIN_NODE_MODULE_DIR}`,
+    );
+  }
+
+  const nodeModuleDirs = [...new Set(
+    manifest.browserPlugin.nodeModuleDirs.map((directory) => (
+      directory === LEGACY_BROWSER_PLUGIN_NODE_MODULE_DIR
+        ? BROWSER_PLUGIN_NODE_MODULE_DIR
+        : directory
+    )),
+  )];
+  return {
+    ...manifest,
+    browserPlugin: {
+      ...manifest.browserPlugin,
+      nodeModuleDirs,
+    },
+  };
+}
+
 export function stageBrowserRuntime(
   options: StageBrowserRuntimeOptions,
 ): BrowserRuntimeManifest {
@@ -116,18 +157,19 @@ export function stageBrowserRuntime(
     throw new Error(`Browser runtime source must be a real directory: ${sourceRoot}`);
   }
 
-  const manifest = readBrowserRuntimeSourceManifest(sourceRoot);
+  const sourceManifest = readBrowserRuntimeSourceManifest(sourceRoot);
   if (
     !isBrowserRuntimeCompatibleWithCodex(
-      manifest,
+      sourceManifest,
       options.expectedCodexCompatibilityVersion,
     )
-    || manifest.targetArch !== options.targetArch
-    || manifest.targetPlatform !== options.targetPlatform
+    || sourceManifest.targetArch !== options.targetArch
+    || sourceManifest.targetPlatform !== options.targetPlatform
   ) {
     throw new Error("Browser runtime source manifest does not match the active Agent runtime");
   }
-  assertBrowserRuntimeSourceClosure(sourceRoot, manifest);
+  assertBrowserRuntimeSourceClosure(sourceRoot, sourceManifest);
+  const manifest = normalizeBrowserRuntimeManifest(sourceRoot, sourceManifest);
 
   fs.mkdirSync(runtimeRoot, { recursive: true });
   const runtimeRootStats = fs.lstatSync(runtimeRoot);

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BROWSER_PLUGIN_NODE_MODULE_DIR,
   BROWSER_RUNTIME_MANIFEST_FILENAME,
   BROWSER_RUNTIME_SCHEMA_VERSION,
   parseBrowserRuntimeManifest,
@@ -20,7 +21,7 @@ const PLUGIN_NAME = "browser";
 export function browserPluginNodeModuleDirs(): string[] {
   return [
     "runtime/lib/node_modules",
-    "marketplace/plugins/browser/node_modules",
+    BROWSER_PLUGIN_NODE_MODULE_DIR,
   ];
 }
 

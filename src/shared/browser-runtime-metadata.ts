@@ -1,6 +1,7 @@
 export const BROWSER_RUNTIME_BUNDLE_DIRECTORY = "browser-runtime";
 export const BROWSER_RUNTIME_MANIFEST_FILENAME = "browser-runtime-manifest.json";
 export const BROWSER_RUNTIME_SCHEMA_VERSION = 4;
+export const BROWSER_PLUGIN_NODE_MODULE_DIR = "marketplace/plugins/browser/node_modules";
 
 export type BrowserRuntimeArtifactArchitecture = "any" | "arm64" | "universal" | "x64";
 export type BrowserRuntimeArtifactKind = "data" | "executable" | "native-addon";
