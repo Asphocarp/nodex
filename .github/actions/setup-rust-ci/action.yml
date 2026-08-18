@@ -8,6 +8,14 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install ripgrep on Linux runners
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        if ! command -v rg >/dev/null 2>&1; then
+          sudo apt-get update
+          sudo apt-get install --yes ripgrep
+        fi
     - name: Install sccache
       uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
     - name: Install cargo-nextest
