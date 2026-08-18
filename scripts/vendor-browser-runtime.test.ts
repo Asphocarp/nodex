@@ -1,5 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { readCuaRuntimeVersion } from "./vendor-browser-runtime";
+import {
+  browserPluginNodeModuleDirs,
+  readCuaRuntimeVersion,
+} from "./vendor-browser-runtime";
+
+test("declares the vendored Browser plugin dependency directory", () => {
+  expect(browserPluginNodeModuleDirs()).toEqual([
+    "runtime/lib/node_modules",
+    "marketplace/plugins/browser/node_modules",
+  ]);
+});
 
 describe("readCuaRuntimeVersion", () => {
   test("reads the unified CUA runtime version used by current desktop builds", () => {
