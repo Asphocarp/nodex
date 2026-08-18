@@ -10,6 +10,12 @@ continuously exercised.
 - `.github/workflows/ci.yml` runs on pull requests and owns the stable
   `required` check. It selects Rust, migration, application, browser, Electron,
   stress, and runtime gates from `scripts/ci/classify-change.ts`.
+- An exact four-file stable release transition (`CHANGELOG.md`, `Cargo.lock`,
+  `Cargo.toml`, and `package.json`) is a narrow CI mode: classification skips
+  the application gates and `release transition` validates the semantic version
+  transition, release identity, and remote tag availability. The protected-main
+  `Main CI` workflow remains exhaustive after merge, before the production
+  Release workflow builds the signed application.
 - `.github/workflows/ci-main.yml` runs the complete static, runtime, Rust, app,
   browser, stress, and Electron non-performance suite after changes land on
   `main`.

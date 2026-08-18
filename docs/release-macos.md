@@ -190,7 +190,10 @@ builds, and does not ask the bot branch to commit generated output.
 CI also classifies dependency-only changes as GitHub Actions, Rust, ordinary
 JavaScript, or editor dependencies for later matrix tuning; the first rollout
 keeps the existing full application/runtime coverage so classification cannot
-hide a dependency regression.
+hide a dependency regression. The exact four-file stable release transition is
+the deliberate exception: its PR runs only the classifier and semantic release
+transition guard; the protected-main Main CI and production Release workflow
+still provide the post-merge source and signed-distribution gates.
 
 ## Sparkle update signing and feeds
 

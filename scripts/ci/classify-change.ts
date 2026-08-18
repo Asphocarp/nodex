@@ -28,12 +28,6 @@ const RELEASE_PATHS = new Set([
   "package.json",
 ]);
 
-const RELEASE_IDENTITY_PATHS = new Set([
-  "Cargo.lock",
-  "Cargo.toml",
-  "package.json",
-]);
-
 const isDocumentationPath = (path: string): boolean =>
   path === "AGENTS.md"
   || path === "docs/ARCHITECTURE.md"
@@ -235,8 +229,8 @@ export function classifyChangedPaths(
     };
   }
 
-  const releaseMetadata = paths.every((path) => RELEASE_PATHS.has(path))
-    && paths.some((path) => RELEASE_IDENTITY_PATHS.has(path));
+  const releaseMetadata = paths.length === RELEASE_PATHS.size
+    && [...RELEASE_PATHS].every((path) => paths.includes(path));
   const docsOnly = !releaseMetadata && paths.every(isDocumentationPath);
   const landingOnly = !releaseMetadata && paths.every(isLandingPath);
   const hasUnknownPath = paths.some((path) => (
@@ -245,11 +239,12 @@ export function classifyChangedPaths(
     && !isKnownAppPath(path)
     && !RELEASE_PATHS.has(path)
   ));
-  const fullRequired = paths.some(isFullRequiredPath) || hasUnknownPath || releaseMetadata;
+  const fullRequired = !releaseMetadata
+    && (paths.some(isFullRequiredPath) || hasUnknownPath);
   const dependencyKind = dependencyKindFor(paths);
 
   return {
-    app: releaseMetadata || (!docsOnly && !landingOnly),
+    app: !releaseMetadata && !docsOnly && !landingOnly,
     dependencyKind,
     browser: paths.some(isBrowserPath),
     docsOnly,
@@ -260,10 +255,10 @@ export function classifyChangedPaths(
     protocol: paths.some(isProtocolPath),
     releaseMetadata,
     renderer: paths.some(isRendererPath),
-    rust: paths.some(isRustPath),
-    runtime: releaseMetadata || hasUnknownPath || paths.some(isRuntimePath),
+    rust: !releaseMetadata && paths.some(isRustPath),
+    runtime: !releaseMetadata && (hasUnknownPath || paths.some(isRuntimePath)),
     storage: paths.some(isStoragePath),
-    stressRelevant: paths.some(isStressRelevantPath),
+    stressRelevant: !releaseMetadata && paths.some(isStressRelevantPath),
   };
 }
 
