@@ -104,6 +104,41 @@ const writeJson = (filePath: string, value: unknown): void => {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 };
 
+const stableJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    return `{${Object.keys(value).sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+};
+
+const refreshBrowserProvenanceIdentity = (appPath: string): void => {
+  const browserManifestPath = path.join(
+    appPath,
+    "Contents/Resources/browser-runtime/browser-runtime-manifest.json",
+  );
+  const browserContents = fs.readFileSync(browserManifestPath);
+  const provenancePath = path.join(
+    appPath,
+    "Contents/Resources/nodex-build-provenance.json",
+  );
+  const provenance = JSON.parse(fs.readFileSync(provenancePath, "utf8")) as {
+    payload: { browserRuntimeManifest: unknown };
+    provenanceId?: string;
+    [key: string]: unknown;
+  };
+  provenance.payload.browserRuntimeManifest = {
+    path: "browser-runtime/browser-runtime-manifest.json",
+    sha256: sha256(browserContents.toString("utf8")),
+    size: browserContents.byteLength,
+  };
+  delete provenance.provenanceId;
+  provenance.provenanceId = sha256(stableJson(provenance));
+  writeJson(provenancePath, provenance);
+};
+
 const writeSparkleRuntime = (appPath: string): void => {
   const artifactPaths = {
     autoupdate: "Frameworks/Sparkle.framework/Versions/B/Autoupdate",
@@ -209,12 +244,82 @@ describe("packaged build provenance", () => {
       schemaVersion: 1,
       targetArch: "arm64",
       targetPlatform: "darwin",
+      runtimeVersions: {
+        codexCli: "0.148.0-alpha.9",
+      },
     });
     writePackagedBuildProvenance(fixture.appPath);
     fs.appendFileSync(browserManifestPath, "tampered\n");
 
     expect(() => verifyPackagedBuildProvenance(fixture.appPath)).toThrow(
       "does not match the packaged provenance",
+    );
+  });
+
+  test("rejects a Browser runtime outside the compatibility window before sealing provenance", () => {
+    const fixture = makeApp();
+    const browserManifestPath = path.join(
+      fixture.appPath,
+      "Contents/Resources/browser-runtime/browser-runtime-manifest.json",
+    );
+    const agentManifestPath = path.join(
+      fixture.appPath,
+      "Contents/Resources/agent-runtime.json",
+    );
+    writeJson(agentManifestPath, {
+      codexCompatibilityVersion: "0.147.0",
+      layoutVersion: 3,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+    writeJson(browserManifestPath, {
+      codexCompatibilityVersion: "0.146.0",
+      runtimeVersions: { codexCli: "0.146.0" },
+      schemaVersion: 1,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+
+    expect(() => writePackagedBuildProvenance(fixture.appPath)).toThrow(
+      "targets do not agree",
+    );
+  });
+
+  test("rejects a Browser runtime that drifts outside the compatibility window during verification", () => {
+    const fixture = makeApp();
+    const browserManifestPath = path.join(
+      fixture.appPath,
+      "Contents/Resources/browser-runtime/browser-runtime-manifest.json",
+    );
+    const agentManifestPath = path.join(
+      fixture.appPath,
+      "Contents/Resources/agent-runtime.json",
+    );
+    writeJson(agentManifestPath, {
+      codexCompatibilityVersion: "0.147.0",
+      layoutVersion: 3,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+    writeJson(browserManifestPath, {
+      codexCompatibilityVersion: "0.146.0",
+      runtimeVersions: { codexCli: "0.148.0-alpha.9" },
+      schemaVersion: 1,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+    writePackagedBuildProvenance(fixture.appPath);
+    writeJson(browserManifestPath, {
+      codexCompatibilityVersion: "0.146.0",
+      runtimeVersions: { codexCli: "0.146.0" },
+      schemaVersion: 1,
+      targetArch: "arm64",
+      targetPlatform: "darwin",
+    });
+    refreshBrowserProvenanceIdentity(fixture.appPath);
+
+    expect(() => verifyPackagedBuildProvenance(fixture.appPath)).toThrow(
+      "target does not match provenance",
     );
   });
 
