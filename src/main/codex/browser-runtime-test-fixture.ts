@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  BROWSER_PLUGIN_NODE_MODULE_DIR,
   BROWSER_RUNTIME_MANIFEST_FILENAME,
   type BrowserRuntimeArtifact,
   type BrowserRuntimeManifest,
@@ -150,7 +151,7 @@ export function writeBrowserRuntimeFixture(
       size: Buffer.byteLength(content),
     };
   });
-  fs.mkdirSync(path.join(bundleRoot, "marketplace", "plugins", "browser", "node_modules"), {
+  fs.mkdirSync(path.join(bundleRoot, ...BROWSER_PLUGIN_NODE_MODULE_DIR.split("/")), {
     recursive: true,
   });
   if (targetArch === "arm64") {
@@ -168,7 +169,7 @@ export function writeBrowserRuntimeFixture(
       manifest: "marketplace/plugins/browser/manifest.json",
       marketplaceManifest: "marketplace/.agents/plugins/marketplace.json",
       marketplaceRoot: "marketplace",
-      nodeModuleDirs: ["marketplace/plugins/browser/node_modules"],
+      nodeModuleDirs: [BROWSER_PLUGIN_NODE_MODULE_DIR],
       root: "marketplace/plugins/browser",
       version: "1.0.0-test",
     },
