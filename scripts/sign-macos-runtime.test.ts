@@ -136,7 +136,20 @@ describe("Sparkle code signing", () => {
       appPath,
       "Contents/Resources/native/sparkle-runtime.json",
     );
-    fs.writeFileSync(manifestPath, JSON.stringify({ artifacts, schemaVersion: 2 }));
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      architecture: "arm64",
+      artifacts,
+      buildChannel: "nightly",
+      feedUrls: {
+        stable: "https://nodex.jyu.app/updates/stable/arm64/appcast.xml",
+        nightly: "https://nodex.jyu.app/updates/nightly/arm64/appcast.xml",
+      },
+      minimumMacOS: "12.0",
+      publicKey: "A".repeat(43) + "=",
+      schemaVersion: 3,
+      sparkleArchiveSha256: "1".repeat(64),
+      sparkleVersion: "2.9.4",
+    }));
 
     refreshSignedSparkleRuntimeManifest(appPath);
 
@@ -147,6 +160,11 @@ describe("Sparkle code signing", () => {
       path: artifactPaths.bridge,
       sha256: createHash("sha256").update("signed-bridge\n").digest("hex"),
       size: Buffer.byteLength("signed-bridge\n"),
+    });
+    expect(manifest).toMatchObject({
+      architecture: "arm64",
+      buildChannel: "nightly",
+      schemaVersion: 3,
     });
   });
 });
