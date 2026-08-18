@@ -17,6 +17,13 @@ const DIRECTORY_MODE = 0o755;
 const REGULAR_MODE = 0o644;
 const PLUGIN_NAME = "browser";
 
+export function browserPluginNodeModuleDirs(): string[] {
+  return [
+    "runtime/lib/node_modules",
+    "marketplace/plugins/browser/node_modules",
+  ];
+}
+
 type VendorBrowserRuntimeOptions = {
   appPath: string;
   codexCompatibilityVersion: string;
@@ -487,10 +494,7 @@ export function vendorBrowserRuntime(
         manifest: "marketplace/plugins/browser/.codex-plugin/plugin.json",
         marketplaceManifest: "marketplace/.agents/plugins/marketplace.json",
         marketplaceRoot: "marketplace",
-        nodeModuleDirs: [
-          "runtime/lib/node_modules",
-          "marketplace/plugins/browser/scripts/node_modules",
-        ],
+        nodeModuleDirs: browserPluginNodeModuleDirs(),
         root: "marketplace/plugins/browser",
         version: pluginVersion,
       },
