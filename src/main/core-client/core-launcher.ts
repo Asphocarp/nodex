@@ -5,6 +5,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 
 import type { components } from "@nodex/core-protocol";
+import { resolveBuildResources } from "../../shared/build-resources";
 import { CoreClient } from "./core-client";
 import { parseCoreRuntimeDescriptor } from "./runtime-descriptor";
 
@@ -404,13 +405,12 @@ const expectedCoreArtifactDigest = (
 };
 
 const legacyMigratorResourceRoot = (input: ResolveCoreExecutableInput): string => {
-  return path.join(
+  return resolveBuildResources(
     requireAbsolutePath(
       input.repositoryRoot ?? process.cwd(),
       "Core repository root",
     ),
-    "resources",
-  );
+  ).root;
 };
 
 const requireSha256 = (value: unknown): string => {

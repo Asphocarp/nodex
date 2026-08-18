@@ -207,8 +207,7 @@ export const createDevLaunchPlan = (input: {
   }
   return {
     preparation: [
-      pnpmScript("legacy-profile-migrator:verify"),
-      pnpmScript("third-party-notices:generate"),
+      pnpmScript("build-resources:prepare"),
       pnpmScript("core:build:dev"),
       pnpmScript("stage:codex-runtime:mac:cached"),
       pnpmScript("sync:icons"),

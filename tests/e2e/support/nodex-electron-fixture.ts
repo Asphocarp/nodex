@@ -17,7 +17,11 @@ export const test = base.extend<NodexElectronFixtures>({
     await use(async (input) => {
       const harness = await ElectronScenarioHarness.create({
         ...input,
-        label: input.label ?? testInfo.title,
+        label: input.label ?? `worker-${testInfo.workerIndex}-${testInfo.title}`,
+        environment: {
+          ...input.environment,
+          NODEX_E2E_WORKER_INDEX: String(testInfo.workerIndex),
+        },
       });
       harnesses.push(harness);
       return harness;

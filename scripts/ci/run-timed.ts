@@ -1,0 +1,161 @@
+import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export interface TimedCommandArguments {
+  readonly name: string;
+  readonly command: string;
+  readonly commandArguments: readonly string[];
+}
+
+export interface TimedCommandRecord {
+  readonly name: string;
+  readonly startedAt: string;
+  readonly finishedAt: string;
+  readonly durationMs: number;
+  readonly exitCode: number;
+}
+
+export interface RunTimedOptions {
+  readonly name: string;
+  readonly command: string;
+  readonly commandArguments: readonly string[];
+  readonly timingDirectory?: string;
+  readonly summaryPath?: string;
+  readonly cwd?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly now?: () => Date;
+}
+
+const readOption = (
+  args: readonly string[],
+  name: string,
+): string | undefined => {
+  const index = args.indexOf(name);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (!value || value === "--") throw new Error(`Missing value for ${name}.`);
+  return value;
+};
+
+export const parseRunTimedArguments = (
+  args: readonly string[],
+): TimedCommandArguments => {
+  const separator = args.indexOf("--");
+  if (separator < 0) {
+    throw new Error("Usage: run-timed --name <name> -- <command> [args...].");
+  }
+  const name = readOption(args.slice(0, separator), "--name");
+  const command = args[separator + 1];
+  if (!name || !command) {
+    throw new Error("Usage: run-timed --name <name> -- <command> [args...].");
+  }
+  return {
+    name,
+    command,
+    commandArguments: args.slice(separator + 2),
+  };
+};
+
+const sanitizeJobName = (value: string): string => {
+  const sanitized = value.replaceAll(/[^a-zA-Z0-9._-]+/gu, "-");
+  return sanitized || "local";
+};
+
+const formatDuration = (durationMs: number): string => {
+  const seconds = durationMs / 1_000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${(seconds - minutes * 60).toFixed(1)}s`;
+};
+
+const escapeSummaryCell = (value: string): string => value.replaceAll("|", "\\|");
+
+const runChild = async (
+  options: Pick<RunTimedOptions, "command" | "commandArguments" | "cwd" | "env">,
+): Promise<number> => await new Promise((resolve) => {
+  const child = spawn(options.command, [...options.commandArguments], {
+    cwd: options.cwd,
+    env: options.env,
+    stdio: "inherit",
+  });
+  child.once("error", (error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    resolve(1);
+  });
+  child.once("close", (code) => resolve(code ?? 1));
+});
+
+const appendSummary = async (
+  summaryPath: string | undefined,
+  record: TimedCommandRecord,
+): Promise<void> => {
+  if (!summaryPath) return;
+  let existing = "";
+  try {
+    existing = await readFile(summaryPath, "utf8");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+  const header = existing.includes("## CI timings")
+    ? ""
+    : "## CI timings\n\n| Step | Duration | Exit code |\n| --- | ---: | ---: |\n";
+  await appendFile(
+    summaryPath,
+    `${header}| ${escapeSummaryCell(record.name)} | ${formatDuration(record.durationMs)} | ${record.exitCode} |\n`,
+    "utf8",
+  );
+};
+
+export const runTimedCommand = async (
+  options: RunTimedOptions,
+): Promise<TimedCommandRecord> => {
+  if (!options.name.trim()) throw new Error("Timed command name must not be empty.");
+  const now = options.now ?? (() => new Date());
+  const started = now();
+  const exitCode = await runChild(options);
+  const finished = now();
+  const record: TimedCommandRecord = {
+    name: options.name,
+    startedAt: started.toISOString(),
+    finishedAt: finished.toISOString(),
+    durationMs: Math.max(0, finished.getTime() - started.getTime()),
+    exitCode,
+  };
+  const timingDirectory = options.timingDirectory
+    ?? path.resolve(process.cwd(), ".generated/ci-timings");
+  await mkdir(timingDirectory, { recursive: true });
+  const jobName = sanitizeJobName(
+    options.env?.CI_TIMING_JOB
+      ?? process.env.CI_TIMING_JOB
+      ?? process.env.GITHUB_JOB
+      ?? "local",
+  );
+  await appendFile(
+    path.join(timingDirectory, `${jobName}.jsonl`),
+    `${JSON.stringify(record)}\n`,
+    "utf8",
+  );
+  await appendSummary(options.summaryPath ?? process.env.GITHUB_STEP_SUMMARY, record);
+  return record;
+};
+
+const main = async (): Promise<void> => {
+  const parsed = parseRunTimedArguments(process.argv.slice(2));
+  const record = await runTimedCommand({
+    name: parsed.name,
+    command: parsed.command,
+    commandArguments: parsed.commandArguments,
+  });
+  process.exitCode = record.exitCode;
+};
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

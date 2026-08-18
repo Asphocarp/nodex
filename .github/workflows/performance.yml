@@ -1,0 +1,104 @@
+name: Performance CI
+
+on:
+  schedule:
+    - cron: "15 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: performance-ci
+  cancel-in-progress: false
+
+jobs:
+  rust-performance:
+    name: Rust scale and performance gates
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: performance-rust
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/fetch-legacy-migrator
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Verify runner CLI tools
+        run: rg --version
+      - name: Run explicit ignored Rust gates
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-performance -- pnpm run core:test:nightly
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  electron-performance:
+    name: Electron performance gates
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: performance-electron
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/fetch-legacy-migrator
+      - uses: ./.github/actions/setup-rust-ci
+      - uses: ./.github/actions/setup-playwright
+      - name: Run Electron performance gates
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name electron-performance -- xvfb-run --auto-servernum pnpm run test:e2e:performance
+      - name: Upload performance diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-e2e-failure-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  complete:
+    name: performance complete
+    if: always()
+    needs:
+      - rust-performance
+      - electron-performance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every performance gate
+        env:
+          ELECTRON_RESULT: ${{ needs.electron-performance.result }}
+          RUST_RESULT: ${{ needs.rust-performance.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${RUST_RESULT}" != "success" ]]; then
+            echo "rust-performance finished with ${RUST_RESULT}; expected success." >&2
+            exit 1
+          fi
+          if [[ "${ELECTRON_RESULT}" != "success" ]]; then
+            echo "electron-performance finished with ${ELECTRON_RESULT}; expected success." >&2
+            exit 1
+          fi

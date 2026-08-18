@@ -67,6 +67,7 @@ const PREREQUISITE_SOURCE_PATHS = [
   "resources/icon.icon",
   "resources/nodex-icon.svg",
   "resources/third-party/open-interpreter",
+  "scripts/build-resources.ts",
   "scripts/build-legacy-profile-migrator.ts",
   "scripts/generate-third-party-notices.ts",
   "scripts/legacy-profile-migrator",
@@ -78,6 +79,7 @@ const PREREQUISITE_SOURCE_PATHS = [
   "src/shared/nfm/agent-guide.ts",
   "src/shared/nfm/parser.ts",
   "src/shared/nfm/serializer.ts",
+  "src/shared/build-resources.ts",
   "Cargo.lock",
   "Cargo.toml",
   "LICENSE",
@@ -478,8 +480,7 @@ function runProductionBuild(): void {
     : "agent-skills:generate";
   for (const script of [
     agentSkillsCommand,
-    "legacy-profile-migrator:verify",
-    "third-party-notices:generate",
+    "build-resources:prepare",
     "sync:icons",
   ]) {
     execFileSync("pnpm", ["--silent", "run", script], {

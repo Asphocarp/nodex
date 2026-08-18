@@ -46,6 +46,12 @@ describe("electron-builder runtime resources", () => {
       from: ".generated/sparkle-runtime/${arch}/nodex-sparkle.node",
       to: "native/nodex-sparkle.node",
     });
+    expect(config.extraResources).toEqual(expect.arrayContaining([
+      { from: ".generated/build-resources/legacy-profile-migrator.mjs", to: "legacy-profile-migrator.mjs" },
+      { from: ".generated/build-resources/legacy-profile-migrator.mjs.LEGAL.txt", to: "legacy-profile-migrator.mjs.LEGAL.txt" },
+      { from: ".generated/build-resources/legacy-profile-migrator.json", to: "legacy-profile-migrator.json" },
+      { from: ".generated/build-resources/THIRD_PARTY_NOTICES.txt", to: "THIRD_PARTY_NOTICES.txt" },
+    ]));
     expect(config.extraFiles).toContainEqual({
       from: ".generated/sparkle-runtime/${arch}/Sparkle.framework",
       to: "Frameworks/Sparkle.framework",

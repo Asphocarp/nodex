@@ -156,11 +156,12 @@ The test commands follow production boundaries:
 - `pnpm run test:performance` runs hardware-sensitive latency gates. Run it
   manually on a stable machine; do not use its raw timing thresholds as a
   shared-CI gate.
-- `pnpm run core:fmt`, `pnpm run core:clippy`, and `pnpm run core:test`
-  validate the native authority. The complete Core test command runs the
-  ordinary workspace suite with two test threads, then runs the Canvas scale,
-  high-cardinality ledger migration, and frozen legacy inventory gates
-  explicitly and serially.
+- `pnpm run core:fmt`, `pnpm run core:clippy`, and the Core test tiers validate
+  the native authority. `pnpm run core:test:pr` is the fast CI tier (nextest
+  plus doctests); `pnpm run core:test:full` adds migration compatibility, and
+  `pnpm run core:test:nightly` runs every explicitly named ignored scale,
+  performance, reliability, and legacy inventory gate. `pnpm run core:test`
+  remains the complete local/source-verification alias.
 - `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
 - `pnpm test:e2e` rebuilds the native Core plus Electron application, then
   exercises the complete Electron/preload/IPC/Core chain. Do not invoke the
@@ -260,10 +261,10 @@ Ordinary semantic tests clone an isolated current-schema Store template. Fresh
 Store creation, exact-schema validation, upgrades, recovery, and profile-secret
 generation retain dedicated tests against the real startup path.
 
-Run `pnpm run core:test:scale` when changing Canvas incremental storage,
-high-cardinality migrations, or the closed legacy importer. `pnpm run
-core:test` includes both the ordinary and scale tiers for final source
-verification.
+Run `pnpm run core:test:nightly` when changing Canvas incremental storage,
+high-cardinality migrations, the closed legacy importer, large-data reliability,
+or relation projection boundaries. `pnpm run core:test` includes both the full
+and nightly tiers for final source verification.
 
 Use the matching runtime when running one test file:
 
@@ -347,3 +348,4 @@ paths. Rust Core tests and binaries are independent of this Node ABI boundary.
 - [Security model](SECURITY.md)
 - [macOS release CI](release-macos.md)
 - [Landing site operations](landing-site.md)
+- [CI architecture and tier ownership](CI.md)

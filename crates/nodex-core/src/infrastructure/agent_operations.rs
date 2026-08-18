@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn capacity_and_expiry_are_bounded_per_connection() {
-        let registry = PreparedAgentOperationRegistry::with_limits(Duration::from_millis(1), 2, 1);
+        let registry = PreparedAgentOperationRegistry::with_limits(Duration::from_millis(50), 2, 1);
         registry
             .issue(binding("connection:a", "a"))
             .expect("first token");
@@ -404,7 +404,7 @@ mod tests {
                 .code,
             StoreErrorCode::ResourceExhausted
         );
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(75));
         registry
             .issue(binding("connection:a", "c"))
             .expect("expired token releases capacity");

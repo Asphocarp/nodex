@@ -54,6 +54,10 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   pull requests do not receive repository secrets; changes to same-repository
   workflow files therefore require the same security review as application
   code with a release capability.
+- Derived build resources are generated in the checked-out runner workspace and
+  are not committed back to Dependabot or other pull-request branches. No
+  privileged `pull_request_target` materializer is needed to make dependency
+  checks pass.
 - The privileged release `workflow_run` validates the originating repository,
   protected-main push event, successful CI conclusion, and main reachability
   before it checks out or executes the source commit. Release and recovery also

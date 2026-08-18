@@ -183,7 +183,14 @@ the current Latest release points to a stable app release.
 
 Every external Action is pinned to a full commit SHA. Dependabot proposes npm,
 Cargo, and GitHub Action updates; high-authority Action changes require release
-note and source review before merge.
+note and source review before merge. Dependency-only PRs update manifests and
+lockfiles only: CI derives the migrator, legal notices, and build-resource
+manifest in `.generated/build-resources/`, verifies two independent staging
+builds, and does not ask the bot branch to commit generated output.
+CI also classifies dependency-only changes as GitHub Actions, Rust, ordinary
+JavaScript, or editor dependencies for later matrix tuning; the first rollout
+keeps the existing full application/runtime coverage so classification cannot
+hide a dependency regression.
 
 ## Sparkle update signing and feeds
 
@@ -272,8 +279,8 @@ pnpm run verify:runtime:mac
 ```
 
 `verify:source` is the platform-independent source gate: types, lint, generated
-contracts, authority boundaries, notices/migrator reproducibility, Rust, app
-tests, browser tests, Electron E2E, and landing build. `verify:runtime:mac`
+contracts, authority boundaries, build-resource and notices reproducibility,
+Rust, app tests, browser tests, Electron E2E, and landing build. `verify:runtime:mac`
 verifies Agent/Desktop Tool schemas and runtime conformance on macOS. Neither
 proves Apple signing, Sparkle finalization, or Intel behavior; the
 dual-architecture Distribution is that deeper Implementation.

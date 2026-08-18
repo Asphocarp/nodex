@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ThirdPartyNotices } from "../shared/third-party-notices";
+import { resolveBuildResources } from "../shared/build-resources";
 
 export const THIRD_PARTY_NOTICES_FILENAME = "THIRD_PARTY_NOTICES.txt";
 
@@ -12,7 +13,6 @@ export interface ThirdPartyNoticesLocation {
 }
 
 export function resolveThirdPartyNoticesCandidates({
-  appPath,
   cwd,
   isPackaged,
   resourcesPath,
@@ -22,11 +22,12 @@ export function resolveThirdPartyNoticesCandidates({
     return [packagedResource];
   }
 
+  const generatedResource = resolveBuildResources(cwd).noticesPath;
   return [...new Set([
     packagedResource,
+    generatedResource,
     join(cwd, "assets", THIRD_PARTY_NOTICES_FILENAME),
     join(cwd, "electron", "assets", THIRD_PARTY_NOTICES_FILENAME),
-    join(appPath, "resources", THIRD_PARTY_NOTICES_FILENAME),
   ])];
 }
 
