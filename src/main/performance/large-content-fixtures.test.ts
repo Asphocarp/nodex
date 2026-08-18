@@ -8,7 +8,6 @@ describe("large-content performance fixtures", () => {
   test("builds deterministic fixtures on every requested boundary", () => {
     const fixtures = createLargeContentFixtures();
 
-    expect(fixtures.notices).toHaveLength(LARGE_CONTENT_FIXTURE_SIZES.noticesCharacters);
     expect(Buffer.byteLength(fixtures.workspacePlainText, "utf8"))
       .toBe(LARGE_CONTENT_FIXTURE_SIZES.workspaceBytes);
     expect(Buffer.byteLength(fixtures.workspaceMarkdown, "utf8"))

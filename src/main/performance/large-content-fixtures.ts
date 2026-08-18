@@ -1,5 +1,4 @@
 export const LARGE_CONTENT_FIXTURE_SIZES = {
-  noticesCharacters: 2_500_000,
   workspaceBytes: 1_500_000,
   toolValueBytes: 5 * 1024 * 1024,
   setupLogBytes: 10 * 1024 * 1024,
@@ -9,7 +8,6 @@ export const LARGE_CONTENT_FIXTURE_SIZES = {
 } as const;
 
 export interface LargeContentFixtures {
-  readonly notices: string;
   readonly workspacePlainText: string;
   readonly workspaceMarkdown: string;
   readonly toolValue: unknown;
@@ -24,7 +22,6 @@ export interface LargeContentFixtures {
 export function createLargeContentFixtures(): LargeContentFixtures {
   const diffHeader = "diff --git a/fixture.txt b/fixture.txt\n--- a/fixture.txt\n+++ b/fixture.txt\n";
   return {
-    notices: repeatAsciiToLength("package notice\n", LARGE_CONTENT_FIXTURE_SIZES.noticesCharacters),
     workspacePlainText: repeatAsciiToLength(
       "plain workspace source\n",
       LARGE_CONTENT_FIXTURE_SIZES.workspaceBytes,

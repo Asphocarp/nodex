@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { useRef, useState } from "react";
-import { OpenSourceLicensesSettingsPage } from "@/components/workbench/open-source-licenses-settings-page";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 import { WorkspaceFilesPanel } from "@/features/workspace-files/workspace-files-panel";
@@ -13,7 +12,7 @@ import { createLargeContentFixtures } from "../../../src/main/performance/large-
 import { formatBoundedWorktreeOutput } from "../../../src/shared/worktree-output";
 import "../../../src/renderer/globals.css";
 
-type Scenario = "license" | "workspace" | "markdown" | "tool" | "startup";
+type Scenario = "workspace" | "markdown" | "tool" | "startup";
 
 const fixtures = createLargeContentFixtures();
 const queryClient = new QueryClient({
@@ -73,9 +72,6 @@ function installFixtureBridge(): void {
     configurable: true,
     value: {
       invoke: async (channel: string, ...args: unknown[]) => {
-        if (channel === "settings:third-party-notices:get") {
-          return { text: fixtures.notices };
-        }
         if (channel === "workspace-directory-entries") {
           return { directoryPath: "", parentPath: null, entries: [] };
         }
@@ -157,9 +153,6 @@ function StartupScenario() {
 }
 
 function ScenarioSurface({ scenario }: { readonly scenario: Scenario }) {
-  if (scenario === "license") {
-    return <OpenSourceLicensesSettingsPage onBack={() => undefined} />;
-  }
   if (scenario === "workspace") {
     return <WorkspaceScenario markdown={false} />;
   }
