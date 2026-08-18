@@ -173,6 +173,7 @@ const verifyApp = async (options: {
   });
   const runtimeOptions = {
     appPath: options.appPath,
+    expectedBuildVersion: options.buildVersion,
     expectedVersion: options.version,
     expectedUpdateChannel: options.channel,
     requireDeveloperId: true,
