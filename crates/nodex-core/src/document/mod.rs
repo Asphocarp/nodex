@@ -84,7 +84,7 @@ pub(crate) use persistence::{
     DocumentAuthorityRow, DocumentPlacementEvidence, PersistYjsCommit, PersistYjsGenesis,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
     read_document_authority, read_legacy_project_owned_document_authority, read_store_epoch,
-    rebuild_legacy_import_projections, sha256,
+    rebuild_legacy_import_projections, replace_page_reference_projection, sha256,
 };
 pub(crate) use primary_canvas::{
     PrimaryCanvasIdentity, create_primary_canvas, is_primary_canvas_block_id,

@@ -1475,7 +1475,7 @@ fn record_internal_receipt(
     )
 }
 
-fn persist_materialization(
+fn persist_materialization_row(
     connection: &Connection,
     document_id: &str,
     generation: i64,
@@ -1518,11 +1518,29 @@ fn persist_materialization(
             now,
         ],
     )?;
-    replace_page_reference_projection(connection, document_id, &materialization.references, now)?;
     Ok(())
 }
 
-fn replace_page_reference_projection(
+fn persist_materialization(
+    connection: &Connection,
+    document_id: &str,
+    generation: i64,
+    projected_seq: i64,
+    materialization: &DocumentMaterialization,
+    now: &str,
+) -> Result<(), StoreError> {
+    persist_materialization_row(
+        connection,
+        document_id,
+        generation,
+        projected_seq,
+        materialization,
+        now,
+    )?;
+    replace_page_reference_projection(connection, document_id, &materialization.references, now)
+}
+
+pub(crate) fn replace_page_reference_projection(
     connection: &Connection,
     document_id: &str,
     references: &[crate::domain::derived_records::BlockDocumentReference],
@@ -1550,6 +1568,16 @@ fn replace_page_reference_projection(
         else {
             continue;
         };
+        let target_type = connection
+            .query_row(
+                "SELECT type FROM blocks WHERE id = ?1",
+                [target_page_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if target_type.is_some_and(|target_type| target_type != "page") {
+            continue;
+        }
         let presentation = match presentation {
             crate::domain::derived_records::PageReferencePresentation::Mention => "mention",
             crate::domain::derived_records::PageReferencePresentation::ReferenceBlock => {
@@ -1864,7 +1892,7 @@ pub(crate) fn rebuild_legacy_import_projections(
         authority.head.head_seq,
         &now,
     )?;
-    persist_materialization(
+    persist_materialization_row(
         connection,
         document_id,
         authority.head.generation,

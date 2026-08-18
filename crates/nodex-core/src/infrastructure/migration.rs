@@ -31,7 +31,7 @@ use crate::document::{
     create_compatible_document, decode_block_document, decode_state_vector_v1,
     derive_canvas_element, has_pending_dependencies, load_v94_canvas_scene,
     materialize_decoded_document, read_legacy_project_owned_document_authority,
-    rebuild_legacy_import_projections,
+    rebuild_legacy_import_projections, replace_page_reference_projection,
 };
 use crate::domain::fractional_rank::evenly_spaced_rank;
 use crate::domain::project_appearance::{
@@ -48,6 +48,7 @@ use super::library_content_migration::{
     ensure_v117_library_content_ownership, ensure_v119_library_content_index_cleanup,
     validate_v117_library_content_ownership, validate_v119_library_content_index_cleanup,
 };
+use super::migration_progress::report_bounded_progress;
 use super::resource_grant_migration::{
     ensure_v118_canvas_resource_grants, validate_v118_canvas_resource_grants,
 };
@@ -2582,8 +2583,8 @@ fn ensure_v127_document_page_references(connection: &Connection) -> Result<(), S
     )?;
     let materials = connection
         .prepare(
-            "SELECT materialization.document_id, ownership.block_id, \
-                    materialization.references_json, materialization.updated_at \
+            "SELECT materialization.document_id, materialization.references_json, \
+                    materialization.updated_at \
              FROM document_materializations materialization \
              JOIN block_documents ownership ON ownership.document_id = materialization.document_id \
              ORDER BY materialization.document_id",
@@ -2593,48 +2594,15 @@ fn ensure_v127_document_page_references(connection: &Connection) -> Result<(), S
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (document_id, source_owner_block_id, references_json, updated_at) in materials {
+    for (document_id, references_json, updated_at) in materials {
         let references = serde_json::from_str::<
             Vec<crate::domain::derived_records::BlockDocumentReference>,
         >(&references_json)
         .map_err(|_| corrupt("v127 Page reference backfill found invalid derived records"))?;
-        for reference in references {
-            let crate::domain::derived_records::BlockDocumentReference::Page {
-                source_block_id,
-                target_page_id,
-                presentation,
-                occurrence_count,
-            } = reference
-            else {
-                continue;
-            };
-            let presentation = match presentation {
-                crate::domain::derived_records::PageReferencePresentation::Mention => "mention",
-                crate::domain::derived_records::PageReferencePresentation::ReferenceBlock => {
-                    "reference_block"
-                }
-                crate::domain::derived_records::PageReferencePresentation::Link => "link",
-            };
-            connection.execute(
-                "INSERT INTO document_page_references( \
-                   document_id, source_owner_block_id, source_block_id, target_page_id, \
-                   presentation, occurrence_count, updated_at \
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    document_id,
-                    source_owner_block_id,
-                    source_block_id,
-                    target_page_id,
-                    presentation,
-                    occurrence_count,
-                    updated_at,
-                ],
-            )?;
-        }
+        replace_page_reference_projection(connection, &document_id, &references, &updated_at)?;
     }
     validate_v127_document_page_references(connection)
 }
@@ -2862,7 +2830,7 @@ pub(crate) fn prepare_legacy_import_candidate(
 
 fn rebuild_legacy_import_document_projections(connection: &Connection) -> Result<(), StoreError> {
     let repository = DocumentReadRepository::new(connection);
-    let heads = repository.live_yjs_heads()?;
+    let heads = repository.legacy_project_owned_live_yjs_heads()?;
     for head in heads {
         let reconstructed = reconstruct_live_yjs_document(&repository, &head)?;
         rebuild_legacy_import_projections(connection, &head.id, &reconstructed.materialization)?;
@@ -7451,6 +7419,33 @@ fn validate_core_metadata(
     Err(corrupt("Projection event replay floor is invalid"))
 }
 
+fn local_commit_manifest_upgrade_phase_count(source_revision: i64) -> u64 {
+    u64::from(source_revision < 106)
+        + u64::from((106..108).contains(&source_revision))
+        + u64::from(source_revision < 109)
+        + u64::from(source_revision < 110)
+}
+
+fn report_local_commit_manifest_upgrade_progress(
+    observer: &mut dyn FnMut(StorePreparationEvent),
+    phase_index: u64,
+    phase_count: u64,
+    completed: u64,
+    total: u64,
+    reported_step: &mut u64,
+) {
+    let global_completed = total.saturating_mul(phase_index).saturating_add(completed);
+    let global_total = total.saturating_mul(phase_count);
+    report_bounded_progress(
+        &mut |completed, total| {
+            observer(StorePreparationEvent::MigrationProgress { completed, total });
+        },
+        global_completed,
+        global_total,
+        reported_step,
+    );
+}
+
 struct StoreMigrationLedger;
 
 impl StoreMigrationLedger {
@@ -7475,6 +7470,10 @@ impl StoreMigrationLedger {
         migration_now: u64,
         observer: &mut dyn FnMut(StorePreparationEvent),
     ) -> Result<(), StoreError> {
+        let manifest_upgrade_phase_count =
+            local_commit_manifest_upgrade_phase_count(source_revision);
+        let mut manifest_upgrade_phase_index = 0;
+        let mut manifest_upgrade_reported_step = 0;
         if source_revision < 86 {
             ensure_v86_execution_profile_schema(transaction)?;
         }
@@ -7546,9 +7545,17 @@ impl StoreMigrationLedger {
                 transaction,
                 source_revision,
                 &mut |completed, total| {
-                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                    report_local_commit_manifest_upgrade_progress(
+                        observer,
+                        manifest_upgrade_phase_index,
+                        manifest_upgrade_phase_count,
+                        completed,
+                        total,
+                        &mut manifest_upgrade_reported_step,
+                    );
                 },
             )?;
+            manifest_upgrade_phase_index += 1;
         }
         if source_revision < 107 {
             ensure_v107_block_project_cascade_indexes(transaction)?;
@@ -7557,26 +7564,51 @@ impl StoreMigrationLedger {
             crate::infrastructure::local_commit::upgrade_v108_manifest(
                 transaction,
                 &mut |completed, total| {
-                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                    report_local_commit_manifest_upgrade_progress(
+                        observer,
+                        manifest_upgrade_phase_index,
+                        manifest_upgrade_phase_count,
+                        completed,
+                        total,
+                        &mut manifest_upgrade_reported_step,
+                    );
                 },
             )?;
+            manifest_upgrade_phase_index += 1;
         }
         if source_revision < 109 {
             crate::infrastructure::local_commit::upgrade_v109_manifest(
                 transaction,
                 &mut |completed, total| {
-                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                    report_local_commit_manifest_upgrade_progress(
+                        observer,
+                        manifest_upgrade_phase_index,
+                        manifest_upgrade_phase_count,
+                        completed,
+                        total,
+                        &mut manifest_upgrade_reported_step,
+                    );
                 },
             )?;
+            manifest_upgrade_phase_index += 1;
         }
         if source_revision < 110 {
             crate::infrastructure::local_commit::upgrade_v110_manifest(
                 transaction,
                 &mut |completed, total| {
-                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                    report_local_commit_manifest_upgrade_progress(
+                        observer,
+                        manifest_upgrade_phase_index,
+                        manifest_upgrade_phase_count,
+                        completed,
+                        total,
+                        &mut manifest_upgrade_reported_step,
+                    );
                 },
             )?;
+            manifest_upgrade_phase_index += 1;
         }
+        debug_assert_eq!(manifest_upgrade_phase_index, manifest_upgrade_phase_count);
         if source_revision < 111 {
             ensure_v111_priority_contract(transaction, migration_now)?;
         }
@@ -13493,7 +13525,9 @@ mod tests {
         assert!(!progress.is_empty());
         assert!(progress.len() <= 20);
         assert!(progress.windows(2).all(|pair| pair[0].0 < pair[1].0));
-        assert_eq!(progress.last(), Some(&(COMMIT_COUNT, COMMIT_COUNT)));
+        let expected_work = COMMIT_COUNT * local_commit_manifest_upgrade_phase_count(87);
+        assert!(progress.iter().all(|(_, total)| *total == expected_work));
+        assert_eq!(progress.last(), Some(&(expected_work, expected_work)));
 
         upgraded
             .readers()
