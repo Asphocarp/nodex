@@ -165,7 +165,10 @@ button, switch, popover, and checkbox primitives. Selectors backed by Source
 Properties, options, or other growing data catalogs are searchable; closed
 presentation enums remain compact selection menus without a redundant search
 field. Board and List share bounded group windows, selection, Page-open behavior,
-Property editors, and mutation receipts.
+Property editors, and mutation receipts. On Board, a normal pointer click on the
+title or any non-interactive part of a Page card opens that Page; card Property
+controls, menus, and drag gestures keep their own interaction instead of
+opening the Page.
 
 Database row authority always carries canonical Property values. In particular,
 select and multi-select values remain stable option IDs through View windows,

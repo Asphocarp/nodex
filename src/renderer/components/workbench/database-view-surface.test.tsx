@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import { act, useRef, useState } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import {
@@ -656,6 +656,43 @@ describe("DatabaseViewSurface", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open Page Focused Page" }));
     expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
+  });
+
+  test("opens a Board Page from its description without hijacking Property controls", async () => {
+    const onOpenPage = vi.fn();
+    const screen = render(
+      <DatabaseViewSurface
+        model={describedBoardModel()}
+        presentationLayout="board"
+        searchQuery=""
+        onOpenPage={onOpenPage}
+      />,
+    );
+    const card = screen.container.querySelector<HTMLElement>(
+      '[data-database-view-page-id="page-focused"]',
+    );
+    if (!card) throw new Error("Expected the focused Board card");
+    const description = card.querySelector<HTMLElement>(
+      '[data-board-page-description="true"]',
+    );
+    if (!description) throw new Error("Expected the Board description");
+
+    await act(async () => {
+      fireEvent.click(description);
+      await Promise.resolve();
+    });
+    expect(onOpenPage).toHaveBeenCalledWith("page-focused", "Focused Page");
+
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Edit Tags" }));
+      await Promise.resolve();
+    });
+    const nextOption = await screen.findByRole("option", { name: "Next" });
+    await act(async () => {
+      fireEvent.click(nextOption);
+      await Promise.resolve();
+    });
+    expect(onOpenPage).toHaveBeenCalledTimes(1);
   });
 
   test("renders an enabled Board Page key above the title and applies the shared key lookup", () => {
