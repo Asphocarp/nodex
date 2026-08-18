@@ -11,6 +11,7 @@ import {
   LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT,
   LEGACY_PROFILE_MIGRATOR_SOURCE_VERSIONS,
   type LegacyProfileMigratorManifest,
+  resolveLegacyProfileMigratorResourcePath,
   serializeLegacyProfileMigratorManifest,
   verifyLegacyProfileMigratorArtifacts,
 } from "./legacy-profile-migrator-artifacts";
@@ -19,9 +20,15 @@ import { sha256File } from "./native-runtime-manifest";
 const temporaryRoots: string[] = [];
 
 const createRepositoryFixture = (repositoryRoot: string): LegacyProfileMigratorManifest => {
-  const bundlePath = path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH);
-  const legalPath = path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_LEGAL_PATH);
-  mkdirSync(path.dirname(bundlePath), { recursive: true });
+  const bundlePath = resolveLegacyProfileMigratorResourcePath(
+    repositoryRoot,
+    LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH,
+  );
+  const legalPath = resolveLegacyProfileMigratorResourcePath(
+    repositoryRoot,
+    LEGACY_PROFILE_MIGRATOR_LEGAL_PATH,
+  );
+  mkdirSync(repositoryRoot, { recursive: true });
   writeFileSync(bundlePath, "export const migrate = () => 84;\n");
   writeFileSync(legalPath, "frozen dependency notices\n");
   const manifest: LegacyProfileMigratorManifest = {
@@ -41,7 +48,10 @@ const createRepositoryFixture = (repositoryRoot: string): LegacyProfileMigratorM
     },
   };
   writeFileSync(
-    path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH),
+    resolveLegacyProfileMigratorResourcePath(
+      repositoryRoot,
+      LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH,
+    ),
     serializeLegacyProfileMigratorManifest(manifest),
   );
   return manifest;
@@ -74,7 +84,10 @@ describe("legacy profile migrator artifact verification", () => {
   it("rejects a bundle changed after its manifest was written", () => {
     const repositoryRoot = createTemporaryRoot("nodex-migrator-tampered-");
     createRepositoryFixture(repositoryRoot);
-    const bundlePath = path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH);
+    const bundlePath = resolveLegacyProfileMigratorResourcePath(
+      repositoryRoot,
+      LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH,
+    );
     const bundle = readFileSync(bundlePath);
     bundle[0] ^= 1;
     writeFileSync(bundlePath, bundle);
@@ -88,7 +101,10 @@ describe("legacy profile migrator artifact verification", () => {
     const repositoryRoot = createTemporaryRoot("nodex-migrator-invalid-path-");
     const manifest = createRepositoryFixture(repositoryRoot);
     writeFileSync(
-      path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH),
+      resolveLegacyProfileMigratorResourcePath(
+        repositoryRoot,
+        LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH,
+      ),
       `${JSON.stringify({
         ...manifest,
         bundle: { ...manifest.bundle, path: "../legacy-profile-migrator.mjs" },

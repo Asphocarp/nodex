@@ -219,8 +219,7 @@ export async function buildMacDistribution(options: {
   };
 
   const prerequisiteScripts = [
-    "legacy-profile-migrator:verify-reproducible",
-    "third-party-notices:verify",
+    "build-resources:verify",
     "codex:schemas:verify",
     "test:agent-runtime-conformance",
     "test:browser-runtime-conformance",

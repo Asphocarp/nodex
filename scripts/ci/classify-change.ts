@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export interface ChangeClassification {
   readonly app: boolean;
+  readonly dependencyKind: "editor" | "github-actions" | "javascript" | "none" | "rust" | "source";
   readonly docsOnly: boolean;
   readonly landingOnly: boolean;
   readonly releaseMetadata: boolean;
@@ -68,6 +69,34 @@ const isKnownAppPath = (path: string): boolean =>
   || path === "electron-builder.yml"
   || path === "pnpm-workspace.yaml";
 
+const isGitHubActionPath = (path: string): boolean =>
+  path.startsWith(".github/workflows/");
+
+const isRustDependencyPath = (path: string): boolean =>
+  path === "Cargo.lock"
+  || path === "Cargo.toml"
+  || (/^crates\/[^/]+\/Cargo\.toml$/u.test(path));
+
+const isJavaScriptDependencyPath = (path: string): boolean =>
+  path === "package.json"
+  || path === "pnpm-lock.yaml"
+  || /^(?:packages|third_party\/blocknote\/packages)\/[^/]+\/package\.json$/u.test(path);
+
+const isEditorDependencyPath = (path: string): boolean =>
+  path.startsWith("third_party/blocknote/") && path.endsWith("/package.json");
+
+const dependencyKindFor = (
+  paths: readonly string[],
+): ChangeClassification["dependencyKind"] => {
+  if (paths.length === 0) return "source";
+  if (paths.every(isGitHubActionPath)) return "github-actions";
+  if (paths.every(isRustDependencyPath)) return "rust";
+  if (paths.every(isJavaScriptDependencyPath)) {
+    return paths.some(isEditorDependencyPath) ? "editor" : "javascript";
+  }
+  return "none";
+};
+
 const normalizePath = (value: string): string => {
   const path = value.trim().replaceAll("\\", "/");
   if (!path || path.startsWith("/") || path.split("/").includes("..")) {
@@ -84,6 +113,7 @@ export function classifyChangedPaths(
   if (options.full || paths.length === 0) {
     return {
       app: true,
+      dependencyKind: "source",
       docsOnly: false,
       landingOnly: false,
       releaseMetadata: false,
@@ -101,9 +131,11 @@ export function classifyChangedPaths(
     && !isKnownAppPath(path)
     && !RELEASE_PATHS.has(path)
   ));
+  const dependencyKind = dependencyKindFor(paths);
 
   return {
     app: releaseMetadata || (!docsOnly && !landingOnly),
+    dependencyKind,
     docsOnly,
     landingOnly,
     releaseMetadata,

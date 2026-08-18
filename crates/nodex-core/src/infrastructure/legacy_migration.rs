@@ -1233,11 +1233,13 @@ mod tests {
             .map(|directory| directory.join("node"))
             .find(|candidate| candidate.is_file())
             .expect("Node 24 executable on PATH");
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("resources/legacy-profile-migrator.mjs")
-            .canonicalize()
-            .expect("legacy migrator bundle");
+        let script = std::env::var_os("NODEX_TEST_LEGACY_MIGRATOR_SCRIPT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../..")
+                    .join(".generated/build-resources/legacy-profile-migrator.mjs")
+            });
         LegacyMigratorCommand { executable, script }
     }
 

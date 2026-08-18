@@ -13,7 +13,10 @@ import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..");
-const DEFAULT_OUTPUT_FILE = join(REPOSITORY_ROOT, "resources", "THIRD_PARTY_NOTICES.txt");
+const DEFAULT_OUTPUT_FILE = join(
+  REPOSITORY_ROOT,
+  ".generated/build-resources/THIRD_PARTY_NOTICES.txt",
+);
 const LEGAL_FILENAME_PATTERN = /^(?:licen[cs]e|copying|notice)(?:[._-].*)?$/i;
 const DIVIDER = "=".repeat(80);
 interface PnpmLicensePackage {
@@ -48,6 +51,11 @@ export interface ThirdPartyLegalEntry {
   identity: string;
   legalText: string | null;
   license: string;
+}
+
+export interface ThirdPartyNoticesGenerationOptions {
+  readonly migratorLegalPath?: string;
+  readonly repositoryRoot?: string;
 }
 
 function normalizeText(text: string): string {
@@ -102,13 +110,13 @@ async function packageDirectorySupportsTargetOs(
   return packageSupportsTargetOs(manifest.os, targetOs);
 }
 
-async function collectPnpmEntries(): Promise<ThirdPartyLegalEntry[]> {
+async function collectPnpmEntries(repositoryRoot: string): Promise<ThirdPartyLegalEntry[]> {
   const pnpmExecutable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const { stdout } = await execFileAsync(
     pnpmExecutable,
     ["licenses", "list", "--json"],
     {
-      cwd: REPOSITORY_ROOT,
+      cwd: repositoryRoot,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     },
@@ -151,12 +159,12 @@ async function collectPnpmEntries(): Promise<ThirdPartyLegalEntry[]> {
   return entries;
 }
 
-async function collectCargoEntries(): Promise<ThirdPartyLegalEntry[]> {
+async function collectCargoEntries(repositoryRoot: string): Promise<ThirdPartyLegalEntry[]> {
   const { stdout } = await execFileAsync(
     "cargo",
     ["metadata", "--format-version", "1", "--locked"],
     {
-      cwd: REPOSITORY_ROOT,
+      cwd: repositoryRoot,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     },
@@ -189,9 +197,12 @@ async function readCombinedLegalFiles(paths: string[]): Promise<string | null> {
   return documents.length > 0 ? documents.join("\n\n") : null;
 }
 
-async function collectBundledRuntimeEntries(): Promise<ThirdPartyLegalEntry[]> {
+async function collectBundledRuntimeEntries(
+  repositoryRoot: string,
+  migratorLegalPath: string,
+): Promise<ThirdPartyLegalEntry[]> {
   const openInterpreterRoot = join(
-    REPOSITORY_ROOT,
+    repositoryRoot,
     "resources",
     "third-party",
     "open-interpreter",
@@ -202,7 +213,7 @@ async function collectBundledRuntimeEntries(): Promise<ThirdPartyLegalEntry[]> {
       homepage: "https://sparkle-project.org/",
       identity: "Sparkle 2.9.4",
       legalText: await readCombinedLegalFiles([
-        join(REPOSITORY_ROOT, "resources", "sparkle", "LICENSE"),
+        join(repositoryRoot, "resources", "sparkle", "LICENSE"),
       ]),
       license: "MIT and bundled third-party notices",
     },
@@ -219,7 +230,7 @@ async function collectBundledRuntimeEntries(): Promise<ThirdPartyLegalEntry[]> {
       homepage: null,
       identity: "Nodex legacy profile migrator dependency bundle",
       legalText: await readCombinedLegalFiles([
-        join(REPOSITORY_ROOT, "resources", "legacy-profile-migrator.mjs.LEGAL.txt"),
+        migratorLegalPath,
       ]),
       license: "See bundled notices",
     },
@@ -270,11 +281,18 @@ export function renderThirdPartyNotices(entries: ThirdPartyLegalEntry[]): string
   ].join("\n");
 }
 
-export async function generateThirdPartyNotices(): Promise<string> {
+export async function generateThirdPartyNotices(
+  options: ThirdPartyNoticesGenerationOptions = {},
+): Promise<string> {
+  const repositoryRoot = resolve(options.repositoryRoot ?? REPOSITORY_ROOT);
+  const migratorLegalPath = resolve(
+    options.migratorLegalPath
+      ?? join(repositoryRoot, ".generated/build-resources/legacy-profile-migrator.mjs.LEGAL.txt"),
+  );
   const [pnpmEntries, cargoEntries, runtimeEntries] = await Promise.all([
-    collectPnpmEntries(),
-    collectCargoEntries(),
-    collectBundledRuntimeEntries(),
+    collectPnpmEntries(repositoryRoot),
+    collectCargoEntries(repositoryRoot),
+    collectBundledRuntimeEntries(repositoryRoot, migratorLegalPath),
   ]);
   return renderThirdPartyNotices([
     ...pnpmEntries,
@@ -298,13 +316,16 @@ function parseArguments(args: string[]): { outputFile: string; verify: boolean }
 
 async function main(): Promise<void> {
   const { outputFile, verify } = parseArguments(process.argv.slice(2));
-  const generated = await generateThirdPartyNotices();
+  const generated = await generateThirdPartyNotices({
+    repositoryRoot: REPOSITORY_ROOT,
+    migratorLegalPath: join(dirname(outputFile), "legacy-profile-migrator.mjs.LEGAL.txt"),
+  });
 
   if (verify) {
     const existing = await readFile(outputFile, "utf8").catch(() => null);
     if (existing !== generated) {
       throw new Error(
-        `${outputFile} is stale. Run \"pnpm run third-party-notices:generate\".`,
+        `${outputFile} is stale. Run \"pnpm run build-resources:prepare\".`,
       );
     }
     return;

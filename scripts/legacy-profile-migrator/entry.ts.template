@@ -138,8 +138,8 @@ process.env.NODEX_HOME = home;
 process.stderr.write(`nodex legacy migration: importing v${sourceVersion}\n`);
 
 const [{ ensureDatabase }, { migrateShippedSchemaStoreToCurrent }] = await Promise.all([
-  import("./legacy-source/src/main/local-store/schema"),
-  import("./legacy-source/src/main/local-store/shipped-schema-migration"),
+  import("./src/main/local-store/schema"),
+  import("./src/main/local-store/shipped-schema-migration"),
 ]);
 
 if (sourceVersion === 26 || sourceVersion === 57) {

@@ -5,12 +5,18 @@ import { sha256File } from "./native-runtime-manifest";
 
 export const LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT =
   "db1e660c907cc41db38d9cc126d385f0826aee78";
+export const LEGACY_PROFILE_MIGRATOR_BUNDLE_FILENAME =
+  "legacy-profile-migrator.mjs";
+export const LEGACY_PROFILE_MIGRATOR_LEGAL_FILENAME =
+  `${LEGACY_PROFILE_MIGRATOR_BUNDLE_FILENAME}.LEGAL.txt`;
+export const LEGACY_PROFILE_MIGRATOR_MANIFEST_FILENAME =
+  "legacy-profile-migrator.json";
 export const LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH =
-  "resources/legacy-profile-migrator.mjs";
+  `resources/${LEGACY_PROFILE_MIGRATOR_BUNDLE_FILENAME}`;
 export const LEGACY_PROFILE_MIGRATOR_LEGAL_PATH =
   `${LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH}.LEGAL.txt`;
 export const LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH =
-  "resources/legacy-profile-migrator.json";
+  `resources/${LEGACY_PROFILE_MIGRATOR_MANIFEST_FILENAME}`;
 export const LEGACY_PROFILE_MIGRATOR_SOURCE_VERSIONS = [26, 57, 68, 82, 83] as const;
 
 interface LegacyProfileMigratorArtifact {
@@ -99,8 +105,16 @@ export const serializeLegacyProfileMigratorManifest = (
   manifest: LegacyProfileMigratorManifest,
 ): string => `${JSON.stringify(manifest, null, 2)}\n`;
 
-const readManifest = (repositoryRoot: string): LegacyProfileMigratorManifest => {
-  const manifestPath = path.join(repositoryRoot, LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH);
+export const resolveLegacyProfileMigratorResourcePath = (
+  resourceRoot: string,
+  packagedPath: string,
+): string => path.join(resourceRoot, path.basename(packagedPath));
+
+const readManifest = (resourceRoot: string): LegacyProfileMigratorManifest => {
+  const manifestPath = resolveLegacyProfileMigratorResourcePath(
+    resourceRoot,
+    LEGACY_PROFILE_MIGRATOR_MANIFEST_PATH,
+  );
   let source: string;
   let value: unknown;
   try {
@@ -119,11 +133,14 @@ const readManifest = (repositoryRoot: string): LegacyProfileMigratorManifest => 
 };
 
 const verifyArtifact = (
-  repositoryRoot: string,
+  resourceRoot: string,
   artifact: LegacyProfileMigratorArtifact,
   label: string,
 ): void => {
-  const artifactPath = path.join(repositoryRoot, artifact.path);
+  const artifactPath = resolveLegacyProfileMigratorResourcePath(
+    resourceRoot,
+    artifact.path,
+  );
   let size: number;
   try {
     const stat = lstatSync(artifactPath);
@@ -141,10 +158,10 @@ const verifyArtifact = (
 };
 
 export const verifyLegacyProfileMigratorArtifacts = (
-  repositoryRoot: string,
+  resourceRoot: string,
 ): LegacyProfileMigratorManifest => {
-  const manifest = readManifest(repositoryRoot);
-  verifyArtifact(repositoryRoot, manifest.bundle, "bundle");
-  verifyArtifact(repositoryRoot, manifest.legalNotices, "legal notices");
+  const manifest = readManifest(resourceRoot);
+  verifyArtifact(resourceRoot, manifest.bundle, "bundle");
+  verifyArtifact(resourceRoot, manifest.legalNotices, "legal notices");
   return manifest;
 };

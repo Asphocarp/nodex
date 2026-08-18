@@ -5,6 +5,7 @@ describe("CI change classification", () => {
   test("keeps documentation and landing changes out of expensive application jobs", () => {
     expect(classifyChangedPaths(["docs/release-macos.md", "docs/ARCHITECTURE.md"])).toEqual({
       app: false,
+      dependencyKind: "none",
       docsOnly: true,
       landingOnly: false,
       releaseMetadata: false,
@@ -12,6 +13,7 @@ describe("CI change classification", () => {
     });
     expect(classifyChangedPaths(["packages/landing/src/App.tsx"])).toEqual({
       app: false,
+      dependencyKind: "none",
       docsOnly: false,
       landingOnly: true,
       releaseMetadata: false,
@@ -27,6 +29,7 @@ describe("CI change classification", () => {
       "package.json",
     ])).toEqual({
       app: true,
+      dependencyKind: "none",
       docsOnly: false,
       landingOnly: false,
       releaseMetadata: true,
@@ -38,6 +41,19 @@ describe("CI change classification", () => {
     expect(classifyChangedPaths(["src/renderer/components/app.tsx"]).runtime).toBe(false);
     expect(classifyChangedPaths(["resources/agent-runtime/openinterpreter.lock.json"]).runtime).toBe(true);
     expect(classifyChangedPaths(["scripts/release/bundle.ts"]).runtime).toBe(true);
+  });
+
+  test("identifies dependency-only scopes without weakening the current gates", () => {
+    expect(classifyChangedPaths([".github/workflows/ci.yml"]).dependencyKind)
+      .toBe("github-actions");
+    expect(classifyChangedPaths(["Cargo.lock", "crates/nodex-core/Cargo.toml"]).dependencyKind)
+      .toBe("rust");
+    expect(classifyChangedPaths(["package.json", "pnpm-lock.yaml"]).dependencyKind)
+      .toBe("javascript");
+    expect(classifyChangedPaths([
+      "third_party/blocknote/packages/core/package.json",
+      "pnpm-lock.yaml",
+    ]).dependencyKind).toBe("editor");
   });
 
   test("chooses the stronger gate for unknown, empty, and explicit full inputs", () => {

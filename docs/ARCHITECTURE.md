@@ -354,6 +354,8 @@ Security-sensitive Adapters fail closed. Core authorizes product resources; Main
 
 The repository-owned Release Module under [`scripts/release`](scripts/release) owns release identity, source transitions, bundle assembly, publication state, and downstream projections. GitHub workflows are Adapters over that Module rather than a second release decision engine.
 
+The [`scripts/build-resources.ts`](../scripts/build-resources.ts) Build Resources Module owns derived migrator and legal resources. Its only durable inputs are the pinned migrator source, its own locked dependency closure, and the repository dependency graph; it writes deterministic output under `.generated/build-resources/` and exposes one resolver for development, tests, packaging, and release. The packaged filenames remain the Core contract, but generated files are never source-review inputs or PR branch mutations. CI verifies two independent staging builds and keeps the existing read-only PR permission model.
+
 Prepared Electron output, signed package provenance, and public Release Bundle identity remain distinct evidence. Production artifacts are built natively for each supported macOS architecture, signed and notarized, smoke-tested as packaged applications, assembled into one verified release, and only then published to update and package-manager channels. The complete workflow belongs in [the macOS release runbook](docs/release-macos.md).
 
 ### Test runtimes

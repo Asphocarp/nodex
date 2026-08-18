@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.classify.outputs.app }}
+      dependency_kind: ${{ steps.classify.outputs.dependency_kind }}
       docs_only: ${{ steps.classify.outputs.docs_only }}
       landing_only: ${{ steps.classify.outputs.landing_only }}
       release_metadata: ${{ steps.classify.outputs.release_metadata }}
@@ -57,7 +58,7 @@ jobs:
           node -e '
             const fs = require("node:fs");
             const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const keys = ["app", "docsOnly", "landingOnly", "releaseMetadata", "runtime"];
+            const keys = ["app", "dependencyKind", "docsOnly", "landingOnly", "releaseMetadata", "runtime"];
             const snake = (key) => key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
             fs.appendFileSync(process.env.GITHUB_OUTPUT, keys.map((key) => `${snake(key)}=${value[key]}`).join("\n") + "\n");
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Change classification\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`);
@@ -78,12 +79,37 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Resolve pinned legacy migrator source
+        id: migrator-source
+        shell: bash
+        run: |
+          source_sha="$(pnpm exec tsx -e 'import { LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT } from "./scripts/legacy-profile-migrator-artifacts.ts"; console.log(LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT)')"
+          echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
       - name: Fetch pinned legacy migrator source
         shell: bash
         run: |
-          source_sha="$(node -p 'require("./resources/legacy-profile-migrator.json").sourceCommit')"
+          source_sha="${{ steps.migrator-source.outputs.source_sha }}"
           git fetch --no-tags --depth=1 origin "${source_sha}"
-      - run: pnpm run verify:static
+      - name: Typecheck
+        run: pnpm run typecheck
+      - name: Lint
+        run: pnpm run lint
+      - name: Semantic theme contracts
+        run: pnpm run semantic-theme:verify
+      - name: Icon boundaries
+        run: pnpm run verify:icons
+      - name: Workflow contracts
+        run: pnpm run ci:workflow-contracts
+      - name: Protocol contracts
+        run: pnpm run core:protocol:verify
+      - name: Module boundaries
+        run: pnpm run core:module-boundaries
+      - name: Version surfaces
+        run: pnpm run version-surfaces:audit
+      - name: Generated build resources and notices/legal
+        run: pnpm run build-resources:verify
+      - name: Landing build
+        run: pnpm run build:landing
 
   rust:
     name: Rust
