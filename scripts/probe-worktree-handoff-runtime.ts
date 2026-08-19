@@ -137,13 +137,41 @@ function notificationHasThreadSettingsCwd(
 ): boolean {
   const actualCwd = readNotificationThreadSettingsCwd(notification);
   if (!actualCwd) return false;
-  return realpathSync(actualCwd) === realpathSync(expectedCwd);
+  return pathsMatch(actualCwd, expectedCwd);
 }
 
 function readNotificationTurnId(notification: ServerNotification): string | null {
   const params = notification.params as Record<string, unknown>;
   const turn = params.turn as Record<string, unknown> | undefined;
   return typeof turn?.id === "string" ? turn.id : null;
+}
+
+function pathsMatch(actual: string, expected: string): boolean {
+  return realpathSync(actual) === realpathSync(expected);
+}
+
+async function waitForThreadCwd(input: {
+  readonly client: CodexAppServerClient;
+  readonly expectedCwd: string;
+  readonly label: string;
+  readonly threadId: string;
+}): Promise<ThreadReadResponse> {
+  const startedAt = Date.now();
+  let observedCwd = "<missing>";
+  while (true) {
+    const response = await input.client.request<"thread/read", ThreadReadResponse>(
+      "thread/read",
+      { threadId: input.threadId, includeTurns: false },
+    );
+    observedCwd = response.thread.cwd;
+    if (pathsMatch(observedCwd, input.expectedCwd)) return response;
+    if (Date.now() - startedAt >= waitTimeoutMs) {
+      throw new Error(
+        `${input.label} remained at ${observedCwd}; expected ${input.expectedCwd}`,
+      );
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 async function startBlockingResponsesServer(): Promise<{
@@ -203,7 +231,7 @@ function createClient(binaryPath: string, stateHome: string): Promise<CodexAppSe
 }
 
 function assertSamePath(actual: string, expected: string, label: string): void {
-  if (realpathSync(actual) === realpathSync(expected)) return;
+  if (pathsMatch(actual, expected)) return;
   throw new Error(`${label} resolved to ${actual}; expected ${expected}`);
 }
 
@@ -317,10 +345,12 @@ export async function probeWorktreeHandoffRuntime(input: {
       },
     });
     await settingsNotification;
-    const loadedRead = await firstClient.request<"thread/read", ThreadReadResponse>(
-      "thread/read",
-      { threadId, includeTurns: false },
-    );
+    const loadedRead = await waitForThreadCwd({
+      client: firstClient,
+      expectedCwd: destinationOne,
+      label: "loaded settings cwd",
+      threadId,
+    });
     assertSamePath(loadedRead.thread.cwd, destinationOne, "loaded settings cwd");
 
     const loadedResume = await firstClient.request<"thread/resume", ThreadResumeResponse>(
@@ -378,10 +408,12 @@ export async function probeWorktreeHandoffRuntime(input: {
     secondClient.on("notification", (notification: ServerNotification) => {
       notifications.push(notification.method);
     });
-    const unloaded = await secondClient.request<"thread/read", ThreadReadResponse>(
-      "thread/read",
-      { threadId, includeTurns: false },
-    );
+    const unloaded = await waitForThreadCwd({
+      client: secondClient,
+      expectedCwd: destinationOne,
+      label: "persisted settings cwd",
+      threadId,
+    });
     if (unloaded.thread.status.type !== "notLoaded") {
       throw new Error(`Restarted thread status was ${unloaded.thread.status.type}`);
     }
