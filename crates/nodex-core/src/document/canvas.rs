@@ -1218,12 +1218,18 @@ pub(crate) fn load_v94_canvas_scene(
         let value = serde_json::from_str::<Value>(&row.5)
             .map_err(|_| corrupt("v94 Canvas element JSON is invalid"))?;
         let element = parse_stored_element(&value, &row.0, row.3.clone())?;
+        let normalized_json = canonical_json(&element.value)?;
+        let raw_hash = sha256(row.5.as_bytes());
+        let normalized_hash = sha256(normalized_json.as_bytes());
         if element.version != row.1
             || element.version_nonce != row.2
             || i64::from(element.is_deleted) != row.4
-            || sha256(canonical_json(&element.value)?.as_bytes()) != row.6
+            || (row.6 != raw_hash && row.6 != normalized_hash)
         {
-            return Err(corrupt("v94 Canvas element evidence diverges from its row"));
+            return Err(corrupt(format!(
+                "v94 Canvas element evidence diverges from its row (Document {}, element {})",
+                authority.head.id, row.0
+            )));
         }
         elements.push(element);
     }
@@ -1261,7 +1267,12 @@ pub(crate) fn load_v94_canvas_scene(
         .map_err(|_| corrupt("v94 Canvas appState JSON is invalid"))?;
     let scene = materialize_loaded_scene(elements, &app_state, files)?;
     let scene_hash = sha256(scene.fingerprint()?.as_bytes());
-    if scene_hash != scene_row.4 || scene_hash != authority.head.state_hash {
+    // v94 hashes were produced from the legacy JSON representation. Parsing
+    // a legacy floating-point value and serializing it with Rust can change
+    // its shortest representation, so v95 must be allowed to establish the
+    // canonical scene hash. The old scene and Document hashes still need to
+    // agree with each other before that rewrite.
+    if scene_row.4 != authority.head.state_hash {
         return Err(corrupt(
             "v94 Canvas scene hash diverges from its Document authority",
         ));

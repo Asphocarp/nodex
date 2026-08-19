@@ -25,13 +25,14 @@ use yrs::{ReadTxn, StateVector, Transact, Update};
 use crate::database::create_database_authority_records;
 use crate::database::{create_page_key_namespace, ensure_database_page_key};
 use crate::document::{
-    BlockDocumentSchema, CANVAS_SCENE_HASH_VERSION, CanvasHashItemKind, CanvasScene,
+    BlockDocumentSchema, CANVAS_SCENE_HASH_VERSION,
+    CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION, CanvasHashItemKind, CanvasScene,
     DocumentMaterialization, MAX_DOCUMENT_UPDATE_BYTES, canvas_hash_bucket,
     canvas_semantic_intent_fingerprint, compute_canvas_scene_incremental_metadata,
     create_compatible_document, decode_block_document, decode_state_vector_v1,
     derive_canvas_element, has_pending_dependencies, load_v94_canvas_scene,
     materialize_decoded_document, read_legacy_project_owned_document_authority,
-    rebuild_legacy_import_projections, replace_page_reference_projection,
+    rebuild_document_materialization_projection_for_migration, rebuild_legacy_import_projections,
 };
 use crate::domain::fractional_rank::evenly_spaced_rank;
 use crate::domain::project_appearance::{
@@ -2581,28 +2582,20 @@ fn ensure_v127_document_page_references(connection: &Connection) -> Result<(), S
            ON document_page_references(target_page_id, updated_at DESC, source_owner_block_id, source_block_id); \
          DELETE FROM document_page_references;",
     )?;
-    let materials = connection
-        .prepare(
-            "SELECT materialization.document_id, materialization.references_json, \
-                    materialization.updated_at \
-             FROM document_materializations materialization \
-             JOIN block_documents ownership ON ownership.document_id = materialization.document_id \
-             ORDER BY materialization.document_id",
-        )?
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (document_id, references_json, updated_at) in materials {
-        let references = serde_json::from_str::<
-            Vec<crate::domain::derived_records::BlockDocumentReference>,
-        >(&references_json)
-        .map_err(|_| corrupt("v127 Page reference backfill found invalid derived records"))?;
-        replace_page_reference_projection(connection, &document_id, &references, &updated_at)?;
+    // `references_json` is a derived projection, and its shape changed after
+    // v99. Reconstruct every live Yrs Document first so this migration never
+    // treats an older projection format as authority.
+    let repository = DocumentReadRepository::new(connection);
+    for head in repository.live_yjs_heads()? {
+        let reconstructed = reconstruct_live_yjs_document(&repository, &head)?;
+        rebuild_document_materialization_projection_for_migration(
+            connection,
+            &head.id,
+            head.generation,
+            head.head_seq,
+            &reconstructed.materialization,
+            &head.updated_at,
+        )?;
     }
     validate_v127_document_page_references(connection)
 }
@@ -2667,6 +2660,51 @@ fn validate_v129_store_revision_authority(connection: &Connection) -> Result<(),
         return Err(corrupt(
             "v129 Store duplicates PRAGMA user_version in Core metadata",
         ));
+    }
+    Ok(())
+}
+
+fn ensure_v130_document_materialization_derivation(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    if !table_has_column(
+        connection,
+        "document_materializations",
+        "materialization_derivation_version",
+    )? {
+        let sql = format!(
+            "ALTER TABLE document_materializations ADD COLUMN \
+               materialization_derivation_version INTEGER NOT NULL DEFAULT {} \
+               CHECK (materialization_derivation_version >= 1)",
+            CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION,
+        );
+        connection.execute_batch(&sql)?;
+    }
+    validate_v130_document_materialization_derivation(connection)
+}
+
+fn validate_v130_document_materialization_derivation(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    if !table_has_column(
+        connection,
+        "document_materializations",
+        "materialization_derivation_version",
+    )? {
+        return Err(corrupt(
+            "v130 Store is missing the materialization derivation version",
+        ));
+    }
+    let stale = connection.query_row(
+        "SELECT count(*) FROM document_materializations \
+         WHERE materialization_derivation_version <> ?1",
+        [CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if stale != 0 {
+        return Err(corrupt(format!(
+            "v130 Store contains {stale} materializations from an older derivation"
+        )));
     }
     Ok(())
 }
@@ -2749,7 +2787,15 @@ fn prepare_profile_store_impl(
         to_version: CURRENT_STORE_REVISION,
     });
     let backup_path = create_migration_backup(connection, profile_home, source_version)?;
-    let validated_yjs_documents = validate_live_yjs_documents(connection)?;
+    // A TypeScript v84 store crosses the same import boundary as the staged
+    // legacy path below. Rebuild its derived projections from the Rust Yrs
+    // decoder before the first exact materialization check; the persisted
+    // projection is not authoritative for this boundary.
+    with_immediate_transaction(connection, |transaction| {
+        rebuild_legacy_import_document_projections(transaction)
+    })?;
+    let validated_yjs_documents =
+        validate_live_yjs_documents(connection, YjsValidationMode::ExactMaterialization)?;
     let backup_name = backup_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -2808,7 +2854,8 @@ pub(crate) fn prepare_legacy_import_candidate(
     with_immediate_transaction(connection, |transaction| {
         rebuild_legacy_import_document_projections(transaction)
     })?;
-    let validated_yjs_documents = validate_live_yjs_documents(connection)?;
+    let validated_yjs_documents =
+        validate_live_yjs_documents(connection, YjsValidationMode::ExactMaterialization)?;
     let now = unix_time_millis()?;
     publish_current_store(
         connection,
@@ -2832,6 +2879,19 @@ fn rebuild_legacy_import_document_projections(connection: &Connection) -> Result
     let repository = DocumentReadRepository::new(connection);
     let heads = repository.legacy_project_owned_live_yjs_heads()?;
     for head in heads {
+        // A few historical stores can contain standalone Yjs Documents that
+        // were never attached to a Block. They still belong to the Yrs
+        // integrity pass below, but there is no owner-scoped projection to
+        // rebuild for them.
+        let has_owner: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM block_documents \
+             WHERE document_id = ?1 AND project_id = ?2)",
+            params![head.id, head.library_id],
+            |row| row.get(0),
+        )?;
+        if !has_owner {
+            continue;
+        }
         let reconstructed = reconstruct_live_yjs_document(&repository, &head)?;
         rebuild_legacy_import_projections(connection, &head.id, &reconstructed.materialization)?;
     }
@@ -2881,13 +2941,15 @@ fn upgrade_owned_store(
     });
 
     let backup_path = create_migration_backup(connection, profile_home, source_version)?;
-    let validated_yjs_documents = validate_live_yjs_documents(connection)?;
+    let validated_yjs_documents =
+        validate_live_yjs_documents(connection, YjsValidationMode::DurableOnly)?;
     let migration_now = unix_time_millis()?;
     with_schema_rebuild_transaction(connection, |transaction| {
         StoreMigrationLedger::migrate_forward(transaction, source_version, migration_now, observer)
     })?;
 
     StoreMigrationLedger::validate_current_store(connection)?;
+    validate_live_yjs_documents(connection, YjsValidationMode::ExactMaterialization)?;
     Ok(StorePreparation {
         schema_version: CURRENT_STORE_REVISION,
         created_fresh: false,
@@ -3131,7 +3193,16 @@ fn file_sha256(path: &Path) -> Result<String, StoreError> {
     }
 }
 
-fn validate_live_yjs_documents(connection: &Connection) -> Result<usize, StoreError> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum YjsValidationMode {
+    DurableOnly,
+    ExactMaterialization,
+}
+
+fn validate_live_yjs_documents(
+    connection: &Connection,
+    mode: YjsValidationMode,
+) -> Result<usize, StoreError> {
     let repository = DocumentReadRepository::new(connection);
     let heads = if table_has_column(connection, "documents", "library_id")? {
         repository.live_yjs_heads()?
@@ -3139,22 +3210,26 @@ fn validate_live_yjs_documents(connection: &Connection) -> Result<usize, StoreEr
         repository.legacy_project_owned_live_yjs_heads()?
     };
     for head in &heads {
-        validate_live_yjs_document(&repository, head)?;
+        validate_live_yjs_document(&repository, head, mode)?;
     }
     Ok(heads.len())
 }
 
 pub(crate) fn validate_v85_restore_documents(connection: &Connection) -> Result<usize, StoreError> {
     validate_core_metadata(connection, CURRENT_STORE_REVISION)?;
-    validate_live_yjs_documents(connection)
+    validate_live_yjs_documents(connection, YjsValidationMode::ExactMaterialization)
 }
 
 fn validate_live_yjs_document(
     repository: &DocumentReadRepository<'_>,
     head: &DocumentHeadRow,
+    mode: YjsValidationMode,
 ) -> Result<(), StoreError> {
     let reconstructed = reconstruct_live_yjs_document(repository, head)?;
-    assert_persisted_materialization(repository, head, &reconstructed.materialization)
+    if mode == YjsValidationMode::ExactMaterialization {
+        assert_persisted_materialization(repository, head, &reconstructed.materialization)?;
+    }
+    Ok(())
 }
 
 struct ReconstructedLiveYjsDocument {
@@ -3248,6 +3323,20 @@ fn assert_persisted_materialization(
     let block_tree = serde_json::to_value(&actual.block_tree).map_err(internal_json)?;
     let references = serde_json::to_value(&actual.references).map_err(internal_json)?;
     let asset_refs = serde_json::to_value(&actual.asset_refs).map_err(internal_json)?;
+    let derivation_version = if table_has_column(
+        repository.connection(),
+        "document_materializations",
+        "materialization_derivation_version",
+    )? {
+        Some(repository.connection().query_row(
+            "SELECT materialization_derivation_version \
+             FROM document_materializations WHERE document_id = ?1",
+            [&head.id],
+            |row| row.get::<_, i64>(0),
+        )?)
+    } else {
+        None
+    };
     let mismatched_fields = [
         (persisted.generation != head.generation, "generation"),
         (persisted.projected_seq != head.head_seq, "projected_seq"),
@@ -3263,6 +3352,12 @@ fn assert_persisted_materialization(
         (persisted.block_tree != block_tree, "block_tree"),
         (persisted.references != references, "references"),
         (persisted.asset_refs != asset_refs, "asset_refs"),
+        (
+            derivation_version.is_some_and(|version| {
+                version != CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION
+            }),
+            "materialization_derivation_version",
+        ),
     ]
     .into_iter()
     .filter_map(|(mismatched, field)| mismatched.then_some(field))
@@ -6396,7 +6491,82 @@ fn migrate_v95_canvas_scene(connection: &Connection, document_id: &str) -> Resul
     Ok(())
 }
 
+fn backfill_v95_legacy_canvas_module_receipts(connection: &Connection) -> Result<(), StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT canvas.mutation_id, canvas.request_hash, \
+                    canvas.request_json, canvas.result_json, canvas.committed_at \
+             FROM canvas_scene_mutation_receipts canvas \
+             LEFT JOIN core_module_receipts common \
+               ON common.module_name = 'owned_document' \
+              AND common.operation_id = canvas.mutation_id \
+             WHERE common.operation_id IS NULL \
+             ORDER BY canvas.document_id, canvas.mutation_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (mutation_id, request_hash, request_json, result_json, committed_at) in rows {
+        let request = serde_json::from_str::<Value>(&request_json)
+            .map_err(|_| corrupt("v95 legacy Canvas request JSON is invalid"))?;
+        let request = request
+            .as_object()
+            .ok_or_else(|| corrupt("v95 legacy Canvas request must be an object"))?;
+        let project_id = request
+            .get("projectId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| corrupt("v95 legacy Canvas request is missing projectId"))?;
+        let store_epoch = request
+            .get("storeEpoch")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| corrupt("v95 legacy Canvas request is missing storeEpoch"))?;
+        let profile_id = connection
+            .query_row(
+                "SELECT library.profile_id FROM projects project \
+                 JOIN libraries library ON library.id = project.library_id \
+                 WHERE project.id = ?1",
+                [project_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| corrupt("v95 legacy Canvas request project has no Profile"))?;
+        let result = serde_json::from_str::<Value>(&result_json)
+            .map_err(|_| corrupt("v95 legacy Canvas result JSON is invalid"))?;
+        let module_result = serde_json::to_string(&json!({
+            "value": { "canvas": result }
+        }))
+        .map_err(|_| corrupt("v95 legacy Canvas Module result cannot be encoded"))?;
+        connection.execute(
+            "INSERT INTO core_module_receipts (\
+               module_name, operation_id, profile_id, project_id, adapter_kind, \
+               operation_kind, store_epoch, request_hash, result_json, event_sequence, committed_at\
+             ) VALUES (?1, ?2, ?3, ?4, 'electron_host', 'apply_canvas_mutation', ?5, ?6, ?7, NULL, ?8)",
+            params![
+                "owned_document",
+                mutation_id,
+                profile_id,
+                project_id,
+                store_epoch,
+                request_hash,
+                module_result,
+                committed_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 fn migrate_v95_canvas_receipts(connection: &Connection) -> Result<(), StoreError> {
+    backfill_v95_legacy_canvas_module_receipts(connection)?;
     type LegacyCanvasReceipt = (
         String,
         i64,
@@ -7371,7 +7541,6 @@ fn write_core_metadata(
             params![CORE_SCHEMA_OWNER, migrated_from, backup_name, now],
         )?;
     }
-    transaction.pragma_update(None, "user_version", CURRENT_STORE_REVISION)?;
     Ok(())
 }
 
@@ -7646,6 +7815,7 @@ impl StoreMigrationLedger {
         ensure_v127_document_page_references(transaction)?;
         ensure_v128_block_transfer_undo(transaction)?;
         ensure_v129_store_revision_authority(transaction)?;
+        ensure_v130_document_materialization_derivation(transaction)?;
         transaction.pragma_update(None, "user_version", CURRENT_STORE_REVISION)?;
         Ok(())
     }
@@ -7707,6 +7877,9 @@ fn validate_store_semantics_at_revision(
     }
     if revision >= 129 {
         validate_v129_store_revision_authority(connection)?;
+    }
+    if revision >= 130 {
+        validate_v130_document_materialization_derivation(connection)?;
     }
     Ok(())
 }
@@ -7867,6 +8040,9 @@ fn build_expected_core_schema_inventory(
     }
     if store_revision >= 129 {
         ensure_v129_store_revision_authority(&expected)?;
+    }
+    if store_revision >= 130 {
+        ensure_v130_document_materialization_derivation(&expected)?;
     }
 
     read_schema_inventory(&expected)
@@ -8048,6 +8224,16 @@ mod tests {
     /// removing newer objects from a fresh Store. Restore the exact v128 metadata
     /// table first; the published-boundary gate itself uses the frozen v128 fixture.
     fn restore_v128_store_metadata_schema(connection: &Connection) -> Result<(), StoreError> {
+        if table_has_column(
+            connection,
+            "document_materializations",
+            "materialization_derivation_version",
+        )? {
+            connection.execute_batch(
+                "ALTER TABLE document_materializations \
+                 DROP COLUMN materialization_derivation_version;",
+            )?;
+        }
         if table_has_column(connection, "core_store_metadata", "store_format_version")? {
             return Ok(());
         }
@@ -8862,18 +9048,15 @@ mod tests {
 
     #[test]
     fn previous_published_store_migrates_to_the_current_schema() {
-        assert_eq!(
-            CURRENT_STORE_REVISION, 129,
-            "refresh the previous-published Store fixture for each Store version bump",
-        );
+        assert_eq!(CURRENT_STORE_REVISION, 130);
         let previous_store_version = CURRENT_STORE_REVISION - 1;
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         fs::write(
             home.join("nodex.db"),
-            include_bytes!("../../tests/fixtures/store-v128.db"),
+            include_bytes!("../../tests/fixtures/store-v129.db"),
         )
-        .expect("install frozen v128 Store fixture");
+        .expect("install frozen v129 Store fixture");
 
         let upgraded = SqliteStoreKernel::open(&home).expect("migrate previous-published Store");
         assert_eq!(
@@ -10702,6 +10885,32 @@ mod tests {
             .writer()
             .call(|connection| {
                 with_immediate_transaction(connection, |transaction| {
+                    let (source_block_id, target_page_id) = transaction.query_row(
+                        "SELECT json_extract(references_json, '$[0].sourceBlockId'), \
+                                json_extract(references_json, '$[0].targetPageId') \
+                         FROM document_materializations \
+                         WHERE document_id = 'document:v127-source'",
+                        [],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )?;
+                    let legacy_references = serde_json::to_string(&serde_json::json!([{
+                        "kind": "block",
+                        "sourceBlockId": source_block_id,
+                        "targetBlockId": target_page_id,
+                        "displayHint": null,
+                    }]))
+                    .map_err(|_| {
+                        StoreError::new(
+                            StoreErrorCode::Internal,
+                            "legacy Page reference fixture could not be encoded",
+                            false,
+                        )
+                    })?;
+                    transaction.execute(
+                        "UPDATE document_materializations SET references_json = ?1 \
+                         WHERE document_id = 'document:v127-source'",
+                        [&legacy_references],
+                    )?;
                     remove_v127_document_page_reference_schema(transaction)?;
                     transaction.execute_batch(
                         "UPDATE core_store_metadata SET store_format_version = 126 WHERE id = 1; \
@@ -10751,6 +10960,28 @@ mod tests {
         );
         assert!(!projection.1.is_empty());
         assert!(!projection.5.is_empty());
+        let materialization = upgraded
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT references_json, materialization_derivation_version \
+                         FROM document_materializations \
+                         WHERE document_id = 'document:v127-source'",
+                        [],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read rebuilt Document materialization");
+        let references: Value =
+            serde_json::from_str(&materialization.0).expect("rebuilt references JSON");
+        assert_eq!(references[0]["kind"], "page");
+        assert_eq!(references[0]["presentation"], "mention");
+        assert_eq!(
+            materialization.1,
+            CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION
+        );
         drop(upgraded);
 
         let reopened = SqliteStoreKernel::open(&home).expect("reopen v127 Store");
@@ -10766,6 +10997,197 @@ mod tests {
             .expect("count stable v127 Page reference projection");
         assert_eq!(count, 1);
         assert_eq!(reopened.preparation().migrated_from_version, None);
+    }
+
+    #[test]
+    fn v99_upgrade_rebuilds_yjs_derived_page_references() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v99_store_with_property_value(&home);
+
+        let full_state = fs::read(fixture("matrix-base.bin")).expect("matrix Yrs fixture");
+        let document = create_compatible_document("document:v99-page-reference");
+        document
+            .transact_mut()
+            .apply_update(Update::decode_v1(&full_state).expect("valid matrix fixture"))
+            .expect("apply matrix Yrs fixture");
+        let decoded = decode_block_document(&document, BlockDocumentSchema::PageV2)
+            .expect("decode matrix Page");
+        let materialization =
+            materialize_decoded_document(&decoded).expect("materialize matrix Page");
+        let state_vector = document.transact().state_vector().encode_v1();
+        let update_hash = sha256(&full_state);
+        let rich_title_json =
+            serde_json::to_string(&materialization.rich_title).expect("rich title");
+        let block_tree_json =
+            serde_json::to_string(&materialization.block_tree).expect("block tree");
+        let asset_refs_json =
+            serde_json::to_string(&materialization.asset_refs).expect("asset refs");
+        let legacy_references = materialization
+            .references
+            .iter()
+            .map(|reference| {
+                let value = serde_json::to_value(reference).expect("reference value");
+                if value["kind"] == "page" {
+                    json!({
+                        "kind": "block",
+                        "sourceBlockId": value["sourceBlockId"],
+                        "targetBlockId": value["targetPageId"],
+                        "displayHint": null,
+                    })
+                } else {
+                    value
+                }
+            })
+            .collect::<Vec<_>>();
+        let legacy_references_json =
+            serde_json::to_string(&legacy_references).expect("legacy references");
+        let now = "2026-08-19T00:00:00.000Z";
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v99 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute(
+                "INSERT INTO documents(\
+                   id, project_id, generation, head_seq, schema_key, schema_version, \
+                   state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
+                 ) VALUES (\
+                   'document:v99-page-reference', 'project:v99', 1, 1, 'nodex.page', 2, \
+                   ?1, '', 'ready', 'ydoc_primary', ?2, ?2, 'yjs')",
+                params![state_vector, now],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks(\
+                   id, project_id, type, lifecycle, location_kind, created_at, updated_at\
+                 ) VALUES ('page-target', 'project:v99', 'page', 'active', 'space', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                 VALUES ('database:v99', 'document:v99-page-reference', 'project:v99', ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO document_updates(\
+                   document_id, generation, seq, update_id, client_session_id, base_head_seq, \
+                   touched_block_ids_json, update_blob, update_hash, committed_at\
+                 ) VALUES (\
+                   'document:v99-page-reference', 1, 1, 'update:v99-page-reference', \
+                   'migration:v99', 0, '[]', ?1, ?2, ?3)",
+                params![full_state, update_hash, now],
+            )?;
+            transaction.execute(
+                "INSERT INTO document_update_receipts(\
+                   document_id, generation, seq, update_id, client_session_id, base_head_seq, \
+                   client_touched_block_ids_json, derived_touched_block_ids_json, \
+                   derivation_version, update_hash, update_byte_length, committed_at\
+                 ) VALUES (\
+                   'document:v99-page-reference', 1, 1, 'update:v99-page-reference', \
+                   'migration:v99', 0, '[]', '[]', 1, ?1, ?2, ?3)",
+                params![
+                    update_hash,
+                    i64::try_from(full_state.len()).expect("fixture length"),
+                    now,
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO document_materializations(\
+                   document_id, generation, projected_seq, schema_version, title, title_rich_json, \
+                   title_rich_hash, nfm, plain_text, preview, block_tree_json, references_json, \
+                   asset_refs_json, updated_at\
+                 ) VALUES (\
+                   'document:v99-page-reference', 1, 1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    i64::from(materialization.schema_version),
+                    materialization.title,
+                    rich_title_json,
+                    sha256(rich_title_json.as_bytes()),
+                    materialization.nfm,
+                    materialization.plain_text,
+                    materialization.preview,
+                    block_tree_json,
+                    legacy_references_json,
+                    asset_refs_json,
+                    now,
+                ],
+            )?;
+            Ok(())
+        })
+        .expect("seed v99 Yrs page reference");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v99 Yrs page reference");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(99));
+        let snapshot = upgraded
+            .readers()
+            .read_default(|connection| {
+                let (head_seq, state_vector, update_count, receipt_count) = connection.query_row(
+                    "SELECT head_seq, state_vector, \
+                                (SELECT count(*) FROM document_updates \
+                                 WHERE document_id = 'document:v99-page-reference'), \
+                                (SELECT count(*) FROM document_update_receipts \
+                                 WHERE document_id = 'document:v99-page-reference') \
+                         FROM documents WHERE id = 'document:v99-page-reference'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, Vec<u8>>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                let references_json = connection.query_row(
+                    "SELECT references_json FROM document_materializations \
+                     WHERE document_id = 'document:v99-page-reference'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let projection_count = connection.query_row(
+                    "SELECT count(*) FROM document_page_references \
+                     WHERE document_id = 'document:v99-page-reference'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                let derivation_version = connection.query_row(
+                    "SELECT materialization_derivation_version \
+                     FROM document_materializations \
+                     WHERE document_id = 'document:v99-page-reference'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                Ok((
+                    head_seq,
+                    state_vector,
+                    update_count,
+                    receipt_count,
+                    references_json,
+                    projection_count,
+                    derivation_version,
+                ))
+            })
+            .expect("read migrated v99 Yrs page reference");
+        assert_eq!(snapshot.0, 1);
+        assert_eq!(snapshot.1, state_vector);
+        assert_eq!(snapshot.2, 1);
+        assert_eq!(snapshot.3, 1);
+        assert!(snapshot.5 > 0);
+        assert_eq!(
+            snapshot.6,
+            CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION
+        );
+        let references: Value = serde_json::from_str(&snapshot.4).expect("migrated references");
+        let references = references.as_array().expect("reference array");
+        assert!(
+            references
+                .iter()
+                .any(|reference| reference["kind"] == "page")
+        );
+        assert!(references.iter().any(|reference| {
+            reference["kind"] == "block" && reference["targetBlockId"] == "synced-source-1"
+        }));
+        assert!(references.iter().any(|reference| {
+            reference["kind"] == "block" && reference["targetBlockId"] == "template-source-1"
+        }));
     }
 
     #[test]

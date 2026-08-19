@@ -18,8 +18,9 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::materialization::DocumentPlacementDelta;
 use super::{
-    DocumentMaterialization, DocumentSearchMarkerKind, derive_document_node_delta,
-    derive_document_placement_delta, exact_moves_explain_document_placement,
+    CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION, DocumentMaterialization,
+    DocumentSearchMarkerKind, derive_document_node_delta, derive_document_placement_delta,
+    exact_moves_explain_document_placement,
 };
 
 const TYPED_CREATION_BLOCK_TYPES: &[&str] = &[
@@ -1485,40 +1486,96 @@ fn persist_materialization_row(
 ) -> Result<(), StoreError> {
     let rich_title_json = serde_json::to_string(&materialization.rich_title)
         .map_err(|_| internal("Rich title JSON"))?;
-    connection.execute(
-        "INSERT INTO document_materializations (\
-           document_id, generation, projected_seq, schema_version, title, title_rich_json, \
-           title_rich_hash, nfm, plain_text, preview, block_tree_json, references_json, \
-           asset_refs_json, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) \
-         ON CONFLICT(document_id) DO UPDATE SET \
-           generation = excluded.generation, projected_seq = excluded.projected_seq, \
-           schema_version = excluded.schema_version, title = excluded.title, \
-           title_rich_json = excluded.title_rich_json, title_rich_hash = excluded.title_rich_hash, \
-           nfm = excluded.nfm, plain_text = excluded.plain_text, preview = excluded.preview, \
-           block_tree_json = excluded.block_tree_json, references_json = excluded.references_json, \
-           asset_refs_json = excluded.asset_refs_json, updated_at = excluded.updated_at",
-        params![
-            document_id,
-            generation,
-            projected_seq,
-            materialization.schema_version,
-            materialization.title,
-            rich_title_json,
-            sha256(rich_title_json.as_bytes()),
-            materialization.nfm,
-            materialization.plain_text,
-            materialization.preview,
-            serde_json::to_string(&materialization.block_tree)
-                .map_err(|_| internal("Block tree JSON"))?,
-            serde_json::to_string(&materialization.references)
-                .map_err(|_| internal("Reference JSON"))?,
-            serde_json::to_string(&materialization.asset_refs)
-                .map_err(|_| internal("Asset reference JSON"))?,
-            now,
-        ],
-    )?;
+    let rich_title_hash = sha256(rich_title_json.as_bytes());
+    let block_tree_json = serde_json::to_string(&materialization.block_tree)
+        .map_err(|_| internal("Block tree JSON"))?;
+    let references_json = serde_json::to_string(&materialization.references)
+        .map_err(|_| internal("Reference JSON"))?;
+    let asset_refs_json = serde_json::to_string(&materialization.asset_refs)
+        .map_err(|_| internal("Asset reference JSON"))?;
+    if has_materialization_derivation_version_column(connection)? {
+        connection.execute(
+            "INSERT INTO document_materializations (\
+               document_id, generation, projected_seq, schema_version, \
+               materialization_derivation_version, title, title_rich_json, title_rich_hash, \
+               nfm, plain_text, preview, block_tree_json, references_json, asset_refs_json, \
+               updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
+             ON CONFLICT(document_id) DO UPDATE SET \
+               generation = excluded.generation, projected_seq = excluded.projected_seq, \
+               schema_version = excluded.schema_version, \
+               materialization_derivation_version = excluded.materialization_derivation_version, \
+               title = excluded.title, title_rich_json = excluded.title_rich_json, \
+               title_rich_hash = excluded.title_rich_hash, nfm = excluded.nfm, \
+               plain_text = excluded.plain_text, preview = excluded.preview, \
+               block_tree_json = excluded.block_tree_json, \
+               references_json = excluded.references_json, asset_refs_json = excluded.asset_refs_json, \
+               updated_at = excluded.updated_at",
+            params![
+                document_id,
+                generation,
+                projected_seq,
+                materialization.schema_version,
+                CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION,
+                materialization.title,
+                rich_title_json,
+                rich_title_hash,
+                materialization.nfm,
+                materialization.plain_text,
+                materialization.preview,
+                block_tree_json,
+                references_json,
+                asset_refs_json,
+                now,
+            ],
+        )?;
+    } else {
+        // v84-v129 stores do not have the independent derivation marker yet.
+        // The migration adds it only after the v127 Yrs-authoritative rebuild.
+        connection.execute(
+            "INSERT INTO document_materializations (\
+               document_id, generation, projected_seq, schema_version, title, title_rich_json, \
+               title_rich_hash, nfm, plain_text, preview, block_tree_json, references_json, \
+               asset_refs_json, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) \
+             ON CONFLICT(document_id) DO UPDATE SET \
+               generation = excluded.generation, projected_seq = excluded.projected_seq, \
+               schema_version = excluded.schema_version, title = excluded.title, \
+               title_rich_json = excluded.title_rich_json, title_rich_hash = excluded.title_rich_hash, \
+               nfm = excluded.nfm, plain_text = excluded.plain_text, preview = excluded.preview, \
+               block_tree_json = excluded.block_tree_json, references_json = excluded.references_json, \
+               asset_refs_json = excluded.asset_refs_json, updated_at = excluded.updated_at",
+            params![
+                document_id,
+                generation,
+                projected_seq,
+                materialization.schema_version,
+                materialization.title,
+                rich_title_json,
+                rich_title_hash,
+                materialization.nfm,
+                materialization.plain_text,
+                materialization.preview,
+                block_tree_json,
+                references_json,
+                asset_refs_json,
+                now,
+            ],
+        )?;
+    }
     Ok(())
+}
+
+fn has_materialization_derivation_version_column(
+    connection: &Connection,
+) -> Result<bool, StoreError> {
+    let count = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('document_materializations') \
+         WHERE name = 'materialization_derivation_version'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(count == 1)
 }
 
 fn persist_materialization(
@@ -1538,6 +1595,59 @@ fn persist_materialization(
         now,
     )?;
     replace_page_reference_projection(connection, document_id, &materialization.references, now)
+}
+
+/// Rebuilds the current derived Document projection from a reconstructed Yrs
+/// document during an owned-store migration. The Yrs stream and Document head
+/// are never rewritten; only the materialization and its normalized Page
+/// reference projection are replaced.
+pub(crate) fn rebuild_document_materialization_projection_for_migration(
+    connection: &Connection,
+    document_id: &str,
+    generation: i64,
+    projected_seq: i64,
+    materialization: &DocumentMaterialization,
+    now: &str,
+) -> Result<(), StoreError> {
+    let has_owner = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM block_documents WHERE document_id = ?1)",
+        [document_id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    let authority = if has_owner {
+        let authority = read_document_authority(connection, document_id)?
+            .ok_or_else(|| corrupt("Migrated Document has no current authority"))?;
+        if authority.head.generation != generation || authority.head.head_seq != projected_seq {
+            return Err(corrupt(
+                "Migrated Document materialization does not match its Yrs head",
+            ));
+        }
+        Some(authority)
+    } else {
+        None
+    };
+    if authority.is_none() && has_materialization_derivation_version_column(connection)? {
+        return Err(corrupt(
+            "Current migrated Document has no owning Block authority",
+        ));
+    }
+    persist_materialization_row(
+        connection,
+        document_id,
+        generation,
+        projected_seq,
+        materialization,
+        now,
+    )?;
+    if authority.is_some() {
+        replace_page_reference_projection(
+            connection,
+            document_id,
+            &materialization.references,
+            now,
+        )?;
+    }
+    Ok(())
 }
 
 pub(crate) fn replace_page_reference_projection(
@@ -1900,13 +2010,14 @@ pub(crate) fn rebuild_legacy_import_projections(
         materialization,
         &now,
     )?;
+    let page_projection_required = authority.owner_lifecycle != "deleted";
     replace_legacy_secondary_projections(
         connection,
         &authority,
         materialization,
         authority.head.head_seq,
         &now,
-        true,
+        page_projection_required,
     )
 }
 

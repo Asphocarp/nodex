@@ -30,6 +30,7 @@ pub use compaction::DocumentCompactionResult;
 pub(crate) use maintenance::{
     compact_eligible_documents, finalize_idle_document_revisions, prune_document_history_pass,
 };
+pub(crate) use materialization::CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION;
 pub use materialization::{
     BlockDocumentKind, BlockDocumentSchemaMetadata, DocumentBlockSearchUnit,
     DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,
@@ -84,7 +85,8 @@ pub(crate) use persistence::{
     DocumentAuthorityRow, DocumentPlacementEvidence, PersistYjsCommit, PersistYjsGenesis,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
     read_document_authority, read_legacy_project_owned_document_authority, read_store_epoch,
-    rebuild_legacy_import_projections, replace_page_reference_projection, sha256,
+    rebuild_document_materialization_projection_for_migration, rebuild_legacy_import_projections,
+    sha256,
 };
 pub(crate) use primary_canvas::{
     PrimaryCanvasIdentity, create_primary_canvas, is_primary_canvas_block_id,
