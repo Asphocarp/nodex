@@ -3,6 +3,7 @@ import { render } from "@/test/dom";
 import {
   BoardIcon,
   CalendarIcon,
+  CalendarOverdueIcon,
   CanvasIcon,
   ClockIcon,
   CodeBracketsIcon,
@@ -30,6 +31,7 @@ describe("shared icon intrinsic geometry", () => {
     ["canvas", CanvasIcon, "16"],
     ["code brackets", CodeBracketsIcon, "12"],
     ["calendar", CalendarIcon, "16"],
+    ["calendar overdue", CalendarOverdueIcon, "16"],
     ["clock", ClockIcon, "16"],
     ["worktree setup", WorktreeSetupStatusIcon, "10"],
   ])("provides a CSS-independent fallback for %s", (_label, Icon, size) => {
