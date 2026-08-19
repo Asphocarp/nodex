@@ -488,6 +488,11 @@ export interface PageSearchSnapshot {
   results: PageSearchResult[];
 }
 
+/** Cancellation is expected control flow for query-as-you-type IPC. */
+export type PageSearchCommandResult =
+  | { status: "completed"; snapshot: PageSearchSnapshot }
+  | { status: "cancelled" };
+
 export interface PageSearchMetadataProperty {
   propertyId: string;
   propertyName: string;

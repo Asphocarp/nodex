@@ -112,6 +112,46 @@ const servePendingResponse = async (): Promise<string> => {
   return socketPath;
 };
 
+const serveManagedRequest = async (): Promise<{
+  readonly socketPath: string;
+  readonly requestHeaders: Promise<import("node:http").IncomingHttpHeaders>;
+  readonly cancelledRequestId: Promise<string>;
+}> => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nodex-core-uds-test-"));
+  directories.push(directory);
+  const socketPath = path.join(directory, "core.sock");
+  let resolveHeaders!: (headers: import("node:http").IncomingHttpHeaders) => void;
+  let resolveCancellation!: (requestId: string) => void;
+  const requestHeaders = new Promise<import("node:http").IncomingHttpHeaders>((resolve) => {
+    resolveHeaders = resolve;
+  });
+  const cancelledRequestId = new Promise<string>((resolve) => {
+    resolveCancellation = resolve;
+  });
+  const server = createServer((request, response) => {
+    if (request.url !== "/core/v1/requests/cancel") {
+      resolveHeaders(request.headers);
+      return;
+    }
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+        readonly request_id: string;
+      };
+      resolveCancellation(body.request_id);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"cancelled":true}');
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  return { socketPath, requestHeaders, cancelledRequestId };
+};
+
 const serveJsonResponse = async (
   serialized: string,
   mode: "content-length" | "chunked" = "content-length",
@@ -244,6 +284,30 @@ describe("UDS Core event replay boundaries", () => {
     expect(error).toBeInstanceOf(CoreTransportError);
     expect(error).toMatchObject({ kind: "timeout", phase: "response" });
     expect(isDefinitiveCoreGenerationLoss(error)).toBe(false);
+  });
+
+  test("sends execution metadata and propagates aborts to Core cancellation", async () => {
+    const managed = await serveManagedRequest();
+    const transport = new UdsHttpTransport(managed.socketPath, "test-capability");
+    const controller = new AbortController();
+    const pending = transport.requestJson(
+      "POST",
+      "/core/v1/modules/library/read",
+      { read: { kind: "metadata" } },
+      {
+        "x-nodex-connection-id": "connection-1",
+        "x-nodex-connection-binding": "binding-1",
+      },
+      { class: "interactive", deadlineMs: 12_345, signal: controller.signal },
+    );
+    const headers = await managed.requestHeaders;
+
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "ABORT_ERR", kind: "aborted" });
+    expect(headers["x-nodex-request-class"]).toBe("interactive");
+    expect(headers["x-nodex-request-deadline-ms"]).toBe("12345");
+    expect(await managed.cancelledRequestId).toBe(headers["x-nodex-request-id"]);
   });
 
   test("bounds caller-specific response and timeout budgets", () => {

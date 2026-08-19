@@ -13,6 +13,33 @@ const createPort = (): DesktopStoreAdministrationPort => ({
 });
 
 describe("Store Administration maintenance scheduler", () => {
+  it("runs at most one maintenance lane across the whole Store", async () => {
+    let release: (() => void) | undefined;
+    const administration = createPort();
+    vi.mocked(administration.runMaintenance).mockImplementationOnce(
+      async () => await new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const scheduler = startStoreAdministrationMaintenanceScheduler({
+      administration,
+      readBlockRetentionCount: () => 10,
+      setTimeoutImpl: () => ({ unref: vi.fn() }) as unknown as ReturnType<typeof setTimeout>,
+      logger: { warn: vi.fn() },
+    });
+
+    const revision = scheduler.runNow("revision");
+    await Promise.resolve();
+    await scheduler.runNow("document");
+
+    expect(administration.runMaintenance).toHaveBeenCalledTimes(1);
+    release?.();
+    await revision;
+    await scheduler.runNow("document");
+    expect(administration.runMaintenance).toHaveBeenCalledTimes(2);
+    scheduler.dispose();
+  });
+
   it("submits semantic lanes, samples retention policy, and disposes timers", async () => {
     const administration = createPort();
     const callbacks: Array<() => void> = [];

@@ -2173,7 +2173,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     expect(invokeCalls.some((call) =>
       call[0] === "pages:search"
-      && (call[1] as { query?: string } | undefined)?.query === "beta card"
+      && (call[2] as { query?: string } | undefined)?.query === "beta card"
     )).toBe(true);
     await act(async () => {
       fireEvent.click(screen.getByRole("option", { name: /Beta Card/ }));

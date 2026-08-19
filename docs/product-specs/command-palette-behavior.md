@@ -65,6 +65,7 @@ Page mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode 
 - Empty query shows default Page suggestions.
 - Page mode keeps a trailing `Filter` button on the search-input row.
 - Query-fresh metadata rows appear in the input event. While Core body enrichment is pending, the final result slot is reserved for `Loading more Pages…`; `No matching pages.` appears only after the current query, filters, Project scope, and projection revision have settled with no matches.
+- Typing a newer query or closing the palette cancels obsolete body enrichment as normal control flow. Superseded work never produces a Main-process error or changes the current query to an unavailable state.
 - A failed enrichment keeps synchronous metadata rows and shows `Full Page search is unavailable`. It never falls back to an incomplete corpus assembled from mounted Boards.
 - Clicking `Filter` opens a transient popover with property filters for status, priority, tags, assignee, and project.
 - When any palette filters are active, the palette shows a compact summary row directly under the input, using the same compact pill language as the DB view toolbar.
@@ -155,8 +156,9 @@ They are intentionally compact and subdued so they explain why a result appeared
 ### Description preview
 If the query matched body or Property text, the result renders a contextual preview below the subtitle:
 
-- excerpt is selected by Core from the authoritative matched source
-- excerpt centers around an actual matched term
+- excerpt is selected by Core from authoritative matched sources
+- a multi-term query keeps up to three distinct matched fragments; spans from the same excerpt are merged so an earlier term cannot suppress later-term highlights
+- each excerpt fragment centers around an actual matched term
 - excerpt is trimmed with leading/trailing ellipses when taken from the middle of the source
 - preview is clamped to `3` lines
 - Core-provided matched spans are highlighted inline

@@ -109,6 +109,7 @@ import type {
 } from "../../shared/pasted-text-attachments";
 import { GitWorkerClient } from "./git-worker-client";
 import { admitLocalCommitApply } from "./local-commit-ingress";
+import type { PageSearchInput, PageSearchSnapshot } from "../../shared/types";
 
 let gitWorkerClient: GitWorkerClient | null = null;
 
@@ -136,6 +137,27 @@ export async function invoke(
 ): Promise<unknown> {
   const transport = resolveInvokeTransport();
   return transport.invoke(channel, ...args);
+}
+
+export async function searchPages(
+  input: PageSearchInput,
+  signal?: AbortSignal,
+): Promise<PageSearchSnapshot> {
+  if (signal?.aborted) throw new DOMException("Page search was aborted", "AbortError");
+  const requestId = globalThis.crypto.randomUUID();
+  const cancel = (): void => {
+    void invoke("pages:search:cancel", requestId).catch(() => undefined);
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    const result = await invoke("pages:search", requestId, input);
+    if (signal?.aborted || result.status === "cancelled") {
+      throw new DOMException("Page search was aborted", "AbortError");
+    }
+    return result.snapshot;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+  }
 }
 
 export function createDocumentSyncAdapter(

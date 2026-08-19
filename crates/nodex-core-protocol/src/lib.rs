@@ -36,8 +36,8 @@ pub use nodex_store_format::{
     STORE_LINEAGE,
 };
 
-pub const TRANSPORT_PROTOCOL_MIN: u32 = 10;
-pub const TRANSPORT_PROTOCOL_MAX: u32 = 10;
+pub const TRANSPORT_PROTOCOL_MIN: u32 = 11;
+pub const TRANSPORT_PROTOCOL_MAX: u32 = 11;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -51,6 +51,11 @@ pub const MAX_DOCUMENT_JSON_STRING_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_DOCUMENT_JSON_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_DOCUMENT_RESPONSE_BYTES: usize =
     MAX_ORDINARY_JSON_RESPONSE_BYTES + MAX_DOCUMENT_JSON_STRING_BYTES + 8;
+pub const MIN_REQUEST_DEADLINE_MS: u64 = 250;
+pub const MAX_REQUEST_DEADLINE_MS: u64 = 5 * 60_000;
+pub const INTERACTIVE_REQUEST_DEADLINE_MS: u64 = 20_000;
+pub const BACKGROUND_REQUEST_DEADLINE_MS: u64 = 60_000;
+pub const MAINTENANCE_REQUEST_DEADLINE_MS: u64 = 120_000;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct CoreTransportBudgets {
@@ -59,6 +64,11 @@ pub struct CoreTransportBudgets {
     pub event_frame_bytes: u64,
     pub document_json_request_bytes: u64,
     pub document_response_bytes: u64,
+    pub request_deadline_min_ms: u64,
+    pub request_deadline_max_ms: u64,
+    pub interactive_request_deadline_ms: u64,
+    pub background_request_deadline_ms: u64,
+    pub maintenance_request_deadline_ms: u64,
 }
 
 pub const CORE_TRANSPORT_BUDGETS: CoreTransportBudgets = CoreTransportBudgets {
@@ -67,6 +77,11 @@ pub const CORE_TRANSPORT_BUDGETS: CoreTransportBudgets = CoreTransportBudgets {
     event_frame_bytes: MAX_EVENT_FRAME_BYTES as u64,
     document_json_request_bytes: MAX_DOCUMENT_JSON_REQUEST_BYTES as u64,
     document_response_bytes: MAX_DOCUMENT_RESPONSE_BYTES as u64,
+    request_deadline_min_ms: MIN_REQUEST_DEADLINE_MS,
+    request_deadline_max_ms: MAX_REQUEST_DEADLINE_MS,
+    interactive_request_deadline_ms: INTERACTIVE_REQUEST_DEADLINE_MS,
+    background_request_deadline_ms: BACKGROUND_REQUEST_DEADLINE_MS,
+    maintenance_request_deadline_ms: MAINTENANCE_REQUEST_DEADLINE_MS,
 };
 
 pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
@@ -542,8 +557,40 @@ pub struct HealthDurationMetric {
     pub max_micros: u64,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CoreRequestClass {
+    Interactive,
+    Background,
+    Maintenance,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct CoreRequestCancelRequest {
+    pub request_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct CoreRequestCancelResponse {
+    pub cancelled: bool,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct CoreHealthMetrics {
+    #[serde(default)]
+    pub active_requests: u64,
+    #[serde(default)]
+    pub queued_requests: u64,
+    #[serde(default)]
+    pub request_admission_wait: HealthDurationMetric,
+    #[serde(default)]
+    pub request_execution_duration: HealthDurationMetric,
+    #[serde(default)]
+    pub request_deadline_exceeded: u64,
+    #[serde(default)]
+    pub request_cancelled: u64,
+    #[serde(default)]
+    pub request_overloaded: u64,
     pub writer_queue_depth: u64,
     pub active_writer_commands: u64,
     pub active_read_commands: u64,
@@ -903,10 +950,23 @@ mod api {
     #[utoipa::path(
         post,
         path = "/core/v1/local-mutations/resolve",
+        params(
+            ("x-nodex-request-id" = String, Header),
+            ("x-nodex-request-class" = CoreRequestClass, Header),
+            ("x-nodex-request-deadline-ms" = u64, Header)
+        ),
         request_body = LocalMutationResolveRequest,
         responses((status = 200, body = LocalMutationResolveResponse))
     )]
     pub(super) fn resolve_local_mutation() {}
+
+    #[utoipa::path(
+        post,
+        path = "/core/v1/requests/cancel",
+        request_body = CoreRequestCancelRequest,
+        responses((status = 200, body = CoreRequestCancelResponse))
+    )]
+    pub(super) fn cancel_request() {}
 
     #[utoipa::path(
         post,
@@ -921,6 +981,11 @@ mod api {
             #[utoipa::path(
                                         post,
                                         path = concat!($path, "/read"),
+                                        params(
+                                            ("x-nodex-request-id" = String, Header),
+                                            ("x-nodex-request-class" = CoreRequestClass, Header),
+                                            ("x-nodex-request-deadline-ms" = u64, Header)
+                                        ),
                                         request_body = $read,
                                         responses((status = 200, body = $read_response))
                                     )]
@@ -929,6 +994,11 @@ mod api {
             #[utoipa::path(
                                         post,
                                         path = concat!($path, "/apply"),
+                                        params(
+                                            ("x-nodex-request-id" = String, Header),
+                                            ("x-nodex-request-class" = CoreRequestClass, Header),
+                                            ("x-nodex-request-deadline-ms" = u64, Header)
+                                        ),
                                         request_body = $apply,
                                         responses((status = 200, body = $apply_response))
                                     )]
@@ -1000,6 +1070,7 @@ mod api {
         api::handshake,
         api::events,
         api::resolve_local_mutation,
+        api::cancel_request,
         api::shutdown,
         api::library_read,
         api::library_apply,
@@ -1034,6 +1105,9 @@ mod api {
         HealthResponse,
         CoreHealthMetrics,
         HealthDurationMetric,
+        CoreRequestClass,
+        CoreRequestCancelRequest,
+        CoreRequestCancelResponse,
         ShutdownRequest,
         ShutdownResponse,
         RuntimeGenerationIdentity,

@@ -77,7 +77,7 @@ export interface DesktopLibraryModuleBridge {
   listPageHistory(
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
-  searchPages(input: PageSearchInput): Promise<PageSearchSnapshot>;
+  searchPages(input: PageSearchInput, signal?: AbortSignal): Promise<PageSearchSnapshot>;
   pageSearchMetadata(projectIds: string[], pageIds?: string[]): Promise<PageSearchMetadataSnapshot>;
   pageSearchFacets(projectIds: string[]): Promise<PageSearchFacets>;
   resolvePageTarget(
@@ -182,9 +182,9 @@ export function createDesktopLibraryModuleBridge(
       return await projectCoreAdapter(runtime, request.requestingProjectId)
         .listPageHistory(request);
     },
-    searchPages: async (searchInput) => {
+    searchPages: async (searchInput, signal) => {
       const runtime = await input.authority;
-      return await rootAdapter(runtime).searchPages(searchInput);
+      return await rootAdapter(runtime).searchPages(searchInput, signal);
     },
     pageSearchMetadata: async (projectIds, pageIds) => {
       const runtime = await input.authority;

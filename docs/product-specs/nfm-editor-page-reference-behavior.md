@@ -54,7 +54,7 @@ The expanded section replaces the utility row with its remaining candidates; oth
 
 Rows are title-only by default.
 A second line appears only when it explains a content match, disambiguates duplicate titles, reports an unavailable embed, or shows a Page key that the user explicitly queried.
-Search excerpts are bounded around the matching location and highlight matching text in titles, Page keys, and excerpts.
+Search excerpts are bounded around matched locations and highlight matching text in titles, Page keys, and excerpts. Multi-term content matches merge highlights from the same excerpt or compose up to three distinct fragments, so one term cannot hide the evidence for another.
 Page search uses the same Rust metadata kernel, normalized token, prefix, typo-tolerant title ranking, and indexed match evidence as the Command palette. The prewarmed Core-authorized metadata projection supplies query-fresh rows in the input event; complete Core search only enriches those rows or adds body-only matches.
 Core decides corpus visibility and authorization; the shared kernel decides metadata ordering, matched terms, and display-text highlights before the result bound. The renderer only groups semantic providers or adds presentation-only disambiguation.
 If complete Core search fails, the menu keeps its synchronous metadata rows and presents Page-search unavailability as a status item rather than an empty match set.

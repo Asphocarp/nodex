@@ -359,12 +359,14 @@ fn search_fts(
             parameters.extend(block_types.iter().cloned().map(SqlValue::Text));
         }
         parameters.push(SqlValue::Integer(MAX_FTS_HITS_PER_TERM as i64));
+        // Search candidates originate in FTS. CROSS JOIN preserves that loop
+        // order on statistics-free Stores and makes the rowid join O(matches).
         let sql = format!(
             "SELECT unit.owner_block_id, unit.block_id, source.type, unit.source_kind, \
                snippet(block_search_units_fts, 0, char(2), char(3), '…', 32), \
                bm25(block_search_units_fts) AS rank \
              FROM block_search_units_fts \
-             JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
+             CROSS JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
              JOIN documents document ON document.id = unit.document_id \
                AND document.library_id = unit.library_id \
              JOIN blocks source ON source.id = unit.block_id \

@@ -118,7 +118,7 @@ export interface CoreLibraryModuleAdapter {
   listPageHistory(
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
-  searchPages(input: PageSearchInput): Promise<PageSearchSnapshot>;
+  searchPages(input: PageSearchInput, signal?: AbortSignal): Promise<PageSearchSnapshot>;
   pageSearchMetadata(
     projectIds: string[],
     pageIds?: string[],
@@ -1967,7 +1967,7 @@ export const createCoreLibraryModuleAdapter = (
         return { ok: false, error: pageHistoryError(error) };
       }
     },
-    searchPages: async (searchInput) => {
+    searchPages: async (searchInput, signal) => {
       const snapshot = await input.client.libraryRead({
         kind: "project_page_search",
         project_ids: searchInput.projectIds,
@@ -1989,7 +1989,7 @@ export const createCoreLibraryModuleAdapter = (
         preferred_project_id: searchInput.preferredProjectId ?? null,
         recent_page_ids: searchInput.recentPageIds ?? [],
         limit: searchInput.limit ?? null,
-      });
+      }, { signal });
       if (
         snapshot.store_epoch !== input.storeEpoch
         || snapshot.value.kind !== "project_page_search"

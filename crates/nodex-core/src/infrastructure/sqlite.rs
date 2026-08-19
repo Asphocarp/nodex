@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use std::{os::unix::ffi::OsStrExt, path::Path};
@@ -16,6 +16,9 @@ pub const MAX_SQL_BYTES: i32 = 2 * 1024 * 1024;
 pub const MAX_VALUE_BYTES: i32 = 64 * 1024 * 1024;
 pub const MIN_SQLITE_VERSION: i32 = 3_045_000;
 const PROGRESS_HANDLER_OPS: i32 = 1_000;
+const QUERY_INTERRUPTION_NONE: u8 = 0;
+const QUERY_INTERRUPTION_CANCELLED: u8 = 1;
+const QUERY_INTERRUPTION_DEADLINE: u8 = 2;
 static TRANSACTION_DURATION: OnceLock<DurationMetric> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +46,7 @@ pub enum StoreErrorCode {
     WriterClosed,
     ReaderPoolTimeout,
     QueryCancelled,
+    DeadlineExceeded,
     SqliteBusy,
     SqliteFailure,
     RuntimeIncompatible,
@@ -80,7 +84,7 @@ impl StoreError {
         if cancelled {
             return Self::new(
                 StoreErrorCode::QueryCancelled,
-                "SQLite work exceeded its budget or was cancelled",
+                "SQLite work was interrupted",
                 true,
             );
         }
@@ -103,22 +107,40 @@ impl From<rusqlite::Error> for StoreError {
 
 #[derive(Debug, Clone)]
 pub struct QueryCancellation {
-    cancelled: Arc<AtomicBool>,
+    cancelled: Vec<Arc<AtomicBool>>,
 }
 
 impl QueryCancellation {
     pub fn new() -> Self {
         Self {
-            cancelled: Arc::new(AtomicBool::new(false)),
+            cancelled: vec![Arc::new(AtomicBool::new(false))],
         }
     }
 
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
+        if let Some(cancelled) = self.cancelled.first() {
+            cancelled.store(true, Ordering::Release);
+        }
     }
 
-    fn flag(&self) -> Arc<AtomicBool> {
-        Arc::clone(&self.cancelled)
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
+            .iter()
+            .any(|cancelled| cancelled.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn combined(&self, other: &Self) -> Self {
+        let mut cancelled = self.cancelled.clone();
+        for flag in &other.cancelled {
+            if cancelled
+                .iter()
+                .any(|candidate| Arc::ptr_eq(candidate, flag))
+            {
+                continue;
+            }
+            cancelled.push(Arc::clone(flag));
+        }
+        Self { cancelled }
     }
 }
 
@@ -235,21 +257,58 @@ pub fn apply_runtime_limits(connection: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// Gives every newly opened Store planner useful statistics, including Stores
+/// created before Nodex began maintaining SQLite's ANALYZE data.
+pub(crate) fn optimize_query_planner_on_open(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch("PRAGMA optimize=0x10002")?;
+    Ok(())
+}
+
+/// Lets SQLite refresh only statistics justified by this writer connection's
+/// observed workload. This is normally a no-op.
+pub(crate) fn optimize_query_planner_before_close(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    connection.execute_batch("PRAGMA optimize")?;
+    Ok(())
+}
+
 pub fn with_query_budget<T>(
     connection: &Connection,
     budget: Duration,
     cancellation: &QueryCancellation,
     operation: impl FnOnce(&Connection) -> Result<T, StoreError>,
 ) -> Result<T, StoreError> {
-    let deadline = Instant::now() + budget;
-    let cancelled = cancellation.flag();
+    with_query_deadline(connection, Instant::now() + budget, cancellation, operation)
+}
+
+pub fn with_query_deadline<T>(
+    connection: &Connection,
+    deadline: Instant,
+    cancellation: &QueryCancellation,
+    operation: impl FnOnce(&Connection) -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
+    if let Some(error) = current_query_interruption(cancellation, deadline) {
+        return Err(error);
+    }
+    let cancellation = cancellation.clone();
+    let progress_cancellation = cancellation.clone();
+    let interruption = Arc::new(AtomicU8::new(QUERY_INTERRUPTION_NONE));
+    let progress_interruption = Arc::clone(&interruption);
     connection.progress_handler(
         PROGRESS_HANDLER_OPS,
-        Some(move || cancelled.load(Ordering::Acquire) || Instant::now() >= deadline),
+        Some(move || {
+            record_query_interruption(&progress_cancellation, deadline, &progress_interruption)
+        }),
     )?;
     let result = operation(connection);
     connection.progress_handler(0, None::<fn() -> bool>)?;
-    result
+    classify_query_interruption(
+        result,
+        &cancellation,
+        deadline,
+        interruption.load(Ordering::Acquire),
+    )
 }
 
 pub fn with_mut_query_budget<T>(
@@ -258,15 +317,106 @@ pub fn with_mut_query_budget<T>(
     cancellation: &QueryCancellation,
     operation: impl FnOnce(&mut Connection) -> Result<T, StoreError>,
 ) -> Result<T, StoreError> {
-    let deadline = Instant::now() + budget;
-    let cancelled = cancellation.flag();
+    with_mut_query_deadline(connection, Instant::now() + budget, cancellation, operation)
+}
+
+pub fn with_mut_query_deadline<T>(
+    connection: &mut Connection,
+    deadline: Instant,
+    cancellation: &QueryCancellation,
+    operation: impl FnOnce(&mut Connection) -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
+    if let Some(error) = current_query_interruption(cancellation, deadline) {
+        return Err(error);
+    }
+    let cancellation = cancellation.clone();
+    let progress_cancellation = cancellation.clone();
+    let interruption = Arc::new(AtomicU8::new(QUERY_INTERRUPTION_NONE));
+    let progress_interruption = Arc::clone(&interruption);
     connection.progress_handler(
         PROGRESS_HANDLER_OPS,
-        Some(move || cancelled.load(Ordering::Acquire) || Instant::now() >= deadline),
+        Some(move || {
+            record_query_interruption(&progress_cancellation, deadline, &progress_interruption)
+        }),
     )?;
     let result = operation(connection);
     connection.progress_handler(0, None::<fn() -> bool>)?;
-    result
+    classify_query_interruption(
+        result,
+        &cancellation,
+        deadline,
+        interruption.load(Ordering::Acquire),
+    )
+}
+
+fn classify_query_interruption<T>(
+    result: Result<T, StoreError>,
+    cancellation: &QueryCancellation,
+    deadline: Instant,
+    recorded_interruption: u8,
+) -> Result<T, StoreError> {
+    match result {
+        Err(error) if error.code == StoreErrorCode::QueryCancelled => {
+            Err(recorded_query_interruption(recorded_interruption)
+                .or_else(|| current_query_interruption(cancellation, deadline))
+                .unwrap_or(error))
+        }
+        result => result,
+    }
+}
+
+fn record_query_interruption(
+    cancellation: &QueryCancellation,
+    deadline: Instant,
+    interruption: &AtomicU8,
+) -> bool {
+    let cause = if cancellation.is_cancelled() {
+        QUERY_INTERRUPTION_CANCELLED
+    } else if Instant::now() >= deadline {
+        QUERY_INTERRUPTION_DEADLINE
+    } else {
+        return false;
+    };
+    let _ = interruption.compare_exchange(
+        QUERY_INTERRUPTION_NONE,
+        cause,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    );
+    true
+}
+
+fn recorded_query_interruption(cause: u8) -> Option<StoreError> {
+    match cause {
+        QUERY_INTERRUPTION_CANCELLED => Some(query_interrupted(true)),
+        QUERY_INTERRUPTION_DEADLINE => Some(query_interrupted(false)),
+        _ => None,
+    }
+}
+
+fn current_query_interruption(
+    cancellation: &QueryCancellation,
+    deadline: Instant,
+) -> Option<StoreError> {
+    if cancellation.is_cancelled() {
+        return Some(query_interrupted(true));
+    }
+    (Instant::now() >= deadline).then(|| query_interrupted(false))
+}
+
+pub(crate) fn query_interrupted(cancelled: bool) -> StoreError {
+    if !cancelled {
+        return StoreError::new(
+            StoreErrorCode::DeadlineExceeded,
+            "SQLite work exceeded its request deadline",
+            true,
+        );
+    }
+    StoreError::new(
+        StoreErrorCode::QueryCancelled,
+        "SQLite work was cancelled",
+        true,
+    )
 }
 
 pub fn with_immediate_transaction<T>(
@@ -447,5 +597,69 @@ mod tests {
         )
         .expect("later query");
         assert!(observed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn progress_handler_preserves_deadline_and_cancellation_causes() {
+        let connection = Connection::open_in_memory().expect("memory database");
+        let long_query = |connection: &Connection| -> Result<(), StoreError> {
+            connection.query_row(
+                "WITH RECURSIVE values_cte(value) AS (\
+                   SELECT 1 UNION ALL SELECT value + 1 FROM values_cte WHERE value < 100000000\
+                 ) SELECT sum(value) FROM values_cte",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            Ok(())
+        };
+
+        let deadline_error = with_query_budget(
+            &connection,
+            Duration::from_millis(1),
+            &QueryCancellation::new(),
+            long_query,
+        )
+        .expect_err("deadline query");
+        assert_eq!(deadline_error.code, StoreErrorCode::DeadlineExceeded);
+        assert_eq!(
+            deadline_error.message,
+            "SQLite work exceeded its request deadline"
+        );
+
+        let cancellation = QueryCancellation::new();
+        let cancellation_from_thread = cancellation.clone();
+        let cancel = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1));
+            cancellation_from_thread.cancel();
+        });
+        let cancelled_error =
+            with_query_budget(&connection, DEFAULT_QUERY_BUDGET, &cancellation, long_query)
+                .expect_err("cancelled query");
+        cancel.join().expect("cancellation thread");
+        assert_eq!(cancelled_error.code, StoreErrorCode::QueryCancelled);
+        assert_eq!(cancelled_error.message, "SQLite work was cancelled");
+    }
+
+    #[test]
+    fn query_planner_optimization_creates_statistics_for_existing_indexes() {
+        let connection = Connection::open_in_memory().expect("memory database");
+        connection
+            .execute_batch(
+                "CREATE TABLE planner_values(id INTEGER PRIMARY KEY, value TEXT NOT NULL);\
+                 CREATE INDEX planner_values_by_value ON planner_values(value);\
+                 INSERT INTO planner_values(value) VALUES ('one'), ('two'), ('three');",
+            )
+            .expect("planner fixture");
+
+        optimize_query_planner_on_open(&connection).expect("planner optimization");
+
+        let statistic_count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_stat1 WHERE tbl = 'planner_values'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("planner statistics");
+        assert!(statistic_count > 0);
     }
 }

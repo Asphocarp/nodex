@@ -27,6 +27,42 @@ Reads and writes with stable idempotency identity may retry once with their
 original input. Ephemeral Awareness triggers recovery but is never replayed.
 A request timeout alone is ambiguous and does not prove writer loss.
 
+## Request execution
+
+Every Core Module request has a connection-scoped request ID, an execution
+class, and one absolute Core-owned deadline. The production executor admits at
+most 128 requests, runs at most four synchronous Module operations at once,
+allows at most three background operations and one maintenance operation, and
+therefore always preserves one execution slot for interactive work. Default
+deadlines are 20 seconds for interactive work, 60 seconds for background work,
+and 120 seconds for maintenance; clients may declare a bounded deadline from
+250 milliseconds through five minutes.
+
+Admitted synchronous work runs on Tokio's blocking pool rather than the async
+HTTP workers. The request context follows the work into Store reader checkout,
+writer queueing, and SQLite progress handlers. Transported work uses that one
+request deadline throughout; the Store's defensive fallback budget applies
+only to direct calls outside a request context and never shadows the declared
+request lifetime. Caller cancellation is sent to `/core/v1/requests/cancel`
+with the same connection/request identity and interrupts SQLite cooperatively;
+Core attributes SQLite's generic interrupt outcome back to the originating
+deadline or cancellation token. A response may return before an uncooperative
+blocking closure exits, but its execution permits remain held until the closure
+actually stops.
+
+Core reports `deadline_exceeded`, `cancelled`, and `overloaded` as semantic
+Module errors. Electron's HTTP timer is the semantic deadline plus a five-second
+liveness grace. Crossing only that outer grace is a transport timeout and still
+does not prove Core generation loss or mutation failure. Interactive Page
+search releases cancel stale enrichment requests end to end. Scheduled Store
+maintenance is globally single-flight before it enters Core, then also uses the
+executor's maintenance lane.
+
+Core health reports active and queued requests, admission wait and execution
+duration, and cumulative deadline, cancellation, and overload counts. Store
+writer/reader/query metrics remain the next-level evidence for locating where
+admitted work spent its time.
+
 Repeated independently authenticated losses open a bounded local circuit. The
 renderer shows one app-wide unavailable state with explicit Retry and Restart
 rather than accumulating feature-local errors. Shutdown advances a lifecycle

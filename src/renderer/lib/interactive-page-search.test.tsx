@@ -3,15 +3,21 @@ import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { PageSearchResult, PageSearchSnapshot } from "../../shared/types";
 import { render, textContent } from "../test/dom";
-import { invoke } from "./api";
+import { invoke, searchPages } from "./api";
 import {
   __testing,
   configureInteractivePageSearch,
   useInteractivePageSearch,
 } from "./interactive-page-search";
 
-vi.mock("./api", () => ({
+const apiMocks = vi.hoisted(() => ({
   invoke: vi.fn(() => new Promise(() => undefined)),
+  searchPages: vi.fn(() => new Promise(() => undefined)),
+}));
+
+vi.mock("./api", () => ({
+  invoke: apiMocks.invoke,
+  searchPages: apiMocks.searchPages,
   subscribeLibraryChanges: () => () => undefined,
 }));
 
@@ -49,9 +55,11 @@ function deferred<Value>() {
 
 function Harness() {
   const [query, setQuery] = useState("");
+  const [unrelated, setUnrelated] = useState(0);
   const search = useInteractivePageSearch({ projectIds: PROJECT_IDS, query, limit: 10 });
   return <>
     <input aria-label="Search Pages" value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
+    <button onClick={() => setUnrelated((value) => value + 1)}>Rerender {unrelated}</button>
     {search.rows.map((row) => <div data-page-id={row.pageId} key={row.pageId}>{row.title}</div>)}
     {search.enrichment === "loading" ? <div>Loading more Pages…</div> : null}
     {search.enrichment === "unavailable" ? <div>Full Page search is unavailable</div> : null}
@@ -59,10 +67,27 @@ function Harness() {
   </>;
 }
 
+function SharedHarness() {
+  const first = useInteractivePageSearch({ projectIds: PROJECT_IDS, query: "shared", limit: 10 });
+  const second = useInteractivePageSearch({ projectIds: PROJECT_IDS, query: "shared", limit: 10 });
+  return <>
+    <div data-shared="first">{first.enrichment}:{first.rows[0]?.title ?? "none"}</div>
+    <div data-shared="second">{second.enrichment}:{second.rows[0]?.title ?? "none"}</div>
+  </>;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(() => new Promise(() => undefined));
+  vi.mocked(searchPages).mockReset();
+  vi.mocked(searchPages).mockImplementation(
+    (input) => vi.mocked(invoke)(
+      "pages:search",
+      "test-request",
+      input,
+    ) as Promise<PageSearchSnapshot>,
+  );
   __testing.reset();
 });
 
@@ -101,6 +126,7 @@ describe("InteractivePageSearch", () => {
     await act(async () => vi.advanceTimersByTimeAsync(175));
     act(() => fireEvent.change(input, { target: { value: "current" } }));
     await act(async () => vi.advanceTimersByTimeAsync(175));
+    expect(vi.mocked(searchPages).mock.calls[0]?.[1]?.aborted).toBe(true);
     await act(async () => older.resolve(snapshot([hit("older complete")])));
 
     expect(textContent(container)).toContain("Canonical current");
@@ -131,6 +157,52 @@ describe("InteractivePageSearch", () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(175));
     expect(previewIds()).toEqual(["page-preview-second", "page-preview-first"]);
+  });
+
+  test("keeps the current complete request across unrelated renders", async () => {
+    vi.useFakeTimers();
+    const current = deferred<PageSearchSnapshot>();
+    vi.mocked(invoke).mockReturnValueOnce(current.promise);
+    __testing.installIndex(PROJECT_IDS, {
+      replace: () => undefined,
+      applyDelta: () => undefined,
+      search: (request: { query?: string }) => request.query ? [hit(request.query)] : [],
+    });
+    const { container } = render(<Harness />);
+
+    act(() => fireEvent.change(container.querySelector("input")!, { target: { value: "stable" } }));
+    await act(async () => vi.advanceTimersByTimeAsync(175));
+    const signal = vi.mocked(searchPages).mock.calls[0]?.[1];
+    expect(signal?.aborted).toBe(false);
+
+    act(() => fireEvent.click(container.querySelector("button")!));
+
+    expect(signal?.aborted).toBe(false);
+    await act(async () => current.resolve(snapshot([hit("stable complete")])));
+    expect(textContent(container)).toContain("Canonical stable complete");
+  });
+
+  test("shares one complete request across concurrent consumers of a revision", async () => {
+    vi.useFakeTimers();
+    const shared = deferred<PageSearchSnapshot>();
+    vi.mocked(invoke).mockReturnValueOnce(shared.promise);
+    __testing.installIndex(PROJECT_IDS, {
+      replace: () => undefined,
+      applyDelta: () => undefined,
+      search: () => [],
+    });
+    const { container } = render(<SharedHarness />);
+
+    await act(async () => vi.advanceTimersByTimeAsync(175));
+    expect(searchPages).toHaveBeenCalledTimes(1);
+    await act(async () => shared.resolve(snapshot([hit("shared complete")])));
+
+    const rows = Array.from(container.querySelectorAll("[data-shared]"))
+      .map((element) => element.textContent);
+    expect(rows).toEqual([
+      "settled:Canonical shared complete",
+      "settled:Canonical shared complete",
+    ]);
   });
 
   test("keeps metadata rows when complete search is unavailable", async () => {
