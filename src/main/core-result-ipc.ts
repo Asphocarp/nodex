@@ -1,6 +1,6 @@
 import type { CoreResult } from "../shared/core-result";
 import { CoreModuleResponseError } from "./core-client/core-client";
-import { CoreTransportError } from "./core-client/uds-http";
+import { CoreHttpError, CoreTransportError } from "./core-client/uds-http";
 
 export type CancellableCoreResult<T> =
   | { readonly status: "completed"; readonly value: T }
@@ -51,6 +51,7 @@ export async function cancellableCoreResultFrom<T>(
 }
 
 function isCoreCancellation(error: unknown): boolean {
+  if (error instanceof CoreHttpError) return error.status === 499;
   if (error instanceof CoreTransportError) return error.kind === "aborted";
   if (error instanceof CoreModuleResponseError) {
     return error.coreError.code === "cancelled";

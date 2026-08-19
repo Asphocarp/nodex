@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use crate::infrastructure::metrics::{DurationMetric, DurationMetricSnapshot};
+use crate::infrastructure::request_execution::check_request_interruption;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::{
@@ -95,6 +96,7 @@ impl DocumentRuntimeCache {
         connection: &Connection,
         head: &DocumentHeadRow,
     ) -> Result<DocumentWorkingCopy, StoreError> {
+        check_request_interruption()?;
         if let Some(entry) = self.entries.get(&head.id)
             && entry_matches(entry, head)
         {
@@ -103,12 +105,14 @@ impl DocumentRuntimeCache {
             self.touch(&head.id);
             let engine = YrsDocumentEngine::from_full_state_v1(&head.id, &full_state)
                 .map_err(|error| corrupt(format!("Cached Document clone failed: {error}")))?;
+            check_request_interruption()?;
             return Ok(DocumentWorkingCopy { engine, full_state });
         }
         self.remove(&head.id);
         self.misses += 1;
         let engine = reconstruct_yjs_engine(connection, head)?;
         let full_state = engine.full_state_v1();
+        check_request_interruption()?;
         let working = YrsDocumentEngine::from_full_state_v1(&head.id, &full_state)
             .map_err(|error| corrupt(format!("Reconstructed Document clone failed: {error}")))?;
         self.install_with_state(head, engine, full_state.clone());
@@ -124,6 +128,7 @@ impl DocumentRuntimeCache {
         head: &DocumentHeadRow,
         remote_state_vector: &[u8],
     ) -> Result<Vec<u8>, StoreError> {
+        check_request_interruption()?;
         if let Some(entry) = self.entries.get(&head.id)
             && entry_matches(entry, head)
         {
@@ -131,6 +136,7 @@ impl DocumentRuntimeCache {
                 .engine
                 .diff_v1(remote_state_vector)
                 .map_err(|error| invalid_input(format!("Invalid client state vector: {error}")))?;
+            check_request_interruption()?;
             self.hits += 1;
             self.touch(&head.id);
             return Ok(update);
@@ -138,9 +144,11 @@ impl DocumentRuntimeCache {
         self.remove(&head.id);
         self.misses += 1;
         let engine = reconstruct_yjs_engine(connection, head)?;
+        check_request_interruption()?;
         let update = engine
             .diff_v1(remote_state_vector)
             .map_err(|error| invalid_input(format!("Invalid client state vector: {error}")))?;
+        check_request_interruption()?;
         self.install(head, engine);
         Ok(update)
     }
@@ -237,6 +245,7 @@ pub(crate) fn reconstruct_retained_yjs_engine_at(
     head: &DocumentHeadRow,
     target_head_seq: i64,
 ) -> Result<Option<YrsDocumentEngine>, StoreError> {
+    check_request_interruption()?;
     if !head.is_live_yjs_authority() {
         return Err(corrupt(format!(
             "Document {} is not live Yjs authority",
@@ -283,6 +292,7 @@ pub(crate) fn reconstruct_retained_yjs_engine_at(
         repository.updates_between(&head.id, head.generation, snapshot_seq, target_head_seq)?;
     let mut expected_seq = snapshot_seq + 1;
     for update in updates {
+        check_request_interruption()?;
         if update.seq != expected_seq {
             return Ok(None);
         }
@@ -330,6 +340,7 @@ fn reconstruct_yjs_engine_inner(
     connection: &Connection,
     head: &DocumentHeadRow,
 ) -> Result<YrsDocumentEngine, StoreError> {
+    check_request_interruption()?;
     if !head.is_live_yjs_authority() {
         return Err(corrupt(format!(
             "Document {} is not live Yjs authority",
@@ -376,6 +387,7 @@ fn reconstruct_yjs_engine_inner(
         repository.updates_between(&head.id, head.generation, snapshot_seq, head.head_seq)?;
     let mut expected_seq = snapshot_seq + 1;
     for update in updates {
+        check_request_interruption()?;
         if update.seq != expected_seq || sha256(&update.update_blob) != update.update_hash {
             return Err(corrupt(format!(
                 "Document {} update tail is invalid at sequence {expected_seq}",
@@ -409,10 +421,12 @@ fn reconstruct_yjs_engine_inner(
             head.id
         )));
     }
+    check_request_interruption()?;
     let decoded = decode_block_document(engine.document(), schema)
         .map_err(|error| corrupt(format!("Document {} schema: {error}", head.id)))?;
     let actual = materialize_decoded_document(&decoded)
         .map_err(|error| corrupt(format!("Document {} materialization: {error}", head.id)))?;
+    check_request_interruption()?;
     let persisted = repository
         .materialization(&head.id)?
         .ok_or_else(|| corrupt(format!("Document {} has no materialization", head.id)))?;

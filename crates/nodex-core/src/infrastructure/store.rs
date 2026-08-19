@@ -40,7 +40,12 @@ impl SqliteStoreKernel {
         let database_path = profile_home.join(STORE_FILE_NAME);
         let mut connection = open_writer(&database_path)?;
         super::migration::prepare_test_current_store(&mut connection, profile_home)?;
-        optimize_query_planner_on_open(&connection)?;
+        if let Err(error) = optimize_query_planner_on_open(&connection) {
+            tracing::warn!(
+                error = %error,
+                "SQLite query planner maintenance failed while opening the Store"
+            );
+        }
         drop(connection);
         Self::start_runtime(
             database_path,
@@ -83,7 +88,12 @@ impl SqliteStoreKernel {
             )?,
         };
         validate_local_commit_index(&migration_connection)?;
-        optimize_query_planner_on_open(&migration_connection)?;
+        if let Err(error) = optimize_query_planner_on_open(&migration_connection) {
+            tracing::warn!(
+                error = %error,
+                "SQLite query planner maintenance failed while opening the Store"
+            );
+        }
         drop(migration_connection);
 
         Self::start_runtime(database_path, preparation, lock)

@@ -296,7 +296,7 @@ impl RequestExecutor {
             .map_err(|_| worker_failed("registry"))?;
         registry.prune_tombstones(Instant::now());
         if registry.active.contains_key(key) {
-            return Err(invalid_request("Core request ID is already active"));
+            return Err(active_request_conflict());
         }
         let cancelled_before_registration = registry.cancellation_tombstones.remove(key).is_some();
         registry.active.insert(key.clone(), cancellation.clone());
@@ -428,6 +428,15 @@ fn invalid_request(message: &str) -> CoreError {
         code: CoreErrorCode::InvalidInput,
         message: message.to_owned(),
         retryable: false,
+        recovery: CoreErrorRecovery::None,
+    }
+}
+
+fn active_request_conflict() -> CoreError {
+    CoreError {
+        code: CoreErrorCode::Conflict,
+        message: "Core request ID is already active".to_owned(),
+        retryable: true,
         recovery: CoreErrorRecovery::None,
     }
 }
@@ -578,5 +587,26 @@ mod tests {
 
         assert_eq!(result.unwrap_err().code, CoreErrorCode::Cancelled);
         assert!(!operation_ran.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn duplicate_active_request_is_a_retryable_conflict() {
+        let executor = RequestExecutor::with_capacities(1, 1, 1, 8);
+        let key = RequestKey {
+            connection_id: "connection".to_owned(),
+            request_id: "duplicate".to_owned(),
+        };
+        let first_cancellation = QueryCancellation::new();
+        let _first_guard = executor
+            .register(&key, &first_cancellation)
+            .expect("first request registration");
+
+        let error = match executor.register(&key, &QueryCancellation::new()) {
+            Ok(_) => panic!("duplicate request identity was accepted"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code, CoreErrorCode::Conflict);
+        assert!(error.retryable);
     }
 }

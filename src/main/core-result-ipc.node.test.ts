@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { CoreModuleResponseError } from "./core-client/core-client";
 import { cancellableCoreResultFrom, coreResultFrom } from "./core-result-ipc";
-import { CoreTransportError } from "./core-client/uds-http";
+import { CoreHttpError, CoreTransportError } from "./core-client/uds-http";
 
 describe("Core IPC result envelope", () => {
   test("preserves an ordinary conflict without relabeling it as stale state", async () => {
@@ -32,6 +32,15 @@ describe("Core IPC result envelope", () => {
 
     await expect(cancellableCoreResultFrom(controller.signal, async () => {
       throw new CoreTransportError("aborted", "connect", "ABORT_ERR", null);
+    })).resolves.toEqual({ status: "cancelled" });
+  });
+
+  test("treats Core HTTP 499 as the cancellation response", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(cancellableCoreResultFrom(controller.signal, async () => {
+      throw new CoreHttpError(499, "Core request was cancelled");
     })).resolves.toEqual({ status: "cancelled" });
   });
 

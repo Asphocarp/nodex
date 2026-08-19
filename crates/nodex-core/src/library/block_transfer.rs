@@ -57,6 +57,7 @@ use crate::infrastructure::durable_mutation::{
 use crate::infrastructure::local_commit;
 use crate::infrastructure::metrics::{DurationMetric, DurationMetricSnapshot};
 use crate::infrastructure::module_receipts::read_module_receipt;
+use crate::infrastructure::request_execution::check_request_interruption;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
@@ -451,6 +452,7 @@ pub(super) fn extract_agent_page_document_batch(
 ) -> Result<PreparedAgentPageDocumentBatch, StoreError> {
     let mut batch = PreparedAgentPageDocumentBatch::empty();
     for transfer in transfers {
+        check_request_interruption()?;
         let PreparedBlockTransfer::PageOwnership(prepared) = transfer else {
             return Err(corrupt(
                 "Agent Page movement requires Page ownership preparations",
@@ -490,6 +492,7 @@ pub(super) fn extract_agent_page_document_batch(
         }
     }
     for entry in batch.documents.values_mut() {
+        check_request_interruption()?;
         recompile_page_ownership_document_update(&mut entry.document, &entry.operations)?;
     }
     Ok(batch)
@@ -502,6 +505,7 @@ pub(super) fn prepare_agent_created_page_document_batch(
     destination: &LibraryPageCopyDestination,
     page_ids: &[String],
 ) -> Result<PreparedAgentPageDocumentBatch, StoreError> {
+    check_request_interruption()?;
     let LibraryPageCopyDestination::Page {
         page_id,
         expected_document_generation,
@@ -523,14 +527,15 @@ pub(super) fn prepare_agent_created_page_document_batch(
             true,
         ));
     }
-    let operations = page_ids
-        .iter()
-        .map(|page_id| DocumentBlockOperation::InsertBlock {
+    let mut operations = Vec::with_capacity(page_ids.len());
+    for page_id in page_ids {
+        check_request_interruption()?;
+        operations.push(DocumentBlockOperation::InsertBlock {
             block: embedded_page_shell(page_id),
             parent_block_id: None,
             before_block_id: before.as_ref().map(|anchor| anchor.block_id.clone()),
-        })
-        .collect::<Vec<_>>();
+        });
+    }
     let document = prepare_page_ownership_document_update(base, &operations)?;
     let mut batch = PreparedAgentPageDocumentBatch::empty();
     merge_agent_page_document(&mut batch, document, operations)?;
@@ -579,6 +584,7 @@ pub(super) fn apply_agent_page_document_batch(
     pre_detach_agent_page_moves(connection, &batch)?;
     let mut commits = Vec::with_capacity(batch.documents.len());
     for (index, entry) in batch.documents.into_values().enumerate() {
+        check_request_interruption()?;
         let placement_block_ids = aggregate_owned_placement_block_ids(&entry.operations);
         let structurally_detached_block_ids = deleted_operation_block_ids(&entry.operations);
         let update_id = format!(
@@ -746,6 +752,7 @@ pub(super) fn prepare_for_apply(
     store_epoch: &str,
     intent: &LibraryBlockTransferLogicalIntent,
 ) -> Result<PreparedBlockTransfer, StoreError> {
+    check_request_interruption()?;
     validate_id(operation_id, "operation_id")?;
     validate_intent(library_id, intent)?;
     let current_epoch = crate::document::read_store_epoch(connection)?;
@@ -1199,6 +1206,7 @@ fn prepare_transfer(
     intent: &LibraryBlockTransferLogicalIntent,
     cache: Option<&Arc<Mutex<crate::document::DocumentRuntimeCache>>>,
 ) -> Result<PreparedTransfer, StoreError> {
+    check_request_interruption()?;
     let project_id = bound_project_id(context)?;
     let source_page_id = match &intent.source {
         LibraryBlockTransferSource::Page { page_id } => Some(page_id.as_str()),
@@ -1241,12 +1249,15 @@ fn prepare_transfer(
         clone_runtime_engine(connection, &source_authority.head, cache)?;
     let (target_engine, target_full_state) =
         clone_runtime_engine(connection, &target_authority.head, cache)?;
+    check_request_interruption()?;
     let source_decoded = decode_block_document(source_engine.document(), source_schema)
         .map_err(|error| corrupt(error.to_string()))?;
+    check_request_interruption()?;
     let source_materialization = materialize_decoded_document(&source_decoded)
         .map_err(|error| corrupt(error.to_string()))?;
     let target_decoded = decode_block_document(target_engine.document(), target_schema)
         .map_err(|error| corrupt(error.to_string()))?;
+    check_request_interruption()?;
     let target_materialization = materialize_decoded_document(&target_decoded)
         .map_err(|error| corrupt(error.to_string()))?;
     let expected_location_revisions = validate_source_roots(
@@ -1325,6 +1336,7 @@ fn uses_page_ownership_parent_compiler(
         return Ok(true);
     }
     for block_id in &intent.root_block_ids {
+        check_request_interruption()?;
         let block_type = connection
             .query_row("SELECT type FROM blocks WHERE id = ?1", [block_id], |row| {
                 row.get::<_, String>(0)
@@ -1474,6 +1486,7 @@ fn prepare_page_ownership_transfer(
     agent_authority: Option<&AgentPageMoveTransferAuthority>,
     cache: Option<&Arc<Mutex<crate::document::DocumentRuntimeCache>>>,
 ) -> Result<PreparedPageOwnershipTransfer, StoreError> {
+    check_request_interruption()?;
     let requesting_project_id = bound_project_id(context)?;
     require_project_in_library(connection, requesting_project_id, library_id)?;
     let mut source_document_base = None;
@@ -1725,6 +1738,7 @@ fn prepare_page_ownership_transfer(
         } = &target
     {
         for root_page_id in &intent.root_block_ids {
+            check_request_interruption()?;
             let cycle = connection
                 .query_row(
                     "WITH RECURSIVE descendants(page_id) AS ( \
@@ -1748,6 +1762,7 @@ fn prepare_page_ownership_transfer(
 
     let mut roots = Vec::with_capacity(intent.root_block_ids.len());
     for page_id in &intent.root_block_ids {
+        check_request_interruption()?;
         let row = connection
             .query_row(
                 "SELECT block.library_id, block.type, block.lifecycle, \
@@ -1957,6 +1972,7 @@ fn prepare_page_ownership_transfer(
             });
         }
         for root in &roots {
+            check_request_interruption()?;
             copy_document_heads.extend(page_copy_closure_document_heads(
                 connection,
                 operation_id,
@@ -2158,6 +2174,7 @@ fn apply_page_ownership_transfer(
             )?);
         }
         for root in &prepared.roots {
+            check_request_interruption()?;
             let expected_membership_revision = root
                 .source_membership
                 .as_ref()
@@ -2557,6 +2574,7 @@ fn apply_page_ownership_copy(
         PageCopyParentDocumentMode::Commit
     };
     for root in &prepared.roots {
+        check_request_interruption()?;
         let execution = execute_page_copy(
             connection,
             context,
@@ -2716,6 +2734,7 @@ fn prepare_page_parent_transfer(
     intent: &LibraryBlockTransferLogicalIntent,
     cache: Option<&Arc<Mutex<crate::document::DocumentRuntimeCache>>>,
 ) -> Result<PreparedPageParentTransfer, StoreError> {
+    check_request_interruption()?;
     let prepare_started_at = Instant::now();
     let project_id = bound_project_id(context)?;
     require_project_in_library(connection, project_id, library_id)?;
@@ -2808,6 +2827,7 @@ fn prepare_page_parent_transfer(
     let mut new_block_ids = Vec::new();
     let transform_started_at = Instant::now();
     for source_root in &source_forest.roots {
+        check_request_interruption()?;
         let materialized = find_materialized_block(
             &source_materialization.block_tree,
             &source_root.root_block_id,
@@ -3460,6 +3480,7 @@ fn apply_page_parent_transfer(
             };
             let mut staged = Vec::with_capacity(prepared.roots.len());
             for root in &prepared.roots {
+                check_request_interruption()?;
                 let stage = stage_page_parent_root(
                     connection,
                     library_id,
@@ -3510,6 +3531,7 @@ fn apply_page_parent_transfer(
             let mut data_source_placements = Vec::new();
             let target_persistence_started_at = Instant::now();
             for stage in staged {
+                check_request_interruption()?;
                 let page_id = stage.page_id.clone();
                 let staged_revisions = StagedPagePlacementRevisions {
                     location_revision: stage.location_revision,
