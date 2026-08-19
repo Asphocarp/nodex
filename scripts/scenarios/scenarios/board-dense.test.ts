@@ -42,6 +42,17 @@ class RecordingSeedPort implements ScenarioSeedPort {
     return { documentId: `document:${input.key}` };
   }
 
+  async ensurePrimaryDataSourcePropertyCount(): Promise<{
+    readonly commitSeq: number;
+    readonly propertyCount: number;
+  }> {
+    return { commitSeq: 12, propertyCount: 0 };
+  }
+
+  async readPrimaryDataSourcePropertyCount(): Promise<number> {
+    return 0;
+  }
+
   async replaceOwnedDocument(
     input: ScenarioDocumentReplacement,
   ): Promise<{ readonly commitSeq: number }> {

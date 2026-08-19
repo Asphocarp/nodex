@@ -1,4 +1,3 @@
-import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import {
   type ComponentPropsWithoutRef,
   type ReactNode,
@@ -7,6 +6,14 @@ import {
   useState,
 } from "react";
 import { NodexDropdownSurface } from "@/components/ui/dropdown";
+import {
+  NodexContextMenuContent,
+  NodexContextMenuItem,
+  NodexContextMenuPortal,
+  NodexContextMenuRoot,
+  NodexContextMenuTrigger,
+  type NodexContextMenuItemProps,
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import type { ClipboardPastePayload } from "../../../../shared/types";
 
@@ -288,17 +295,17 @@ function NfmEditorContextMenuItem({
   shortcut,
   className,
   ...props
-}: ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item> & {
+}: NodexContextMenuItemProps & {
   shortcut: string;
 }) {
   return (
-    <ContextMenuPrimitive.Item
+    <NodexContextMenuItem
       className={cn(MENU_ITEM_CLASS_NAME, "flex items-center gap-6", className)}
+      rightSlot={<span className={SHORTCUT_CLASS_NAME}>{shortcut}</span>}
       {...props}
     >
-      <span className="min-w-0 flex-1 truncate">{children}</span>
-      <span className={SHORTCUT_CLASS_NAME}>{shortcut}</span>
-    </ContextMenuPrimitive.Item>
+      {children}
+    </NodexContextMenuItem>
   );
 }
 
@@ -355,19 +362,18 @@ export function NfmEditorContextMenu({
   ), [editable, handleCommand, selectionEmpty]);
 
   return (
-    <ContextMenuPrimitive.Root onOpenChange={handleOpenChange}>
-      <ContextMenuPrimitive.Trigger asChild>
+    <NodexContextMenuRoot onOpenChange={handleOpenChange}>
+      <NodexContextMenuTrigger asChild>
         <div className="contents">{children}</div>
-      </ContextMenuPrimitive.Trigger>
-      <ContextMenuPrimitive.Portal>
-        <ContextMenuPrimitive.Content
-          collisionPadding={8}
+      </NodexContextMenuTrigger>
+      <NodexContextMenuPortal>
+        <NodexContextMenuContent
           onCloseAutoFocus={(event) => event.preventDefault()}
           className="z-50 no-drag outline-hidden"
         >
           {content}
-        </ContextMenuPrimitive.Content>
-      </ContextMenuPrimitive.Portal>
-    </ContextMenuPrimitive.Root>
+        </NodexContextMenuContent>
+      </NodexContextMenuPortal>
+    </NodexContextMenuRoot>
   );
 }

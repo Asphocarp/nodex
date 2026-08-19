@@ -65,6 +65,14 @@ canonical owned Page Document through the View's current Library or Project
 access context rather than a visible View projection. `Open in` contains `Open
 in new session` and `Send to chat…`.
 
+Each Board or List surface owns one short-lived Page menu session. Right-click
+resolves only the Page under the pointer; unopened Property editors and
+Relation candidate sets do not run. The root action menu appears without an
+entry animation, and moving across enabled submenu rows activates the target
+submenu in the same or next display frame while preserving the pointer-safe
+path into an already open submenu. Switching menus does not commit or rerender
+the Page card/row subtree.
+
 The Page context menu also exposes a bounded, schema-driven Property section.
 The current writable Board grouping Property appears first, followed by exact
 built-in Status, Priority, Assignee, Due date, Tags, and Estimate roles, with

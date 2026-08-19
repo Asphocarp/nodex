@@ -1,4 +1,3 @@
-import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { dropTargetForElements, draggable } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { preserveOffsetOnSource } from "@atlaskit/pragmatic-drag-and-drop/element/preserve-offset-on-source";
 import { setCustomNativeDragPreview } from "@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview";
@@ -19,7 +18,13 @@ import {
   type SyntheticEvent,
 } from "react";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
-import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
+import {
+  NodexContextMenuContent,
+  NodexContextMenuItem,
+  NodexContextMenuPortal,
+  NodexContextMenuRoot,
+  NodexContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import type { PanelId } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -1053,23 +1058,18 @@ function AppShellTab({
   });
 
   return (
-    <ContextMenuPrimitive.Root onOpenChange={(open) => {
+    <NodexContextMenuRoot onOpenChange={(open) => {
       if (!open) return;
       onCloseModeExit();
     }}>
-      <ContextMenuPrimitive.Trigger asChild>{chrome}</ContextMenuPrimitive.Trigger>
-      <ContextMenuPrimitive.Portal>
-        <ContextMenuPrimitive.Content
-          className={cn(
-            "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border m-px min-w-36 select-none overflow-hidden rounded-xl px-1 py-1 shadow-xl-spread ring-[0.5px] backdrop-blur-sm",
-            APP_SHELL_FLOATING_UI_LAYER_CLASS,
-          )}
-        >
+      <NodexContextMenuTrigger asChild>{chrome}</NodexContextMenuTrigger>
+      <NodexContextMenuPortal>
+        <NodexContextMenuContent className="min-w-36">
           {contextMenuItems.map((item) => (
             item.type === "separator" ? (
               <ContextMenuDivider key={item.id} />
             ) : (
-              <ContextMenuPrimitive.Item
+              <NodexContextMenuItem
                 key={item.id}
                 disabled={item.disabled}
                 className={cn(
@@ -1080,12 +1080,12 @@ function AppShellTab({
                 onSelect={item.disabled ? undefined : item.onSelect}
               >
                 {item.label}
-              </ContextMenuPrimitive.Item>
+              </NodexContextMenuItem>
             )
           ))}
-        </ContextMenuPrimitive.Content>
-      </ContextMenuPrimitive.Portal>
-    </ContextMenuPrimitive.Root>
+        </NodexContextMenuContent>
+      </NodexContextMenuPortal>
+    </NodexContextMenuRoot>
   );
 }
 

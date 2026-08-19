@@ -4,7 +4,11 @@ import { createPortal } from "react-dom";
 import { BoardPageKey } from "@/components/board/board-page-key";
 import { PagePresenceRail } from "@/components/board/page-presence-rail";
 import { DataSourcePropertyValueEditor } from "@/components/database/data-source-property-value-editor";
-import type { DataSourcePropertyOptionRegistryState } from "@/components/database/data-source-property-editor-binding";
+import type {
+  DataSourcePropertyEditorBinding,
+  DataSourcePropertyOptionRegistryState,
+} from "@/components/database/data-source-property-editor-binding";
+import type { DataSourcePagePropertyMenuSource } from "@/components/database/data-source-page-property-menu-source";
 import { PropertyEditorFeedback } from "@/components/database/property-editor-feedback";
 import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
 import type {
@@ -26,7 +30,7 @@ import type {
 import type {
   DataSourcePropertyRecordV2,
 } from "../../../../shared/database-module-v2";
-import { DatabaseViewPageContextMenu } from "../database-view-page-context-menu";
+import type { DatabaseViewPageMenuSession } from "../database-view-page-context-menu";
 import type { DatabaseViewPageActionPort } from "../database-view-page-actions";
 import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
 import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
@@ -141,8 +145,123 @@ export interface DatabaseBoardCardProps {
   readonly onDragEndPage: () => void;
 }
 
+const createDatabaseBoardPropertyEditorBinding = (
+  props: DatabaseBoardCardProps,
+  authority: DatabaseViewRenderModel["query"]["rows"][number],
+  property: DataSourcePropertyRecordV2,
+): DataSourcePropertyEditorBinding => {
+  const current = authority.values[property.propertyId];
+  const structural = property.propertyId === props.groupPropertyId
+    || property.propertyId === props.subgroupPropertyId;
+  return {
+    property,
+    value: current?.value,
+    revision: current?.revision ?? 0,
+    disabled: props.model.readOnlyReason !== null,
+    pending:
+      props.pendingMutationKeys.has(`value:${props.row.pageId}:${property.propertyId}`)
+      || props.pendingMutationKeys.has(`property:${property.propertyId}`),
+    error: props.mutationErrors.get(
+      `value:${props.row.pageId}:${property.propertyId}`,
+    ),
+    options: props.optionRegistries[property.propertyId]
+      ?? readDatabasePropertyOptions(property),
+    optionRegistryState: props.optionRegistryStates[property.propertyId] ?? "ready",
+    optionRegistryHasMore: props.optionRegistryHasMore[property.propertyId] ?? false,
+    optionRegistryLoadingMore:
+      props.optionRegistryLoadingMore[property.propertyId] ?? false,
+    onRequestOptions: () => props.onRequestOptions(property),
+    onRequestMoreOptions: () => props.onRequestMoreOptions(property),
+    relationCandidates: property.valueType === "relation"
+      ? props.model.query.rows.map((candidate) => ({
+          pageId: candidate.page.pageId,
+          title: candidate.page.title,
+        }))
+      : undefined,
+    relationSourcePageId: props.row.pageId,
+    onChange: (value) => structural
+      ? props.onSetStructuralValue(props.row.pageId, property.propertyId, value)
+      : props.onSetValue(props.row.pageId, property.propertyId, value),
+    onCreateOption: (option) => props.onCreateOption(props.row.pageId, property, option),
+    onPatchOptions: (delta) => {
+      if (!structural) {
+        props.onPatchOptions(props.row.pageId, property, delta);
+        return;
+      }
+      const selectedIds = Array.isArray(current?.value)
+        ? current.value.filter((entry): entry is string => typeof entry === "string")
+        : [];
+      const next = new Set(selectedIds);
+      for (const optionId of delta.removeOptionIds) next.delete(optionId);
+      for (const optionId of delta.addOptionIds) next.add(optionId);
+      props.onSetStructuralValue(props.row.pageId, property.propertyId, [...next]);
+    },
+    onPatchRelation: (delta) =>
+      props.onPatchRelation(props.row.pageId, property.propertyId, delta),
+    onReplaceOneRelation: (targetPageId) =>
+      props.onReplaceOneRelation(props.row.pageId, property, targetPageId),
+    onLoadRelationTargets: (after) =>
+      props.onLoadRelationTargets(props.row.pageId, property.propertyId, after),
+    onSearchRelationCandidates: (query, after) =>
+      props.onSearchRelationCandidates(property, query, after),
+    onLoadRelationTargetDescriptor: () =>
+      props.onLoadRelationTargetDescriptor(property),
+    onOpenRelationPage: (pageId, title) => props.onOpenPage(pageId, title),
+    onRelationValueStale: props.onRelationValueStale,
+  };
+};
+
+export const createDatabaseBoardPageMenuSession = (
+  props: DatabaseBoardCardProps,
+): DatabaseViewPageMenuSession | null => {
+  const authority = props.model.query.rows.find(
+    (candidate) => candidate.page.pageId === props.row.pageId,
+  );
+  if (!authority) return null;
+  const activeProperties = props.model.query.properties.filter(
+    (property) => property.lifecycle === "active",
+  );
+  const propertySource: DataSourcePagePropertyMenuSource = {
+    descriptors: activeProperties.map((property) => ({
+      property,
+      disabled: props.model.readOnlyReason !== null,
+      pending:
+        props.pendingMutationKeys.has(
+          `value:${props.row.pageId}:${property.propertyId}`,
+        )
+        || props.pendingMutationKeys.has(`property:${property.propertyId}`),
+    })),
+    resolveBinding(propertyId) {
+      const property = activeProperties.find(
+        (candidate) => candidate.propertyId === propertyId,
+      );
+      if (!property) throw new Error(`Unknown Board Property: ${propertyId}`);
+      return createDatabaseBoardPropertyEditorBinding(props, authority, property);
+    },
+  };
+  return {
+    page: {
+      libraryId: props.model.libraryId,
+      projectId: props.model.accessContext.kind === "project"
+        ? props.model.accessContext.projectId
+        : null,
+      pageId: props.row.pageId,
+      pageKey: props.row.pageKey,
+      titleSnapshot: props.row.title,
+    },
+    canMoveUp: props.canMoveUp,
+    canMoveDown: props.canMoveDown,
+    propertySource,
+    groupingPropertyId: props.groupPropertyId,
+    actionPort: props.pageActionPort,
+    deleteDisabled: props.model.readOnlyReason !== null,
+    onMove: (direction) => props.onMove(props.row.pageId, direction),
+  };
+};
+
 /** The one Card composition used by every legal Board grouping. */
-export function DatabaseBoardCard({
+export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
+  const {
   model,
   row,
   trailingFields,
@@ -150,29 +269,8 @@ export function DatabaseBoardCard({
   subgroupPropertyId,
   showPageKey,
   showDescription,
-  pendingMutationKeys,
   mutationErrors,
-  canMoveUp,
-  canMoveDown,
   onOpenPage,
-  pageActionPort,
-  onSetValue,
-  onSetStructuralValue,
-  onPatchOptions,
-  onPatchRelation,
-  onReplaceOneRelation,
-  onCreateOption,
-  onLoadRelationTargets,
-  onSearchRelationCandidates,
-  onLoadRelationTargetDescriptor,
-  onRelationValueStale,
-  onRequestOptions,
-  onRequestMoreOptions,
-  optionRegistries,
-  optionRegistryStates,
-  optionRegistryHasMore,
-  optionRegistryLoadingMore,
-  onMove,
   highlighted,
   presented,
   selected,
@@ -183,7 +281,7 @@ export function DatabaseBoardCard({
   dragging,
   onDragStartPage,
   onDragEndPage,
-}: DatabaseBoardCardProps) {
+  } = props;
   const { setElementRef: cardRef, previewPortal } = useDatabaseViewPageDragSource(
     draggable ? pragmaticDragData : null,
     { nativePreview: "portal" },
@@ -203,75 +301,8 @@ export function DatabaseBoardCard({
   });
   const propertySlots = footerSlots.filter((slot) => slot.kind === "property");
   const metadataSlots = footerSlots.filter((slot) => slot.kind === "metadata");
-  const propertyBinding = (property: DataSourcePropertyRecordV2) => {
-    const current = authority.values[property.propertyId];
-    const structural = property.propertyId === groupPropertyId
-      || property.propertyId === subgroupPropertyId;
-    const propertyError = mutationErrors.get(
-      `value:${row.pageId}:${property.propertyId}`,
-    );
-    return {
-      property,
-      value: current?.value,
-      revision: current?.revision ?? 0,
-      disabled: model.readOnlyReason !== null,
-      pending:
-        pendingMutationKeys.has(`value:${row.pageId}:${property.propertyId}`)
-        || pendingMutationKeys.has(`property:${property.propertyId}`),
-      error: propertyError,
-      options: optionRegistries[property.propertyId]
-        ?? readDatabasePropertyOptions(property),
-      optionRegistryState: optionRegistryStates[property.propertyId] ?? "ready",
-      optionRegistryHasMore: optionRegistryHasMore[property.propertyId] ?? false,
-      optionRegistryLoadingMore:
-        optionRegistryLoadingMore[property.propertyId] ?? false,
-      onRequestOptions: () => onRequestOptions(property),
-      onRequestMoreOptions: () => onRequestMoreOptions(property),
-      relationCandidates: model.query.rows.map((candidate) => ({
-        pageId: candidate.page.pageId,
-        title: candidate.page.title,
-      })),
-      relationSourcePageId: row.pageId,
-      onChange: (value: DatabaseJsonValue) => structural
-        ? onSetStructuralValue(row.pageId, property.propertyId, value)
-        : onSetValue(row.pageId, property.propertyId, value),
-      onCreateOption: (option: {
-        readonly optionId: string;
-        readonly name: string;
-        readonly color?: string;
-      }) => onCreateOption(row.pageId, property, option),
-      onPatchOptions: (delta: {
-        readonly addOptionIds: readonly string[];
-        readonly removeOptionIds: readonly string[];
-      }) => {
-        if (!structural) {
-          onPatchOptions(row.pageId, property, delta);
-          return;
-        }
-        const selectedIds = Array.isArray(current?.value)
-          ? current.value.filter((entry): entry is string => typeof entry === "string")
-          : [];
-        const next = new Set(selectedIds);
-        for (const optionId of delta.removeOptionIds) next.delete(optionId);
-        for (const optionId of delta.addOptionIds) next.add(optionId);
-        onSetStructuralValue(row.pageId, property.propertyId, [...next]);
-      },
-      onPatchRelation: (delta: {
-        readonly addPageIds: readonly string[];
-        readonly removeEdgeIds: readonly string[];
-      }) => onPatchRelation(row.pageId, property.propertyId, delta),
-      onReplaceOneRelation: (targetPageId: string | null) =>
-        onReplaceOneRelation(row.pageId, property, targetPageId),
-      onLoadRelationTargets: (after: string | null) =>
-        onLoadRelationTargets(row.pageId, property.propertyId, after),
-      onSearchRelationCandidates: (query: string, after?: string | null) =>
-        onSearchRelationCandidates(property, query, after),
-      onLoadRelationTargetDescriptor: () => onLoadRelationTargetDescriptor(property),
-      onOpenRelationPage: (pageId: string, relationTitle: string) =>
-        onOpenPage(pageId, relationTitle),
-      onRelationValueStale,
-    } as const;
-  };
+  const propertyBinding = (property: DataSourcePropertyRecordV2) =>
+    createDatabaseBoardPropertyEditorBinding(props, authority, property);
   const ringShadow = selected
     ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 72%, transparent)"
     : highlighted
@@ -306,6 +337,7 @@ export function DatabaseBoardCard({
     <article
       ref={previewRect ? undefined : cardRef}
       data-database-view-page-id={row.pageId}
+      data-database-view-page-menu-target={previewRect ? undefined : row.pageId}
       data-database-board-card="true"
       data-card-context-menu-trigger={previewRect ? undefined : "true"}
       data-board-uuid-v7={row.pageId}
@@ -453,29 +485,7 @@ export function DatabaseBoardCard({
     : null;
   return (
     <>
-      <DatabaseViewPageContextMenu
-        canMoveUp={canMoveUp}
-        canMoveDown={canMoveDown}
-        page={{
-          libraryId: model.libraryId,
-          accessContext: model.accessContext,
-          projectId: model.accessContext.kind === "project"
-            ? model.accessContext.projectId
-            : null,
-          pageId: row.pageId,
-          pageKey: row.pageKey,
-          titleSnapshot: title,
-        }}
-        actionPort={pageActionPort}
-        deleteDisabled={model.readOnlyReason !== null}
-        propertyBindings={model.query.properties
-          .filter((property) => property.lifecycle === "active")
-          .map(propertyBinding)}
-        groupingPropertyId={groupPropertyId}
-        onMove={(direction) => onMove(row.pageId, direction)}
-      >
-        {card}
-      </DatabaseViewPageContextMenu>
+      {card}
       {dragPreview}
     </>
   );

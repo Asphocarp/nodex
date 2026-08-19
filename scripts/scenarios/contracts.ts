@@ -39,6 +39,11 @@ export interface ScenarioBoardObservation {
 export interface ScenarioSeedPort {
   createProject(input: ProjectCreateInput): Promise<Project>;
   createPage(input: ScenarioPageSeed): Promise<{ readonly documentId: string }>;
+  ensurePrimaryDataSourcePropertyCount(
+    projectId: string,
+    count: number,
+  ): Promise<{ readonly commitSeq: number; readonly propertyCount: number }>;
+  readPrimaryDataSourcePropertyCount(projectId: string): Promise<number>;
   replaceOwnedDocument(
     input: ScenarioDocumentReplacement,
   ): Promise<{ readonly commitSeq: number }>;

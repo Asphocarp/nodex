@@ -9,6 +9,11 @@ const isBetterTailwindEnabled = process.env.ESLINT_BETTER_TAILWIND === "1";
 
 const rendererRestrictedImportPaths = [
   {
+    name: "@radix-ui/react-context-menu",
+    message:
+      "Use the app-owned deep context menu module from @/components/ui/context-menu.",
+  },
+  {
     name: "lucide-react",
     message:
       "Use app-owned icons from @/components/shared/icons or normalized generic glyphs from @/components/shared/icons/generic-icons.",
@@ -66,6 +71,12 @@ const eslintConfig = defineConfig([
       ],
       "react-hooks/exhaustive-deps": "error",
       "react-hooks/rules-of-hooks": "error",
+    },
+  },
+  {
+    files: ["src/renderer/components/ui/context-menu.tsx"],
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
   {

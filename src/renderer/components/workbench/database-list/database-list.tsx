@@ -15,6 +15,7 @@ import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
+import type { DataSourcePagePropertyMenuSource } from "@/components/database/data-source-page-property-menu-source";
 import type { ColumnPaginationState } from "@/lib/board-store";
 import {
   buildDataSourceCreateOptionAndSelectOperations,
@@ -109,7 +110,8 @@ import {
   DATABASE_LIST_INTERACTIVE_SELECTOR,
   DatabaseListRow,
 } from "./database-list-row";
-import { DatabaseViewPageContextMenu } from "../database-view-page-context-menu";
+import type { DatabaseViewPageMenuSession } from "../database-view-page-context-menu";
+import { DatabaseViewPageContextMenuHost } from "../database-view-page-context-menu-host";
 import type { DatabaseViewPageActionPort } from "../database-view-page-actions";
 import { buildDatabaseViewPageDragData } from "../database-view-page-drag";
 import { DatabaseListSelectionActionBar } from "./database-list-selection-action-bar";
@@ -1242,7 +1244,7 @@ export function DatabaseList({
     optionStates: propertyOptionRegistries.states,
     optionHasMore: propertyOptionRegistries.hasMore,
     optionLoadingMore: propertyOptionRegistries.loadingMore,
-    relationCandidates: [...authorityByPageId.values()].map((row) => ({
+    relationCandidates: () => [...authorityByPageId.values()].map((row) => ({
       pageId: row.page.pageId,
       title: row.page.title,
     })),
@@ -1634,19 +1636,6 @@ export function DatabaseList({
       && isDatabaseListOccurrenceSelected(selection, previousRow.key);
     const selectedAfter = nextRow?.kind === "page"
       && isDatabaseListOccurrenceSelected(selection, nextRow.key);
-    const groupComplete = isGroupComplete([item.pageId]);
-    const canMoveUp = canMoveDatabaseViewPage({
-      model: mutationModel,
-      pageId: item.pageId,
-      direction: "up",
-      groupComplete,
-    });
-    const canMoveDown = canMoveDatabaseViewPage({
-      model: mutationModel,
-      pageId: item.pageId,
-      direction: "down",
-      groupComplete,
-    });
     const row = (
       <DatabaseListRow
         item={item}
@@ -1717,31 +1706,61 @@ export function DatabaseList({
             })}
       />
     );
-    return (
-      <DatabaseViewPageContextMenu
-        key={item.key}
-        canMoveUp={canMoveUp}
-        canMoveDown={canMoveDown}
-        page={{
-          libraryId: model.libraryId,
-          accessContext: model.accessContext,
-          projectId: model.accessContext.kind === "project"
-            ? model.accessContext.projectId
-            : null,
-          pageId: item.pageId,
-          pageKey: item.row.pageKey,
-          titleSnapshot: item.row.title,
-        }}
-        actionPort={pageActionPort}
-        deleteDisabled={model.readOnlyReason !== null}
-        propertyBindings={model.query.properties.map((property) =>
-          createDatabaseListPropertyEditorBinding(property, authority, propertyRuntime)
-        )}
-        onMove={(direction) => movePages([item.pageId], direction)}
-      >
-        {row}
-      </DatabaseViewPageContextMenu>
+    return row;
+  };
+
+  const resolvePageMenuSession = (
+    targetKey: string,
+  ): DatabaseViewPageMenuSession | null => {
+    const item = projection.find(
+      (candidate): candidate is DatabaseListPageRow =>
+        candidate.kind === "page" && candidate.key === targetKey,
     );
+    if (!item) return null;
+    const authority = authorityByPageId.get(item.pageId);
+    if (!authority) return null;
+    const groupComplete = isGroupComplete([item.pageId]);
+    const propertySource: DataSourcePagePropertyMenuSource = {
+      descriptors: model.query.properties.map((property) => ({
+        property,
+        disabled: propertyRuntime.disabled,
+        pending: propertyRuntime.isPending(item.pageId, property.propertyId),
+      })),
+      resolveBinding(propertyId) {
+        const property = model.query.properties.find(
+          (candidate) => candidate.propertyId === propertyId,
+        );
+        if (!property) throw new Error(`Unknown List Property: ${propertyId}`);
+        return createDatabaseListPropertyEditorBinding(property, authority, propertyRuntime);
+      },
+    };
+    return {
+      page: {
+        libraryId: model.libraryId,
+        projectId: model.accessContext.kind === "project"
+          ? model.accessContext.projectId
+          : null,
+        pageId: item.pageId,
+        pageKey: item.row.pageKey,
+        titleSnapshot: item.row.title,
+      },
+      canMoveUp: canMoveDatabaseViewPage({
+        model: mutationModel,
+        pageId: item.pageId,
+        direction: "up",
+        groupComplete,
+      }),
+      canMoveDown: canMoveDatabaseViewPage({
+        model: mutationModel,
+        pageId: item.pageId,
+        direction: "down",
+        groupComplete,
+      }),
+      propertySource,
+      actionPort: pageActionPort,
+      deleteDisabled: model.readOnlyReason !== null,
+      onMove: (direction) => movePages([item.pageId], direction),
+    };
   };
 
   const selectedIds = [...selectedPageIds];
@@ -1775,6 +1794,7 @@ export function DatabaseList({
       onActiveChange={setDndActive}
       onCommit={dropPages}
     >
+      <DatabaseViewPageContextMenuHost resolveSession={resolvePageMenuSession}>
       <div
         ref={hostRef}
         data-database-view-id={model.databaseViewId}
@@ -2090,6 +2110,7 @@ export function DatabaseList({
           }))}
         />
       </div>
+      </DatabaseViewPageContextMenuHost>
     </DatabaseListDndProvider>
   );
 }

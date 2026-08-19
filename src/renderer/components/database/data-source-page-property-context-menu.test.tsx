@@ -1,14 +1,21 @@
-import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act, useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 
 import { render } from "@/test/dom";
+import {
+  NodexContextMenuContent,
+  NodexContextMenuPortal,
+  NodexContextMenuRoot,
+  NodexContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import type { DatabasePropertyValueType } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import type { DataSourcePropertyEditorBinding } from "./data-source-property-editor-binding";
 import { DataSourcePagePropertyContextMenuItems } from "./data-source-page-property-context-menu";
+import { dataSourcePagePropertyMenuSourceFromBindings } from "./data-source-page-property-menu-source";
+import type { DataSourcePagePropertyMenuSource } from "./data-source-page-property-menu-source";
 
 const property = (
   propertyId: string,
@@ -29,31 +36,33 @@ const property = (
 } as DataSourcePropertyRecordV2);
 
 function Harness({
-  bindings,
+  bindings = [],
+  source,
   groupingPropertyId = null,
   query = "",
 }: {
-  readonly bindings: readonly DataSourcePropertyEditorBinding[];
+  readonly bindings?: readonly DataSourcePropertyEditorBinding[];
+  readonly source?: DataSourcePagePropertyMenuSource;
   readonly groupingPropertyId?: string | null;
   readonly query?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
-    <ContextMenuPrimitive.Root open={menuOpen} onOpenChange={setMenuOpen}>
-      <ContextMenuPrimitive.Trigger asChild>
+    <NodexContextMenuRoot open={menuOpen} onOpenChange={setMenuOpen}>
+      <NodexContextMenuTrigger asChild>
         <button type="button">Page row</button>
-      </ContextMenuPrimitive.Trigger>
-      <ContextMenuPrimitive.Portal>
-        <ContextMenuPrimitive.Content>
+      </NodexContextMenuTrigger>
+      <NodexContextMenuPortal>
+        <NodexContextMenuContent>
           <DataSourcePagePropertyContextMenuItems
-            bindings={bindings}
+            source={source ?? dataSourcePagePropertyMenuSourceFromBindings(bindings)}
             groupingPropertyId={groupingPropertyId}
             query={query}
             onContextMenuCommit={() => setMenuOpen(false)}
           />
-        </ContextMenuPrimitive.Content>
-      </ContextMenuPrimitive.Portal>
-    </ContextMenuPrimitive.Root>
+        </NodexContextMenuContent>
+      </NodexContextMenuPortal>
+    </NodexContextMenuRoot>
   );
 }
 
@@ -65,6 +74,44 @@ const openMenu = async (trigger: HTMLElement): Promise<void> => {
 };
 
 describe("DataSourcePagePropertyContextMenuItems", () => {
+  test("resolves only the Property submenu that actually opens", async () => {
+    const statusBinding: DataSourcePropertyEditorBinding = {
+      property: property("status", "Status", "select"),
+      value: "ready",
+      revision: 1,
+      disabled: false,
+      options: [
+        { id: "ready", name: "Ready", color: "blue" },
+        { id: "done", name: "Done", color: "green" },
+      ],
+      optionRegistryState: "ready",
+      onChange: vi.fn(),
+    };
+    const resolveBinding = vi.fn(() => statusBinding);
+    const source: DataSourcePagePropertyMenuSource = {
+      descriptors: [{
+        property: statusBinding.property,
+        disabled: false,
+        pending: false,
+      }],
+      resolveBinding,
+    };
+    const view = render(<Harness source={source} groupingPropertyId="status" />);
+
+    await openMenu(view.getByRole("button", { name: "Page row" }));
+    expect(resolveBinding).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.pointerMove(view.getByRole("menuitem", { name: "Status" }), {
+        pointerType: "mouse",
+      });
+      await Promise.resolve();
+    });
+
+    await view.findByRole("option", { name: "Done" });
+    expect(resolveBinding).toHaveBeenCalledTimes(1);
+    expect(resolveBinding).toHaveBeenCalledWith("status");
+  });
+
   test("hosts the shared semantic Status picker in a submenu and commits its option", async () => {
     const onChange = vi.fn();
     const view = render(<Harness bindings={[{

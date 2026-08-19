@@ -8,6 +8,7 @@ import {
 import { buildPageDeepLink } from "@/lib/page-deeplink";
 import { render } from "@/test/dom";
 import { DatabaseViewPageContextMenu } from "./database-view-page-context-menu";
+import { dataSourcePagePropertyMenuSourceFromBindings } from "@/components/database/data-source-page-property-menu-source";
 
 const mocks = vi.hoisted(() => ({
   loadPageDocumentMaterialization: vi.fn(),
@@ -61,7 +62,7 @@ function renderMenu(
       page={pageTarget}
       canMoveUp
       canMoveDown
-      propertyBindings={[]}
+      propertySource={dataSourcePagePropertyMenuSourceFromBindings([])}
       actionPort={actionPort}
       onMove={() => undefined}
     >

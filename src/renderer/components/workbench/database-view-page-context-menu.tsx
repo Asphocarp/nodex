@@ -1,4 +1,3 @@
-import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import {
   Fragment,
   useEffect,
@@ -29,13 +28,16 @@ import {
 import {
   DataSourcePagePropertyContextMenuItems,
   pagePropertyContextMenuHasMatches,
-  type DataSourcePropertyEditorBinding,
 } from "@/components/database/data-source-page-property-context-menu";
+import type { DataSourcePagePropertyMenuSource } from "@/components/database/data-source-page-property-menu-source";
 import {
   NodexContextMenuContent,
   NodexContextMenuItem,
-  NodexContextMenuSubContent,
-  NodexContextMenuSubTrigger,
+  NodexContextMenuPortal,
+  NodexContextMenuRoot,
+  NodexContextMenuSubmenu,
+  NodexContextMenuSubmenuTrigger,
+  NodexContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { NodexDropdown } from "@/components/ui/dropdown";
 import {
@@ -117,43 +119,25 @@ function DatabaseViewPageMenuActionIcon({
   }
 }
 
-function ImmediatePageActionSubmenu({
+function PageActionSubmenu({
   entry,
-  open,
-  onOpenChange,
   onSelect,
 }: {
   readonly entry: DatabaseViewPageMenuEntry;
-  readonly open: boolean;
-  readonly onOpenChange: (open: boolean) => void;
   readonly onSelect: (actionId: DatabaseViewPageMenuActionId) => void;
 }) {
   return (
-    <ContextMenuPrimitive.Sub open={open} onOpenChange={onOpenChange}>
-      <NodexContextMenuSubTrigger
+    <NodexContextMenuSubmenu
+      trigger={<NodexContextMenuSubmenuTrigger
         leftSlot={<DatabaseViewPageMenuActionIcon actionId={entry.id} />}
         rightSlot={<ChevronRightIcon className="icon-xs opacity-75" />}
-        onPointerMove={(event) => {
-          if (event.pointerType === "touch") return;
-          const isVerticalSweep = Math.abs(event.movementX) <= 1
-            && Math.abs(event.movementY) > 1;
-          // Radix marks pointer moves inside its submenu grace polygon as
-          // prevented later in this same event. Preserve that protection for
-          // diagonal seam travel, but let an unambiguously vertical sweep move
-          // directly between sibling triggers.
-          queueMicrotask(() => {
-            if (!event.defaultPrevented || isVerticalSweep) onOpenChange(true);
-          });
-        }}
       >
         {entry.label}
-      </NodexContextMenuSubTrigger>
-      <ContextMenuPrimitive.Portal>
-        <NodexContextMenuSubContent
-          sideOffset={0}
-          alignOffset={-4}
-          className="min-w-[220px]"
-        >
+      </NodexContextMenuSubmenuTrigger>}
+      alignOffset={-4}
+      contentClassName="min-w-[220px]"
+      renderContent={() => (
+        <>
           {entry.children?.map((child) => (
             <NodexContextMenuItem
               key={child.id}
@@ -164,9 +148,9 @@ function ImmediatePageActionSubmenu({
               {child.label}
             </NodexContextMenuItem>
           ))}
-        </NodexContextMenuSubContent>
-      </ContextMenuPrimitive.Portal>
-    </ContextMenuPrimitive.Sub>
+        </>
+      )}
+    />
   );
 }
 
@@ -232,30 +216,33 @@ function ChatPicker({
   );
 }
 
-export function DatabaseViewPageContextMenu({
-  children,
+export interface DatabaseViewPageMenuSession {
+  readonly page: DatabaseViewPageTarget;
+  readonly canMoveUp: boolean;
+  readonly canMoveDown: boolean;
+  readonly propertySource: DataSourcePagePropertyMenuSource;
+  readonly groupingPropertyId?: string | null;
+  readonly actionPort?: DatabaseViewPageActionPort;
+  readonly deleteDisabled?: boolean;
+  readonly onMove: (direction: DatabaseViewPageMoveDirection) => void;
+}
+
+export function DatabaseViewPageContextMenuOverlay({
+  menuOpen,
+  onMenuOpenChange,
   page,
   canMoveUp,
   canMoveDown,
-  propertyBindings,
+  propertySource,
   groupingPropertyId = null,
   actionPort = {},
   deleteDisabled = false,
   onMove,
 }: {
-  readonly children: ReactElement;
-  readonly page: DatabaseViewPageTarget;
-  readonly canMoveUp: boolean;
-  readonly canMoveDown: boolean;
-  readonly propertyBindings: readonly DataSourcePropertyEditorBinding[];
-  readonly groupingPropertyId?: string | null;
-  readonly actionPort?: DatabaseViewPageActionPort;
-  readonly deleteDisabled?: boolean;
-  readonly onMove: (direction: DatabaseViewPageMoveDirection) => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  readonly menuOpen: boolean;
+  readonly onMenuOpenChange: (open: boolean) => void;
+} & DatabaseViewPageMenuSession) {
   const [query, setQuery] = useState("");
-  const [activeSubmenuId, setActiveSubmenuId] = useState<DatabaseViewPageMenuActionId | null>(null);
   const [chatPicker, setChatPicker] = useState<ChatPickerState | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -278,12 +265,14 @@ export function DatabaseViewPageContextMenu({
     }),
     query,
   );
-  const hasVisibleProperties = pagePropertyContextMenuHasMatches(propertyBindings, query);
+  const hasVisibleProperties = pagePropertyContextMenuHasMatches(
+    propertySource.descriptors,
+    query,
+  );
 
   const handleMenuOpenChange = (open: boolean): void => {
-    setMenuOpen(open);
+    onMenuOpenChange(open);
     redirectedInitialFocusRef.current = false;
-    setActiveSubmenuId(null);
     if (open) setChatPicker(null);
     if (!open) setQuery("");
   };
@@ -394,13 +383,8 @@ export function DatabaseViewPageContextMenu({
       return (
         <Fragment key={action.id}>
           {separator}
-          <ImmediatePageActionSubmenu
+          <PageActionSubmenu
             entry={action}
-            open={activeSubmenuId === action.id}
-            onOpenChange={(open) => setActiveSubmenuId((current) => {
-              if (open) return action.id;
-              return current === action.id ? null : current;
-            })}
             onSelect={selectActionAndClose}
           />
         </Fragment>
@@ -422,21 +406,15 @@ export function DatabaseViewPageContextMenu({
   };
 
   return (
-    <ContextMenuPrimitive.Root
-      open={menuOpen}
-      onOpenChange={handleMenuOpenChange}
-    >
-      <ContextMenuPrimitive.Trigger className="contents">
-        {children}
-      </ContextMenuPrimitive.Trigger>
-      <ContextMenuPrimitive.Portal>
+    <>
+      <NodexContextMenuPortal>
         <NodexContextMenuContent
           ref={contentRef}
           onFocusCapture={(event) => {
             if (redirectedInitialFocusRef.current) return;
             redirectedInitialFocusRef.current = true;
             if (event.target === inputRef.current) return;
-            requestAnimationFrame(() => inputRef.current?.focus());
+            queueMicrotask(() => inputRef.current?.focus());
           }}
           className="w-[265px]"
         >
@@ -445,7 +423,6 @@ export function DatabaseViewPageContextMenu({
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
-              setActiveSubmenuId(null);
             }}
             onKeyDown={handleSearchKeyDown}
             onPointerDown={(event) => event.stopPropagation()}
@@ -459,7 +436,7 @@ export function DatabaseViewPageContextMenu({
             <>
               <NodexDropdown.SectionLabel>Properties</NodexDropdown.SectionLabel>
               <DataSourcePagePropertyContextMenuItems
-                bindings={propertyBindings}
+                source={propertySource}
                 groupingPropertyId={groupingPropertyId}
                 query={query}
                 onContextMenuCommit={() => handleMenuOpenChange(false)}
@@ -469,13 +446,34 @@ export function DatabaseViewPageContextMenu({
           {hasVisibleProperties && actions.length > 0 ? <NodexDropdown.Separator /> : null}
           {actions.map(renderAction)}
         </NodexContextMenuContent>
-      </ContextMenuPrimitive.Portal>
+      </NodexContextMenuPortal>
       <ChatPicker
         state={chatPicker}
         page={presentedPage}
         actionPort={actionPort}
         onClose={() => setChatPicker(null)}
       />
-    </ContextMenuPrimitive.Root>
+    </>
+  );
+}
+
+export function DatabaseViewPageContextMenu({
+  children,
+  ...session
+}: {
+  readonly children: ReactElement;
+} & DatabaseViewPageMenuSession) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <NodexContextMenuRoot open={menuOpen} onOpenChange={setMenuOpen}>
+      <NodexContextMenuTrigger className="contents">
+        {children}
+      </NodexContextMenuTrigger>
+      <DatabaseViewPageContextMenuOverlay
+        {...session}
+        menuOpen={menuOpen}
+        onMenuOpenChange={setMenuOpen}
+      />
+    </NodexContextMenuRoot>
   );
 }

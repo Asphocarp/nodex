@@ -1,4 +1,3 @@
-import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { useDeferredValue, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +21,13 @@ import {
   SidebarSortClockIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
+import {
+  NodexContextMenuContent,
+  NodexContextMenuItem,
+  NodexContextMenuPortal,
+  NodexContextMenuRoot,
+  NodexContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   NodexOptionPicker,
   NodexDropdownItem,
@@ -51,7 +57,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { invoke } from "@/lib/api";
 import {
   formatCodexModelLabel,
@@ -1361,40 +1366,35 @@ function AutomationPreviousRunContextMenu({
   if (disabled) return <>{children}</>;
 
   return (
-    <ContextMenuPrimitive.Root>
-      <ContextMenuPrimitive.Trigger asChild>{children}</ContextMenuPrimitive.Trigger>
-      <ContextMenuPrimitive.Portal>
-        <ContextMenuPrimitive.Content
-          className={cn(
-            "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border m-px min-w-40 select-none overflow-hidden rounded-xl px-1 py-1 shadow-xl-spread ring-[0.5px] backdrop-blur-sm",
-            APP_SHELL_FLOATING_UI_LAYER_CLASS,
-          )}
-        >
+    <NodexContextMenuRoot>
+      <NodexContextMenuTrigger asChild>{children}</NodexContextMenuTrigger>
+      <NodexContextMenuPortal>
+        <NodexContextMenuContent className="min-w-40">
           {row.canUnarchive ? (
-            <ContextMenuPrimitive.Item
+            <NodexContextMenuItem
               className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
               onSelect={() => onUnarchive(row)}
             >
               Unarchive
-            </ContextMenuPrimitive.Item>
+            </NodexContextMenuItem>
           ) : null}
-          <ContextMenuPrimitive.Item
+          <NodexContextMenuItem
             className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
             onSelect={() => onMarkReadState(row, row.isUnread ? Date.now() : null)}
           >
             {row.isUnread ? "Mark as read" : "Mark as unread"}
-          </ContextMenuPrimitive.Item>
+          </NodexContextMenuItem>
           {row.canArchive ? (
-            <ContextMenuPrimitive.Item
+            <NodexContextMenuItem
               className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
               onSelect={() => onArchive(row)}
             >
               Archive
-            </ContextMenuPrimitive.Item>
+            </NodexContextMenuItem>
           ) : null}
-        </ContextMenuPrimitive.Content>
-      </ContextMenuPrimitive.Portal>
-    </ContextMenuPrimitive.Root>
+        </NodexContextMenuContent>
+      </NodexContextMenuPortal>
+    </NodexContextMenuRoot>
   );
 }
 

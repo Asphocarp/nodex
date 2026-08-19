@@ -1,4 +1,3 @@
-import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import {
   useEffect,
   useId,
@@ -20,8 +19,6 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "@/components/ui/control-chrome";
-import { NodexContextMenuSubContent } from "@/components/ui/context-menu";
-import { preserveInteractiveSubmenuRootFocus } from "@/lib/context-menu-submenu";
 import {
   canCreateDataSourcePropertyOption,
   filterDataSourcePropertyOptions,
@@ -43,7 +40,7 @@ import {
 } from "./property-value-chip";
 
 export type PropertyOptionPickerMode = "single" | "multiple";
-export type PropertyOptionPickerHost = "popover" | "context-menu";
+export type PropertyOptionPickerHost = "popover" | "embedded";
 
 export interface PropertyOptionRenderContext {
   readonly selected: boolean;
@@ -227,26 +224,7 @@ function PropertyOptionPickerFrame({
   readonly onOpenChange: (open: boolean) => void;
   readonly children: ReactNode;
 }) {
-  if (host === "context-menu") {
-    return (
-      <ContextMenuPrimitive.Sub open={open} onOpenChange={onOpenChange}>
-        <ContextMenuPrimitive.SubTrigger asChild disabled={disabled}>
-          {trigger}
-        </ContextMenuPrimitive.SubTrigger>
-        <ContextMenuPrimitive.Portal>
-          <NodexContextMenuSubContent
-            onFocusOutside={preserveInteractiveSubmenuRootFocus}
-            className={cn(
-              "pointer-events-auto m-0 w-[min(320px,calc(100vw-16px))] overflow-hidden p-0",
-              contentClassName,
-            )}
-          >
-            {children}
-          </NodexContextMenuSubContent>
-        </ContextMenuPrimitive.Portal>
-      </ContextMenuPrimitive.Sub>
-    );
-  }
+  if (host === "embedded") return children;
 
   return (
     <NodexPopover open={open} onOpenChange={onOpenChange}>
@@ -299,7 +277,7 @@ export function PropertyOptionPicker({
   onCreateOption,
   renderOption = (option) => <PropertyOptionToken option={option} />,
 }: PropertyOptionPickerProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(host === "embedded");
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -557,8 +535,8 @@ export function PropertyOptionPicker({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
+                if (host === "embedded") return;
                 event.preventDefault();
-                if (host === "context-menu") event.stopPropagation();
                 changeOpen(false);
                 return;
               }
