@@ -1600,7 +1600,8 @@ fn persist_materialization(
 /// Rebuilds the current derived Document projection from a reconstructed Yrs
 /// document during an owned-store migration. The Yrs stream and Document head
 /// are never rewritten; only the materialization and its normalized Page
-/// reference projection are replaced.
+/// reference projection are replaced. `has_owner` is supplied by the caller
+/// because migration callers read ownership from different schema revisions.
 pub(crate) fn rebuild_document_materialization_projection_for_migration(
     connection: &Connection,
     document_id: &str,
@@ -1608,12 +1609,8 @@ pub(crate) fn rebuild_document_materialization_projection_for_migration(
     projected_seq: i64,
     materialization: &DocumentMaterialization,
     now: &str,
+    has_owner: bool,
 ) -> Result<(), StoreError> {
-    let has_owner = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM block_documents WHERE document_id = ?1)",
-        [document_id],
-        |row| row.get::<_, bool>(0),
-    )?;
     let authority = if has_owner {
         let authority = read_document_authority(connection, document_id)?
             .ok_or_else(|| corrupt("Migrated Document has no current authority"))?;

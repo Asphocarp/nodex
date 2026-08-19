@@ -2588,6 +2588,12 @@ fn ensure_v127_document_page_references(connection: &Connection) -> Result<(), S
     let repository = DocumentReadRepository::new(connection);
     for head in repository.live_yjs_heads()? {
         let reconstructed = reconstruct_live_yjs_document(&repository, &head)?;
+        let has_owner: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM block_documents \
+             WHERE document_id = ?1 AND library_id = ?2)",
+            params![head.id, head.library_id],
+            |row| row.get(0),
+        )?;
         rebuild_document_materialization_projection_for_migration(
             connection,
             &head.id,
@@ -2595,6 +2601,7 @@ fn ensure_v127_document_page_references(connection: &Connection) -> Result<(), S
             head.head_seq,
             &reconstructed.materialization,
             &head.updated_at,
+            has_owner,
         )?;
     }
     validate_v127_document_page_references(connection)
@@ -2890,6 +2897,7 @@ fn rebuild_legacy_import_document_projections(connection: &Connection) -> Result
                 head.head_seq,
                 &reconstructed.materialization,
                 &head.updated_at,
+                false,
             )?;
         }
     }
@@ -6526,6 +6534,42 @@ fn trusted_legacy_canvas_project_scope(
 }
 
 fn backfill_v95_legacy_canvas_module_receipts(connection: &Connection) -> Result<(), StoreError> {
+    let collision_rows = connection
+        .prepare(
+            "SELECT mutation_id, document_id \
+             FROM canvas_scene_mutation_receipts \
+             WHERE mutation_id IN ( \
+               SELECT mutation_id FROM canvas_scene_mutation_receipts \
+               GROUP BY mutation_id HAVING count(DISTINCT document_id) > 1 \
+             ) \
+             ORDER BY mutation_id, document_id",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !collision_rows.is_empty() {
+        let mut documents_by_mutation = BTreeMap::<String, BTreeSet<String>>::new();
+        for (mutation_id, document_id) in collision_rows {
+            documents_by_mutation
+                .entry(mutation_id)
+                .or_default()
+                .insert(document_id);
+        }
+        let details = documents_by_mutation
+            .into_iter()
+            .map(|(mutation_id, document_ids)| {
+                format!(
+                    "{mutation_id}: {}",
+                    document_ids.into_iter().collect::<Vec<_>>().join(", ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(corrupt(format!(
+            "v95 legacy Canvas mutation_id is shared across Documents ({details})"
+        )));
+    }
     let rows = connection
         .prepare(
             "SELECT canvas.mutation_id, canvas.request_hash, \
@@ -13204,6 +13248,81 @@ mod tests {
             .expect("unresolvable Canvas scope"),
             None
         );
+    }
+
+    #[test]
+    fn v95_canvas_receipt_backfill_rejects_cross_document_mutation_collisions() {
+        let connection = Connection::open_in_memory().expect("in-memory receipt store");
+        connection
+            .execute_batch(
+                "CREATE TABLE canvas_scene_mutation_receipts (\
+                   document_id TEXT NOT NULL,\
+                   mutation_id TEXT NOT NULL,\
+                   request_hash TEXT NOT NULL,\
+                   request_json TEXT NOT NULL,\
+                   result_json TEXT NOT NULL,\
+                   committed_at TEXT NOT NULL,\
+                   PRIMARY KEY (document_id, mutation_id)\
+                 );\
+                 CREATE TABLE core_module_receipts (\
+                   module_name TEXT NOT NULL,\
+                   operation_id TEXT NOT NULL,\
+                   PRIMARY KEY (module_name, operation_id)\
+                 );\
+                 INSERT INTO canvas_scene_mutation_receipts\
+                   (document_id, mutation_id, request_hash, request_json, result_json, committed_at)\
+                 VALUES\
+                   ('document:a', 'mutation:shared', 'hash:a', '{}', '{}', '2026-08-19'),\
+                   ('document:b', 'mutation:shared', 'hash:b', '{}', '{}', '2026-08-19'),\
+                   ('document:c', 'mutation:shared', 'hash:c', '{}', '{}', '2026-08-19');",
+            )
+            .expect("receipt collision fixture");
+
+        let error = backfill_v95_legacy_canvas_module_receipts(&connection)
+            .expect_err("cross-document mutation collision should be corrupt");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        assert!(error.message.contains("document:a"));
+        assert!(error.message.contains("document:b"));
+        assert!(error.message.contains("document:c"));
+    }
+
+    #[test]
+    fn legacy_document_rebuild_ignores_foreign_project_ownership_rows() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_v84_page(&home);
+        let connection = open_writer(&home.join("nodex.db")).expect("v84 writer");
+        connection
+            .pragma_update(None, "foreign_keys", false)
+            .expect("disable legacy fixture foreign keys");
+        connection
+            .execute(
+                "INSERT INTO projects (id, name, created, updated) VALUES \
+                 ('foreign-project', 'Foreign', '2026-07-18', '2026-07-18')",
+                [],
+            )
+            .expect("foreign project");
+        connection
+            .execute(
+                "INSERT INTO blocks(\
+                   id, project_id, type, lifecycle, location_kind, containing_document_id,\
+                   containing_database_id, location_revision, metadata_revision, created_at, updated_at\
+                 ) VALUES (\
+                   'block:foreign-owner', 'foreign-project', 'page', 'active', 'space',\
+                   NULL, NULL, 1, 1, '2026-07-18', '2026-07-18')",
+                [],
+            )
+            .expect("foreign owner block");
+        connection
+            .execute(
+                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                 VALUES ('block:foreign-owner', ?1, 'foreign-project', '2026-07-18')",
+                [DOCUMENT_ID],
+            )
+            .expect("foreign ownership row");
+
+        rebuild_legacy_import_document_projections(&connection)
+            .expect("foreign-project ownership must not be treated as this Document's owner");
     }
 
     #[test]
