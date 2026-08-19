@@ -205,7 +205,7 @@ export function DataSourcePropertyValueEditor({
   const PropertyIcon = dataSourcePropertyIcon(property);
   const boardIcon = presentation !== "board"
     ? undefined
-    : role.kind === "due_date" || role.kind === "schedule_boundary"
+    : role.kind === "due_date"
       ? <DueDateValueIcon value={value} />
       : PropertyIcon
         ? <PropertyIcon className="size-3.5 shrink-0 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]" />
