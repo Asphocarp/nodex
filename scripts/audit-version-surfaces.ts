@@ -36,6 +36,7 @@ const VERSION_SURFACES: readonly Surface[] = [
   ["crates/nodex-core/src/document/canvas.rs:PROJECTION_VERSION", "durableFormat", "Canvas projection", "rebuild incompatible projections"],
   ["crates/nodex-core/src/document/canvas_scene.rs:CANVAS_SCHEMA_VERSION", "durableFormat", "Canvas Document", "select the persisted Canvas decoder"],
   ["crates/nodex-core/src/document/canvas_scene.rs:CANVAS_SCENE_HASH_VERSION", "algorithmIdentity", "Canvas scene hash", "recompute hashes with the named algorithm"],
+  ["crates/nodex-core/src/document/materialization.rs:CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION", "durableFormat", "Document materialization derivation", "rebuild incompatible projections"],
   ["crates/nodex-core/src/document/persistence.rs:PROJECTION_VERSION", "durableFormat", "Document projection", "rebuild incompatible projections"],
   ["crates/nodex-core/src/domain/task_shorthand.rs:TASK_SHORTHAND_GRAMMAR_VERSION", "algorithmIdentity", "task shorthand grammar", "persist the parser identity in Undo evidence"],
   ["crates/nodex-core/src/infrastructure/authorized_delivery.rs:DELIVERY_PACKET_VERSION", "durableFormat", "authorized delivery packet", "decode durable delivery evidence"],
