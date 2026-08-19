@@ -50,7 +50,11 @@ const openRoot = async (target: HTMLElement): Promise<void> => {
 
 const hoverItem = async (item: HTMLElement): Promise<void> => {
   await act(async () => {
-    fireEvent.pointerMove(item, { pointerType: "mouse" });
+    fireEvent.pointerMove(item, {
+      pointerType: "mouse",
+      movementX: 0,
+      movementY: 2,
+    });
     await Promise.resolve();
   });
 };
