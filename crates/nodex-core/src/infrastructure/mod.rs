@@ -18,6 +18,7 @@ pub mod module_receipts;
 pub mod projection_impact;
 pub(crate) mod projection_requirement_extractor;
 pub(crate) mod projection_scope_head;
+pub mod request_execution;
 pub(crate) mod resource_authorization;
 pub(crate) mod resource_grant_migration;
 pub mod schema;

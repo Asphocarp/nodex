@@ -5,7 +5,7 @@ import type {
   PageSearchMetadataSnapshot,
   PageSearchResult,
 } from "../../shared/types";
-import { invoke, subscribeLibraryChanges } from "./api";
+import { invoke, searchPages, subscribeLibraryChanges } from "./api";
 
 type WasmIndex = {
   free?(): void;
@@ -352,63 +352,107 @@ function useCompletePageSearch(
   revision: string,
   intent: PageSearchIntent,
 ): { readonly rows: readonly PageSearchResult[]; readonly status: InteractivePageSearchResult["enrichment"] } {
-  // The registry makes the revision the store identity. The other dependencies
-  // keep the creation inputs explicit without recreating an already registered
-  // store when a caller allocates an equivalent intent object on re-render.
-  const store = useMemo(
-    () => completeStores.get(revision) ?? createCompleteStore(revision, enabled, intent),
-    [enabled, intent, revision],
-  );
-  useEffect(() => {
-    const activeStore = completeStores.get(revision) ?? store;
-    completeStores.set(revision, activeStore);
-    activeStore.start();
-    return () => activeStore.release();
-  }, [revision, store]);
+  const store = completeStoreFor(revision, enabled, intent);
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
 interface CompleteSnapshot { readonly rows: readonly PageSearchResult[]; readonly status: InteractivePageSearchResult["enrichment"] }
-interface CompleteStore { subscribe(listener: () => void): () => void; getSnapshot(): CompleteSnapshot; start(): void; release(): void }
+interface CompleteStore {
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): CompleteSnapshot;
+  hasSubscribers(): boolean;
+  dispose(): void;
+}
+const MAX_COMPLETE_STORES = 64;
 const completeStores = new Map<string, CompleteStore>();
 
-function createCompleteStore(revision: string, enabled: boolean, intent: PageSearchIntent): CompleteStore {
+function completeStoreFor(
+  revision: string,
+  enabled: boolean,
+  intent: PageSearchIntent,
+): CompleteStore {
+  const existing = completeStores.get(revision);
+  if (existing) return existing;
+  const store = createCompleteStore(revision, enabled, intent);
+  completeStores.set(revision, store);
+  if (completeStores.size <= MAX_COMPLETE_STORES) return store;
+  for (const [candidateRevision, candidate] of completeStores) {
+    if (candidate === store || candidate.hasSubscribers()) continue;
+    candidate.dispose();
+    completeStores.delete(candidateRevision);
+    if (completeStores.size <= MAX_COMPLETE_STORES) break;
+  }
+  return store;
+}
+
+function createCompleteStore(
+  revision: string,
+  enabled: boolean,
+  intent: PageSearchIntent,
+): CompleteStore {
   let snapshot: CompleteSnapshot = { rows: [], status: enabled ? "loading" : "idle" };
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let users = 0;
+  let evictionTimer: ReturnType<typeof setTimeout> | null = null;
+  let controller: AbortController | null = null;
   const subscribers = new Set<() => void>();
+  const start = (): void => {
+    if (evictionTimer) clearTimeout(evictionTimer);
+    evictionTimer = null;
+    if (!enabled || timer || controller || snapshot.status !== "loading") return;
+    timer = setTimeout(() => {
+      timer = null;
+      controller = new AbortController();
+      const activeController = controller;
+      void searchPages({
+        projectIds: [...intent.projectIds], query: intent.query,
+        filters: intent.filters, preferredProjectId: intent.preferredProjectId ?? undefined,
+        recentPageIds: [...(intent.recentPageIds ?? [])], limit: intent.limit,
+      }, activeController.signal).then((result) => {
+        if (controller !== activeController || activeController.signal.aborted) return;
+        if (
+          (state.libraryId !== null && result.libraryId !== state.libraryId)
+          || (state.storeEpoch !== null && result.storeEpoch !== state.storeEpoch)
+          || result.commitSeq < state.commitSeq
+        ) return;
+        snapshot = { rows: result.results, status: "settled" };
+        subscribers.forEach((listener) => listener());
+      }).catch(() => {
+        if (controller !== activeController || activeController.signal.aborted) return;
+        snapshot = { rows: [], status: "unavailable" };
+        subscribers.forEach((listener) => listener());
+      }).finally(() => {
+        if (controller === activeController) controller = null;
+      });
+    }, 175);
+  };
+  const stop = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    controller?.abort();
+    controller = null;
+  };
   const store: CompleteStore = {
-    subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
-    getSnapshot: () => snapshot,
-    start() {
-      users += 1;
-      if (!enabled || timer || snapshot.status !== "loading") return;
-      timer = setTimeout(() => {
-        timer = null;
-        void invoke("pages:search", {
-          projectIds: [...intent.projectIds], query: intent.query,
-          filters: intent.filters, preferredProjectId: intent.preferredProjectId ?? undefined,
-          recentPageIds: [...(intent.recentPageIds ?? [])], limit: intent.limit,
-        }).then((result) => {
-          if (
-            (state.libraryId !== null && result.libraryId !== state.libraryId)
-            || (state.storeEpoch !== null && result.storeEpoch !== state.storeEpoch)
-            || result.commitSeq < state.commitSeq
-          ) return;
-          snapshot = { rows: result.results, status: "settled" };
-          subscribers.forEach((listener) => listener());
-        }).catch(() => {
-          snapshot = { rows: [], status: "unavailable" };
-          subscribers.forEach((listener) => listener());
-        });
-      }, 175);
+    subscribe(listener) {
+      subscribers.add(listener);
+      if (subscribers.size === 1) start();
+      return () => {
+        subscribers.delete(listener);
+        if (subscribers.size > 0) return;
+        stop();
+        evictionTimer = setTimeout(() => {
+          evictionTimer = null;
+          if (subscribers.size === 0 && completeStores.get(revision) === store) {
+            completeStores.delete(revision);
+          }
+        }, 0);
+      };
     },
-    release() {
-      if (users === 0) return;
-      users -= 1;
-      if (users > 0) return;
-      if (timer) clearTimeout(timer);
-      if (completeStores.get(revision) === store) completeStores.delete(revision);
+    getSnapshot: () => snapshot,
+    hasSubscribers: () => subscribers.size > 0,
+    dispose() {
+      stop();
+      if (evictionTimer) clearTimeout(evictionTimer);
+      evictionTimer = null;
     },
   };
   return store;
@@ -451,6 +495,7 @@ export const __testing = {
     scopeLeases.clear();
     nextScopeLeaseId = 1;
     state = EMPTY_STATE; index?.free?.(); index = null; documents.clear(); configuredProjectIds = [];
+    completeStores.forEach((store) => store.dispose());
     completeStores.clear(); listeners.clear();
   },
 };

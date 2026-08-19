@@ -1,4 +1,5 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
+import { randomUUID } from "node:crypto";
 import { CORE_TRANSPORT_BUDGETS } from "@nodex/core-protocol";
 
 import {
@@ -20,6 +21,8 @@ import type {
   CoreDocumentEventSubscription,
   CoreProjectionEventSubscription,
   CoreStreamCheckpoint,
+  CoreRequestClass,
+  CoreRequestOptions,
   DocumentLiveBarrier,
   DocumentLiveRepair,
   ProjectionLiveBarrier,
@@ -35,14 +38,55 @@ const MAX_DOCUMENT_JSON_REQUEST_BYTES =
 const MAX_DOCUMENT_RESPONSE_BYTES =
   CORE_TRANSPORT_BUDGETS.document_response_bytes;
 const MAX_EVENT_FRAME_BYTES = CORE_TRANSPORT_BUDGETS.event_frame_bytes;
-const REQUEST_TIMEOUT_MS = 5_000;
+const TRANSPORT_LIVENESS_TIMEOUT_MS = 5_000;
 const MAX_CONFIGURED_REQUEST_TIMEOUT_MS = 120_000;
 const DOCUMENT_ROUTE_PREFIX = "/core/v1/modules/document/";
+const MODULE_ROUTE_PREFIX = "/core/v1/modules/";
+const LOCAL_MUTATION_ROUTE = "/core/v1/local-mutations/resolve";
+const DEFAULT_REQUEST_DEADLINES_MS: Readonly<Record<CoreRequestClass, number>> = {
+  interactive: CORE_TRANSPORT_BUDGETS.interactive_request_deadline_ms,
+  background: CORE_TRANSPORT_BUDGETS.background_request_deadline_ms,
+  maintenance: CORE_TRANSPORT_BUDGETS.maintenance_request_deadline_ms,
+};
 
 export interface UdsHttpTransportOptions {
   readonly maximumJsonResponseBytes?: number;
   readonly requestTimeoutMs?: number;
 }
+
+interface RequestExecutionHeaders {
+  readonly requestId: string;
+  readonly class: CoreRequestClass;
+  readonly deadlineMs: number;
+}
+
+const requestExecution = (
+  requestPath: string,
+  options: CoreRequestOptions,
+): RequestExecutionHeaders | null => {
+  if (
+    !requestPath.startsWith(MODULE_ROUTE_PREFIX)
+    && requestPath !== LOCAL_MUTATION_ROUTE
+  ) {
+    return null;
+  }
+  const requestClass = options.class ?? "interactive";
+  const deadlineMs = boundedPositiveInteger(
+    options.deadlineMs ?? DEFAULT_REQUEST_DEADLINES_MS[requestClass],
+    CORE_TRANSPORT_BUDGETS.request_deadline_max_ms,
+    "Core request deadline",
+  );
+  if (deadlineMs < CORE_TRANSPORT_BUDGETS.request_deadline_min_ms) {
+    throw new Error(
+      `Core request deadline must be at least ${CORE_TRANSPORT_BUDGETS.request_deadline_min_ms}`,
+    );
+  }
+  return {
+    requestId: randomUUID(),
+    class: requestClass,
+    deadlineMs,
+  };
+};
 
 export type DocumentFrameResponse<Response> =
   | { readonly kind: "binary"; readonly bytes: Uint8Array }
@@ -183,7 +227,7 @@ interface ProjectionLiveStreamOptions {
 
 export class UdsHttpTransport {
   readonly #maximumJsonResponseBytes: number;
-  readonly #requestTimeoutMs: number;
+  readonly #transportLivenessTimeoutMs: number;
   #eventContract: CoreEventContract | null = null;
 
   constructor(
@@ -196,8 +240,8 @@ export class UdsHttpTransport {
       MAX_JSON_RESPONSE_BYTES,
       "Core JSON response limit",
     );
-    this.#requestTimeoutMs = boundedPositiveInteger(
-      options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+    this.#transportLivenessTimeoutMs = boundedPositiveInteger(
+      options.requestTimeoutMs ?? TRANSPORT_LIVENESS_TIMEOUT_MS,
       MAX_CONFIGURED_REQUEST_TIMEOUT_MS,
       "Core request timeout",
     );
@@ -224,7 +268,7 @@ export class UdsHttpTransport {
     requestPath: string,
     body?: unknown,
     requestHeaders: Readonly<Record<string, string>> = {},
-    signal?: AbortSignal,
+    options: CoreRequestOptions = {},
   ): Promise<Response> {
     const documentRoute = requestPath.startsWith(DOCUMENT_ROUTE_PREFIX);
     const maximumRequestBytes = documentRoute
@@ -236,13 +280,22 @@ export class UdsHttpTransport {
     const encodedBody = body === undefined
       ? undefined
       : encodeBoundedJson(body, maximumRequestBytes, "Core request");
+    const execution = requestExecution(requestPath, options);
+    const transportTimeoutMs = execution
+      ? execution.deadlineMs + this.#transportLivenessTimeoutMs
+      : this.#transportLivenessTimeoutMs;
 
     return new Promise<Response>((resolve, reject) => {
       let settled = false;
       const settle = (action: () => void): void => {
         if (settled) return;
         settled = true;
+        options.signal?.removeEventListener("abort", cancelCoreRequest);
         action();
+      };
+      const cancelCoreRequest = (): void => {
+        if (!execution) return;
+        void this.#cancelRequest(execution.requestId, requestHeaders);
       };
       const request = httpRequest(
         {
@@ -250,9 +303,16 @@ export class UdsHttpTransport {
           path: requestPath,
           method,
           agent: false,
-          signal,
+          signal: options.signal,
           headers: {
             ...requestHeaders,
+            ...(execution
+              ? {
+                  "x-nodex-request-id": execution.requestId,
+                  "x-nodex-request-class": execution.class,
+                  "x-nodex-request-deadline-ms": String(execution.deadlineMs),
+                }
+              : {}),
             accept: "application/json",
             authorization: `Bearer ${this.authCapability}`,
             ...(encodedBody
@@ -283,7 +343,13 @@ export class UdsHttpTransport {
             );
         },
       );
-      request.setTimeout(this.#requestTimeoutMs, () => {
+      if (options.signal?.aborted) {
+        cancelCoreRequest();
+      } else {
+        options.signal?.addEventListener("abort", cancelCoreRequest, { once: true });
+      }
+      request.setTimeout(transportTimeoutMs, () => {
+        cancelCoreRequest();
         request.destroy(new CoreTransportError("timeout", "response", "ETIMEDOUT", null));
       });
       request.on("error", (error) =>
@@ -299,13 +365,24 @@ export class UdsHttpTransport {
     body: Uint8Array,
     requestHeaders: Readonly<Record<string, string>>,
     maximumResponseBytes: number,
+    options: CoreRequestOptions = {},
   ): Promise<DocumentFrameResponse<Response>> {
+    const execution = requestExecution(requestPath, options);
+    if (!execution) {
+      return Promise.reject(new Error("Document requests require Core execution metadata"));
+    }
+    const transportTimeoutMs = execution.deadlineMs + this.#transportLivenessTimeoutMs;
     return new Promise((resolve, reject) => {
       let settled = false;
       const settle = (action: () => void): void => {
         if (settled) return;
         settled = true;
+        options.signal?.removeEventListener("abort", cancelCoreRequest);
         action();
+      };
+      const cancelCoreRequest = (): void => {
+        if (!execution) return;
+        void this.#cancelRequest(execution.requestId, requestHeaders);
       };
       const request = httpRequest(
         {
@@ -313,8 +390,12 @@ export class UdsHttpTransport {
           path: requestPath,
           method: "POST",
           agent: false,
+          signal: options.signal,
           headers: {
             ...requestHeaders,
+            "x-nodex-request-id": execution.requestId,
+            "x-nodex-request-class": execution.class,
+            "x-nodex-request-deadline-ms": String(execution.deadlineMs),
             accept: `${DOCUMENT_HTTP_CONTENT_TYPE}, application/json`,
             authorization: `Bearer ${this.authCapability}`,
             "content-length": body.byteLength,
@@ -355,7 +436,13 @@ export class UdsHttpTransport {
             );
         },
       );
-      request.setTimeout(this.#requestTimeoutMs, () => {
+      if (options.signal?.aborted) {
+        cancelCoreRequest();
+      } else {
+        options.signal?.addEventListener("abort", cancelCoreRequest, { once: true });
+      }
+      request.setTimeout(transportTimeoutMs, () => {
+        cancelCoreRequest();
         request.destroy(new CoreTransportError("timeout", "response", "ETIMEDOUT", null));
       });
       request.on("error", (error) =>
@@ -364,6 +451,18 @@ export class UdsHttpTransport {
       request.write(body);
       request.end();
     });
+  }
+
+  #cancelRequest(
+    requestId: string,
+    requestHeaders: Readonly<Record<string, string>>,
+  ): Promise<unknown> {
+    return this.requestJson(
+      "POST",
+      "/core/v1/requests/cancel",
+      { request_id: requestId },
+      requestHeaders,
+    ).catch(() => undefined);
   }
 
   openEventStream(
@@ -574,7 +673,7 @@ export class UdsHttpTransport {
         }
         if (!closed) rejectDone?.(normalizeTransportError(error, "response"));
       });
-      request.setTimeout(this.#requestTimeoutMs, () => {
+      request.setTimeout(this.#transportLivenessTimeoutMs, () => {
         request.destroy(new CoreTransportError("timeout", "open", "ETIMEDOUT", null));
       });
       request.end();

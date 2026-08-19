@@ -239,10 +239,12 @@ fn core_error(error: StoreError) -> CoreError {
         | StoreErrorCode::AlreadyOwned
         | StoreErrorCode::InvalidProfile
         | StoreErrorCode::RuntimeIncompatible => CoreErrorCode::SchemaUnsupported,
-        StoreErrorCode::WriterQueueFull
-        | StoreErrorCode::WriterClosed
-        | StoreErrorCode::ReaderPoolTimeout
-        | StoreErrorCode::QueryCancelled
+        StoreErrorCode::WriterQueueFull | StoreErrorCode::ReaderPoolTimeout => {
+            CoreErrorCode::Overloaded
+        }
+        StoreErrorCode::QueryCancelled => CoreErrorCode::Cancelled,
+        StoreErrorCode::DeadlineExceeded => CoreErrorCode::DeadlineExceeded,
+        StoreErrorCode::WriterClosed
         | StoreErrorCode::SqliteBusy
         | StoreErrorCode::SqliteFailure
         | StoreErrorCode::Internal => CoreErrorCode::CoreUnavailable,

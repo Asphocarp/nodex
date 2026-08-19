@@ -501,6 +501,11 @@ vi.mock("@/lib/api", () => {
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+  searchPages: async (input: unknown) => {
+    const requestId = "test-page-search-request";
+    invokeCalls.push(["pages:search", requestId, input]);
+    return mockInvokeImpl?.("pages:search", requestId, input) ?? null;
+  },
   readDatabaseViewWindow: async (projectId: string, input: unknown) => {
     invokeCalls.push(["database:view-window:get", projectId, input]);
     return mockInvokeImpl?.("database:view-window:get", projectId, input) ?? null;
@@ -2385,7 +2390,7 @@ export function renderWorkbench({
       return snapshot;
     }
     if (channel === "pages:search") {
-      const input = args[0] as {
+      const input = args[1] as {
         projectIds?: string[];
         query?: string;
         limit?: number;

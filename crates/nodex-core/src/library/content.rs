@@ -243,6 +243,8 @@ pub(super) fn search(
         ),
     ]);
 
+    // Keep FTS as the outer loop even before an existing Store has planner
+    // statistics; otherwise SQLite may probe MATCH once per search unit.
     let sql = format!(
         "WITH ranked AS (\
            SELECT unit.library_id, unit.owner_block_id, unit.document_id, unit.block_id, \
@@ -251,7 +253,7 @@ pub(super) fn search(
              snippet(block_search_units_fts, 0, char(2), char(3), '…', 32) AS excerpt, \
              bm25(block_search_units_fts) AS rank, unit.rowid AS search_rowid \
            FROM block_search_units_fts \
-           JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
+           CROSS JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
            JOIN documents document ON document.id = unit.document_id \
              AND document.library_id = unit.library_id \
            JOIN blocks source ON source.id = unit.block_id \

@@ -11,7 +11,7 @@ use super::migration::{
 };
 #[cfg(test)]
 use super::schema::CURRENT_STORE_REVISION;
-use super::sqlite::{StoreError, StoreErrorCode, open_writer};
+use super::sqlite::{StoreError, StoreErrorCode, open_writer, optimize_query_planner_on_open};
 use super::store_lock::ProfileStoreLock;
 use super::store_replacement::recover_interrupted_store_replacement;
 use super::writer::{
@@ -40,6 +40,7 @@ impl SqliteStoreKernel {
         let database_path = profile_home.join(STORE_FILE_NAME);
         let mut connection = open_writer(&database_path)?;
         super::migration::prepare_test_current_store(&mut connection, profile_home)?;
+        optimize_query_planner_on_open(&connection)?;
         drop(connection);
         Self::start_runtime(
             database_path,
@@ -82,6 +83,7 @@ impl SqliteStoreKernel {
             )?,
         };
         validate_local_commit_index(&migration_connection)?;
+        optimize_query_planner_on_open(&migration_connection)?;
         drop(migration_connection);
 
         Self::start_runtime(database_path, preparation, lock)

@@ -64,6 +64,20 @@ schedulers, cursors, and logical subscriptions survive the physical generation.
 Repeated failures produce one app-wide unavailable state and a bounded circuit,
 not many feature-local retry loops.
 
+Core, rather than Electron, owns request admission and completion. Interactive
+work retains reserved execution capacity while background and maintenance work
+use bounded subordinate lanes. One absolute request deadline and cancellation
+token reach queued readers, the writer, and SQLite progress handlers. Deadline,
+explicit cancellation, overload, and transport loss remain distinct failures;
+Electron waits a short liveness grace beyond the semantic deadline before it
+may report a transport timeout. Stale interactive searches actively cancel
+their Core request as non-error control flow, and Store maintenance is
+single-flight across all lanes. SQLite planner statistics are maintained when
+the Store opens and after writer use; FTS-backed searches keep the virtual
+table as their driving loop even before an existing Store has statistics.
+Health evidence includes active and queued requests, admission and execution
+duration, and deadline/cancellation/overload counts.
+
 Store migrations always protect the recognized source, migrate a staged copy,
 validate semantic authority, and atomically publish the target. Exact accepted
 source/current version inventories are executable data owned by Core migration

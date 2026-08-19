@@ -5599,6 +5599,11 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
         StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
         StoreErrorCode::ResourceExhausted => CoreErrorCode::ResourceExhausted,
+        StoreErrorCode::WriterQueueFull | StoreErrorCode::ReaderPoolTimeout => {
+            CoreErrorCode::Overloaded
+        }
+        StoreErrorCode::QueryCancelled => CoreErrorCode::Cancelled,
+        StoreErrorCode::DeadlineExceeded => CoreErrorCode::DeadlineExceeded,
         _ => CoreErrorCode::CoreUnavailable,
     };
     CoreError {

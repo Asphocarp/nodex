@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isPriority, PRIORITY_VALUES } from "../../shared/priority";
 import { WORKFLOW_STATUS_ORDER } from "../../shared/workflow-status";
-import { invoke } from "./api";
+import { invoke, searchPages } from "./api";
 import type {
   CommandMenuMode,
   CommandPalettePage,
@@ -263,7 +263,7 @@ export async function searchCommandPalettePages({
   const requestKey = JSON.stringify(request);
   const existing = inFlightPageSearches.get(requestKey);
   if (existing) return await existing;
-  const pending = invoke("pages:search", request)
+  const pending = searchPages(request)
     .then((snapshot) => snapshot.results);
   inFlightPageSearches.set(requestKey, pending);
   try {

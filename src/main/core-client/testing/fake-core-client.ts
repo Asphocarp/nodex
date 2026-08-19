@@ -305,7 +305,11 @@ export class FakeCoreClient implements CoreClientPort {
     return result;
   }
 
-  async libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {
+  async libraryRead(
+    read: LibraryRead,
+    options?: import("../types").CoreRequestOptions,
+  ): Promise<LibraryReadSnapshot> {
+    void options;
     this.reads.push(read);
     const result = this.#readResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Library read");

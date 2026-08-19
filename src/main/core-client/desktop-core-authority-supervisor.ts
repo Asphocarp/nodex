@@ -17,6 +17,7 @@ import type {
   CoreEventSubscription,
   CoreDocumentEventSubscription,
   CoreProjectionEventSubscription,
+  CoreRequestOptions,
   CoreStreamCheckpoint,
   CoreHandshakeResponse,
   CoreLocalMutationResolveRequest,
@@ -449,8 +450,11 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.#execute((client) => client.resolveLocalMutation(input));
   }
 
-  libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {
-    return this.#execute((client) => client.libraryRead(read));
+  libraryRead(
+    read: LibraryRead,
+    options?: CoreRequestOptions,
+  ): Promise<LibraryReadSnapshot> {
+    return this.#execute((client) => client.libraryRead(read, options));
   }
 
   libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult> {

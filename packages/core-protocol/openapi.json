@@ -128,6 +128,34 @@
           "api"
         ],
         "operationId": "resolve_local_mutation",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -158,6 +186,34 @@
           "api"
         ],
         "operationId": "administration_apply",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -188,6 +244,34 @@
           "api"
         ],
         "operationId": "administration_read",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -218,6 +302,34 @@
           "api"
         ],
         "operationId": "automation_apply",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -248,6 +360,34 @@
           "api"
         ],
         "operationId": "automation_read",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -278,6 +418,34 @@
           "api"
         ],
         "operationId": "database_apply",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -308,6 +476,34 @@
           "api"
         ],
         "operationId": "database_read",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -338,6 +534,34 @@
           "api"
         ],
         "operationId": "document_apply",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -368,6 +592,34 @@
           "api"
         ],
         "operationId": "document_read",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -398,6 +650,34 @@
           "api"
         ],
         "operationId": "library_apply",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -428,6 +708,34 @@
           "api"
         ],
         "operationId": "library_read",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -458,6 +766,34 @@
           "api"
         ],
         "operationId": "workspace_apply",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -488,6 +824,34 @@
           "api"
         ],
         "operationId": "workspace_read",
+        "parameters": [
+          {
+            "name": "x-nodex-request-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-nodex-request-class",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CoreRequestClass"
+            }
+          },
+          {
+            "name": "x-nodex-request-deadline-ms",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -505,6 +869,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProjectWorkspaceReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/requests/cancel": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "cancel_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreRequestCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreRequestCancelResponse"
                 }
               }
             }
@@ -5426,6 +5820,9 @@
           "store_corrupt",
           "protocol_incompatible",
           "event_replay_unavailable",
+          "deadline_exceeded",
+          "cancelled",
+          "overloaded",
           "resource_exhausted",
           "core_unavailable"
         ]
@@ -5620,6 +6017,11 @@
             "format": "int64",
             "minimum": 0
           },
+          "active_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "active_writer_commands": {
             "type": "integer",
             "format": "int64",
@@ -5719,6 +6121,32 @@
           "local_commit_publication_duration": {
             "$ref": "#/components/schemas/HealthDurationMetric"
           },
+          "queued_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_admission_wait": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "request_cancelled": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_deadline_exceeded": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_execution_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "request_overloaded": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "transaction_duration": {
             "$ref": "#/components/schemas/HealthDurationMetric"
           },
@@ -5781,6 +6209,36 @@
           }
         },
         "additionalProperties": false
+      },
+      "CoreRequestCancelRequest": {
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CoreRequestCancelResponse": {
+        "type": "object",
+        "required": [
+          "cancelled"
+        ],
+        "properties": {
+          "cancelled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CoreRequestClass": {
+        "type": "string",
+        "enum": [
+          "interactive",
+          "background",
+          "maintenance"
+        ]
       },
       "CoreSelectionDisposition": {
         "type": "string",
@@ -5975,9 +6433,19 @@
           "ordinary_json_response_bytes",
           "event_frame_bytes",
           "document_json_request_bytes",
-          "document_response_bytes"
+          "document_response_bytes",
+          "request_deadline_min_ms",
+          "request_deadline_max_ms",
+          "interactive_request_deadline_ms",
+          "background_request_deadline_ms",
+          "maintenance_request_deadline_ms"
         ],
         "properties": {
+          "background_request_deadline_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "document_json_request_bytes": {
             "type": "integer",
             "format": "int64",
@@ -5993,12 +6461,32 @@
             "format": "int64",
             "minimum": 0
           },
+          "interactive_request_deadline_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "maintenance_request_deadline_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "ordinary_json_request_bytes": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
           },
           "ordinary_json_response_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_deadline_max_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_deadline_min_ms": {
             "type": "integer",
             "format": "int64",
             "minimum": 0

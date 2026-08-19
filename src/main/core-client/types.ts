@@ -233,11 +233,22 @@ export interface CoreProjectionEventSubscription extends CoreEventSubscription {
   readonly barrier: ProjectionLiveBarrier;
 }
 
+export type CoreRequestClass = components["schemas"]["CoreRequestClass"];
+
+export interface CoreRequestOptions {
+  readonly class?: CoreRequestClass;
+  readonly deadlineMs?: number;
+  readonly signal?: AbortSignal;
+}
+
 export interface CoreClientPort {
   resolveLocalMutation(
     input: CoreLocalMutationResolveRequest,
   ): Promise<CoreLocalMutationResolveResponse>;
-  libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot>;
+  libraryRead(
+    read: LibraryRead,
+    options?: CoreRequestOptions,
+  ): Promise<LibraryReadSnapshot>;
   libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult>;
   filterProjectionImpactForProject(
     projectId: string,

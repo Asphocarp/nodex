@@ -45,6 +45,7 @@ import type {
   CoreLocalMutationResolveRequest,
   CoreLocalMutationResolveResponse,
   CoreModuleError,
+  CoreRequestOptions,
   AutomationApplyInput,
   AutomationApplyResponse,
   AutomationApplyResult,
@@ -186,7 +187,7 @@ export class CoreClient implements CoreClientPort {
         },
       },
       {},
-      input.signal,
+      { signal: input.signal },
     );
     assertHandshake(runtime.descriptor, handshake);
     transport.configureEventContract({
@@ -228,12 +229,16 @@ export class CoreClient implements CoreClientPort {
     );
   }
 
-  async libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {
+  async libraryRead(
+    read: LibraryRead,
+    options: CoreRequestOptions = {},
+  ): Promise<LibraryReadSnapshot> {
     const response = await this.#transport.requestJson<LibraryReadResponse>(
       "POST",
       "/core/v1/modules/library/read",
       { contract_version: MODULE_CONTRACT_VERSIONS.library, read },
       this.#moduleHeaders(),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -385,6 +390,7 @@ export class CoreClient implements CoreClientPort {
           intent: input.intent,
         },
         this.#moduleHeaders(),
+        { class: "maintenance" },
       );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);

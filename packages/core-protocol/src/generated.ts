@@ -276,6 +276,22 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/core/v1/requests/cancel": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["cancel_request"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1457,7 +1473,7 @@ export interface components {
             readonly retryable: boolean;
         };
         /** @enum {string} */
-        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "conflict" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "patch_not_found" | "patch_ambiguous" | "patch_overlap" | "idempotency_key_reused" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "materialization_stale" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "resource_exhausted" | "core_unavailable";
+        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "conflict" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "patch_not_found" | "patch_ambiguous" | "patch_overlap" | "idempotency_key_reused" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "materialization_stale" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "deadline_exceeded" | "cancelled" | "overloaded" | "resource_exhausted" | "core_unavailable";
         readonly CoreErrorRecovery: {
             /** @enum {string} */
             readonly kind: "none";
@@ -1504,6 +1520,8 @@ export interface components {
             /** Format: int64 */
             readonly active_read_commands: number;
             /** Format: int64 */
+            readonly active_requests?: number;
+            /** Format: int64 */
             readonly active_writer_commands: number;
             readonly backup_duration: components["schemas"]["HealthDurationMetric"];
             readonly block_transfer_apply_duration: components["schemas"]["HealthDurationMetric"];
@@ -1541,6 +1559,16 @@ export interface components {
             /** Format: int64 */
             readonly event_replay_lag_max: number;
             readonly local_commit_publication_duration: components["schemas"]["HealthDurationMetric"];
+            /** Format: int64 */
+            readonly queued_requests?: number;
+            readonly request_admission_wait?: components["schemas"]["HealthDurationMetric"];
+            /** Format: int64 */
+            readonly request_cancelled?: number;
+            /** Format: int64 */
+            readonly request_deadline_exceeded?: number;
+            readonly request_execution_duration?: components["schemas"]["HealthDurationMetric"];
+            /** Format: int64 */
+            readonly request_overloaded?: number;
             readonly transaction_duration: components["schemas"]["HealthDurationMetric"];
             /** Format: int64 */
             readonly wal_size_bytes: number;
@@ -1559,6 +1587,14 @@ export interface components {
             readonly launcher: components["schemas"]["LauncherKind"];
             readonly policy: components["schemas"]["CoreSelectionPolicy"];
         };
+        readonly CoreRequestCancelRequest: {
+            readonly request_id: string;
+        };
+        readonly CoreRequestCancelResponse: {
+            readonly cancelled: boolean;
+        };
+        /** @enum {string} */
+        readonly CoreRequestClass: "interactive" | "background" | "maintenance";
         /** @enum {string} */
         readonly CoreSelectionDisposition: "started" | "reused";
         /** @enum {string} */
@@ -1610,15 +1646,25 @@ export interface components {
         };
         readonly CoreTransportBudgets: {
             /** Format: int64 */
+            readonly background_request_deadline_ms: number;
+            /** Format: int64 */
             readonly document_json_request_bytes: number;
             /** Format: int64 */
             readonly document_response_bytes: number;
             /** Format: int64 */
             readonly event_frame_bytes: number;
             /** Format: int64 */
+            readonly interactive_request_deadline_ms: number;
+            /** Format: int64 */
+            readonly maintenance_request_deadline_ms: number;
+            /** Format: int64 */
             readonly ordinary_json_request_bytes: number;
             /** Format: int64 */
             readonly ordinary_json_response_bytes: number;
+            /** Format: int64 */
+            readonly request_deadline_max_ms: number;
+            /** Format: int64 */
+            readonly request_deadline_min_ms: number;
         };
         readonly DatabaseAgentDataSourceQuery: {
             readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
@@ -7888,7 +7934,11 @@ export interface operations {
     readonly resolve_local_mutation: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -7911,7 +7961,11 @@ export interface operations {
     readonly administration_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -7934,7 +7988,11 @@ export interface operations {
     readonly administration_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -7957,7 +8015,11 @@ export interface operations {
     readonly automation_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -7980,7 +8042,11 @@ export interface operations {
     readonly automation_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8003,7 +8069,11 @@ export interface operations {
     readonly database_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8026,7 +8096,11 @@ export interface operations {
     readonly database_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8049,7 +8123,11 @@ export interface operations {
     readonly document_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8072,7 +8150,11 @@ export interface operations {
     readonly document_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8095,7 +8177,11 @@ export interface operations {
     readonly library_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8118,7 +8204,11 @@ export interface operations {
     readonly library_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8141,7 +8231,11 @@ export interface operations {
     readonly workspace_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8164,7 +8258,11 @@ export interface operations {
     readonly workspace_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header?: never;
+            readonly header: {
+                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms": number;
+                readonly "x-nodex-request-id": string;
+            };
             readonly path?: never;
             readonly cookie?: never;
         };
@@ -8180,6 +8278,29 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["ProjectWorkspaceReadResponse"];
+                };
+            };
+        };
+    };
+    readonly cancel_request: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CoreRequestCancelRequest"];
+            };
+        };
+        readonly responses: {
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["CoreRequestCancelResponse"];
                 };
             };
         };

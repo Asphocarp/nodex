@@ -88,12 +88,12 @@ export function startStoreAdministrationMaintenanceScheduler(
     },
   };
   const timers = new Map<MaintenanceLane, MaintenanceTimer>();
-  const running = new Set<MaintenanceLane>();
+  let runningLane: MaintenanceLane | null = null;
   let disposed = false;
 
   const runNow = async (lane: MaintenanceLane): Promise<void> => {
-    if (disposed || running.has(lane) || !isAuthorityAvailable()) return;
-    running.add(lane);
+    if (disposed || runningLane !== null || !isAuthorityAvailable()) return;
+    runningLane = lane;
     try {
       await options.administration.runMaintenance(
         laneInput(lane, options.readBlockRetentionCount),
@@ -104,7 +104,7 @@ export function startStoreAdministrationMaintenanceScheduler(
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      running.delete(lane);
+      runningLane = null;
     }
   };
 

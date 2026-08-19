@@ -231,10 +231,12 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
         StoreErrorCode::MaterializationStale => CoreErrorCode::MaterializationStale,
-        StoreErrorCode::WriterQueueFull
-        | StoreErrorCode::WriterClosed
-        | StoreErrorCode::ReaderPoolTimeout
-        | StoreErrorCode::QueryCancelled
+        StoreErrorCode::WriterQueueFull | StoreErrorCode::ReaderPoolTimeout => {
+            CoreErrorCode::Overloaded
+        }
+        StoreErrorCode::QueryCancelled => CoreErrorCode::Cancelled,
+        StoreErrorCode::DeadlineExceeded => CoreErrorCode::DeadlineExceeded,
+        StoreErrorCode::WriterClosed
         | StoreErrorCode::SqliteBusy
         | StoreErrorCode::SqliteFailure
         | StoreErrorCode::Internal => CoreErrorCode::CoreUnavailable,

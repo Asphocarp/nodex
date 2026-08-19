@@ -7,6 +7,7 @@ mod lifecycle;
 mod lifecycle_summary;
 mod logging;
 mod metrics;
+mod request_execution;
 mod runtime_files;
 mod transport_bounds;
 
@@ -64,20 +65,22 @@ use nodex_core_contracts::{
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
-    ClientKind, CoreHealthMetrics, CoreReadiness, CoreSelectionDisposition, CoreSelectionPolicy,
-    CoreSelectionReason, CoreSelectionResult, CoreStartupEvent, CoreStartupEventFrame,
-    DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
-    EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse, HealthDurationMetric,
-    HealthResponse, LauncherKind, LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest,
-    LibraryReadResponse, LocalMutationResolveRequest, LocalMutationResolveResponse,
-    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
-    OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
-    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
-    RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, ShutdownStatus,
-    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
-    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
-    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
-    core_compatibility_manifest, evaluate_compatibility, replacement_is_forward_safe, store_format,
+    ClientKind, CoreHealthMetrics, CoreReadiness, CoreRequestCancelRequest,
+    CoreRequestCancelResponse, CoreRequestClass as RequestClass, CoreSelectionDisposition,
+    CoreSelectionPolicy, CoreSelectionReason, CoreSelectionResult, CoreStartupEvent,
+    CoreStartupEventFrame, DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest,
+    DatabaseReadResponse, EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse,
+    HealthDurationMetric, HealthResponse, LauncherKind, LibraryApplyRequest, LibraryApplyResponse,
+    LibraryReadRequest, LibraryReadResponse, LocalMutationResolveRequest,
+    LocalMutationResolveResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
+    OwnedDocumentReadRequest, OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest,
+    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
+    ResponseEnvelope, RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest,
+    ShutdownResponse, ShutdownStatus, StoreAdministrationApplyRequest,
+    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
+    StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX, TRANSPORT_PROTOCOL_MIN,
+    canonical_manifest_digest, core_client_requirements, core_compatibility_manifest,
+    evaluate_compatibility, replacement_is_forward_safe, store_format,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -96,6 +99,7 @@ use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE, CanvasSyn
 use lifecycle::{DrainReason, LifecycleCoordinator, configured_idle_timeout, monitor_idle};
 use lifecycle_summary::LifecycleSummaryWriter;
 use metrics::ServerMetrics;
+use request_execution::RequestExecutor;
 use runtime_files::{
     CandidateRuntime, ExistingCore, PRIVATE_FILE_MODE, RuntimePaths, current_artifact_identity,
     random_hex,
@@ -212,6 +216,7 @@ struct ServerState {
     document_live: DocumentLiveHub,
     document_live_publisher: DocumentLivePublisher,
     metrics: ServerMetrics,
+    request_executor: RequestExecutor,
     logging: logging::LoggingHandle,
 }
 
@@ -625,9 +630,17 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
     ) = state.metrics.canvas_sync();
     let store_metrics = state.store.metrics();
     let block_transfer_metrics = state.library.block_transfer_metrics();
+    let request_metrics = state.request_executor.snapshot();
     (
         status,
         CoreHealthMetrics {
+            active_requests: request_metrics.active,
+            queued_requests: request_metrics.queued,
+            request_admission_wait: health_duration(request_metrics.admission_wait),
+            request_execution_duration: health_duration(request_metrics.execution_duration),
+            request_deadline_exceeded: request_metrics.deadline_exceeded,
+            request_cancelled: request_metrics.cancelled,
+            request_overloaded: request_metrics.overloaded,
             writer_queue_depth: usize_to_u64(store_activity.queued_writes),
             active_writer_commands: usize_to_u64(store_activity.active_writes),
             active_read_commands: usize_to_u64(store_activity.active_reads),
@@ -804,14 +817,32 @@ async fn library_read(
     headers: HeaderMap,
     Json(LibraryReadRequest(request)): Json<LibraryReadRequest>,
 ) -> Json<LibraryReadResponse> {
-    let response = match module_context(&state, &headers, &bound) {
-        Ok(context) => match state.library.read(&context, request) {
-            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match module_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(LibraryReadResponse(response_envelope(Err(error))));
+        }
     };
-    Json(LibraryReadResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            request_state.library.read(&context, request)
+        })
+        .await;
+    Json(LibraryReadResponse(response_envelope(response)))
+}
+
+async fn cancel_request(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    Json(request): Json<CoreRequestCancelRequest>,
+) -> Json<CoreRequestCancelResponse> {
+    Json(CoreRequestCancelResponse {
+        cancelled: state
+            .request_executor
+            .cancel(&bound.id, &request.request_id),
+    })
 }
 
 fn module_storage_name(module: ModuleName) -> &'static str {
@@ -903,10 +934,19 @@ fn build_authorized_apply_response<T, R>(
 }
 
 fn apply_response_store_error(error: StoreError) -> CoreError {
+    let code = match error.code {
+        StoreErrorCode::DeadlineExceeded => CoreErrorCode::DeadlineExceeded,
+        StoreErrorCode::QueryCancelled => CoreErrorCode::Cancelled,
+        StoreErrorCode::WriterQueueFull | StoreErrorCode::ReaderPoolTimeout => {
+            CoreErrorCode::Overloaded
+        }
+        StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
+        _ => CoreErrorCode::CoreUnavailable,
+    };
     CoreError {
-        code: CoreErrorCode::CoreUnavailable,
+        code,
         message: error.message,
-        retryable: true,
+        retryable: error.retryable,
         recovery: CoreErrorRecovery::None,
     }
 }
@@ -942,71 +982,69 @@ async fn resolve_local_mutation(
             "Local mutation resolve identity is invalid",
         ));
     }
-    let current_epoch = descriptor_snapshot(&state).store_epoch;
-    if request.store_epoch.0 != current_epoch {
-        return Ok(Json(LocalMutationResolveResponse::EpochMismatch {
-            requested_store_epoch: request.store_epoch,
-            current_store_epoch: StoreEpoch(current_epoch),
-        }));
-    }
-    let module_name = module_storage_name(request.module);
-    let stored = state
-        .store
-        .readers()
-        .read_default(|connection| {
-            read_module_receipt(connection, module_name, &request.operation_id)
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            let current_epoch = descriptor_snapshot(&request_state).store_epoch;
+            if request.store_epoch.0 != current_epoch {
+                return Ok(LocalMutationResolveResponse::EpochMismatch {
+                    requested_store_epoch: request.store_epoch,
+                    current_store_epoch: StoreEpoch(current_epoch),
+                });
+            }
+            let module_name = module_storage_name(request.module);
+            let stored = request_state
+                .store
+                .readers()
+                .read_default(|connection| {
+                    read_module_receipt(connection, module_name, &request.operation_id)
+                })
+                .map_err(apply_response_store_error)?;
+            let Some(stored) = stored else {
+                return Ok(LocalMutationResolveResponse::NotCommitted {
+                    module: request.module,
+                    operation_id: request.operation_id,
+                });
+            };
+            if stored.profile_id != context.profile_id.0
+                || stored.project_id != context.project_id.as_ref().map(|id| id.0.clone())
+            {
+                return Ok(LocalMutationResolveResponse::NotCommitted {
+                    module: request.module,
+                    operation_id: request.operation_id,
+                });
+            }
+            if stored.store_epoch != request.store_epoch.0 {
+                return Ok(LocalMutationResolveResponse::EpochMismatch {
+                    requested_store_epoch: request.store_epoch,
+                    current_store_epoch: StoreEpoch(stored.store_epoch),
+                });
+            }
+            if stored.request_hash != request.intent_hash {
+                return Ok(LocalMutationResolveResponse::IntentConflict {
+                    module: request.module,
+                    operation_id: request.operation_id,
+                    expected_hash: request.intent_hash,
+                    observed_hash: stored.request_hash,
+                });
+            }
+            let delivery = stored
+                .local_commit_seq
+                .map(|commit_seq| authorized_apply_packet(&request_state, commit_seq, &context))
+                .transpose()
+                .map_err(apply_response_store_error)?;
+            Ok(LocalMutationResolveResponse::Committed {
+                module: request.module,
+                operation_id: request.operation_id,
+                request_hash: stored.request_hash,
+                result: stored.result,
+                delivery: delivery.flatten().map(Box::new),
+            })
         })
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("Local mutation receipt is unavailable: {}", error.message),
-            )
-        })?;
-    let Some(stored) = stored else {
-        return Ok(Json(LocalMutationResolveResponse::NotCommitted {
-            module: request.module,
-            operation_id: request.operation_id,
-        }));
-    };
-    if stored.profile_id != context.profile_id.0
-        || stored.project_id != context.project_id.as_ref().map(|id| id.0.clone())
-    {
-        return Ok(Json(LocalMutationResolveResponse::NotCommitted {
-            module: request.module,
-            operation_id: request.operation_id,
-        }));
-    }
-    if stored.store_epoch != request.store_epoch.0 {
-        return Ok(Json(LocalMutationResolveResponse::EpochMismatch {
-            requested_store_epoch: request.store_epoch,
-            current_store_epoch: StoreEpoch(stored.store_epoch),
-        }));
-    }
-    if stored.request_hash != request.intent_hash {
-        return Ok(Json(LocalMutationResolveResponse::IntentConflict {
-            module: request.module,
-            operation_id: request.operation_id,
-            expected_hash: request.intent_hash,
-            observed_hash: stored.request_hash,
-        }));
-    }
-    let delivery = stored
-        .local_commit_seq
-        .map(|commit_seq| authorized_apply_packet(&state, commit_seq, &context))
-        .transpose()
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("Local mutation commit is unavailable: {}", error.message),
-            )
-        })?;
-    Ok(Json(LocalMutationResolveResponse::Committed {
-        module: request.module,
-        operation_id: request.operation_id,
-        request_hash: stored.request_hash,
-        result: stored.result,
-        delivery: delivery.flatten().map(Box::new),
-    }))
+        .await
+        .map_err(api_core_error)?;
+    Ok(Json(response))
 }
 
 async fn library_apply(
@@ -1017,29 +1055,28 @@ async fn library_apply(
 ) -> Json<LibraryApplyResponse> {
     record_operation("library", &request.operation_id);
     let operation_id = request.operation_id.clone();
-    let response = match module_context(&state, &headers, &bound) {
-        Ok(context) => match state.library.apply(&context, request) {
-            Ok(outcome) => {
-                let committed = outcome.committed;
-
-                let duplicate = committed.receipt.mutation.duplicate;
-                match build_authorized_apply_response(
-                    &state,
-                    ModuleName::Library,
-                    &operation_id,
-                    &context,
-                    duplicate,
-                    committed,
-                ) {
-                    Ok(response) => ResponseEnvelope::Ok(response),
-                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-                }
-            }
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match module_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => return Json(LibraryApplyResponse(response_envelope(Err(error)))),
     };
-    Json(LibraryApplyResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            let outcome = request_state.library.apply(&context, request)?;
+            let committed = outcome.committed;
+            let duplicate = committed.receipt.mutation.duplicate;
+            build_authorized_apply_response(
+                &request_state,
+                ModuleName::Library,
+                &operation_id,
+                &context,
+                duplicate,
+                committed,
+            )
+        })
+        .await;
+    Json(LibraryApplyResponse(response_envelope(response)))
 }
 
 async fn database_read(
@@ -1048,14 +1085,20 @@ async fn database_read(
     headers: HeaderMap,
     Json(DatabaseReadRequest(request)): Json<DatabaseReadRequest>,
 ) -> Json<DatabaseReadResponse> {
-    let response = match database_context(&state, &headers, &bound) {
-        Ok(context) => match state.database.read(&context, request) {
-            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match database_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(DatabaseReadResponse(response_envelope(Err(error))));
+        }
     };
-    Json(DatabaseReadResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            request_state.database.read(&context, request)
+        })
+        .await;
+    Json(DatabaseReadResponse(response_envelope(response)))
 }
 
 async fn database_apply(
@@ -1066,29 +1109,28 @@ async fn database_apply(
 ) -> Json<DatabaseApplyResponse> {
     record_operation("database", &request.operation_id);
     let operation_id = request.operation_id.clone();
-    let response = match database_context(&state, &headers, &bound) {
-        Ok(context) => match state.database.apply(&context, request) {
-            Ok(outcome) => {
-                let committed = outcome.committed;
-
-                let duplicate = committed.receipt.mutation.duplicate;
-                match build_authorized_apply_response(
-                    &state,
-                    ModuleName::Database,
-                    &operation_id,
-                    &context,
-                    duplicate,
-                    committed,
-                ) {
-                    Ok(response) => ResponseEnvelope::Ok(response),
-                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-                }
-            }
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match database_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => return Json(DatabaseApplyResponse(response_envelope(Err(error)))),
     };
-    Json(DatabaseApplyResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            let outcome = request_state.database.apply(&context, request)?;
+            let committed = outcome.committed;
+            let duplicate = committed.receipt.mutation.duplicate;
+            build_authorized_apply_response(
+                &request_state,
+                ModuleName::Database,
+                &operation_id,
+                &context,
+                duplicate,
+                committed,
+            )
+        })
+        .await;
+    Json(DatabaseApplyResponse(response_envelope(response)))
 }
 
 async fn workspace_read(
@@ -1097,14 +1139,20 @@ async fn workspace_read(
     headers: HeaderMap,
     Json(ProjectWorkspaceReadRequest(request)): Json<ProjectWorkspaceReadRequest>,
 ) -> Json<ProjectWorkspaceReadResponse> {
-    let response = match module_context(&state, &headers, &bound) {
-        Ok(context) => match state.workspace.read(&context, request) {
-            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match module_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(ProjectWorkspaceReadResponse(response_envelope(Err(error))));
+        }
     };
-    Json(ProjectWorkspaceReadResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            request_state.workspace.read(&context, request)
+        })
+        .await;
+    Json(ProjectWorkspaceReadResponse(response_envelope(response)))
 }
 
 async fn workspace_apply(
@@ -1115,29 +1163,30 @@ async fn workspace_apply(
 ) -> Json<ProjectWorkspaceApplyResponse> {
     record_operation("project_workspace", &request.operation_id);
     let operation_id = request.operation_id.clone();
-    let response = match module_context(&state, &headers, &bound) {
-        Ok(context) => match state.workspace.apply(&context, request) {
-            Ok(outcome) => {
-                let committed = outcome.committed;
-
-                let duplicate = committed.receipt.mutation.duplicate;
-                match build_authorized_apply_response(
-                    &state,
-                    ModuleName::ProjectWorkspace,
-                    &operation_id,
-                    &context,
-                    duplicate,
-                    committed,
-                ) {
-                    Ok(response) => ResponseEnvelope::Ok(response),
-                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-                }
-            }
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match module_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(ProjectWorkspaceApplyResponse(response_envelope(Err(error))));
+        }
     };
-    Json(ProjectWorkspaceApplyResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            let outcome = request_state.workspace.apply(&context, request)?;
+            let committed = outcome.committed;
+            let duplicate = committed.receipt.mutation.duplicate;
+            build_authorized_apply_response(
+                &request_state,
+                ModuleName::ProjectWorkspace,
+                &operation_id,
+                &context,
+                duplicate,
+                committed,
+            )
+        })
+        .await;
+    Json(ProjectWorkspaceApplyResponse(response_envelope(response)))
 }
 
 async fn automation_read(
@@ -1146,14 +1195,20 @@ async fn automation_read(
     headers: HeaderMap,
     Json(AutomationReadRequest(request)): Json<AutomationReadRequest>,
 ) -> Json<AutomationReadResponse> {
-    let response = match module_context(&state, &headers, &bound) {
-        Ok(context) => match state.automation.read(&context, request) {
-            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match module_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(AutomationReadResponse(response_envelope(Err(error))));
+        }
     };
-    Json(AutomationReadResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            request_state.automation.read(&context, request)
+        })
+        .await;
+    Json(AutomationReadResponse(response_envelope(response)))
 }
 
 async fn automation_apply(
@@ -1164,29 +1219,28 @@ async fn automation_apply(
 ) -> Json<AutomationApplyResponse> {
     record_operation("automation", &request.operation_id);
     let operation_id = request.operation_id.clone();
-    let response = match module_context(&state, &headers, &bound) {
-        Ok(context) => match state.automation.apply(&context, request) {
-            Ok(outcome) => {
-                let committed = outcome.committed;
-
-                let duplicate = committed.receipt.mutation.duplicate;
-                match build_authorized_apply_response(
-                    &state,
-                    ModuleName::Automation,
-                    &operation_id,
-                    &context,
-                    duplicate,
-                    committed,
-                ) {
-                    Ok(response) => ResponseEnvelope::Ok(response),
-                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-                }
-            }
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match module_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => return Json(AutomationApplyResponse(response_envelope(Err(error)))),
     };
-    Json(AutomationApplyResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            let outcome = request_state.automation.apply(&context, request)?;
+            let committed = outcome.committed;
+            let duplicate = committed.receipt.mutation.duplicate;
+            build_authorized_apply_response(
+                &request_state,
+                ModuleName::Automation,
+                &operation_id,
+                &context,
+                duplicate,
+                committed,
+            )
+        })
+        .await;
+    Json(AutomationApplyResponse(response_envelope(response)))
 }
 
 async fn administration_read(
@@ -1195,14 +1249,22 @@ async fn administration_read(
     headers: HeaderMap,
     Json(StoreAdministrationReadRequest(request)): Json<StoreAdministrationReadRequest>,
 ) -> Json<StoreAdministrationReadResponse> {
-    let response = match module_context(&state, &headers, &bound) {
-        Ok(context) => match state.administration.read(&context, request) {
-            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match module_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(StoreAdministrationReadResponse(response_envelope(Err(
+                error,
+            ))));
+        }
     };
-    Json(StoreAdministrationReadResponse(response))
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Background, move || {
+            request_state.administration.read(&context, request)
+        })
+        .await;
+    Json(StoreAdministrationReadResponse(response_envelope(response)))
 }
 
 async fn administration_apply(
@@ -1218,32 +1280,37 @@ async fn administration_apply(
         StoreAdministrationIntent::CreateBackup { .. }
     )
     .then(std::time::Instant::now);
-    let response = match module_context(&state, &headers, &bound) {
-        Ok(context) => match state.administration.apply(&context, request) {
-            Ok(outcome) => {
-                let committed = outcome.committed;
-
-                let duplicate = committed.receipt.mutation.duplicate;
-                match build_authorized_apply_response(
-                    &state,
-                    ModuleName::StoreAdministration,
-                    &operation_id,
-                    &context,
-                    duplicate,
-                    committed,
-                ) {
-                    Ok(response) => ResponseEnvelope::Ok(response),
-                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-                }
-            }
-            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-        },
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match module_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(StoreAdministrationApplyResponse(response_envelope(Err(
+                error,
+            ))));
+        }
     };
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Maintenance, move || {
+            let outcome = request_state.administration.apply(&context, request)?;
+            let committed = outcome.committed;
+            let duplicate = committed.receipt.mutation.duplicate;
+            build_authorized_apply_response(
+                &request_state,
+                ModuleName::StoreAdministration,
+                &operation_id,
+                &context,
+                duplicate,
+                committed,
+            )
+        })
+        .await;
     if let Some(started_at) = backup_started_at {
         state.metrics.record_backup_duration(started_at.elapsed());
     }
-    Json(StoreAdministrationApplyResponse(response))
+    Json(StoreAdministrationApplyResponse(response_envelope(
+        response,
+    )))
 }
 
 async fn document_read(State(state): State<Arc<ServerState>>, request: Request) -> Response {
@@ -1259,7 +1326,24 @@ async fn document_read(State(state): State<Arc<ServerState>>, request: Request) 
         Err(_) => return json_document_read_error(invalid("Document read body exceeds its bound")),
     };
     if is_document_binary(&headers) {
-        return binary_document_read(&state, &headers, &bound, &bytes);
+        let request_state = Arc::clone(&state);
+        let request_headers = headers.clone();
+        let request_bound = bound.clone();
+        return match state
+            .request_executor
+            .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+                Ok(binary_document_read(
+                    &request_state,
+                    &request_headers,
+                    &request_bound,
+                    &bytes,
+                ))
+            })
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => json_document_read_error(error),
+        };
     }
     let OwnedDocumentReadRequest(request) = match serde_json::from_slice(&bytes) {
         Ok(request) => request,
@@ -1268,37 +1352,51 @@ async fn document_read(State(state): State<Arc<ServerState>>, request: Request) 
     if let OwnedDocumentRead::PrepareAgentSemanticMutation { operation_id, .. } = &request.read {
         record_operation("owned_document", operation_id);
     }
-    let response = match document_context(&state, &headers, &bound) {
-        Ok(context) => {
-            let result = match &request.read {
-                OwnedDocumentRead::SyncYjs { .. } => {
-                    required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
-                        .and_then(|client_session_id| {
-                            let OwnedDocumentRead::SyncYjs {
-                                document_id,
-                                state_vector,
-                            } = request.read
-                            else {
-                                unreachable!();
-                            };
-                            state.document_realtime.sync_yjs(
-                                &context,
-                                &client_session_id,
-                                document_id,
-                                state_vector,
-                            )
-                        })
-                }
-                _ => state.document.read(&context, request),
-            };
-            match result {
-                Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-                Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match document_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(OwnedDocumentReadResponse(response_envelope(Err(error)))).into_response();
+        }
+    };
+    let client_session_id = if matches!(&request.read, OwnedDocumentRead::SyncYjs { .. }) {
+        match required_header(&headers, CLIENT_SESSION_HEADER, "Document client session") {
+            Ok(value) => Some(value),
+            Err(error) => {
+                return Json(OwnedDocumentReadResponse(response_envelope(Err(error))))
+                    .into_response();
             }
         }
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    } else {
+        None
     };
-    Json(OwnedDocumentReadResponse(response)).into_response()
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(
+            &bound.id,
+            &headers,
+            RequestClass::Interactive,
+            move || match request.read {
+                OwnedDocumentRead::SyncYjs {
+                    document_id,
+                    state_vector,
+                } => request_state.document_realtime.sync_yjs(
+                    &context,
+                    client_session_id.as_deref().expect("validated session"),
+                    document_id,
+                    state_vector,
+                ),
+                read => request_state.document.read(
+                    &context,
+                    nodex_core_contracts::ModuleReadRequest {
+                        contract_version: request.contract_version,
+                        read,
+                    },
+                ),
+            },
+        )
+        .await;
+    Json(OwnedDocumentReadResponse(response_envelope(response))).into_response()
 }
 
 async fn document_apply(State(state): State<Arc<ServerState>>, request: Request) -> Response {
@@ -1316,7 +1414,24 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
         }
     };
     if is_document_binary(&headers) {
-        return binary_document_apply(&state, &headers, &bound, &bytes);
+        let request_state = Arc::clone(&state);
+        let request_headers = headers.clone();
+        let request_bound = bound.clone();
+        return match state
+            .request_executor
+            .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+                Ok(binary_document_apply(
+                    &request_state,
+                    &request_headers,
+                    &request_bound,
+                    &bytes,
+                ))
+            })
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => json_document_apply_error(error),
+        };
     }
     let OwnedDocumentApplyRequest(request) = match serde_json::from_slice(&bytes) {
         Ok(request) => request,
@@ -1324,46 +1439,54 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
     };
     record_operation("owned_document", &request.operation_id);
     let operation_id = request.operation_id.clone();
-    let response = match document_context(&state, &headers, &bound) {
-        Ok(context) => {
-            let realtime_bound = matches!(
-                &request.intent,
-                OwnedDocumentIntent::ApplyYjsUpdate { .. }
-                    | OwnedDocumentIntent::ApplyCanvasMutation { .. }
-            );
-            let result = if realtime_bound {
-                required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
-                    .and_then(|client_session_id| {
-                        state
-                            .document_realtime
-                            .apply(&context, &client_session_id, request)
-                    })
-            } else {
-                state.document.apply(&context, request)
-            };
-            match result {
-                Ok(outcome) => {
-                    let committed = outcome.committed;
-
-                    let duplicate = committed.receipt.mutation.duplicate;
-                    match build_authorized_apply_response(
-                        &state,
-                        ModuleName::OwnedDocument,
-                        &operation_id,
-                        &context,
-                        duplicate,
-                        committed,
-                    ) {
-                        Ok(response) => ResponseEnvelope::Ok(response),
-                        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
-                    }
-                }
-                Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    let context = match document_context(&state, &headers, &bound) {
+        Ok(context) => context,
+        Err(error) => {
+            return Json(OwnedDocumentApplyResponse(response_envelope(Err(error)))).into_response();
+        }
+    };
+    let realtime_bound = matches!(
+        &request.intent,
+        OwnedDocumentIntent::ApplyYjsUpdate { .. }
+            | OwnedDocumentIntent::ApplyCanvasMutation { .. }
+    );
+    let client_session_id = if realtime_bound {
+        match required_header(&headers, CLIENT_SESSION_HEADER, "Document client session") {
+            Ok(value) => Some(value),
+            Err(error) => {
+                return Json(OwnedDocumentApplyResponse(response_envelope(Err(error))))
+                    .into_response();
             }
         }
-        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    } else {
+        None
     };
-    Json(OwnedDocumentApplyResponse(response)).into_response()
+    let request_state = Arc::clone(&state);
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            let outcome = if realtime_bound {
+                request_state.document_realtime.apply(
+                    &context,
+                    client_session_id.as_deref().expect("validated session"),
+                    request,
+                )?
+            } else {
+                request_state.document.apply(&context, request)?
+            };
+            let committed = outcome.committed;
+            let duplicate = committed.receipt.mutation.duplicate;
+            build_authorized_apply_response(
+                &request_state,
+                ModuleName::OwnedDocument,
+                &operation_id,
+                &context,
+                duplicate,
+                committed,
+            )
+        })
+        .await;
+    Json(OwnedDocumentApplyResponse(response_envelope(response))).into_response()
 }
 
 fn binary_document_read(
@@ -1592,7 +1715,10 @@ async fn events(
         .acquire_event_subscription(&bound.id, EventSubscriptionKey::Global)
         .map_err(connection_registry_error)?;
     let context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
-    let generation = descriptor_snapshot(&state).start_nonce;
+    let stream_descriptor = descriptor_snapshot(&state);
+    let generation = stream_descriptor.start_nonce.clone();
+    let stream_store_epoch = stream_descriptor.store_epoch;
+    let stream_state = Arc::clone(&state);
     let scanner = state.commit_wake_scanner.clone();
     let recipient = CommitRecipientResolver::bound_scope(generation.clone(), context);
     let stream_generation = generation;
@@ -1604,6 +1730,20 @@ async fn events(
         let mut opening = true;
         let mut opening_packet_count = 0_u64;
         loop {
+            let current_descriptor = descriptor_snapshot(&stream_state);
+            if current_descriptor.store_epoch != stream_store_epoch {
+                // Store replacement can invalidate the old scanner before it
+                // can form another checkpoint. Emit the new identity first so
+                // clients fail closed instead of observing a clean EOF.
+                yield Ok(sse_stream_checkpoint(&StreamCheckpoint {
+                    store_epoch: StoreEpoch(current_descriptor.store_epoch),
+                    generation: current_descriptor.start_nonce,
+                    scanned_through_seq: scanned_through,
+                    oldest_available_seq: 0,
+                    resync_token: None,
+                }));
+                return;
+            }
             loop {
                 match scanner.scan(scanned_through, recipient.clone()).await {
                     Ok(CoreAuthorizedEventReplay::Scan { packets, checkpoint, commit_head }) => {
@@ -2330,6 +2470,7 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/admin/shutdown", post(shutdown));
     let connected_routes = Router::new()
         .route("/core/v1/events", get(events))
+        .route("/core/v1/requests/cancel", post(cancel_request))
         .route("/core/v1/projections/live", get(projection_live_events))
         .route(
             "/core/v1/local-mutations/resolve",
@@ -2550,6 +2691,9 @@ fn record_core_error(error: CoreError) -> CoreError {
         CoreErrorCode::ProtocolIncompatible => "protocol_incompatible",
         CoreErrorCode::EventReplayUnavailable => "event_replay_unavailable",
         CoreErrorCode::ResourceExhausted => "resource_exhausted",
+        CoreErrorCode::DeadlineExceeded => "deadline_exceeded",
+        CoreErrorCode::Cancelled => "cancelled",
+        CoreErrorCode::Overloaded => "overloaded",
         CoreErrorCode::CoreUnavailable => "core_unavailable",
     };
     match &error.code {
@@ -2562,7 +2706,9 @@ fn record_core_error(error: CoreError) -> CoreError {
         }
         CoreErrorCode::MaintenanceInProgress
         | CoreErrorCode::EventReplayUnavailable
-        | CoreErrorCode::ResourceExhausted => {
+        | CoreErrorCode::ResourceExhausted
+        | CoreErrorCode::DeadlineExceeded
+        | CoreErrorCode::Overloaded => {
             tracing::warn!(
                 errorCode = code,
                 retryable = error.retryable,
@@ -2578,6 +2724,13 @@ fn record_core_error(error: CoreError) -> CoreError {
         }
     }
     error
+}
+
+fn response_envelope<T>(result: Result<T, CoreError>) -> ResponseEnvelope<T> {
+    match result {
+        Ok(value) => ResponseEnvelope::Ok(value),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+    }
 }
 
 struct DocumentSubscriptionGuard {
@@ -2730,7 +2883,11 @@ fn api_core_error(error: CoreError) -> ApiError {
         CoreErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         CoreErrorCode::NotFound => StatusCode::NOT_FOUND,
         CoreErrorCode::InvalidInput => StatusCode::BAD_REQUEST,
-        CoreErrorCode::ResourceExhausted => StatusCode::TOO_MANY_REQUESTS,
+        CoreErrorCode::ResourceExhausted | CoreErrorCode::Overloaded => {
+            StatusCode::TOO_MANY_REQUESTS
+        }
+        CoreErrorCode::DeadlineExceeded => StatusCode::GATEWAY_TIMEOUT,
+        CoreErrorCode::Cancelled => StatusCode::from_u16(499).expect("499 is a valid status"),
         _ => StatusCode::CONFLICT,
     };
     ApiError::new(status, error.message)
@@ -3233,6 +3390,7 @@ pub async fn run_with_selection(
         document_live,
         document_live_publisher,
         metrics: ServerMetrics::default(),
+        request_executor: RequestExecutor::new(),
         logging: logging_handle,
     });
     let idle_task = idle_timeout.map(|timeout| {

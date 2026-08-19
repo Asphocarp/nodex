@@ -41,6 +41,8 @@ const apiMock: {
 
 vi.mock("../../lib/api", () => ({
   invoke: (...args: unknown[]) => apiMock.invokeImplementation(...args),
+  searchPages: (input: unknown) =>
+    apiMock.invokeImplementation("pages:search", "test-request", input),
   subscribeLibraryChanges: () => () => undefined,
 }));
 
@@ -1070,8 +1072,9 @@ describe("CommandPaletteSurface", () => {
   test("deduplicates only concurrent Page requests and keeps no renderer result cache", async () => {
     const { searchCommandPalettePages } = await import("../../lib/command-palette-page-results");
     const searchedQueries: string[] = [];
-    apiMock.invokeImplementation = async (channel: unknown, input: unknown) => {
+    apiMock.invokeImplementation = async (channel: unknown, ...args: unknown[]) => {
       if (channel === "pages:search") {
+        const input = args[1];
         const query = typeof input === "object" && input !== null && "query" in input
           ? String((input as { query?: unknown }).query ?? "")
           : "";

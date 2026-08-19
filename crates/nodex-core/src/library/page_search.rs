@@ -36,6 +36,22 @@ const MAX_PAGE_RESULTS: usize = 100;
 const MAX_FTS_HITS_PER_TERM: usize = 20_000;
 const MAX_FILTER_VALUES: usize = 64;
 const MAX_IDENTITY_BYTES: usize = 512;
+const MAX_EXCERPT_FRAGMENTS: usize = 3;
+const PAGE_BODY_SEARCH_SQL: &str = "SELECT unit.owner_block_id, unit.block_id, source.type, \
+            snippet(block_search_units_fts, 0, char(2), char(3), '…', 32), \
+            bm25(block_search_units_fts) AS rank \
+     FROM block_search_units_fts \
+     CROSS JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
+     JOIN documents document ON document.id = unit.document_id AND document.library_id = unit.library_id \
+     JOIN blocks source ON source.id = unit.block_id AND source.library_id = unit.library_id \
+     JOIN blocks owner ON owner.id = unit.owner_block_id AND owner.library_id = unit.library_id \
+     WHERE block_search_units_fts MATCH ?1 AND unit.library_id = ?2 \
+       AND unit.source_kind = 'document_block' AND unit.document_id IS NOT NULL \
+       AND document.readiness = 'ready' \
+       AND document.generation = unit.document_generation \
+       AND document.head_seq = unit.projected_seq \
+       AND source.lifecycle <> 'deleted' AND owner.lifecycle <> 'deleted' \
+     ORDER BY rank, unit.owner_block_id, unit.block_id LIMIT ?3";
 
 #[derive(Clone, Default)]
 pub(super) struct PageSearchIndexRegistry {
@@ -604,7 +620,7 @@ struct Aggregate {
     page_id: String,
     terms: HashSet<String>,
     evidence: Vec<Evidence>,
-    body_rank: f64,
+    body_ranks: HashMap<String, f64>,
 }
 
 struct SearchOutcome {
@@ -911,7 +927,7 @@ fn search_index(
                 page_id: page.id.clone(),
                 terms: HashSet::new(),
                 evidence: Vec::new(),
-                body_rank: 0.0,
+                body_ranks: HashMap::new(),
             })
             .collect());
     }
@@ -947,7 +963,7 @@ fn search_index(
                     edit_distance: evidence.edit_distance,
                     parts: evidence.parts.into_iter().map(core_text_part).collect(),
                 },
-                0.0,
+                None,
             );
         }
     }
@@ -973,7 +989,7 @@ fn search_index(
                 edit_distance: 0,
                 parts,
             },
-            0.0,
+            None,
         );
     }
     if is_explicit_page_key_search(query) {
@@ -995,7 +1011,7 @@ fn search_index(
                     edit_distance: 0,
                     parts: hit.parts,
                 },
-                hit.rank,
+                Some(hit.rank),
             );
         }
     }
@@ -1024,7 +1040,7 @@ fn add_evidence(
     aggregates: &mut HashMap<String, Aggregate>,
     page_id: &str,
     evidence: Evidence,
-    body_rank: f64,
+    body_rank: Option<f64>,
 ) {
     let aggregate = aggregates
         .entry(page_id.to_owned())
@@ -1032,10 +1048,16 @@ fn add_evidence(
             page_id: page_id.to_owned(),
             terms: HashSet::new(),
             evidence: Vec::new(),
-            body_rank,
+            body_ranks: HashMap::new(),
         });
     aggregate.terms.insert(evidence.term.clone());
-    aggregate.body_rank = aggregate.body_rank.min(body_rank);
+    if let Some(body_rank) = body_rank {
+        aggregate
+            .body_ranks
+            .entry(evidence.term.clone())
+            .and_modify(|rank| *rank = rank.min(body_rank))
+            .or_insert(body_rank);
+    }
     let duplicate = aggregate.evidence.iter().any(|existing| {
         existing.term == evidence.term
             && existing.matched_token == evidence.matched_token
@@ -1076,24 +1098,11 @@ fn search_body_term(
     } else {
         quote_fts_term(term)
     };
+    // FTS MATCH is the selective operation and must drive rowid lookups. A
+    // plain JOIN lets a statistics-free Store put `unit` in the outer loop,
+    // which re-evaluates the virtual table once for every search unit.
     let mut hits = connection
-        .prepare(
-            "SELECT unit.owner_block_id, unit.block_id, source.type, \
-                    snippet(block_search_units_fts, 0, char(2), char(3), '…', 32), \
-                    bm25(block_search_units_fts) AS rank \
-             FROM block_search_units_fts \
-             JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
-             JOIN documents document ON document.id = unit.document_id AND document.library_id = unit.library_id \
-             JOIN blocks source ON source.id = unit.block_id AND source.library_id = unit.library_id \
-             JOIN blocks owner ON owner.id = unit.owner_block_id AND owner.library_id = unit.library_id \
-             WHERE block_search_units_fts MATCH ?1 AND unit.library_id = ?2 \
-               AND unit.source_kind = 'document_block' AND unit.document_id IS NOT NULL \
-               AND document.readiness = 'ready' \
-               AND document.generation = unit.document_generation \
-               AND document.head_seq = unit.projected_seq \
-               AND source.lifecycle <> 'deleted' AND owner.lifecycle <> 'deleted' \
-             ORDER BY rank, unit.owner_block_id, unit.block_id LIMIT ?3",
-        )?
+        .prepare(PAGE_BODY_SEARCH_SQL)?
         .query_map(
             params![match_query, library_id, (MAX_FTS_HITS_PER_TERM + 1) as i64],
             |row| {
@@ -1324,11 +1333,7 @@ fn compare_outcomes(
     aggregate_rank(&left.aggregate)
         .cmp(&aggregate_rank(&right.aggregate))
         .then_with(|| compare_context(left, right, preferred_project_id))
-        .then_with(|| {
-            left.aggregate
-                .body_rank
-                .total_cmp(&right.aggregate.body_rank)
-        })
+        .then_with(|| compare_body_ranks(&left.aggregate, &right.aggregate))
         .then_with(|| right_page.updated_at.cmp(&left_page.updated_at))
         .then_with(|| left_page.id.cmp(&right_page.id))
 }
@@ -1376,6 +1381,24 @@ fn aggregate_rank(aggregate: &Aggregate) -> (usize, usize, usize, usize, usize) 
         ranks.iter().map(|(_, edit_distance)| *edit_distance).sum(),
         usize::MAX - aggregate.evidence.len(),
     )
+}
+
+fn compare_body_ranks(left: &Aggregate, right: &Aggregate) -> Ordering {
+    let score = |aggregate: &Aggregate| {
+        let worst = aggregate
+            .body_ranks
+            .values()
+            .copied()
+            .max_by(f64::total_cmp)
+            .unwrap_or(0.0);
+        let total = aggregate.body_ranks.values().sum::<f64>();
+        (worst, total)
+    };
+    let left = score(left);
+    let right = score(right);
+    left.0
+        .total_cmp(&right.0)
+        .then_with(|| left.1.total_cmp(&right.1))
 }
 
 fn evidence_rank(evidence: &Evidence) -> usize {
@@ -1606,21 +1629,13 @@ fn excerpt_parts(
     page: &IndexedPage,
     evidence: &[Evidence],
 ) -> (Option<String>, Vec<LibraryPageSearchTextPart>) {
-    if let Some(body) = evidence
-        .iter()
-        .filter(|evidence| matches!(evidence.kind, EvidenceKind::Body { .. }))
-        .min_by_key(|evidence| evidence_rank(evidence))
-    {
-        let excerpt = join_parts(&body.parts);
-        return (Some(excerpt), body.parts.clone());
-    }
-    if let Some(property) = evidence
-        .iter()
-        .filter(|evidence| matches!(evidence.kind, EvidenceKind::Property { .. }))
-        .min_by_key(|evidence| evidence_rank(evidence))
-    {
-        let excerpt = join_parts(&property.parts);
-        return (Some(excerpt), property.parts.clone());
+    if let Some(parts) = compose_excerpt_parts(evidence, |kind| {
+        matches!(
+            kind,
+            EvidenceKind::Body { .. } | EvidenceKind::Property { .. }
+        )
+    }) {
+        return (Some(join_parts(&parts)), parts);
     }
     if evidence.iter().any(|evidence| {
         matches!(
@@ -1640,6 +1655,86 @@ fn excerpt_parts(
             highlighted: false,
         }],
     )
+}
+
+/// Builds one bounded preview that proves multiple query terms. Evidence for
+/// the same source excerpt is merged; terms from different excerpts are shown
+/// as separate fragments instead of silently dropping every term but one.
+fn compose_excerpt_parts(
+    evidence: &[Evidence],
+    accepts: impl Fn(&EvidenceKind) -> bool,
+) -> Option<Vec<LibraryPageSearchTextPart>> {
+    let mut seen_terms = HashSet::new();
+    let selected = evidence
+        .iter()
+        .filter(|candidate| accepts(&candidate.kind))
+        .filter(|candidate| seen_terms.insert(candidate.term.as_str()))
+        .take(MAX_EXCERPT_FRAGMENTS)
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        return None;
+    }
+
+    let mut fragments = Vec::<(String, Vec<LibraryPageSearchTextPart>)>::new();
+    for candidate in selected {
+        let text = join_parts(&candidate.parts);
+        if text.is_empty() {
+            continue;
+        }
+        if let Some((_, parts)) = fragments.iter_mut().find(|(existing, _)| existing == &text) {
+            *parts = merge_highlights(parts, &candidate.parts);
+            continue;
+        }
+        fragments.push((text, candidate.parts.clone()));
+    }
+    if fragments.is_empty() {
+        return None;
+    }
+
+    let mut combined = Vec::new();
+    for (_, parts) in fragments {
+        if !combined.is_empty() {
+            push_part(&mut combined, "  ·  ".to_owned(), false);
+        }
+        for part in parts {
+            push_part(&mut combined, part.text, part.highlighted);
+        }
+    }
+    Some(combined)
+}
+
+fn merge_highlights(
+    left: &[LibraryPageSearchTextPart],
+    right: &[LibraryPageSearchTextPart],
+) -> Vec<LibraryPageSearchTextPart> {
+    let characters = join_parts(left).chars().collect::<Vec<_>>();
+    let mut highlighted = vec![false; characters.len()];
+    for parts in [left, right] {
+        let mut offset = 0;
+        for part in parts {
+            let length = part.text.chars().count();
+            if part.highlighted {
+                highlighted[offset..offset + length].fill(true);
+            }
+            offset += length;
+        }
+    }
+    let mut merged = Vec::new();
+    let mut buffer = String::new();
+    let mut state = None;
+    for (character, is_highlighted) in characters.into_iter().zip(highlighted) {
+        if state.is_some_and(|current| current != is_highlighted) {
+            push_part(
+                &mut merged,
+                std::mem::take(&mut buffer),
+                state.unwrap_or(false),
+            );
+        }
+        buffer.push(character);
+        state = Some(is_highlighted);
+    }
+    push_part(&mut merged, buffer, state.unwrap_or(false));
+    merged
 }
 
 fn strongest_source(evidence: &[Evidence]) -> LibraryPageReferenceMatchSource {
@@ -1877,14 +1972,54 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
     use nodex_core_contracts::library::{
-        LibraryPageSearchTagMode, LibraryPageWorkflowStatus, LibraryProjectPageSearchFilters,
+        LibraryPageSearchMatch, LibraryPageSearchTagMode, LibraryPageWorkflowStatus,
+        LibraryProjectPageSearchFilters,
     };
     use nodex_page_search_kernel::MetadataSearchIndex;
+    use rusqlite::{Connection, params};
+    use tempfile::tempdir;
+
+    use crate::infrastructure::store::SqliteStoreKernel;
 
     use super::{
-        Aggregate, Evidence, EvidenceKind, IndexedPage, PageSearchIndex, ProjectSearchRequest,
-        SearchTermMatchQuality, aggregate_rank, highlight_text, rank_project_outcomes,
+        Aggregate, Evidence, EvidenceKind, IndexedPage, PAGE_BODY_SEARCH_SQL, PageSearchIndex,
+        ProjectSearchRequest, SearchTermMatchQuality, aggregate_rank, compare_body_ranks,
+        highlight_text, rank_project_outcomes, search_projects,
     };
+
+    #[test]
+    fn page_body_search_is_fts_driven_without_planner_statistics() {
+        let directory = tempdir().expect("Store directory");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("current Store");
+        let plan = kernel
+            .writer()
+            .call(|connection| {
+                connection.execute("DELETE FROM sqlite_stat1", [])?;
+                connection.execute_batch("ANALYZE sqlite_schema")?;
+                let mut statement =
+                    connection.prepare(&format!("EXPLAIN QUERY PLAN {PAGE_BODY_SEARCH_SQL}"))?;
+                let details = statement
+                    .query_map(params!["\"needle\"*", "library:test", 20_001_i64], |row| {
+                        row.get::<_, String>(3)
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(details)
+            })
+            .expect("Page search query plan");
+        let fts_loop = plan
+            .iter()
+            .position(|detail| detail.contains("block_search_units_fts VIRTUAL TABLE"))
+            .expect("FTS loop");
+        let unit_loop = plan
+            .iter()
+            .position(|detail| detail.contains("unit USING INTEGER PRIMARY KEY"))
+            .expect("search-unit rowid loop");
+
+        assert!(
+            fts_loop < unit_loop,
+            "query plan was not FTS-driven: {plan:?}"
+        );
+    }
 
     #[test]
     fn highlight_parts_preserve_original_unicode_text() {
@@ -1904,6 +2039,165 @@ mod tests {
                     highlighted: false,
                 },
             ],
+        );
+    }
+
+    #[test]
+    fn project_search_keeps_multi_term_body_evidence_visible() {
+        let connection = Connection::open_in_memory().expect("search database");
+        connection
+            .execute_batch(
+                "CREATE TABLE documents(\
+                   id TEXT NOT NULL, library_id TEXT NOT NULL, readiness TEXT NOT NULL,\
+                   generation INTEGER NOT NULL, head_seq INTEGER NOT NULL\
+                 );\
+                 CREATE TABLE blocks(\
+                   id TEXT NOT NULL, library_id TEXT NOT NULL, type TEXT NOT NULL,\
+                   lifecycle TEXT NOT NULL\
+                 );\
+                 CREATE TABLE block_search_units(\
+                   rowid INTEGER PRIMARY KEY, library_id TEXT NOT NULL, block_id TEXT NOT NULL,\
+                   owner_block_id TEXT NOT NULL, document_id TEXT, document_generation INTEGER,\
+                   projected_seq INTEGER, source_kind TEXT NOT NULL, text TEXT NOT NULL\
+                 );\
+                 CREATE VIRTUAL TABLE block_search_units_fts USING fts5(\
+                   text, content='block_search_units', content_rowid='rowid'\
+                 );\
+                 INSERT INTO documents VALUES(\
+                   'document:multi-term', 'library:test', 'ready', 1, 1\
+                 ), (\
+                   'document:split-terms', 'library:test', 'ready', 1, 1\
+                 );\
+                 INSERT INTO blocks VALUES\
+                   ('page:multi-term', 'library:test', 'page', 'active'),\
+                   ('block:multi-term', 'library:test', 'paragraph', 'active'),\
+                   ('page:split-terms', 'library:test', 'page', 'active'),\
+                   ('block:codex', 'library:test', 'paragraph', 'active'),\
+                   ('block:electron', 'library:test', 'paragraph', 'active');\
+                 INSERT INTO block_search_units VALUES(\
+                   1, 'library:test', 'block:multi-term', 'page:multi-term',\
+                   'document:multi-term', 1, 1, 'document_block',\
+                   'Run codex with electron'\
+                 ), (\
+                   2, 'library:test', 'block:codex', 'page:split-terms',\
+                   'document:split-terms', 1, 1, 'document_block',\
+                   'Codex runtime details'\
+                 ), (\
+                   3, 'library:test', 'block:electron', 'page:split-terms',\
+                   'document:split-terms', 1, 1, 'document_block',\
+                   'Electron shell details'\
+                 );\
+                 INSERT INTO block_search_units_fts(rowid, text) VALUES\
+                   (1, 'Run codex with electron'),\
+                   (2, 'Codex runtime details'),\
+                   (3, 'Electron shell details');",
+            )
+            .expect("body search fixture");
+        let indexed_page = |page_id: &str| IndexedPage {
+            id: page_id.to_owned(),
+            title: "Search architecture".to_owned(),
+            preview: String::new(),
+            lifecycle: "active".to_owned(),
+            parent_kind: "library".to_owned(),
+            parent_id: "library:test".to_owned(),
+            updated_at: "2026-08-19T00:00:00.000Z".to_owned(),
+            properties: Vec::new(),
+            status: None,
+            priority: None,
+            tags: Vec::new(),
+            assignee: None,
+            page_key: None,
+            location_label: "Pages".to_owned(),
+            data_source_ids: BTreeSet::new(),
+            authorized_project_ids: BTreeSet::from(["project:test".to_owned()]),
+        };
+        let index = PageSearchIndex {
+            pages: BTreeMap::from([
+                (
+                    "page:multi-term".to_owned(),
+                    indexed_page("page:multi-term"),
+                ),
+                (
+                    "page:split-terms".to_owned(),
+                    indexed_page("page:split-terms"),
+                ),
+            ]),
+            data_source_databases: HashMap::new(),
+            metadata_index: MetadataSearchIndex::default(),
+        };
+        let project_ids = vec!["project:test".to_owned()];
+        let hits = search_projects(
+            &connection,
+            &index,
+            "library:test",
+            ProjectSearchRequest {
+                project_ids: &project_ids,
+                query: "codex electron",
+                filters: None,
+                preferred_project_id: None,
+                recent_page_ids: &[],
+                limit: Some(10),
+            },
+        )
+        .expect("Project Page search");
+        assert_eq!(hits.len(), 2);
+        let hit = hits
+            .iter()
+            .find(|hit| hit.page_id == "page:multi-term")
+            .expect("same-block multi-term hit");
+
+        let highlighted = hit
+            .excerpt_parts
+            .iter()
+            .filter(|part| part.highlighted)
+            .map(|part| part.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(hit.excerpt.as_deref(), Some("Run codex with electron"));
+        assert_eq!(highlighted, ["codex", "electron"]);
+        assert_eq!(
+            hit.matches
+                .iter()
+                .filter(|evidence| matches!(evidence, LibraryPageSearchMatch::Body { .. }))
+                .count(),
+            2
+        );
+
+        let split_hit = hits
+            .iter()
+            .find(|hit| hit.page_id == "page:split-terms")
+            .expect("cross-block multi-term hit");
+        let split_highlights = split_hit
+            .excerpt_parts
+            .iter()
+            .filter(|part| part.highlighted)
+            .map(|part| part.text.to_lowercase())
+            .collect::<Vec<_>>();
+        assert_eq!(split_highlights, ["codex", "electron"]);
+        assert!(
+            split_hit
+                .excerpt
+                .as_deref()
+                .is_some_and(|excerpt| excerpt.contains(" · "))
+        );
+    }
+
+    #[test]
+    fn weakest_body_term_contributes_to_multi_term_rank() {
+        let aggregate = |page_id: &str, codex: f64, electron: f64| Aggregate {
+            page_id: page_id.to_owned(),
+            terms: HashSet::from(["codex".to_owned(), "electron".to_owned()]),
+            evidence: Vec::new(),
+            body_ranks: HashMap::from([
+                ("codex".to_owned(), codex),
+                ("electron".to_owned(), electron),
+            ]),
+        };
+        let one_dominant_term = aggregate("page:dominant", -10.0, -1.0);
+        let balanced_terms = aggregate("page:balanced", -6.0, -6.0);
+
+        assert_eq!(
+            compare_body_ranks(&balanced_terms, &one_dominant_term),
+            std::cmp::Ordering::Less
         );
     }
 
@@ -1930,7 +2224,7 @@ mod tests {
                     SearchTermMatchQuality::Prefix,
                 ),
             ],
-            body_rank: -1.0,
+            body_ranks: HashMap::from([("canonical".to_owned(), -1.0)]),
         };
         let property_only = Aggregate {
             page_id: "page:property".to_owned(),
@@ -1942,7 +2236,7 @@ mod tests {
                 },
                 SearchTermMatchQuality::Exact,
             )],
-            body_rank: 0.0,
+            body_ranks: HashMap::new(),
         };
 
         assert!(aggregate_rank(&title_and_body) < aggregate_rank(&property_only));
@@ -1999,7 +2293,7 @@ mod tests {
                     edit_distance: 0,
                     parts: Vec::new(),
                 }],
-                body_rank: 0.0,
+                body_ranks: HashMap::new(),
             });
         }
         let index = PageSearchIndex {

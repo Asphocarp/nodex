@@ -8,9 +8,11 @@ use std::time::{Duration, Instant};
 use rusqlite::Connection;
 
 use super::metrics::{DurationMetric, DurationMetricSnapshot};
+use super::request_execution::query_control;
 use super::sqlite::{
     DEFAULT_QUERY_BUDGET, QueryCancellation, StoreError, StoreErrorCode, open_reader, open_writer,
-    with_mut_query_budget, with_query_budget,
+    optimize_query_planner_before_close, query_interrupted, with_mut_query_deadline,
+    with_query_deadline,
 };
 
 pub const DEFAULT_WRITER_QUEUE_CAPACITY: usize = 64;
@@ -99,12 +101,18 @@ fn writer_loop(
     };
     while !shutdown.load(Ordering::Acquire) {
         let Ok(message) = receiver.recv() else {
-            return;
+            break;
         };
         match message {
             WriterMessage::Run(job) => job(&mut connection),
-            WriterMessage::Shutdown => return,
+            WriterMessage::Shutdown => break,
         }
+    }
+    if let Err(error) = optimize_query_planner_before_close(&connection) {
+        tracing::warn!(
+            error = %error,
+            "SQLite query planner maintenance failed during writer shutdown"
+        );
     }
 }
 
@@ -133,10 +141,17 @@ impl ReadPoolInner {
         }
     }
 
-    fn checkout(&self) -> Result<Connection, StoreError> {
-        let deadline = Instant::now() + READER_WAIT_TIMEOUT;
+    fn checkout(
+        &self,
+        request_deadline: Instant,
+        cancellation: &QueryCancellation,
+    ) -> Result<Connection, StoreError> {
+        let pool_deadline = (Instant::now() + READER_WAIT_TIMEOUT).min(request_deadline);
         let mut state = self.state.lock().map_err(|_| poisoned_pool())?;
         loop {
+            if cancellation.is_cancelled() || Instant::now() >= request_deadline {
+                return Err(query_interrupted(cancellation.is_cancelled()));
+            }
             if let Some(connection) = state.idle.pop() {
                 return Ok(connection);
             }
@@ -153,7 +168,7 @@ impl ReadPoolInner {
                     }
                 };
             }
-            let remaining = deadline.saturating_duration_since(Instant::now());
+            let remaining = pool_deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(StoreError::new(
                     StoreErrorCode::ReaderPoolTimeout,
@@ -161,12 +176,13 @@ impl ReadPoolInner {
                     true,
                 ));
             }
+            let poll = remaining.min(Duration::from_millis(50));
             let (next_state, wait) = self
                 .available
-                .wait_timeout(state, remaining)
+                .wait_timeout(state, poll)
                 .map_err(|_| poisoned_pool())?;
             state = next_state;
-            if wait.timed_out() && state.idle.is_empty() {
+            if wait.timed_out() && state.idle.is_empty() && Instant::now() >= pool_deadline {
                 return Err(StoreError::new(
                     StoreErrorCode::ReaderPoolTimeout,
                     "Timed out waiting for a SQLite read connection",
@@ -542,6 +558,7 @@ impl StoreWriter {
         cancellation: QueryCancellation,
         operation: impl FnOnce(&mut Connection) -> Result<T, StoreError> + Send + 'static,
     ) -> Result<T, StoreError> {
+        let (deadline, cancellation) = query_control(budget, cancellation);
         let (endpoint, _lease) = self.control.acquire_writer()?;
         let started_at = Instant::now();
         let writer_command_id = format!(
@@ -567,7 +584,8 @@ impl StoreWriter {
                 runtime_metrics.writer_queue_wait.record(queue_wait);
                 let queue_wait_ms = u64::try_from(queue_wait.as_millis()).unwrap_or(u64::MAX);
                 let operation_started_at = Instant::now();
-                let result = with_mut_query_budget(connection, budget, &cancellation, operation);
+                let result =
+                    with_mut_query_deadline(connection, deadline, &cancellation, operation);
                 let execution = operation_started_at.elapsed();
                 runtime_metrics.writer_execution.record(execution);
                 let duration_ms = u64::try_from(execution.as_millis()).unwrap_or(u64::MAX);
@@ -661,6 +679,7 @@ fn store_error_code_name(code: StoreErrorCode) -> &'static str {
         StoreErrorCode::WriterClosed => "writer_closed",
         StoreErrorCode::ReaderPoolTimeout => "reader_pool_timeout",
         StoreErrorCode::QueryCancelled => "query_cancelled",
+        StoreErrorCode::DeadlineExceeded => "deadline_exceeded",
         StoreErrorCode::SqliteBusy => "sqlite_busy",
         StoreErrorCode::SqliteFailure => "sqlite_failure",
         StoreErrorCode::RuntimeIncompatible => "runtime_incompatible",
@@ -705,9 +724,10 @@ impl StoreReaders {
         cancellation: &QueryCancellation,
         operation: impl FnOnce(&Connection) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
+        let (deadline, cancellation) = query_control(budget, cancellation.clone());
         let (pool, _lease) = self.control.acquire_reader()?;
-        let connection = pool.checkout()?;
-        let result = with_query_budget(&connection, budget, cancellation, operation);
+        let connection = pool.checkout(deadline, &cancellation)?;
+        let result = with_query_deadline(&connection, deadline, &cancellation, operation);
         pool.checkin(connection);
         result
     }

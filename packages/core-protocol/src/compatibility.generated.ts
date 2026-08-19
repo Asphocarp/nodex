@@ -2,8 +2,8 @@ import type { components } from "./generated";
 
 export const CORE_CLIENT_REQUIREMENTS = {
   "transport": {
-    "min": 10,
-    "max": 10
+    "min": 11,
+    "max": 11
   },
   "event_version": 8,
   "modules": [
@@ -46,5 +46,10 @@ export const CORE_TRANSPORT_BUDGETS = {
   "ordinary_json_response_bytes": 16777216,
   "event_frame_bytes": 2359296,
   "document_json_request_bytes": 67108864,
-  "document_response_bytes": 25165832
+  "document_response_bytes": 25165832,
+  "request_deadline_min_ms": 250,
+  "request_deadline_max_ms": 300000,
+  "interactive_request_deadline_ms": 20000,
+  "background_request_deadline_ms": 60000,
+  "maintenance_request_deadline_ms": 120000
 } as const satisfies components["schemas"]["CoreTransportBudgets"];

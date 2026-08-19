@@ -318,9 +318,9 @@ import type {
   PageOccurrenceUpdateInput,
   DatabasePage,
   DatabasePageSummary,
+  PageSearchCommandResult,
   PageSearchFacets,
   PageSearchInput,
-  PageSearchSnapshot,
   PageSearchMetadataSnapshot,
   CommandPaletteThreadSearchInput,
   CommandPaletteThreadSearchResult,
@@ -967,8 +967,12 @@ export interface IpcApi {
     result: CoreResult<LibraryDatabaseViewGroupsSnapshot>;
   };
   "pages:search": {
-    args: [input: PageSearchInput];
-    result: PageSearchSnapshot;
+    args: [requestId: string, input: PageSearchInput];
+    result: PageSearchCommandResult;
+  };
+  "pages:search:cancel": {
+    args: [requestId: string];
+    result: boolean;
   };
   "pages:search-metadata": {
     args: [projectIds: string[], pageIds?: string[]];
