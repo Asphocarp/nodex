@@ -295,6 +295,19 @@ function mergeResults(
   return rows.slice(0, limit);
 }
 
+function filterCompleteResults(
+  rows: readonly PageSearchResult[],
+  dataSourceIds: readonly string[] | undefined,
+): readonly PageSearchResult[] {
+  if (!dataSourceIds || dataSourceIds.length === 0) return rows;
+  const requestedDataSourceIds = new Set(dataSourceIds);
+  return rows.filter((row) => {
+    const document = documents.get(row.pageId);
+    return document !== undefined
+      && document.dataSourceIds.some((dataSourceId) => requestedDataSourceIds.has(dataSourceId));
+  });
+}
+
 export function useInteractivePageSearch(intent: PageSearchIntent): InteractivePageSearchResult {
   const projection = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const intendedScope = scopeKey(intent.projectIds);
@@ -321,11 +334,12 @@ export function useInteractivePageSearch(intent: PageSearchIntent): InteractiveP
     projectIds: normalizedProjectIds,
   });
   const excluded = new Set(intent.excludePageIds ?? []);
+  const completeRows = filterCompleteResults(complete.rows, intent.dataSourceIds);
   const rows = complete.status === "settled"
-    ? complete.rows.filter((row) => !excluded.has(row.pageId)).slice(0, intent.limit ?? 20)
+    ? completeRows.filter((row) => !excluded.has(row.pageId)).slice(0, intent.limit ?? 20)
     : mergeResults(
         preview.filter((row) => !excluded.has(row.pageId)),
-        complete.rows.filter((row) => !excluded.has(row.pageId)),
+        completeRows.filter((row) => !excluded.has(row.pageId)),
         intent.limit ?? 20,
       );
   if (projection.status !== "ready" && complete.status !== "settled") {
@@ -363,8 +377,17 @@ interface CompleteStore {
   hasSubscribers(): boolean;
   dispose(): void;
 }
+interface CompleteRequest {
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): CompleteSnapshot;
+  hasSubscribers(): boolean;
+  dispose(): void;
+  cancelEviction(): void;
+}
+
 const MAX_COMPLETE_STORES = 64;
 const completeStores = new Map<string, CompleteStore>();
+const completeRequests = new Map<string, CompleteRequest>();
 
 function completeStoreFor(
   revision: string,
@@ -373,16 +396,25 @@ function completeStoreFor(
 ): CompleteStore {
   const existing = completeStores.get(revision);
   if (existing) return existing;
-  const store = createCompleteStore(revision, enabled, intent);
-  completeStores.set(revision, store);
-  if (completeStores.size <= MAX_COMPLETE_STORES) return store;
+  // Store creation is render-safe. Registration and eviction happen when the
+  // store receives a committed subscription, so abandoned renders cannot
+  // mutate or dispose shared state.
+  return createCompleteStore(revision, enabled, intent);
+}
+
+function registerCompleteStore(revision: string, store: CompleteStore): void {
+  if (!completeStores.has(revision)) completeStores.set(revision, store);
+  evictCompleteStores();
+}
+
+function evictCompleteStores(): void {
+  if (completeStores.size <= MAX_COMPLETE_STORES) return;
   for (const [candidateRevision, candidate] of completeStores) {
-    if (candidate === store || candidate.hasSubscribers()) continue;
+    if (candidate.hasSubscribers()) continue;
     candidate.dispose();
     completeStores.delete(candidateRevision);
     if (completeStores.size <= MAX_COMPLETE_STORES) break;
   }
-  return store;
 }
 
 function createCompleteStore(
@@ -390,11 +422,80 @@ function createCompleteStore(
   enabled: boolean,
   intent: PageSearchIntent,
 ): CompleteStore {
+  const existingRequest = completeRequests.get(revision);
+  let snapshot: CompleteSnapshot = existingRequest?.getSnapshot()
+    ?? { rows: [], status: enabled ? "loading" : "idle" };
+  let requestUnsubscribe: (() => void) | null = null;
+  let storeEvictionTimer: ReturnType<typeof setTimeout> | null = null;
+  const subscribers = new Set<() => void>();
+  const store: CompleteStore = {
+    subscribe(listener) {
+      subscribers.add(listener);
+      if (subscribers.size === 1) {
+        if (storeEvictionTimer) clearTimeout(storeEvictionTimer);
+        storeEvictionTimer = null;
+        registerCompleteStore(revision, store);
+        const request = completeRequestFor(revision, enabled, intent);
+        requestUnsubscribe = request.subscribe(() => {
+          snapshot = request.getSnapshot();
+          subscribers.forEach((subscriber) => subscriber());
+        });
+        snapshot = request.getSnapshot();
+      }
+      return () => {
+        if (!subscribers.delete(listener) || subscribers.size > 0) return;
+        requestUnsubscribe?.();
+        requestUnsubscribe = null;
+        storeEvictionTimer = setTimeout(() => {
+          storeEvictionTimer = null;
+          if (subscribers.size === 0 && completeStores.get(revision) === store) {
+            completeStores.delete(revision);
+            store.dispose();
+            evictCompleteStores();
+          }
+        }, 0);
+      };
+    },
+    getSnapshot: () => snapshot,
+    hasSubscribers: () => subscribers.size > 0,
+    dispose() {
+      requestUnsubscribe?.();
+      requestUnsubscribe = null;
+      if (storeEvictionTimer) clearTimeout(storeEvictionTimer);
+      storeEvictionTimer = null;
+    },
+  };
+  return store;
+}
+
+function completeRequestFor(
+  revision: string,
+  enabled: boolean,
+  intent: PageSearchIntent,
+): CompleteRequest {
+  const existing = completeRequests.get(revision);
+  if (existing) {
+    existing.cancelEviction();
+    return existing;
+  }
+  const request = createCompleteRequest(revision, enabled, intent);
+  completeRequests.set(revision, request);
+  return request;
+}
+
+function createCompleteRequest(
+  revision: string,
+  enabled: boolean,
+  intent: PageSearchIntent,
+): CompleteRequest {
   let snapshot: CompleteSnapshot = { rows: [], status: enabled ? "loading" : "idle" };
   let timer: ReturnType<typeof setTimeout> | null = null;
   let evictionTimer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
   const subscribers = new Set<() => void>();
+  const notify = (): void => {
+    subscribers.forEach((listener) => listener());
+  };
   const start = (): void => {
     if (evictionTimer) clearTimeout(evictionTimer);
     evictionTimer = null;
@@ -403,6 +504,8 @@ function createCompleteStore(
       timer = null;
       controller = new AbortController();
       const activeController = controller;
+      // Core returns the complete candidate set. Data-source scoping is
+      // applied against the same authorized metadata projection by the hook.
       void searchPages({
         projectIds: [...intent.projectIds], query: intent.query,
         filters: intent.filters, preferredProjectId: intent.preferredProjectId ?? undefined,
@@ -415,11 +518,11 @@ function createCompleteStore(
           || result.commitSeq < state.commitSeq
         ) return;
         snapshot = { rows: result.results, status: "settled" };
-        subscribers.forEach((listener) => listener());
+        notify();
       }).catch(() => {
         if (controller !== activeController || activeController.signal.aborted) return;
         snapshot = { rows: [], status: "unavailable" };
-        subscribers.forEach((listener) => listener());
+        notify();
       }).finally(() => {
         if (controller === activeController) controller = null;
       });
@@ -431,20 +534,23 @@ function createCompleteStore(
     controller?.abort();
     controller = null;
   };
-  const store: CompleteStore = {
+  const scheduleEviction = (): void => {
+    if (evictionTimer) clearTimeout(evictionTimer);
+    evictionTimer = setTimeout(() => {
+      evictionTimer = null;
+      if (subscribers.size > 0 || completeRequests.get(revision) !== request) return;
+      completeRequests.delete(revision);
+      request.dispose();
+    }, 0);
+  };
+  const request: CompleteRequest = {
     subscribe(listener) {
       subscribers.add(listener);
       if (subscribers.size === 1) start();
       return () => {
-        subscribers.delete(listener);
-        if (subscribers.size > 0) return;
+        if (!subscribers.delete(listener) || subscribers.size > 0) return;
         stop();
-        evictionTimer = setTimeout(() => {
-          evictionTimer = null;
-          if (subscribers.size === 0 && completeStores.get(revision) === store) {
-            completeStores.delete(revision);
-          }
-        }, 0);
+        scheduleEviction();
       };
     },
     getSnapshot: () => snapshot,
@@ -454,8 +560,12 @@ function createCompleteStore(
       if (evictionTimer) clearTimeout(evictionTimer);
       evictionTimer = null;
     },
+    cancelEviction() {
+      if (evictionTimer) clearTimeout(evictionTimer);
+      evictionTimer = null;
+    },
   };
-  return store;
+  return request;
 }
 
 export const __testing = {
@@ -496,6 +606,7 @@ export const __testing = {
     nextScopeLeaseId = 1;
     state = EMPTY_STATE; index?.free?.(); index = null; documents.clear(); configuredProjectIds = [];
     completeStores.forEach((store) => store.dispose());
-    completeStores.clear(); listeners.clear();
+    completeRequests.forEach((request) => request.dispose());
+    completeStores.clear(); completeRequests.clear(); listeners.clear();
   },
 };
