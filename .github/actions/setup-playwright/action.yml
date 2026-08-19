@@ -12,4 +12,12 @@ runs:
           playwright-${{ runner.os }}-
     - name: Install Chromium and system dependencies
       shell: bash
-      run: pnpm exec playwright install --with-deps chromium
+      run: |
+        set -euo pipefail
+        if timeout --signal=TERM --kill-after=30s 8m \
+          pnpm exec playwright install --with-deps chromium; then
+          exit 0
+        fi
+        echo "::warning::Playwright dependency installation timed out or failed; retrying browser-only installation"
+        timeout --signal=TERM --kill-after=30s 8m \
+          pnpm exec playwright install chromium
