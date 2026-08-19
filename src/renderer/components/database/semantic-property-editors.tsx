@@ -1,6 +1,6 @@
 import type { ReactElement, ReactNode } from "react";
 import { EstimateIcon, PriorityValueIcon } from "@/components/shared/icons";
-import { StatusLabel } from "@/lib/status-presentation";
+import { StatusIcon, StatusLabel } from "@/lib/status-presentation";
 import { BOARD_PRIORITY_OPTIONS } from "@/lib/board-options";
 import { estimateStyles } from "@/lib/types";
 import {
@@ -18,6 +18,7 @@ import {
 } from "./property-option-picker";
 import type { PresentedDataSourcePropertyOption } from "@/lib/data-source-property-options";
 import type { DataSourcePropertyOptionRegistryState } from "./data-source-property-editor-binding";
+import type { DatabasePropertyValuePresentation } from "./property-value-chip";
 
 const SEMANTIC_OPTION_ORDERS: Readonly<Record<
   "status" | "priority" | "estimate",
@@ -158,7 +159,7 @@ export function SemanticSelectPropertyEditor({
   readonly disabled: boolean;
   readonly pending?: boolean;
   readonly registryState?: DataSourcePropertyOptionRegistryState;
-  readonly presentation: "compact" | "page" | "chip" | "list";
+  readonly presentation: DatabasePropertyValuePresentation | "chip";
   readonly searchPlaceholder?: string;
   readonly searchLeading?: ReactNode;
   readonly contentClassName?: string;
@@ -174,18 +175,43 @@ export function SemanticSelectPropertyEditor({
   const canonicalSelectedId = kind === "priority" && !isPriority(selectedId)
     ? null
     : selectedId;
+  const presentedOptions = presentSemanticPropertyOptions(
+    kind,
+    options,
+    canonicalSelectedId,
+    registryState,
+  );
+  const selectedOption = presentedOptions.find((option) => option.id === canonicalSelectedId);
+  const boardPriority = presentation === "board"
+    && kind === "priority"
+    && isPriority(canonicalSelectedId);
+  const boardStatus = presentation === "board"
+    && kind === "status"
+    && isWorkflowStatus(canonicalSelectedId);
+  const closedTriggerPrefix = boardPriority
+    ? (
+        <PriorityValueIcon
+          priority={canonicalSelectedId}
+          className="size-3.5 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]"
+        />
+      )
+    : boardStatus
+      ? (
+          <StatusIcon
+            statusId={canonicalSelectedId}
+            className="size-3.5 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]"
+          />
+        )
+      : triggerPrefix;
   return (
     <PropertyOptionPicker
       host={host}
       label={label}
-      triggerAriaLabel={triggerAriaLabel}
+      triggerAriaLabel={triggerAriaLabel ?? (boardPriority
+        ? `Edit ${label}: ${selectedOption?.name ?? canonicalSelectedId}`
+        : undefined)}
       mode="single"
-      options={presentSemanticPropertyOptions(
-        kind,
-        options,
-        canonicalSelectedId,
-        registryState,
-      )}
+      options={presentedOptions}
       selectedIds={canonicalSelectedId ? [canonicalSelectedId] : []}
       disabled={disabled}
       pending={pending}
@@ -196,7 +222,8 @@ export function SemanticSelectPropertyEditor({
       loadingMore={loadingMore}
       onLoadMore={onRequestMoreOptions}
       presentation={presentation}
-      triggerPrefix={triggerPrefix}
+      triggerPrefix={closedTriggerPrefix}
+      triggerIconOnly={boardPriority}
       triggerButton={triggerButton}
       searchPlaceholder={searchPlaceholder}
       searchLeading={searchLeading}

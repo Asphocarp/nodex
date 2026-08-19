@@ -22,7 +22,10 @@ import {
 } from "@/lib/data-source-property-date";
 import { cn } from "@/lib/utils";
 import { PropertyEmptyValue } from "./property-empty-value";
-import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
+import {
+  DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
+  type DatabasePropertyValuePresentation,
+} from "./property-value-chip";
 
 let dateCalendarPromise:
   | Promise<typeof import("@/components/ui/date-calendar")>
@@ -98,7 +101,7 @@ export function DatePropertyEditor({
   readonly value: string | null;
   readonly revision: number;
   readonly disabled: boolean;
-  readonly presentation: "compact" | "page" | "list";
+  readonly presentation: DatabasePropertyValuePresentation;
   readonly triggerIcon?: ReactNode;
   readonly host?: DatePropertyEditorHost;
   readonly onRequestClose?: () => void;
@@ -172,7 +175,7 @@ export function DatePropertyEditor({
 
   const selected = parseIsoDateToLocalDate(dateInput);
   const display = selected
-    ? presentation === "list"
+    ? presentation === "list" || presentation === "board"
       ? formatListDate(mode === "datetime" && value ? new Date(value) : selected)
       : new Intl.DateTimeFormat(undefined, {
         year: "numeric",
@@ -231,8 +234,8 @@ export function DatePropertyEditor({
               "text-token-text-secondary hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
               presentation === "page"
                 ? "text-sm"
-                : presentation === "list"
-                  ? DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+                : presentation === "list" || presentation === "board"
+                  ? DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME
                   : "text-[11px]",
             )}
           >

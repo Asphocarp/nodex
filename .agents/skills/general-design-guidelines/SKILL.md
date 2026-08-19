@@ -132,6 +132,16 @@ Default spacing is **tighter than most frameworks**. Whitespace is earned, not d
 
 ## Interactive States
 
+### Do not add container focus rings by default
+
+Do not add `focus-within` rings to a wrapper merely because a nested input or
+control can receive keyboard focus. Match the established surface and the
+explicit product/reference behavior first. If a focus affordance is genuinely
+required, keep it local to the focusable control and prefer `focus-visible` so
+pointer interaction does not introduce extra chrome. Use a wrapper-level
+`focus-within` treatment only when the surface contract explicitly calls for
+the entire compound control to appear focused.
+
 ### Strong active state indicators
 
 Active/selected items must be **unmistakable** without being garish:

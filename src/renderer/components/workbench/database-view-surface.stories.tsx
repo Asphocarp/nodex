@@ -40,6 +40,10 @@ const priorityPropertyId = parseDataSourcePropertyId("priority");
 const estimatePropertyId = parseDataSourcePropertyId("estimate");
 const dueDatePropertyId = parseDataSourcePropertyId("due_date");
 const assigneePropertyId = parseDataSourcePropertyId("assignee");
+const relationPropertyId = parseDataSourcePropertyId("p_RELATE01");
+const notesPropertyId = parseDataSourcePropertyId("p_NOTES001");
+const pointsPropertyId = parseDataSourcePropertyId("p_POINTS01");
+const approvedPropertyId = parseDataSourcePropertyId("p_APPROVE1");
 
 const model: DatabaseViewRenderModel = {
   libraryId,
@@ -818,6 +822,174 @@ export const ListDarkMode: Story = {
     model: withListFieldStress(),
     initialSelectedPageIds: new Set(["page-2", "page-3"]),
   },
+  globals: { theme: "dark" },
+};
+
+const withBoardPropertyChips = (): DatabaseViewRenderModel => {
+  const base = withListFieldStress();
+  const extraProperties: DataSourcePropertyRecordV2[] = [
+    {
+      propertyId: relationPropertyId,
+      dataSourceId,
+      name: "Blocked by",
+      ...testPropertySemantics("relation"),
+      valueType: "relation",
+      config: {},
+      rankKey: "g",
+      lifecycle: "active",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: notesPropertyId,
+      dataSourceId,
+      name: "Notes",
+      ...testPropertySemantics("text"),
+      valueType: "text",
+      config: {},
+      rankKey: "h",
+      lifecycle: "active",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: pointsPropertyId,
+      dataSourceId,
+      name: "Points",
+      ...testPropertySemantics("number"),
+      valueType: "number",
+      config: {},
+      rankKey: "i",
+      lifecycle: "active",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: approvedPropertyId,
+      dataSourceId,
+      name: "Approved",
+      ...testPropertySemantics("checkbox"),
+      valueType: "checkbox",
+      config: {},
+      rankKey: "j",
+      lifecycle: "active",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ];
+  return {
+    ...base,
+    query: {
+      ...base.query,
+      view: {
+        ...base.query.view,
+        defaultLayout: "board",
+        config: {
+          ...base.query.view.config,
+          presentation: {
+            ...base.query.view.config.presentation,
+            group: null,
+            subgroup: null,
+            layouts: {
+              ...base.query.view.config.presentation.layouts,
+              board: {
+                ...base.query.view.config.presentation.layouts.board,
+                fields: [
+                  { kind: "property", propertyId: priorityPropertyId },
+                  { kind: "property", propertyId: statusPropertyId },
+                  { kind: "property", propertyId: estimatePropertyId },
+                  { kind: "property", propertyId: tagsPropertyId },
+                  { kind: "property", propertyId: assigneePropertyId },
+                  { kind: "property", propertyId: dueDatePropertyId },
+                  { kind: "intrinsic", field: "created_at" },
+                  { kind: "property", propertyId: relationPropertyId },
+                  { kind: "property", propertyId: notesPropertyId },
+                  { kind: "property", propertyId: pointsPropertyId },
+                  { kind: "property", propertyId: approvedPropertyId },
+                  { kind: "intrinsic", field: "updated_at" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      properties: [...base.query.properties, ...extraProperties],
+      rows: base.query.rows.map((row, index) => ({
+        ...row,
+        page: {
+          ...row.page,
+          createdAt: index === 0
+            ? "2026-02-10T10:00:00.000Z"
+            : "2026-08-12T10:00:00.000Z",
+          updatedAt: "2026-08-17T10:00:00.000Z",
+        },
+        values: {
+          ...row.values,
+          [relationPropertyId]: {
+            propertyId: relationPropertyId,
+            valueType: "relation" as const,
+            value: {
+              kind: "relation",
+              value: {
+                value_revision: 1,
+                total_count: 1,
+                targets: [{
+                  kind: "visible",
+                  edge_id: String(index + 1).repeat(64),
+                  page_id: `related-page-${index + 1}`,
+                  title: index % 2 === 0 ? "Design tokens" : "Keyboard navigation",
+                  lifecycle: "active",
+                  membership_state: "active_in_target_source",
+                }],
+                restricted_count: 0,
+                has_more: false,
+              },
+            },
+            revision: 1,
+          },
+          [notesPropertyId]: {
+            propertyId: notesPropertyId,
+            valueType: "text" as const,
+            value: index % 2 === 0 ? "Polish pass" : "Ready for review",
+            revision: 1,
+          },
+          [approvedPropertyId]: {
+            propertyId: approvedPropertyId,
+            valueType: "checkbox" as const,
+            value: index % 2 === 0,
+            revision: 1,
+          },
+          [pointsPropertyId]: {
+            propertyId: pointsPropertyId,
+            valueType: "number" as const,
+            value: index + 1,
+            revision: 1,
+          },
+        },
+      })),
+    },
+  };
+};
+
+export const BoardPropertyChips: Story = {
+  args: { model: withBoardPropertyChips() },
+};
+
+export const BoardPropertyChipsNarrow: Story = {
+  args: { model: withBoardPropertyChips() },
+  decorators: [(Story) => (
+    <div className="h-[640px] w-[520px] border-r-[0.5px] border-token-border/50">
+      <Story />
+    </div>
+  )],
+};
+
+export const BoardPropertyChipsDarkMode: Story = {
+  args: { model: withBoardPropertyChips() },
   globals: { theme: "dark" },
 };
 

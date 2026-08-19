@@ -23,6 +23,62 @@ const statusProperty: DataSourcePropertyRecordV2 = {
 };
 
 describe("DataSourcePropertyValueEditor", () => {
+  test("renders Board Priority as an icon-only, value-named trigger", async () => {
+    const view = render(
+      <DataSourcePropertyValueEditor
+        property={{
+          ...statusProperty,
+          propertyId: parseDataSourcePropertyId("priority"),
+          name: "Priority",
+        }}
+        value="p1-high"
+        revision={3}
+        disabled={false}
+        showLabel={false}
+        presentation="board"
+        options={[{ id: "p1-high", name: "High" }]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const trigger = view.getByRole("button", { name: "Edit Priority: High" });
+    expect(trigger.querySelector("svg")).not.toBeNull();
+    expect(trigger.textContent).toBe("");
+    await act(async () => {
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    expect(view.getByRole("option", { name: "High" })).toBeTruthy();
+  });
+
+  test("keeps Board checkbox semantics on the chip itself", async () => {
+    const onChange = vi.fn();
+    const view = render(
+      <DataSourcePropertyValueEditor
+        property={{
+          ...statusProperty,
+          propertyId: parseDataSourcePropertyId("p_checkbox"),
+          name: "Verified",
+          ...testPropertySemantics("checkbox"),
+          valueType: "checkbox",
+        }}
+        value={false}
+        revision={1}
+        disabled={false}
+        showLabel={false}
+        presentation="board"
+        onChange={onChange}
+      />,
+    );
+    const checkbox = view.getByRole("checkbox", { name: "Verified value: No" });
+    expect(checkbox.getAttribute("aria-checked")).toBe("false");
+    await act(async () => {
+      fireEvent.click(checkbox);
+      await Promise.resolve();
+    });
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
   test("uses the semantic Status presenter while keeping registry names authoritative", async () => {
     const onChange = vi.fn();
     const view = render(
