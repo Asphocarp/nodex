@@ -1179,18 +1179,7 @@ fn decode_library_metadata(row: &ChangeLogRow) -> Result<LibraryMetadata, StoreE
         {
             let payload = serde_json::from_str::<Value>(&row.payload_json)
                 .map_err(|_| corrupt("Library event payload is invalid"))?;
-            let is_legacy_typescript_payload = payload.is_object()
-                && payload.get("module").is_none()
-                && [
-                    "mutationKind",
-                    "operation",
-                    "mode",
-                    "requestHash",
-                    "rootBlockIds",
-                ]
-                .iter()
-                .any(|key| payload.get(*key).is_some());
-            if !is_legacy_typescript_payload {
+            if !is_valid_legacy_typescript_library_payload(&row.kind, &payload) {
                 return Err(corrupt("Library event payload is invalid"));
             }
             // TypeScript v84 retained the durable effect resources in the
@@ -1206,6 +1195,86 @@ fn decode_library_metadata(row: &ChangeLogRow) -> Result<LibraryMetadata, StoreE
             })
         }
         Err(_) => Err(corrupt("Library event payload is invalid")),
+    }
+}
+
+fn is_valid_legacy_typescript_library_payload(kind: &str, payload: &Value) -> bool {
+    let Some(payload) = payload.as_object() else {
+        return false;
+    };
+    if payload.contains_key("module") {
+        return false;
+    }
+    let valid_hash = |key: &str| {
+        payload
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| {
+                value.len() == 64
+                    && value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            })
+    };
+    let non_empty_string = |key: &str| {
+        payload
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty() && value.trim() == value)
+    };
+    let non_negative_integer = |key: &str| {
+        payload
+            .get(key)
+            .and_then(Value::as_i64)
+            .is_some_and(|value| value >= 0)
+    };
+    let string_array = |key: &str, require_non_empty: bool| {
+        let Some(values) = payload.get(key).and_then(Value::as_array) else {
+            return false;
+        };
+        (!require_non_empty || !values.is_empty())
+            && values.iter().all(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|value| !value.is_empty() && value.trim() == value)
+            })
+    };
+    let nullable_string = |key: &str| {
+        payload.get(key).is_some_and(|value| {
+            value.is_null()
+                || value
+                    .as_str()
+                    .is_some_and(|value| !value.is_empty() && value.trim() == value)
+        })
+    };
+
+    match kind {
+        "block_mutation" => {
+            valid_hash("requestHash")
+                && (non_empty_string("mutationKind")
+                    || (payload.get("version").and_then(Value::as_i64) == Some(2)
+                        && string_array("fieldPaths", false)
+                        && payload.get("fieldChanges").is_some_and(Value::is_array)))
+        }
+        "block_relocation" => {
+            valid_hash("requestHash")
+                && string_array("rootBlockIds", true)
+                && non_negative_integer("sourceHeadSeq")
+                && non_negative_integer("targetHeadSeq")
+                && nullable_string("targetParentBlockId")
+                && nullable_string("targetBeforeBlockId")
+        }
+        "block_transfer" => {
+            valid_hash("requestHash")
+                && payload.get("version").and_then(Value::as_i64) == Some(1)
+                && matches!(
+                    payload.get("mode").and_then(Value::as_str),
+                    Some("move" | "copy")
+                )
+                && payload.get("source").is_some_and(Value::is_object)
+                && payload.get("target").is_some_and(Value::is_object)
+        }
+        _ => false,
     }
 }
 
@@ -1480,6 +1549,52 @@ mod tests {
             .expect("Library event should be present");
 
         assert!(matches!(event.payload, CoreModuleEventPayload::Library(_)));
+    }
+
+    #[test]
+    fn legacy_typescript_library_payloads_require_complete_typed_envelopes() {
+        let hash = "a".repeat(64);
+        for (kind, payload) in [
+            ("block_mutation", r#"{"mode":"move"}"#.to_owned()),
+            (
+                "block_mutation",
+                format!(r#"{{"requestHash":"{hash}","mutationKind":1}}"#),
+            ),
+            (
+                "block_relocation",
+                format!(
+                    r#"{{"requestHash":"{hash}","rootBlockIds":[],"sourceHeadSeq":0,"targetHeadSeq":1,"targetParentBlockId":null,"targetBeforeBlockId":null}}"#
+                ),
+            ),
+            (
+                "block_relocation",
+                format!(
+                    r#"{{"requestHash":"{hash}","rootBlockIds":["block:root"],"sourceHeadSeq":0,"targetHeadSeq":1}}"#
+                ),
+            ),
+            (
+                "block_transfer",
+                format!(
+                    r#"{{"requestHash":"{hash}","version":"1","mode":"move","source":{{}},"target":{{}}}}"#
+                ),
+            ),
+        ] {
+            let row = ChangeLogRow {
+                sequence: 1,
+                project_id: "project:events".to_owned(),
+                store_epoch: "epoch:events".to_owned(),
+                kind: kind.to_owned(),
+                operation_id: Some("operation:legacy".to_owned()),
+                payload_json: payload,
+                projection_impact_json: None,
+                committed_at: "2026-08-07T00:00:00.000Z".to_owned(),
+            };
+            let error = match decode_library_metadata(&row) {
+                Ok(_) => panic!("malformed legacy payload was accepted"),
+                Err(error) => error,
+            };
+            assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        }
     }
 
     #[test]

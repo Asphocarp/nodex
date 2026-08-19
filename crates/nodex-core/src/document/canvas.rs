@@ -1214,6 +1214,7 @@ pub(crate) fn load_v94_canvas_scene(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut elements = Vec::with_capacity(element_rows.len());
+    let mut raw_element_jsons = Vec::with_capacity(element_rows.len());
     for row in element_rows {
         let value = serde_json::from_str::<Value>(&row.5)
             .map_err(|_| corrupt("v94 Canvas element JSON is invalid"))?;
@@ -1231,6 +1232,7 @@ pub(crate) fn load_v94_canvas_scene(
                 authority.head.id, row.0
             )));
         }
+        raw_element_jsons.push(row.5);
         elements.push(element);
     }
     let file_rows = connection
@@ -1250,6 +1252,7 @@ pub(crate) fn load_v94_canvas_scene(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut files = BTreeMap::new();
+    let mut raw_file_jsons = BTreeMap::new();
     for row in file_rows {
         let value = serde_json::from_str::<Value>(&row.4)
             .map_err(|_| corrupt("v94 Canvas file JSON is invalid"))?;
@@ -1261,20 +1264,31 @@ pub(crate) fn load_v94_canvas_scene(
         {
             return Err(corrupt("v94 Canvas file evidence diverges from its row"));
         }
+        raw_file_jsons.insert(row.0.clone(), row.4);
         files.insert(row.0, file);
     }
     let app_state = serde_json::from_str::<Value>(&scene_row.3)
         .map_err(|_| corrupt("v94 Canvas appState JSON is invalid"))?;
     let scene = materialize_loaded_scene(elements, &app_state, files)?;
     let scene_hash = sha256(scene.fingerprint()?.as_bytes());
+    let legacy_fingerprint = legacy_canvas_scene_fingerprint(
+        &raw_element_jsons,
+        &scene_row.3,
+        &raw_file_jsons,
+        &scene.page_references,
+    )?;
+    let legacy_scene_hash = sha256(legacy_fingerprint.as_bytes());
     // v94 hashes were produced from the legacy JSON representation. Parsing
     // a legacy floating-point value and serializing it with Rust can change
-    // its shortest representation, so v95 must be allowed to establish the
-    // canonical scene hash. The old scene and Document hashes still need to
-    // agree with each other before that rewrite.
-    if scene_row.4 != authority.head.state_hash {
+    // its shortest representation, so accept either the exact legacy
+    // aggregate or the parsed/canonical aggregate. In both cases the hash
+    // must cover every reconstructed element, file, appState value, and Page
+    // reference before v95 establishes the new representation.
+    if scene_row.4 != authority.head.state_hash
+        || (scene_row.4 != legacy_scene_hash && scene_row.4 != scene_hash)
+    {
         return Err(corrupt(
-            "v94 Canvas scene hash diverges from its Document authority",
+            "v94 Canvas scene aggregate diverges from its Document authority",
         ));
     }
     Ok(LoadedCanvasAuthority {
@@ -1282,6 +1296,46 @@ pub(crate) fn load_v94_canvas_scene(
         scene_hash,
         updated_at: scene_row.5,
     })
+}
+
+fn legacy_canvas_scene_fingerprint(
+    raw_element_jsons: &[String],
+    raw_app_state_json: &str,
+    raw_file_jsons: &BTreeMap<String, String>,
+    page_references: &[CanvasPageReference],
+) -> Result<String, StoreError> {
+    let elements = raw_element_jsons.join(",");
+    let files = raw_file_jsons
+        .iter()
+        .map(|(file_id, file_json)| {
+            Ok::<_, StoreError>(format!(
+                "{}:{file_json}",
+                serde_json::to_string(file_id)
+                    .map_err(|_| internal("Canvas file identity cannot be encoded"))?
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(",");
+    let references = page_references
+        .iter()
+        .map(|reference| {
+            let mut value = json!({
+                "sourceElementId": reference.source_element_id,
+                "targetBlockId": reference.target_block_id,
+                "titleHint": reference.title_hint,
+            });
+            if reference.title_hint.is_none()
+                && let Some(object) = value.as_object_mut()
+            {
+                object.remove("titleHint");
+            }
+            canonical_json(&value)
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(",");
+    Ok(format!(
+        "{{\"schemaVersion\":1,\"elements\":[{elements}],\"appState\":{raw_app_state_json},\"files\":{{{files}}},\"pageReferences\":[{references}]}}"
+    ))
 }
 
 pub(crate) fn ensure_canvas_scene(

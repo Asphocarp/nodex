@@ -1626,11 +1626,6 @@ pub(crate) fn rebuild_document_materialization_projection_for_migration(
     } else {
         None
     };
-    if authority.is_none() && has_materialization_derivation_version_column(connection)? {
-        return Err(corrupt(
-            "Current migrated Document has no owning Block authority",
-        ));
-    }
     persist_materialization_row(
         connection,
         document_id,
