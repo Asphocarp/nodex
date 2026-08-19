@@ -18,7 +18,7 @@ use nodex_core_contracts::{
 };
 use rusqlite::{Connection, params};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::document::event_log::{
@@ -1198,6 +1198,126 @@ fn decode_library_metadata(row: &ChangeLogRow) -> Result<LibraryMetadata, StoreE
     }
 }
 
+const MAX_LEGACY_TRANSFER_STRING_LENGTH: usize = 512;
+const MAX_SAFE_LEGACY_TRANSFER_INTEGER: i64 = 9_007_199_254_740_991;
+
+fn has_exact_legacy_transfer_keys(
+    object: &Map<String, Value>,
+    required: &[&str],
+    optional: &[&str],
+) -> bool {
+    required.iter().all(|key| object.contains_key(*key))
+        && object.keys().all(|key| {
+            required
+                .iter()
+                .chain(optional.iter())
+                .any(|allowed| *allowed == key.as_str())
+        })
+}
+
+fn is_valid_legacy_transfer_string(value: Option<&Value>) -> bool {
+    value
+        .and_then(Value::as_str)
+        .is_some_and(is_valid_legacy_transfer_string_value)
+}
+
+fn is_valid_legacy_transfer_string_value(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_LEGACY_TRANSFER_STRING_LENGTH && value.trim() == value
+}
+
+fn is_valid_legacy_transfer_optional_string(object: &Map<String, Value>, key: &str) -> bool {
+    object
+        .get(key)
+        .map_or(true, |value| is_valid_legacy_transfer_string(Some(value)))
+}
+
+fn is_valid_legacy_transfer_integer(value: Option<&Value>, minimum: i64) -> bool {
+    value
+        .and_then(Value::as_i64)
+        .is_some_and(|value| value >= minimum && value <= MAX_SAFE_LEGACY_TRANSFER_INTEGER)
+}
+
+fn is_valid_legacy_transfer_memberships(value: Option<&Value>) -> bool {
+    let Some(memberships) = value.and_then(Value::as_object) else {
+        return false;
+    };
+    !memberships.is_empty()
+        && memberships.iter().all(|(root_block_id, membership)| {
+            if !is_valid_legacy_transfer_string_value(root_block_id) {
+                return false;
+            }
+            let Some(membership) = membership.as_object() else {
+                return false;
+            };
+            has_exact_legacy_transfer_keys(membership, &["membershipId", "revision"], &[])
+                && is_valid_legacy_transfer_string(membership.get("membershipId"))
+                && is_valid_legacy_transfer_integer(membership.get("revision"), 1)
+        })
+}
+
+fn is_valid_legacy_transfer_endpoint(value: Option<&Value>, source: bool) -> bool {
+    let Some(object) = value.and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(kind) = object.get("kind").and_then(Value::as_str) else {
+        return false;
+    };
+    match (source, kind) {
+        (true, "space") => {
+            has_exact_legacy_transfer_keys(object, &["kind"], &["libraryId"])
+                && is_valid_legacy_transfer_optional_string(object, "libraryId")
+        }
+        (true, "document") => {
+            has_exact_legacy_transfer_keys(
+                object,
+                &["kind", "documentId", "generation", "expectedHeadSeq"],
+                &["pageId"],
+            ) && is_valid_legacy_transfer_string(object.get("documentId"))
+                && is_valid_legacy_transfer_optional_string(object, "pageId")
+                && is_valid_legacy_transfer_integer(object.get("generation"), 1)
+                && is_valid_legacy_transfer_integer(object.get("expectedHeadSeq"), 0)
+        }
+        (true, "database") => {
+            has_exact_legacy_transfer_keys(
+                object,
+                &["kind", "databaseBlockId", "memberships"],
+                &["dataSourceId"],
+            ) && is_valid_legacy_transfer_string(object.get("databaseBlockId"))
+                && is_valid_legacy_transfer_optional_string(object, "dataSourceId")
+                && is_valid_legacy_transfer_memberships(object.get("memberships"))
+        }
+        (false, "space") => {
+            has_exact_legacy_transfer_keys(object, &["kind"], &["libraryId", "beforeBlockId"])
+                && is_valid_legacy_transfer_optional_string(object, "libraryId")
+                && is_valid_legacy_transfer_optional_string(object, "beforeBlockId")
+        }
+        (false, "document") => {
+            has_exact_legacy_transfer_keys(
+                object,
+                &["kind", "documentId", "generation", "expectedHeadSeq"],
+                &["pageId", "parentBlockId", "beforeBlockId"],
+            ) && is_valid_legacy_transfer_string(object.get("documentId"))
+                && is_valid_legacy_transfer_optional_string(object, "pageId")
+                && is_valid_legacy_transfer_optional_string(object, "parentBlockId")
+                && is_valid_legacy_transfer_optional_string(object, "beforeBlockId")
+                && is_valid_legacy_transfer_integer(object.get("generation"), 1)
+                && is_valid_legacy_transfer_integer(object.get("expectedHeadSeq"), 0)
+        }
+        (false, "database") => {
+            has_exact_legacy_transfer_keys(
+                object,
+                &["kind", "databaseBlockId", "viewId", "groupKey"],
+                &["dataSourceId", "beforePageId"],
+            ) && is_valid_legacy_transfer_string(object.get("databaseBlockId"))
+                && is_valid_legacy_transfer_optional_string(object, "dataSourceId")
+                && is_valid_legacy_transfer_string(object.get("viewId"))
+                && matches!(object.get("groupKey"), Some(value) if value.is_null() || value.is_string())
+                && is_valid_legacy_transfer_optional_string(object, "beforePageId")
+        }
+        _ => false,
+    }
+}
+
 fn is_valid_legacy_typescript_library_payload(kind: &str, payload: &Value) -> bool {
     let Some(payload) = payload.as_object() else {
         return false;
@@ -1271,8 +1391,8 @@ fn is_valid_legacy_typescript_library_payload(kind: &str, payload: &Value) -> bo
                     payload.get("mode").and_then(Value::as_str),
                     Some("move" | "copy")
                 )
-                && payload.get("source").is_some_and(Value::is_object)
-                && payload.get("target").is_some_and(Value::is_object)
+                && is_valid_legacy_transfer_endpoint(payload.get("source"), true)
+                && is_valid_legacy_transfer_endpoint(payload.get("target"), false)
         }
         _ => false,
     }
@@ -1534,7 +1654,7 @@ mod tests {
             payload_json: r#"{
               "mode": "move",
               "requestHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              "source": {"kind": "document"},
+              "source": {"kind": "space"},
               "target": {"kind": "space"},
               "version": 1
             }"#
@@ -1575,7 +1695,25 @@ mod tests {
             (
                 "block_transfer",
                 format!(
-                    r#"{{"requestHash":"{hash}","version":"1","mode":"move","source":{{}},"target":{{}}}}"#
+                    r#"{{"requestHash":"{hash}","version":"1","mode":"move","source":{{"kind":"space"}},"target":{{"kind":"space"}}}}"#
+                ),
+            ),
+            (
+                "block_transfer",
+                format!(
+                    r#"{{"requestHash":"{hash}","version":1,"mode":"move","source":{{}},"target":{{"kind":"space"}}}}"#
+                ),
+            ),
+            (
+                "block_transfer",
+                format!(
+                    r#"{{"requestHash":"{hash}","version":1,"mode":"move","source":{{"kind":"space"}},"target":{{}}}}"#
+                ),
+            ),
+            (
+                "block_transfer",
+                format!(
+                    r#"{{"requestHash":"{hash}","version":1,"mode":"move","source":{{"kind":"document"}},"target":{{"kind":"space"}}}}"#
                 ),
             ),
         ] {
