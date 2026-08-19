@@ -55,10 +55,17 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     setInvokeCalls([]);
-    const dbViewSessionProps = (globalThis as {
-      __lastDbViewSessionTabProps?: Record<string, unknown>;
-    }).__lastDbViewSessionTabProps;
-    const openPageInNewChat = dbViewSessionProps?.onOpenPageInNewChat as ((input: {
+    const databaseViewSurfaceProps = (globalThis as {
+      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastDatabaseViewSurfaceProps;
+    const pageActionPort = databaseViewSurfaceProps?.pageActionPort as {
+      readonly openInNewSession?: (input: {
+        projectId: string;
+        pageId: string;
+        titleSnapshot?: string;
+      }) => Promise<void> | void;
+    } | undefined;
+    const openPageInNewChat = pageActionPort?.openInNewSession as ((input: {
       projectId: string;
       pageId: string;
       titleSnapshot?: string;

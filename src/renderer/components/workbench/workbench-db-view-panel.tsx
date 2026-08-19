@@ -69,6 +69,7 @@ import {
   useDatabaseViewMutationHistory,
   type DatabaseViewMutationHistory,
 } from "./database-view-mutation-history";
+import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
 
 const DB_VIEW_TABS: Array<{
   id: "board" | "list";
@@ -118,6 +119,7 @@ export function DatabaseViewTabSurface({
   onOpenTaskSearch,
   onCloseTaskSearch,
   onOpenPage,
+  pageActionPort,
   onCommitted,
   onMoveBoardPages,
   keyboardSurface,
@@ -150,6 +152,7 @@ export function DatabaseViewTabSurface({
   readonly onOpenTaskSearch: (selectQuery?: boolean) => void;
   readonly onCloseTaskSearch: () => void;
   readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
+  readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onCommitted?: () => void | Promise<void>;
   readonly onMoveBoardPages?: (
     input: DatabaseViewBoardPageDropIntent,
@@ -209,6 +212,7 @@ export function DatabaseViewTabSurface({
                 onLoadMoreGroup={onLoadMoreGroup}
                 searchQuery={activeSearchQuery}
                 onOpenPage={onOpenPage}
+                pageActionPort={pageActionPort}
                 onCommitted={onCommitted}
                 presentedPageIds={presentedPageIds}
                 initialSelectedPageIds={initialSelectedPageIds}
@@ -230,6 +234,7 @@ export function DatabaseViewTabSurface({
                 onLoadMoreGroup={onLoadMoreGroup}
                 searchQuery={activeSearchQuery}
                 onOpenPage={onOpenPage}
+                pageActionPort={pageActionPort}
                 onCommitted={onCommitted}
                 onMoveBoardPages={onMoveBoardPages}
                 keyboardSurface={keyboardSurface}
@@ -256,6 +261,8 @@ export function DbViewSessionTab({
   taskSearchOpenTick,
   setSearchQuery,
   onOpenPageTab,
+  onOpenPageInNewChat,
+  onSendPageToChat,
   onOpenCanvasStage,
   targetLeafId,
 }: {
@@ -565,6 +572,16 @@ export function DbViewSessionTab({
     && navigator.platform.toUpperCase().includes("MAC")
     ? "⌘F"
     : "Ctrl+F";
+  const pageActionPort: DatabaseViewPageActionPort = {
+    ...(onOpenPageInNewChat
+      ? { openInNewSession: onOpenPageInNewChat }
+      : {}),
+    ...(onSendPageToChat ? { sendToChat: onSendPageToChat } : {}),
+    deletePage: async ({ pageId }) => {
+      const deleted = await runtime.deletePage(undefined, pageId);
+      if (!deleted) throw new Error(`Page ${pageId} delete did not commit`);
+    },
+  };
 
   return (
     <DatabaseViewTabSurface
@@ -665,6 +682,7 @@ export function DbViewSessionTab({
           openMode: "preview",
         });
       }}
+      pageActionPort={pageActionPort}
       onCommitted={runtime.refresh}
       onMoveBoardPages={runtime.moveDatabaseViewPages}
       keyboardSurface={{ surfaceId, presentationId: tab.id }}

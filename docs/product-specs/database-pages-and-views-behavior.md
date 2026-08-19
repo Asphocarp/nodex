@@ -54,9 +54,15 @@ depths in the current projection, so short prefixes do not inherit spacing
 sized for longer ones and virtualized rows do not change the lane as individual
 numeral glyphs appear.
 A Page with no current enabled Database renders no placeholder.
-Board and List expose `Copy Page key` in the Page context menu whenever a
-current key exists. Both surfaces use the same success and failure
-feedback; `Copy deeplink` remains a distinct UUID-based action.
+Board and List expose one shared Page context menu. Its Page actions are
+`Open in`, `Copy`, `Move`, and a final separated `Delete` action.
+`Move` contains top, up, down, and bottom positions, retaining unavailable edge
+positions as disabled rows. `Copy` contains `Copy ID` whenever a current Page
+key exists, plus `Copy deeplink`, `Copy title`, and `Copy content as Markdown`.
+`Copy ID` copies only the user-facing Page key and never falls back to UUID;
+`Copy deeplink` remains the distinct UUID-based action. Markdown copy reads the
+canonical owned Page Document rather than a visible View projection. `Open in`
+contains `Open in new session` and `Send to chat…`.
 
 The Page context menu also exposes a bounded, schema-driven Property section.
 The current writable Board grouping Property appears first, followed by exact
@@ -83,8 +89,9 @@ Changing the Board grouping Property uses the same semantic Page move that owns
 group membership and rank; other Board and List Properties use receipt-backed
 value mutations.
 Right-click edits only the Page under the pointer and never implicitly applies
-to the current multi-selection. Page title remains Document authority and is
-not presented as a Database Property.
+to the current multi-selection. Selection mutation remains in explicit row and
+bulk-selection controls, not the Page context menu. Page title remains Document
+authority and is not presented as a Database Property.
 
 View-local search accepts a current canonical key, case normalization, one
 optional leading `#`, outer whitespace, and no-hyphen shorthand. Key matching
@@ -419,6 +426,10 @@ Assignee may use focused controls only when their exact registered types match.
 Custom or malformed Properties use the typed fallback.
 
 Option registries own option identity, order, labels, colors, and revisions.
+The bounded Status, Priority, and Estimate registries begin loading when their
+owning surface mounts, before their pickers open, so a closed-value projection
+never leaves the picker at only its current selection. Tags and custom
+registries remain lazy and load from their picker.
 Scalar changes use their captured field revision; set-like changes preserve
 add/remove intent. Conflicts and collection failures stay on the control or
 popover that owns the action and do not hide unaffected fields.

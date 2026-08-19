@@ -39,6 +39,7 @@ import type {
   SendPageToChatInput,
 } from "@/lib/page-chat-actions";
 import { useDatabaseViewMutationHistory } from "./database-view-mutation-history";
+import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
 
 type DatabaseReadTarget =
   | { readonly databaseViewId: string }
@@ -184,6 +185,8 @@ export function WorkbenchDatabaseViewSurface({
   onPresentationChange,
   keyboardSurface,
   presentedPageIds,
+  onOpenPageInNewChat,
+  onSendPageToChat,
 }: {
   readonly accessContext: ContentAccessContext;
   readonly target: DatabaseSurfaceTarget;
@@ -453,6 +456,28 @@ export function WorkbenchDatabaseViewSurface({
     console.error("[database-view:read]", query.error);
   }, [query.error]);
 
+  const pageActionPort: DatabaseViewPageActionPort | undefined = accessProjectId
+    ? {
+        ...(onOpenPageInNewChat
+          ? { openInNewSession: onOpenPageInNewChat }
+          : {}),
+        ...(onSendPageToChat ? { sendToChat: onSendPageToChat } : {}),
+        deletePage: async ({ pageId }) => {
+          const { commitPageLifecycleIntent } = await import("@/lib/page-lifecycle-runtime");
+          const committed = await commitPageLifecycleIntent({
+            kind: "delete",
+            projectId: accessProjectId,
+            pageId,
+            operationId: crypto.randomUUID(),
+          });
+          if (committed.receipt.lifecycle !== "deleted") {
+            throw new Error(`Page ${pageId} delete did not commit`);
+          }
+          await query.refetch();
+        },
+      }
+    : undefined;
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <div className="flex min-h-0 flex-1 flex-col">
@@ -509,6 +534,7 @@ export function WorkbenchDatabaseViewSurface({
             onOpenTaskSearch={openSearch}
             onCloseTaskSearch={() => setSearchOpen(false)}
             onOpenPage={onOpenPage}
+            pageActionPort={pageActionPort}
             keyboardSurface={keyboardSurface}
             presentedPageIds={presentedPageIds}
             initialSelectedPageIds={selectedPageIds}

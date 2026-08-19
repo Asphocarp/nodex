@@ -637,7 +637,29 @@ const databaseViewPageDataTransfer = (): DataTransfer => {
 };
 
 describe("DatabaseViewSurface", () => {
-  beforeEach(() => resetContextualKeyboardActionRegistryForTests());
+  beforeEach(() => {
+    resetContextualKeyboardActionRegistryForTests();
+    optionRuntime.read.mockReset().mockImplementation(async (_context, property) => ({
+      options: property.propertyId === statusPropertyId
+        ? [
+            { id: "triage", name: "Triage" },
+            { id: "plan", name: "Planned" },
+            { id: "build", name: "In progress" },
+            { id: "review", name: "Review" },
+            { id: "ship", name: "Shipped" },
+          ]
+        : property.propertyId === priorityPropertyId
+          ? [
+              { id: "p0-critical", name: "P0 - Critical" },
+              { id: "p1-high", name: "P1 - High" },
+              { id: "p2-medium", name: "P2 - Medium" },
+              { id: "p3-low", name: "P3 - Low" },
+            ]
+          : [],
+      nextCursor: null,
+      projectionRevision: 1,
+    }));
+  });
 
   test("uses the canonical Card contract for a non-Status grouping", () => {
     const screen = render(
@@ -668,6 +690,32 @@ describe("DatabaseViewSurface", () => {
     expect([...screen.container.querySelectorAll(
       '[data-database-board-collapsed-label="true"]',
     )].some((element) => element.textContent === "P3 - Low")).toBe(true);
+  });
+
+  test("uses the shared Page action hierarchy on Board cards", async () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={model}
+        presentationLayout="board"
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+    const card = screen.container.querySelector<HTMLElement>(
+      '[data-database-board-card="true"]',
+    );
+    if (!card) throw new Error("Expected a Board card context target");
+
+    await act(async () => {
+      fireEvent.contextMenu(card, { clientX: 240, clientY: 120 });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("menuitem", { name: "Move" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Copy" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Open in" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Add to selection" })).toBeNull();
   });
 
   test("classifies missing page moves separately from missing Properties", () => {
@@ -1202,8 +1250,110 @@ describe("DatabaseViewSurface", () => {
       name: "Search Page actions and properties",
     }))
       .toBe(document.activeElement);
-    expect(screen.getByRole("menuitem", { name: "Open page" })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: "Add to selection" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Open in" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Copy" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Move" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Open page" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Add to selection" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Select only this row" })).toBeNull();
+
+    await act(async () => {
+      fireEvent.pointerMove(screen.getByRole("menuitem", { name: "Copy" }), {
+        pointerType: "mouse",
+      });
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole("menuitem", { name: "Copy title" })).toBeTruthy();
+  });
+
+  test("routes List Page session and delete commands through the shared action port", async () => {
+    const openInNewSession = vi.fn();
+    const deletePage = vi.fn(async () => undefined);
+    const screen = render(
+      <DatabaseViewSurface
+        model={listModel()}
+        presentationLayout="list"
+        searchQuery=""
+        onOpenPage={() => undefined}
+        pageActionPort={{ openInNewSession, deletePage }}
+      />,
+    );
+    const row = screen.container.querySelector<HTMLElement>(
+      '[data-database-view-page-id="page-focused"]',
+    );
+    if (!row) throw new Error("Expected a List row context target");
+
+    await act(async () => {
+      fireEvent.contextMenu(row, { clientX: 240, clientY: 120 });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.pointerMove(screen.getByRole("menuitem", { name: "Open in" }), {
+        pointerType: "mouse",
+      });
+      await Promise.resolve();
+    });
+    const openInNewSessionItem = await screen.findByRole("menuitem", {
+      name: "Open in new session",
+    });
+    await act(async () => {
+      fireEvent.click(openInNewSessionItem);
+      await Promise.resolve();
+    });
+    expect(openInNewSession).toHaveBeenCalledWith({
+      projectId: "project-1",
+      pageId: "page-focused",
+      titleSnapshot: "Focused Page",
+    });
+
+    await act(async () => {
+      fireEvent.contextMenu(row, { clientX: 240, clientY: 120 });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+      await Promise.resolve();
+    });
+    expect(deletePage).toHaveBeenCalledWith({
+      libraryId: "library-1",
+      projectId: "project-1",
+      pageId: "page-focused",
+      pageKey: null,
+      titleSnapshot: "Focused Page",
+    });
+  });
+
+  test("targets the right-clicked List Page instead of the current selection", async () => {
+    const deletePage = vi.fn(async () => undefined);
+    const screen = render(
+      <DatabaseViewSurface
+        model={listModel()}
+        presentationLayout="list"
+        searchQuery=""
+        onOpenPage={() => undefined}
+        initialSelectedPageIds={new Set(["page-focused"])}
+        pageActionPort={{ deletePage }}
+      />,
+    );
+    const nextRow = screen.container.querySelector<HTMLElement>(
+      '[data-database-view-page-id="page-next"]',
+    );
+    if (!nextRow) throw new Error("Expected the unselected List row");
+
+    await act(async () => {
+      fireEvent.contextMenu(nextRow, { clientX: 240, clientY: 160 });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+      await Promise.resolve();
+    });
+
+    expect(deletePage).toHaveBeenCalledWith(expect.objectContaining({
+      pageId: "page-next",
+      titleSnapshot: "Next Page",
+    }));
   });
 
   test("keeps admitted List rows visible when a continuation fails and retries it", async () => {
@@ -1528,6 +1678,40 @@ describe("DatabaseViewSurface", () => {
       }],
     });
     expect(opened).not.toHaveBeenCalled();
+  });
+
+  test("loads the complete semantic option registry from the Page context menu", async () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={editableSemanticListModel()}
+        presentationLayout="list"
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(optionRuntime.read).toHaveBeenCalledWith(
+      model.accessContext,
+      expect.objectContaining({ propertyId: statusPropertyId }),
+      null,
+    ));
+    const row = screen.container.querySelector<HTMLElement>(
+      '[data-database-view-page-id="page-focused"]',
+    );
+    if (!row) throw new Error("Expected a List row context target");
+
+    await act(async () => {
+      fireEvent.contextMenu(row, { clientX: 240, clientY: 120 });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.pointerMove(screen.getByRole("menuitem", { name: "Status" }), {
+        pointerType: "mouse",
+      });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("option", { name: /Triage/u })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Review/u })).toBeTruthy();
   });
 
   test("keeps a successful option registry usable when a sibling registry fails", async () => {

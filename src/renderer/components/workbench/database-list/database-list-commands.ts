@@ -1,17 +1,11 @@
 export type DatabaseListMoveDirection = "top" | "up" | "down" | "bottom";
 
-export type DatabaseListCommandId =
-  | "open"
-  | "copy-page-key"
-  | "select-only"
-  | "toggle-selection"
-  | `move-${DatabaseListMoveDirection}`;
+export type DatabaseListCommandId = `move-${DatabaseListMoveDirection}`;
 
 export interface DatabaseListCommand {
   readonly id: DatabaseListCommandId;
   readonly label: string;
   readonly disabled: boolean;
-  readonly section: "page" | "selection" | "position";
 }
 
 interface DatabaseListMoveCommandCapabilities {
@@ -27,70 +21,23 @@ const buildMoveCommands = ({
     id: "move-top",
     label: "Move to top",
     disabled: !canMoveUp,
-    section: "position",
   },
   {
     id: "move-up",
     label: "Move up",
     disabled: !canMoveUp,
-    section: "position",
   },
   {
     id: "move-down",
     label: "Move down",
     disabled: !canMoveDown,
-    section: "position",
   },
   {
     id: "move-bottom",
     label: "Move to bottom",
     disabled: !canMoveDown,
-    section: "position",
   },
 ];
-
-export function buildDatabaseListRowCommands({
-  selected,
-  hasPageKey = false,
-  canMoveUp,
-  canMoveDown,
-}: DatabaseListMoveCommandCapabilities & {
-  readonly selected: boolean;
-  readonly hasPageKey?: boolean;
-}): readonly DatabaseListCommand[] {
-  const pageCommands: DatabaseListCommand[] = [
-    {
-      id: "open",
-      label: "Open page",
-      disabled: false,
-      section: "page",
-    },
-  ];
-  if (hasPageKey) {
-    pageCommands.push({
-      id: "copy-page-key",
-      label: "Copy Page key",
-      disabled: false,
-      section: "page",
-    });
-  }
-  return [
-    ...pageCommands,
-    {
-      id: "select-only",
-      label: "Select only this row",
-      disabled: false,
-      section: "selection",
-    },
-    {
-      id: "toggle-selection",
-      label: selected ? "Remove from selection" : "Add to selection",
-      disabled: false,
-      section: "selection",
-    },
-    ...buildMoveCommands({ canMoveUp, canMoveDown }),
-  ];
-}
 
 export function buildDatabaseListSelectionCommands(
   capabilities: DatabaseListMoveCommandCapabilities,
@@ -101,7 +48,6 @@ export function buildDatabaseListSelectionCommands(
 export function databaseListMoveDirection(
   commandId: DatabaseListCommandId,
 ): DatabaseListMoveDirection | null {
-  if (!commandId.startsWith("move-")) return null;
   const direction = commandId.slice("move-".length);
   if (
     direction === "top"

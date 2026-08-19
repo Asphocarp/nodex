@@ -172,18 +172,30 @@ beforeEach(() => {
 
 describe("WorkbenchDatabaseViewSurface", () => {
   test("routes a Project Board through the shared Database View presenter", async () => {
+    const onOpenPageInNewChat = vi.fn();
+    const onSendPageToChat = vi.fn();
     render(
       <TestQueryProvider>
         <WorkbenchDatabaseViewSurface
           accessContext={{ kind: "project", projectId: "project-alpha" }}
           target={{ kind: "database-view", databaseViewId: viewId }}
           onOpenPage={() => undefined}
+          onOpenPageInNewChat={onOpenPageInNewChat}
+          onSendPageToChat={onSendPageToChat}
         />
       </TestQueryProvider>,
     );
 
     await waitFor(() => expect(presenter.props?.model).toBeTruthy());
     expect(presenter.props).not.toHaveProperty("boardSurface");
+    const pageActionPort = presenter.props?.pageActionPort as {
+      readonly openInNewSession: typeof onOpenPageInNewChat;
+      readonly sendToChat: typeof onSendPageToChat;
+      readonly deletePage: (input: { readonly pageId: string }) => Promise<void>;
+    };
+    expect(pageActionPort.openInNewSession).toBe(onOpenPageInNewChat);
+    expect(pageActionPort.sendToChat).toBe(onSendPageToChat);
+    expect(pageActionPort.deletePage).toEqual(expect.any(Function));
   });
 
   test("uses Library reads and the shared Database View presenter", async () => {

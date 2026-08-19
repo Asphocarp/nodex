@@ -11,6 +11,7 @@ import {
   BlockDocumentSurfaceRuntime,
   type BlockDocumentSurfaceRuntimeOptions,
 } from "./block-document-surface-runtime";
+import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import {
   unwrapOwnedBlockDocumentPreparationResult,
 } from "./owned-block-document";
@@ -26,6 +27,63 @@ export interface BuildPagePromptContextInput {
   readonly title: string;
   readonly nfm: string;
   readonly source?: string;
+}
+
+export type PageDocumentMaterialization = ReturnType<
+  typeof materializePageDocument
+>;
+
+interface PageDocumentRuntimeFactoryInput {
+  readonly projectId: string;
+  readonly descriptor: OwnedDocumentDescriptor;
+  readonly createRuntime?: (
+    options: BlockDocumentSurfaceRuntimeOptions,
+  ) => BlockDocumentSurfaceRuntime;
+  readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
+}
+
+/** Connects one prepared Page Document, reads its canonical content, and always closes it. */
+export async function materializePreparedPageDocument({
+  projectId,
+  descriptor,
+  createRuntime,
+  createAdapter = createDocumentSyncAdapter,
+}: PageDocumentRuntimeFactoryInput): Promise<PageDocumentMaterialization> {
+  const runtimeFactory = createRuntime ?? ((options) =>
+    new BlockDocumentSurfaceRuntime(options));
+  const runtime = createPageDocumentRuntime(
+    descriptor,
+    projectId,
+    runtimeFactory,
+    createAdapter,
+  );
+
+  try {
+    await runtime.connect();
+    await runtime.whenReady();
+    return materializePageDocument(runtime.document);
+  } finally {
+    await runtime.close();
+  }
+}
+
+export async function loadPageDocumentMaterialization(input: {
+  readonly projectId: string;
+  readonly pageId: string;
+  readonly createRuntime?: (
+    options: BlockDocumentSurfaceRuntimeOptions,
+  ) => BlockDocumentSurfaceRuntime;
+  readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
+}): Promise<PageDocumentMaterialization> {
+  const descriptor = unwrapOwnedBlockDocumentPreparationResult(
+    await prepareOwnedBlockDocument(input.projectId, input.pageId),
+  );
+  return await materializePreparedPageDocument({
+    projectId: input.projectId,
+    descriptor,
+    createRuntime: input.createRuntime,
+    createAdapter: input.createAdapter,
+  });
 }
 
 export function buildPagePromptContext({
@@ -69,32 +127,16 @@ export async function loadPagePromptContext(input: {
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
+  readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
 }): Promise<PagePromptContext> {
-  const descriptor = unwrapOwnedBlockDocumentPreparationResult(
-    await prepareOwnedBlockDocument(input.projectId, input.pageId),
-  );
-  const runtimeFactory = input.createRuntime ?? ((options) =>
-    new BlockDocumentSurfaceRuntime(options));
-  const runtime = createPageDocumentRuntime(
-    descriptor,
-    input.projectId,
-    runtimeFactory,
-  );
-
-  try {
-    await runtime.connect();
-    await runtime.whenReady();
-    const materialized = materializePageDocument(runtime.document);
-    return buildPagePromptContext({
-      projectId: input.projectId,
-      pageId: input.pageId,
-      pageKey: input.pageKey,
-      title: materialized.title.trim() || input.titleSnapshot || "Untitled Page",
-      nfm: materialized.nfm,
-    });
-  } finally {
-    await runtime.close();
-  }
+  const materialized = await loadPageDocumentMaterialization(input);
+  return buildPagePromptContext({
+    projectId: input.projectId,
+    pageId: input.pageId,
+    pageKey: input.pageKey,
+    title: materialized.title.trim() || input.titleSnapshot || "Untitled Page",
+    nfm: materialized.nfm,
+  });
 }
 
 function createPageDocumentRuntime(
@@ -103,10 +145,11 @@ function createPageDocumentRuntime(
   runtimeFactory: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime,
+  createAdapter: (projectId: string) => DocumentSyncAdapter,
 ): BlockDocumentSurfaceRuntime {
   return runtimeFactory({
     descriptor,
-    adapter: createDocumentSyncAdapter(projectId),
+    adapter: createAdapter(projectId),
     localCheckpointStore: null,
   });
 }

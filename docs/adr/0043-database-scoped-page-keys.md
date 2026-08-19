@@ -123,10 +123,11 @@ effective presentation may make that choice the shared default. When enabled,
 a Board card places the key as quiet metadata at the top of the card; Page Stage
 does not repeat the contextual Database alias; List derives one stable identity
 slot from the current projection's prefixes and number depths; command-palette
-and picker rows use one compact identity slot. Board and List offer
-`Copy Page key` in their Page context menu with the same feedback. This is plain metadata,
-not a Property chip, badge, or lexicographically sortable string. Hiding it on
-one View never disables the namespace, lookup, copy, CLI, or Agent behavior.
+and picker rows use one compact identity slot. Board and List offer `Copy ID`
+in their Page context menu when a key exists; the action copies that Page key,
+not the canonical UUID. This is plain metadata, not a Property chip, badge, or
+lexicographically sortable string. Hiding it on one View never disables the
+namespace, lookup, copy, CLI, or Agent behavior.
 
 ## Consequences
 
