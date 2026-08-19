@@ -190,25 +190,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -248,25 +261,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -306,25 +332,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -364,25 +403,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -422,25 +474,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -480,25 +545,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -538,25 +616,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -596,25 +687,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -654,25 +758,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -712,25 +829,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -770,25 +900,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }
@@ -828,25 +971,38 @@
           {
             "name": "x-nodex-request-id",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
             "name": "x-nodex-request-class",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CoreRequestClass"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CoreRequestClass"
+                }
+              ]
             }
           },
           {
             "name": "x-nodex-request-deadline-ms",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64",
               "minimum": 0
             }

@@ -371,6 +371,7 @@ export class CoreClient implements CoreClientPort {
         "/core/v1/modules/administration/read",
         { contract_version: MODULE_CONTRACT_VERSIONS.storeAdministration, read },
         this.#moduleHeaders(),
+        { class: "background" },
       );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);

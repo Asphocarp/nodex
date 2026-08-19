@@ -26,6 +26,8 @@ const BACKGROUND_EXECUTION_CAPACITY: usize = TOTAL_EXECUTION_CAPACITY - 1;
 const MAINTENANCE_EXECUTION_CAPACITY: usize = 1;
 const ADMISSION_CAPACITY: usize = 128;
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const CANCELLATION_TOMBSTONE_TTL: Duration = Duration::from_secs(60);
+const MAX_CANCELLATION_TOMBSTONES: usize = 4_096;
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -53,16 +55,29 @@ struct RequestKey {
 }
 
 struct ActiveRequestGuard {
-    active: Arc<Mutex<HashMap<RequestKey, QueryCancellation>>>,
+    registry: Arc<Mutex<RequestRegistry>>,
     key: RequestKey,
 }
 
 impl Drop for ActiveRequestGuard {
     fn drop(&mut self) {
-        let Ok(mut active) = self.active.lock() else {
+        let Ok(mut registry) = self.registry.lock() else {
             return;
         };
-        active.remove(&self.key);
+        registry.active.remove(&self.key);
+    }
+}
+
+#[derive(Default)]
+struct RequestRegistry {
+    active: HashMap<RequestKey, QueryCancellation>,
+    cancellation_tombstones: HashMap<RequestKey, Instant>,
+}
+
+impl RequestRegistry {
+    fn prune_tombstones(&mut self, now: Instant) {
+        self.cancellation_tombstones
+            .retain(|_, expires_at| *expires_at > now);
     }
 }
 
@@ -79,7 +94,7 @@ pub(crate) struct RequestExecutor {
     background: Arc<Semaphore>,
     maintenance: Arc<Semaphore>,
     admission: Arc<Semaphore>,
-    active: Arc<Mutex<HashMap<RequestKey, QueryCancellation>>>,
+    registry: Arc<Mutex<RequestRegistry>>,
     metrics: Arc<RequestExecutorMetrics>,
     total_capacity: usize,
 }
@@ -124,7 +139,7 @@ impl RequestExecutor {
             background: Arc::new(Semaphore::new(background)),
             maintenance: Arc::new(Semaphore::new(maintenance)),
             admission: Arc::new(Semaphore::new(admission)),
-            active: Arc::new(Mutex::new(HashMap::new())),
+            registry: Arc::new(Mutex::new(RequestRegistry::default())),
             metrics: Arc::new(RequestExecutorMetrics::default()),
             total_capacity: total,
         }
@@ -143,6 +158,11 @@ impl RequestExecutor {
         let spec = RequestSpec::from_headers(connection_id, headers, default_class)?;
         let cancellation = QueryCancellation::new();
         let guard = self.register(&spec.key, &cancellation)?;
+        if cancellation.is_cancelled() {
+            let error = cancelled();
+            self.record_error(&error);
+            return Err(error);
+        }
         let admitted_at = Instant::now();
         let admission = self.admission.clone().try_acquire_owned().map_err(|_| {
             self.metrics.overloaded.fetch_add(1, Ordering::Relaxed);
@@ -158,6 +178,11 @@ impl RequestExecutor {
                 return Err(error);
             }
         };
+        if cancellation.is_cancelled() {
+            let error = cancelled();
+            self.record_error(&error);
+            return Err(error);
+        }
         self.metrics.admission_wait.record(admitted_at.elapsed());
         let context = RequestExecutionContext::new(cancellation.clone(), spec.deadline);
         let metrics = Arc::clone(&self.metrics);
@@ -212,13 +237,20 @@ impl RequestExecutor {
             connection_id: connection_id.to_owned(),
             request_id: request_id.to_owned(),
         };
-        let Ok(active) = self.active.lock() else {
+        let Ok(mut registry) = self.registry.lock() else {
             return false;
         };
-        let Some(cancellation) = active.get(&key) else {
+        registry.prune_tombstones(Instant::now());
+        if let Some(cancellation) = registry.active.get(&key) {
+            cancellation.cancel();
+            return true;
+        }
+        if registry.cancellation_tombstones.len() >= MAX_CANCELLATION_TOMBSTONES {
             return false;
-        };
-        cancellation.cancel();
+        }
+        registry
+            .cancellation_tombstones
+            .insert(key, Instant::now() + CANCELLATION_TOMBSTONE_TTL);
         true
     }
 
@@ -226,7 +258,10 @@ impl RequestExecutor {
         let active = self
             .total_capacity
             .saturating_sub(self.total.available_permits());
-        let registered = self.active.lock().map_or(0, |active| active.len());
+        let registered = self
+            .registry
+            .lock()
+            .map_or(0, |registry| registry.active.len());
         RequestExecutorSnapshot {
             active: u64::try_from(active).unwrap_or(u64::MAX),
             queued: u64::try_from(registered.saturating_sub(active)).unwrap_or(u64::MAX),
@@ -255,13 +290,21 @@ impl RequestExecutor {
         key: &RequestKey,
         cancellation: &QueryCancellation,
     ) -> Result<ActiveRequestGuard, CoreError> {
-        let mut active = self.active.lock().map_err(|_| worker_failed("registry"))?;
-        if active.contains_key(key) {
+        let mut registry = self
+            .registry
+            .lock()
+            .map_err(|_| worker_failed("registry"))?;
+        registry.prune_tombstones(Instant::now());
+        if registry.active.contains_key(key) {
             return Err(invalid_request("Core request ID is already active"));
         }
-        active.insert(key.clone(), cancellation.clone());
+        let cancelled_before_registration = registry.cancellation_tombstones.remove(key).is_some();
+        registry.active.insert(key.clone(), cancellation.clone());
+        if cancelled_before_registration {
+            cancellation.cancel();
+        }
         Ok(ActiveRequestGuard {
-            active: Arc::clone(&self.active),
+            registry: Arc::clone(&self.registry),
             key: key.clone(),
         })
     }
@@ -427,6 +470,7 @@ fn worker_failed(detail: &str) -> CoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
 
     use super::*;
@@ -511,5 +555,28 @@ mod tests {
             worker.await.unwrap().unwrap_err().code,
             CoreErrorCode::Cancelled
         );
+    }
+
+    #[tokio::test]
+    async fn cancellation_before_request_registration_is_honored() {
+        let executor = RequestExecutor::with_capacities(1, 1, 1, 8);
+        let operation_ran = Arc::new(AtomicBool::new(false));
+        let operation_ran_in_worker = Arc::clone(&operation_ran);
+        assert!(executor.cancel("connection", "cancel-before-register"));
+
+        let result = executor
+            .execute(
+                "connection",
+                &headers("cancel-before-register", "interactive"),
+                RequestClass::Interactive,
+                move || {
+                    operation_ran_in_worker.store(true, Ordering::Relaxed);
+                    Ok::<_, CoreError>(())
+                },
+            )
+            .await;
+
+        assert_eq!(result.unwrap_err().code, CoreErrorCode::Cancelled);
+        assert!(!operation_ran.load(Ordering::Relaxed));
     }
 }
