@@ -325,8 +325,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CI_TIMING_JOB: electron-e2e
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -339,7 +337,6 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/fetch-legacy-migrator
-      - uses: ./.github/actions/setup-rust-ci
       - uses: ./.github/actions/setup-playwright
       - name: Run functional Electron E2E
         env:
@@ -355,9 +352,6 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
 
   runtime-contracts:
     name: runtime contracts
