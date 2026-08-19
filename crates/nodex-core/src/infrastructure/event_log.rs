@@ -1228,7 +1228,7 @@ fn is_valid_legacy_transfer_string_value(value: &str) -> bool {
 fn is_valid_legacy_transfer_optional_string(object: &Map<String, Value>, key: &str) -> bool {
     object
         .get(key)
-        .map_or(true, |value| is_valid_legacy_transfer_string(Some(value)))
+        .is_none_or(|value| is_valid_legacy_transfer_string(Some(value)))
 }
 
 fn is_valid_legacy_transfer_integer(value: Option<&Value>, minimum: i64) -> bool {
