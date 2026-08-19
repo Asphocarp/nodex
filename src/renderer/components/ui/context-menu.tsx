@@ -3,6 +3,7 @@ import {
   forwardRef,
   type ComponentPropsWithoutRef,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 
 import { cn } from "@/lib/utils";
@@ -25,6 +26,113 @@ const CONTEXT_MENU_MOTION_CLASS_NAME = cn(
 
 const CONTEXT_SUBMENU_MOTION_CLASS_NAME =
   "data-[state=closed]:invisible data-[state=closed]:pointer-events-none";
+
+const CONTEXT_MENU_ITEM_CLASS_NAME = cn(
+  "no-drag group flex w-full items-center gap-1.5 rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden",
+  "cursor-interaction text-token-foreground data-highlighted:bg-token-list-hover-background focus:bg-token-list-hover-background",
+  "data-[disabled]:pointer-events-none data-[disabled]:cursor-default data-[disabled]:opacity-50",
+);
+
+function NodexContextMenuRowContent({
+  children,
+  leftSlot,
+  rightSlot,
+  tone = "default",
+}: {
+  readonly children: ReactNode;
+  readonly leftSlot?: ReactNode;
+  readonly rightSlot?: ReactNode;
+  readonly tone?: "default" | "danger";
+}) {
+  return (
+    <>
+      {leftSlot ? (
+        <span className={cn(
+          "shrink-0 [&_svg]:size-4 [&_svg]:shrink-0",
+          tone === "danger"
+            ? "text-token-error-foreground"
+            : "text-token-text-secondary group-data-[highlighted]:text-token-foreground group-focus:text-token-foreground",
+        )}>
+          {leftSlot}
+        </span>
+      ) : null}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {rightSlot ? (
+        <span className="ml-2 shrink-0 text-token-description-foreground">
+          {rightSlot}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+export interface NodexContextMenuItemProps
+  extends ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item> {
+  readonly leftSlot?: ReactNode;
+  readonly rightSlot?: ReactNode;
+  readonly tone?: "default" | "danger";
+}
+
+export const NodexContextMenuItem = forwardRef<
+  HTMLDivElement,
+  NodexContextMenuItemProps
+>(function NodexContextMenuItem({
+  children,
+  className,
+  leftSlot,
+  rightSlot,
+  tone = "default",
+  ...props
+}, ref) {
+  return (
+    <ContextMenuPrimitive.Item
+      ref={ref}
+      className={cn(
+        CONTEXT_MENU_ITEM_CLASS_NAME,
+        tone === "danger" && "text-token-error-foreground",
+        className,
+      )}
+      {...props}
+    >
+      <NodexContextMenuRowContent
+        leftSlot={leftSlot}
+        rightSlot={rightSlot}
+        tone={tone}
+      >
+        {children}
+      </NodexContextMenuRowContent>
+    </ContextMenuPrimitive.Item>
+  );
+});
+
+export interface NodexContextMenuSubTriggerProps
+  extends ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubTrigger> {
+  readonly leftSlot?: ReactNode;
+  readonly rightSlot?: ReactNode;
+}
+
+export const NodexContextMenuSubTrigger = forwardRef<
+  HTMLDivElement,
+  NodexContextMenuSubTriggerProps
+>(function NodexContextMenuSubTrigger({
+  children,
+  className,
+  leftSlot,
+  rightSlot,
+  ...props
+}, ref) {
+  return (
+    <ContextMenuPrimitive.SubTrigger
+      ref={ref}
+      className={cn(CONTEXT_MENU_ITEM_CLASS_NAME, className)}
+      {...props}
+    >
+      <NodexContextMenuRowContent leftSlot={leftSlot} rightSlot={rightSlot}>
+        {children}
+      </NodexContextMenuRowContent>
+    </ContextMenuPrimitive.SubTrigger>
+  );
+});
 
 export const NodexContextMenuContent = forwardRef<
   HTMLDivElement,

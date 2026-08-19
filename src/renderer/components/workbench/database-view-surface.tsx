@@ -112,6 +112,7 @@ import { COLLAPSED_BOARD_COLUMN_WIDTH } from "@/lib/board-column-layout";
 import { PlusIcon } from "@/components/shared/icons";
 import type { DatabaseViewBoardPageDropIntent } from "@/lib/use-board";
 import { databaseViewGesturePresentationOverride } from "../../../shared/database-view-presentation";
+import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
 
 const DATABASE_VIEW_PAGE_DRAG_MIME =
   "application/vnd.nodex.database-view-pages.v1+json";
@@ -153,6 +154,7 @@ interface DatabaseViewSurfaceProps {
     pageId: string,
     titleSnapshot: string,
   ) => void;
+  readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onCommitted?: () => void | Promise<void>;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
   readonly onMoveBoardPages?: (
@@ -272,6 +274,7 @@ export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
         onLoadMoreGroup={props.onLoadMoreGroup}
         searchQuery={props.searchQuery}
         onOpenPage={props.onOpenPage}
+        pageActionPort={props.pageActionPort}
         onCommitted={props.onCommitted}
         commitOperations={props.commitOperations}
         presentedPageIds={props.presentedPageIds}
@@ -300,6 +303,7 @@ function BoardDatabaseViewSurface({
   onLoadMoreGroup,
   searchQuery,
   onOpenPage,
+  pageActionPort,
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
   onMoveBoardPages,
@@ -1265,6 +1269,7 @@ function BoardDatabaseViewSurface({
       groupComplete: isPageRunGroupComplete([row.pageId]),
     }),
     onOpenPage,
+    pageActionPort,
     onSetValue: setValue,
     onSetStructuralValue: setStructuralValue,
     onPatchOptions: patchOptions,
@@ -1288,10 +1293,6 @@ function BoardDatabaseViewSurface({
     presented: presentedPageIds?.has(row.pageId) ?? false,
     selected: selectedPageIds.has(row.pageId),
     onHighlight: highlightPage,
-    onSelectOnly: (pageId: string) => {
-      setSelectedPageIds(new Set([pageId]));
-      highlightPage(pageId);
-    },
     onToggleSelection: togglePageSelection,
     // Keep the same single-flight DnD boundary as List: a second placement
     // cannot start until the first optimistic projection has handed off to

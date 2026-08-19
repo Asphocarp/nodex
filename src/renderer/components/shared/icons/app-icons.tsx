@@ -4302,3 +4302,92 @@ export function FileTabIconSvg({
     </svg>
   );
 }
+
+type DatabaseViewPageMenuIconProps = Omit<SVGProps<SVGSVGElement>, "children">;
+
+function DatabaseViewPageMenuIcon({
+  children,
+  className,
+  ...props
+}: DatabaseViewPageMenuIconProps & { readonly children: ReactNode }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      className={cn("icon-xs shrink-0", className)}
+      fill="currentColor"
+      aria-hidden="true"
+      {...props}
+    >
+      {children}
+    </svg>
+  );
+}
+
+export function PageMenuCopyIcon(props: DatabaseViewPageMenuIconProps) {
+  return (
+    <DatabaseViewPageMenuIcon {...props}>
+      <path fillRule="evenodd" d="M6.08 2.5v1.167h3.834V2.5H6.08Zm-1.5-.083C4.58 1.634 5.216 1 5.998 1h4c.783 0 1.417.634 1.417 1.417V3.75c0 .782-.634 1.417-1.417 1.417h-4A1.417 1.417 0 0 1 4.581 3.75V2.417Z" clipRule="evenodd" />
+      <path fillRule="evenodd" d="M4.087 3.749a.583.583 0 0 0-.583.583l.001 8.583a.583.583 0 0 0 .584.584h7.82a.583.583 0 0 0 .583-.584V4.332a.583.583 0 0 0-.584-.583H11a.75.75 0 0 1 0-1.5h.909a2.083 2.083 0 0 1 2.083 2.083v8.583A2.083 2.083 0 0 1 11.908 15h-7.82a2.083 2.083 0 0 1-2.083-2.084l-.001-8.583A2.084 2.084 0 0 1 4.087 2.25H5a.75.75 0 1 1 0 1.5h-.913Z" clipRule="evenodd" />
+    </DatabaseViewPageMenuIcon>
+  );
+}
+
+export function PageMenuCopyIdIcon(props: DatabaseViewPageMenuIconProps) {
+  return (
+    <DatabaseViewPageMenuIcon {...props}>
+      <path d="M10.957 1.864C11.444 2.315 11.019 3 10.355 3c-.244 0-.472-.105-.678-.235A1.74 1.74 0 0 0 8.75 2.5h-4.5c-.477 0-.909.19-1.225.5H3v.025c-.31.316-.5.748-.5 1.225v4.5c0 .34.097.658.265.927.13.206.235.434.235.678 0 .664-.685 1.09-1.136.602A3.238 3.238 0 0 1 1 8.75v-4.5A3.25 3.25 0 0 1 4.25 1h4.5c.852 0 1.628.328 2.207.864Zm.871 6.481c.376.752.406 1.63.083 2.405l-.081.196a1.3 1.3 0 0 1-1.2.8h-.125V7.754h.368c.405 0 .775.229.955.591Z" />
+      <path fillRule="evenodd" d="M11.75 15A3.25 3.25 0 0 0 15 11.75v-4.5A3.25 3.25 0 0 0 11.75 4h-4.5A3.25 3.25 0 0 0 4 7.25v4.5A3.25 3.25 0 0 0 7.25 15h4.5Zm-4.5-8.755c.417 0 .755.338.755.755v5.5a.755.755 0 1 1-1.51 0V7c0-.417.338-.755.755-.755Zm6.055 5.086a4.073 4.073 0 0 0-.126-3.661 2.577 2.577 0 0 0-2.306-1.425H9.75a.755.755 0 0 0-.755.755v5.5c0 .417.338.755.755.755h.88a2.807 2.807 0 0 0 2.594-1.729l.081-.195Z" clipRule="evenodd" />
+    </DatabaseViewPageMenuIcon>
+  );
+}
+
+export function PageMenuCopyLinkIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path d="M9.306 10.206a.745.745 0 0 1 .067.977l-.067.076-2.458 2.459a3.228 3.228 0 0 1-4.565 0 3.228 3.228 0 0 1-.126-4.432l.126-.133 2.458-2.459a.745.745 0 0 1 1.053 1.054l-2.458 2.458a1.738 1.738 0 0 0 2.458 2.458l2.458-2.458a.745.745 0 0 1 1.054 0Zm.524-4.036a.745.745 0 0 1 0 1.054L7.349 9.704a.745.745 0 0 1-1.053-1.053l2.48-2.481a.745.745 0 0 1 1.054 0Zm3.888-3.888a3.228 3.228 0 0 1 .126 4.432l-.126.133-2.459 2.459a.745.745 0 0 1-1.053-1.054l2.458-2.458a1.738 1.738 0 0 0-2.458-2.458L7.748 5.794a.745.745 0 0 1-1.054-1.053l2.459-2.459a3.228 3.228 0 0 1 4.565 0Z" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuCopyTitleIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path fillRule="evenodd" d="M13.6 2.391a.7.7 0 0 0-.7-.7H3.1a.7.7 0 0 0-.7.7v2.8a.7.7 0 0 0 .7.7h.153a.7.7 0 0 0 .68-.53l.461-1.845a.56.56 0 0 1 .543-.425H6.95v9.8a1.4 1.4 0 0 1-1.4 1.4h-.583c-.645 0-1.167.523-1.167 1.167 0 .129.104.233.233.233h7.934a.233.233 0 0 0 .233-.233c0-.644-.522-1.167-1.167-1.167h-.583a1.4 1.4 0 0 1-1.4-1.4v-9.8h2.013a.56.56 0 0 1 .543.425l.462 1.845a.7.7 0 0 0 .679.53h.153a.7.7 0 0 0 .7-.7v-2.8Z" clipRule="evenodd" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuCopyMarkdownIcon(props: DatabaseViewPageMenuIconProps) {
+  return (
+    <DatabaseViewPageMenuIcon {...props}>
+      <path d="M10.355 3c.664 0 1.09-.685.602-1.136A3.238 3.238 0 0 0 8.75 1h-4.5A3.25 3.25 0 0 0 1 4.25v4.5c0 .852.328 1.627.864 2.207.451.487 1.136.062 1.136-.602 0-.244-.106-.472-.235-.678A1.742 1.742 0 0 1 2.5 8.75v-4.5c0-.477.19-.91.5-1.225V3h.025c.316-.31.748-.5 1.225-.5h4.5c.34 0 .658.097.927.265.206.13.434.235.678.235Z" />
+      <path fillRule="evenodd" d="M15 11.75A3.25 3.25 0 0 1 11.75 15h-4.5A3.25 3.25 0 0 1 4 11.75v-4.5A3.25 3.25 0 0 1 7.25 4h4.5A3.25 3.25 0 0 1 15 7.25v4.5ZM7 6.246a.755.755 0 1 0 0 1.51h5a.755.755 0 1 0 0-1.51H7Zm-.755 3.255c0-.417.338-.755.755-.755h5a.755.755 0 1 1 0 1.51H7a.755.755 0 0 1-.755-.755ZM7 11.246a.755.755 0 0 0 0 1.51h2a.755.755 0 1 0 0-1.51H7Z" clipRule="evenodd" />
+    </DatabaseViewPageMenuIcon>
+  );
+}
+
+export function PageMenuMoveIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path d="M7.45 1.228a.778.778 0 0 1 1.1 0l1.778 1.778a.778.778 0 1 1-1.1 1.1l-.45-.45v3.566h3.566l-.45-.45a.778.778 0 1 1 1.1-1.1l1.778 1.778a.778.778 0 0 1 0 1.1l-1.778 1.778a.778.778 0 1 1-1.1-1.1l.45-.45H8.779v3.566l.45-.45a.778.778 0 1 1 1.1 1.1L8.55 14.772a.778.778 0 0 1-1.1 0l-1.778-1.778a.778.778 0 1 1 1.1-1.1l.45.45V8.779H3.655l.45.45a.778.778 0 1 1-1.1 1.1L1.229 8.55a.778.778 0 0 1 0-1.1l1.778-1.778a.778.778 0 0 1 1.1 1.1l-.45.45h3.566V3.655l-.45.45a.778.778 0 1 1-1.1-1.1L7.45 1.229Z" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuMoveTopIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path d="M4.52 6.174a.75.75 0 0 0 .96 1.152l1.77-1.475v6.899a.75.75 0 0 0 1.5 0V5.851l1.77 1.475a.75.75 0 1 0 .96-1.152l-3-2.5a.75.75 0 0 0-.96 0l-3 2.5Z" /><path d="M13 2.75a.75.75 0 0 1-.75.75h-8.5a.75.75 0 0 1 0-1.5h8.5a.75.75 0 0 1 .75.75Z" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuMoveUpIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path d="M11.48 5.674a.75.75 0 1 1-.96 1.152L8.75 5.351v6.899a.75.75 0 0 1-1.5 0V5.351L5.48 6.826a.75.75 0 0 1-.96-1.152l3-2.5a.75.75 0 0 1 .96 0l3 2.5Z" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuMoveDownIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path d="M11.48 10.326a.75.75 0 0 0-.96-1.152l-1.77 1.475V3.75a.75.75 0 0 0-1.5 0v6.899L5.48 9.174a.75.75 0 0 0-.96 1.152l3 2.5a.75.75 0 0 0 .96 0l3-2.5Z" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuMoveBottomIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path d="M11.48 9.326a.75.75 0 1 0-.96-1.152L8.75 9.649V2.75a.75.75 0 0 0-1.5 0v6.899L5.48 8.174a.75.75 0 0 0-.96 1.152l3 2.5a.75.75 0 0 0 .96 0l3-2.5Z" /><path d="M3 12.75a.75.75 0 0 1 .75-.75h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1-.75-.75Z" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuOpenInIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path d="M6.413 1.313c.241 0 .472-.005.643.166.17.17.266.342.266.583a.817.817 0 0 1-.266.602c-.17.17-.402.166-.643.166h-1.43c-.635-.018-1.144.292-1.485.633-.34.34-.632 1.003-.632 1.485v6.06c0 .481.192 1.044.532 1.384.341.341.904.733 1.386.733h6.259c.482 0 1.144-.292 1.485-.633.341-.34.633-1.003.633-1.485V9.721c0-.24-.005-.472.166-.642.17-.17.301-.267.542-.267a.91.91 0 0 1 .643.267c.17.17.166.401.166.642v1.286a3.635 3.635 0 0 1-3.449 3.63c-.072.004-.113.004-.186.005-2.366.06-3.694.06-6.06 0-.072-.001-.113 0-.186-.004a3.636 3.636 0 0 1-3.444-3.444c-.004-.073-.003-.114-.005-.187-.06-2.365 0-3.693 0-6.059a3.635 3.635 0 0 1 3.636-3.635h1.429Z" /><path d="M14.675 6.063a.75.75 0 1 1-1.5 0v-2.19l-4.148 4.5a.75.75 0 1 1-1.06-1.06l4.148-4.5h-2.19a.75.75 0 0 1 0-1.5h4a.75.75 0 0 1 .75.75v4Z" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuOpenNewSessionIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path d="M3.75 3C2.231 3 1 4.231 1 5.75v2C1 9.269 2.231 10.5 3.75 10.5h2a.75.75 0 0 0 0-1.5h-2A1.25 1.25 0 0 1 2.5 7.75v-2A1.25 1.25 0 0 1 3.75 4.5h8.5a1.25 1.25 0 0 1 1.25 1.25v.5a.75.75 0 0 0 1.5 0v-.5A2.75 2.75 0 0 0 12.25 3h-8.5Z" /><path d="M11.75 7.25a.75.75 0 0 0-1.5 0V9H8.5a.75.75 0 0 0 0 1.5h1.75v1.75a.75.75 0 0 0 1.5 0V10.5h1.75a.75.75 0 0 0 0-1.5h-1.75V7.25Z" /></DatabaseViewPageMenuIcon>;
+}
+
+export function PageMenuDeleteIcon(props: DatabaseViewPageMenuIconProps) {
+  return <DatabaseViewPageMenuIcon {...props}><path fillRule="evenodd" d="m2 3 1.652 9.911A2.5 2.5 0 0 0 6.118 15h3.764a2.5 2.5 0 0 0 2.466-2.089L14 3H2Zm1.77 1.5 1.361 8.164a1 1 0 0 0 .987.836h3.764a1 1 0 0 0 .987-.836l1.36-8.164H3.771Z" clipRule="evenodd" /><path d="M5.5 2.5A1.5 1.5 0 0 1 7 1h2a1.5 1.5 0 0 1 1.5 1.5v1h-5v-1Z" /><path d="M1 3.75A.75.75 0 0 1 1.75 3h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 3.75Z" /></DatabaseViewPageMenuIcon>;
+}

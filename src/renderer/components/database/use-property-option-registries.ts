@@ -3,6 +3,7 @@ import type { ContentAccessContext } from "../../../shared/content-access-contex
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { MAX_DATA_SOURCE_PROPERTY_OPTIONS } from "../../../shared/data-source-option-registry";
+import { matchBuiltInDataSourceProperty } from "../../../shared/data-source-built-ins";
 import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
 import {
   mergePropertyOptionPages,
@@ -26,6 +27,13 @@ const isOptionProperty = (
   property: DataSourcePropertyRecordV2,
 ): boolean => property.lifecycle === "active"
   && (property.valueType === "select" || property.valueType === "multi_select");
+
+const isCompactSemanticRegistry = (
+  property: DataSourcePropertyRecordV2,
+): boolean => {
+  const role = matchBuiltInDataSourceProperty(property);
+  return role === "status" || role === "priority" || role === "estimate";
+};
 
 const initialEntry = (
   property: DataSourcePropertyRecordV2,
@@ -210,6 +218,14 @@ export function usePropertyOptionRegistries({
       }
     }
   }, [entries, load, requiredOptionEntries]);
+
+  useEffect(() => {
+    for (const property of propertiesRef.current) {
+      if (!isCompactSemanticRegistry(property)) continue;
+      const entry = entriesRef.current[property.propertyId] ?? initialEntry(property);
+      if (entry.state === "idle") load(property, false);
+    }
+  }, [entries, load]);
 
   return useMemo(() => ({
     options: Object.fromEntries(

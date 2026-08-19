@@ -152,4 +152,36 @@ describe("usePropertyOptionRegistries", () => {
     ]);
     expect(optionRuntime.readWindow).toHaveBeenCalledTimes(2);
   });
+
+  test("preloads compact semantic registries before a picker opens", async () => {
+    const statusProperty: DataSourcePropertyRecordV2 = {
+      ...property,
+      propertyId: parseDataSourcePropertyId("status"),
+      name: "Status",
+      ...testPropertySemantics("select", 5),
+      valueType: "select",
+      config: { options: [{ id: "build", name: "In progress" }] },
+      optionCount: 5,
+    };
+    optionRuntime.readWindow.mockResolvedValueOnce({
+      options: [
+        { id: "triage", name: "Triage" },
+        { id: "plan", name: "Planned" },
+        { id: "build", name: "In progress" },
+        { id: "review", name: "Review" },
+        { id: "ship", name: "Shipped" },
+      ],
+      nextCursor: null,
+      projectionRevision: 1,
+    });
+
+    const hook = renderHook(() => usePropertyOptionRegistries({
+      accessContext: { kind: "project", projectId: "project-1" },
+      properties: [statusProperty],
+    }));
+
+    await waitFor(() => expect(hook.result.current.states.status).toBe("ready"));
+    expect(hook.result.current.options.status).toHaveLength(5);
+    expect(optionRuntime.readWindow).toHaveBeenCalledTimes(1);
+  });
 });

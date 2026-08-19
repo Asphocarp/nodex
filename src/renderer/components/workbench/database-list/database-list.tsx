@@ -109,7 +109,8 @@ import {
   DATABASE_LIST_INTERACTIVE_SELECTOR,
   DatabaseListRow,
 } from "./database-list-row";
-import { DatabaseListRowContextMenu } from "./database-list-row-context-menu";
+import { DatabaseViewPageContextMenu } from "../database-view-page-context-menu";
+import type { DatabaseViewPageActionPort } from "../database-view-page-actions";
 import { buildDatabaseViewPageDragData } from "../database-view-page-drag";
 import { DatabaseListSelectionActionBar } from "./database-list-selection-action-bar";
 import { useDatabaseListGrid } from "./use-database-list-grid";
@@ -172,6 +173,7 @@ interface DatabaseListProps {
   readonly onLoadMoreGroup?: (scopeKey: string) => Promise<void> | void;
   readonly searchQuery: string;
   readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
+  readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onCommitted?: () => Promise<void> | void;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
   readonly presentedPageIds?: ReadonlySet<string>;
@@ -414,6 +416,7 @@ export function DatabaseList({
   onLoadMoreGroup,
   searchQuery,
   onOpenPage,
+  pageActionPort,
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
   presentedPageIds,
@@ -1715,32 +1718,28 @@ export function DatabaseList({
       />
     );
     return (
-      <DatabaseListRowContextMenu
+      <DatabaseViewPageContextMenu
         key={item.key}
-        selected={selected}
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
-        pageKey={item.row.pageKey}
+        page={{
+          libraryId: model.libraryId,
+          projectId: model.accessContext.kind === "project"
+            ? model.accessContext.projectId
+            : null,
+          pageId: item.pageId,
+          pageKey: item.row.pageKey,
+          titleSnapshot: item.row.title,
+        }}
+        actionPort={pageActionPort}
+        deleteDisabled={model.readOnlyReason !== null}
         propertyBindings={model.query.properties.map((property) =>
           createDatabaseListPropertyEditorBinding(property, authority, propertyRuntime)
         )}
-        onOpen={() => onOpenPage(item.pageId, item.row.title)}
-        onSelectOnly={() => updateSelection((current) => selectDatabaseListOccurrence({
-          state: current,
-          rows: projection,
-          occurrenceKey: item.key,
-          mode: "replace",
-        }))}
-        onToggleSelection={() => updateSelection((current) => selectDatabaseListOccurrence({
-          state: current,
-          rows: projection,
-          occurrenceKey: item.key,
-          mode: "toggle",
-        }))}
         onMove={(direction) => movePages([item.pageId], direction)}
       >
         {row}
-      </DatabaseListRowContextMenu>
+      </DatabaseViewPageContextMenu>
     );
   };
 

@@ -26,7 +26,8 @@ import type {
 import type {
   DataSourcePropertyRecordV2,
 } from "../../../../shared/database-module-v2";
-import { DatabaseListRowContextMenu } from "../database-list/database-list-row-context-menu";
+import { DatabaseViewPageContextMenu } from "../database-view-page-context-menu";
+import type { DatabaseViewPageActionPort } from "../database-view-page-actions";
 import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
 import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
 import {
@@ -64,6 +65,7 @@ export interface DatabaseBoardCardProps {
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
   readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
+  readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onSetValue: (
     pageId: string,
     propertyId: string,
@@ -128,7 +130,6 @@ export interface DatabaseBoardCardProps {
   readonly presented: boolean;
   readonly selected: boolean;
   readonly onHighlight: (pageId: string) => void;
-  readonly onSelectOnly: (pageId: string) => void;
   readonly onToggleSelection: (pageId: string) => void;
   readonly draggable: boolean;
   readonly pragmaticDragData: BoardCardDragData | null;
@@ -154,6 +155,7 @@ export function DatabaseBoardCard({
   canMoveUp,
   canMoveDown,
   onOpenPage,
+  pageActionPort,
   onSetValue,
   onSetStructuralValue,
   onPatchOptions,
@@ -175,7 +177,6 @@ export function DatabaseBoardCard({
   presented,
   selected,
   onHighlight,
-  onSelectOnly,
   onToggleSelection,
   draggable,
   pragmaticDragData,
@@ -452,22 +453,28 @@ export function DatabaseBoardCard({
     : null;
   return (
     <>
-      <DatabaseListRowContextMenu
-        selected={selected}
+      <DatabaseViewPageContextMenu
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
-        pageKey={row.pageKey}
+        page={{
+          libraryId: model.libraryId,
+          projectId: model.accessContext.kind === "project"
+            ? model.accessContext.projectId
+            : null,
+          pageId: row.pageId,
+          pageKey: row.pageKey,
+          titleSnapshot: title,
+        }}
+        actionPort={pageActionPort}
+        deleteDisabled={model.readOnlyReason !== null}
         propertyBindings={model.query.properties
           .filter((property) => property.lifecycle === "active")
           .map(propertyBinding)}
         groupingPropertyId={groupPropertyId}
-        onOpen={() => onOpenPage(row.pageId, title)}
-        onSelectOnly={() => onSelectOnly(row.pageId)}
-        onToggleSelection={() => onToggleSelection(row.pageId)}
         onMove={(direction) => onMove(row.pageId, direction)}
       >
         {card}
-      </DatabaseListRowContextMenu>
+      </DatabaseViewPageContextMenu>
       {dragPreview}
     </>
   );

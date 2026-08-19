@@ -548,11 +548,17 @@ export const ListPageKeyAction: Story = {
     );
     if (!row) throw new Error("Expected the keyed List row");
     fireEvent.contextMenu(row);
-    await waitFor(() => {
-      getByRole(canvasElement.ownerDocument.body, "menuitem", {
-        name: "Copy Page key",
-      });
-    });
+    const copyTrigger = await waitFor(() => getByRole(
+      canvasElement.ownerDocument.body,
+      "menuitem",
+      { name: "Copy" },
+    ));
+    fireEvent.pointerMove(copyTrigger, { pointerType: "mouse" });
+    await waitFor(() => getByRole(
+      canvasElement.ownerDocument.body,
+      "menuitem",
+      { name: "Copy ID" },
+    ));
   },
 };
 export const NestedListHierarchy: Story = {
