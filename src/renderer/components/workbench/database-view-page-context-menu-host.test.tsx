@@ -103,8 +103,11 @@ describe("DatabaseViewPageContextMenuHost", () => {
     const search = await view.findByRole("textbox", {
       name: "Search Page actions and properties",
     });
-    fireEvent.change(search, { target: { value: "copy" } });
-    expect((search as HTMLInputElement).value).toBe("copy");
+    await act(async () => {
+      fireEvent.change(search, { target: { value: "copy" } });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect((search as HTMLInputElement).value).toBe("copy"));
 
     await act(async () => {
       fireEvent.keyDown(search, { key: "Escape" });

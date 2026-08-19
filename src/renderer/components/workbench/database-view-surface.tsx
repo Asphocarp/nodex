@@ -28,7 +28,6 @@ import {
 import {
   buildDatabaseViewMovePageRunOperations,
   buildDatabaseViewPropertyValueOperations,
-  canMoveDatabaseViewPage,
   commitDatabaseViewOperations,
   DatabaseViewMutationError,
 } from "@/lib/database-view-row-mutations";
@@ -1250,7 +1249,7 @@ function BoardDatabaseViewSurface({
     accessContext: model.accessContext,
     property,
   });
-  const pageProps = (row: DatabaseViewRenderRow) => ({
+  const cardProps = (row: DatabaseViewRenderRow) => ({
     model: mutationModel,
     row,
     trailingFields: trailingBoardFields,
@@ -1260,18 +1259,6 @@ function BoardDatabaseViewSurface({
     showDescription: showBoardDescription,
     pendingMutationKeys,
     mutationErrors,
-    canMoveUp: canMoveDatabaseViewPage({
-      model: mutationModel,
-      pageId: row.pageId,
-      direction: "up",
-      groupComplete: isPageRunGroupComplete([row.pageId]),
-    }),
-    canMoveDown: canMoveDatabaseViewPage({
-      model: mutationModel,
-      pageId: row.pageId,
-      direction: "down",
-      groupComplete: isPageRunGroupComplete([row.pageId]),
-    }),
     onOpenPage,
     pageActionPort,
     onSetValue: setValue,
@@ -1369,7 +1356,11 @@ function BoardDatabaseViewSurface({
     <DatabaseViewPageContextMenuHost
       resolveSession={(targetKey) => {
         const row = allRows.find((candidate) => candidate.pageId === targetKey);
-        return row ? createDatabaseBoardPageMenuSession(pageProps(row)) : null;
+        return row
+          ? createDatabaseBoardPageMenuSession(cardProps(row), {
+              groupComplete: isPageRunGroupComplete([row.pageId]),
+            })
+          : null;
       }}
     >
     <div
@@ -1771,7 +1762,7 @@ function BoardDatabaseViewSurface({
                                     label={dropIndicator?.label}
                                   />
                                 ) : null}
-                                <DatabaseBoardCard {...pageProps(row)} />
+                                <DatabaseBoardCard {...cardProps(row)} />
                               </div>
                             ))}
                             {dropIndicator?.exactSlot && indicatorPlacement.atEnd ? (

@@ -4,6 +4,7 @@ import {
   forwardRef,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentPropsWithoutRef,
@@ -215,7 +216,9 @@ export function NodexContextMenuSubmenu({
   const [open, setOpen] = useState(false);
   const idRef = useRef(Symbol("nodex-context-submenu"));
   const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
+  useLayoutEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
   const registrationRef = useRef<ContextMenuSubmenuRegistration>(null);
   if (!registrationRef.current) {
     registrationRef.current = {
