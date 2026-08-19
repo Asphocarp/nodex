@@ -77,7 +77,7 @@ describe("page prompt context", () => {
 
     try {
       const materialized = await materializePreparedPageDocument({
-        projectId: "project-a",
+        accessContext: { kind: "project", projectId: "project-a" },
         descriptor: descriptor(),
         createRuntime: () => runtime,
         createAdapter: () => ({} as DocumentSyncAdapter),
@@ -111,7 +111,7 @@ describe("page prompt context", () => {
 
     try {
       await expect(materializePreparedPageDocument({
-        projectId: "project-a",
+        accessContext: { kind: "project", projectId: "project-a" },
         descriptor: descriptor(),
         createRuntime: () => runtime,
         createAdapter: () => ({} as DocumentSyncAdapter),

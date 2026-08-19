@@ -61,8 +61,9 @@ positions as disabled rows. `Copy` contains `Copy ID` whenever a current Page
 key exists, plus `Copy deeplink`, `Copy title`, and `Copy content as Markdown`.
 `Copy ID` copies only the user-facing Page key and never falls back to UUID;
 `Copy deeplink` remains the distinct UUID-based action. Markdown copy reads the
-canonical owned Page Document rather than a visible View projection. `Open in`
-contains `Open in new session` and `Send to chat…`.
+canonical owned Page Document through the View's current Library or Project
+access context rather than a visible View projection. `Open in` contains `Open
+in new session` and `Send to chat…`.
 
 The Page context menu also exposes a bounded, schema-driven Property section.
 The current writable Board grouping Property appears first, followed by exact

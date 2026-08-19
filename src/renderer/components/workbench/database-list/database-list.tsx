@@ -1724,6 +1724,7 @@ export function DatabaseList({
         canMoveDown={canMoveDown}
         page={{
           libraryId: model.libraryId,
+          accessContext: model.accessContext,
           projectId: model.accessContext.kind === "project"
             ? model.accessContext.projectId
             : null,

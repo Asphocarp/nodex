@@ -45,18 +45,20 @@ vi.mock("@/components/board/editor/nfm-send-to-thread-menu", () => ({
 
 const page = {
   libraryId: "library-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   projectId: "project-1",
   pageId: "page-1",
   pageKey: "LAB-13",
   titleSnapshot: "Release plan",
 } as const;
 
-function renderMenu(actionPort: Parameters<
-  typeof DatabaseViewPageContextMenu
->[0]["actionPort"] = {}) {
+function renderMenu(
+  actionPort: Parameters<typeof DatabaseViewPageContextMenu>[0]["actionPort"] = {},
+  pageTarget: Parameters<typeof DatabaseViewPageContextMenu>[0]["page"] = page,
+) {
   return render(
     <DatabaseViewPageContextMenu
-      page={page}
+      page={pageTarget}
       canMoveUp
       canMoveDown
       propertyBindings={[]}
@@ -130,10 +132,34 @@ describe("DatabaseViewPageContextMenu", () => {
       name: "Copy content as Markdown",
     }));
     await waitFor(() => expect(mocks.loadPageDocumentMaterialization).toHaveBeenCalledWith({
-      projectId: "project-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       pageId: "page-1",
     }));
     expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("# Release\n\nShip it");
+  });
+
+  test("copies canonical Markdown through library access", async () => {
+    const screen = renderMenu({}, {
+      ...page,
+      accessContext: { kind: "library" },
+      projectId: null,
+    });
+
+    await openMenu(screen);
+    await openSubmenu(screen, "Copy");
+    const copyMarkdown = await screen.findByRole("menuitem", {
+      name: "Copy content as Markdown",
+    });
+    expect(copyMarkdown.getAttribute("aria-disabled")).not.toBe("true");
+    fireEvent.click(copyMarkdown);
+
+    await waitFor(() => expect(mocks.loadPageDocumentMaterialization).toHaveBeenCalledWith({
+      accessContext: { kind: "library" },
+      pageId: "page-1",
+    }));
+    await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith(
+      "# Release\n\nShip it",
+    ));
   });
 
   test("reports clipboard failure through the shared toast surface", async () => {

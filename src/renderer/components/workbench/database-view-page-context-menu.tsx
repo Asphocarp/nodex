@@ -271,7 +271,7 @@ export function DatabaseViewPageContextMenu({
       hasPageKey: Boolean(page.pageKey),
       canMoveUp,
       canMoveDown,
-      canCopyMarkdown: Boolean(page.projectId),
+      canCopyMarkdown: true,
       canOpenInNewSession: Boolean(page.projectId && actionPort.openInNewSession),
       canSendToChat: Boolean(page.projectId && actionPort.sendToChat),
       canDelete: Boolean(actionPort.deletePage) && !deleteDisabled,
@@ -333,9 +333,9 @@ export function DatabaseViewPageContextMenu({
       );
       return;
     }
-    if (actionId === "copy-markdown" && page.projectId) {
+    if (actionId === "copy-markdown") {
       void loadPageDocumentMaterialization({
-        projectId: page.projectId,
+        accessContext: page.accessContext,
         pageId: page.pageId,
       }).then((materialized) => copyWithFeedback(
         materialized.nfm,
