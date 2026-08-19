@@ -11,7 +11,6 @@ import {
 } from "react";
 import {
   type DatabaseViewLayout,
-  type DatabaseViewPresentationConfig,
   type EffectiveDatabaseViewPresentation,
   type DatabaseJsonValue,
   type DatabasePropertyOption,
@@ -214,25 +213,6 @@ const searchablePropertyValues = (
     .join(" ");
 };
 
-const displayedProperties = (
-  model: DatabaseViewRenderModel,
-  layout: DatabaseViewLayout,
-  presentation: DatabaseViewPresentationConfig,
-): readonly DataSourcePropertyRecordV2[] => {
-  const propertyById = new Map<string, DataSourcePropertyRecordV2>(
-    model.query.properties
-      .filter((property) => property.lifecycle === "active")
-      .map((property) => [property.propertyId, property]),
-  );
-  return presentation.layouts[layout].fields.flatMap(
-    (field) => {
-      if (field.kind !== "property") return [];
-      const property = propertyById.get(field.propertyId);
-      return property ? [property] : [];
-    },
-  );
-};
-
 export const databaseViewMutationErrorMessage = (
   error: unknown,
   pageMutation: boolean,
@@ -433,10 +413,7 @@ function BoardDatabaseViewSurface({
     () => compilePageCollectionSearchQuery(deferredSearchQuery),
     [deferredSearchQuery],
   );
-  const trailingBoardProperties = useMemo(
-    () => displayedProperties(model, "board", presentation),
-    [model, presentation],
-  );
+  const trailingBoardFields = presentation.layouts.board.fields;
   const showBoardPageKey = presentation.layouts.board.fields.some(
     (field) => field.kind === "intrinsic" && field.field === "page_key",
   );
@@ -1268,7 +1245,7 @@ function BoardDatabaseViewSurface({
   const pageProps = (row: DatabaseViewRenderRow) => ({
     model: mutationModel,
     row,
-    trailingProperties: trailingBoardProperties,
+    trailingFields: trailingBoardFields,
     groupPropertyId,
     subgroupPropertyId,
     showPageKey: showBoardPageKey,

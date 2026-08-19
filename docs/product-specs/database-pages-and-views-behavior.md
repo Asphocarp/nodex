@@ -109,7 +109,17 @@ column controls, Page menus, and keyboard behavior. Grouping changes column and
 swimlane membership, markers, labels, and semantic tone; it never selects a
 different Card presenter. Grouping and subgrouping Properties are structural and
 do not repeat in the Card body, while other displayed empty Properties do not
-occupy visual rows. Column headers remain opaque and sticky while the Board
+occupy visual rows. Displayed Card values use the same dense Property-chip
+grammar as List values and wrap within the Card; multi-select values remain
+individually readable, while Priority uses an icon-only closed trigger with its
+current value retained in the accessible name and picker. Dense chips use an
+opaque host-surface background at rest; direct hover strengthens their
+token-derived background, border, and text without changing the surrounding
+Card. Due date uses a state-aware calendar mark, adding an overdue indicator
+when needed. Configured Created and Updated fields preserve their relative
+display order in one quiet, borderless footer row below all Property chips; the
+Page key keeps its dedicated identity line above the title. Column headers remain
+opaque and sticky while the Board
 scrolls; Page and Block drags show the canonical insertion indicator before a
 drop. A collapsed target keeps its compact rail, highlights only that target,
 and puts its horizontal drop boundary below the complete collapsed header.

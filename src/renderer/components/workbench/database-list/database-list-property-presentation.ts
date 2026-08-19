@@ -7,8 +7,6 @@ import {
 } from "../../../../shared/workflow-status";
 
 export const DATABASE_LIST_MUTED_ICON_COLOR = "var(--database-list-icon-muted)";
-export const DATABASE_LIST_DUE_NOW_ICON_COLOR = "lch(58% 73 29)";
-export const DATABASE_LIST_DUE_FUTURE_ICON_COLOR = "lch(66% 80 48)";
 
 export const databaseListGroupLabel = (
   propertyId: string | undefined,
@@ -23,36 +21,6 @@ export const databaseListGroupLabel = (
   if (key === "true") return "Yes";
   if (key === "false") return "No";
   return key;
-};
-
-const calendarDateStamp = (value: string): number | null => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const candidate = new Date(Date.UTC(year, month - 1, day));
-  if (
-    candidate.getUTCFullYear() !== year
-    || candidate.getUTCMonth() !== month - 1
-    || candidate.getUTCDate() !== day
-  ) return null;
-  return year * 10_000 + month * 100 + day;
-};
-
-export const databaseListDueDateIconColor = (
-  value: DatabaseJsonValue | undefined,
-  today = new Date(),
-): string => {
-  if (typeof value !== "string") return DATABASE_LIST_MUTED_ICON_COLOR;
-  const dueStamp = calendarDateStamp(value);
-  if (dueStamp === null) return DATABASE_LIST_MUTED_ICON_COLOR;
-  const todayStamp = today.getFullYear() * 10_000
-    + (today.getMonth() + 1) * 100
-    + today.getDate();
-  return dueStamp <= todayStamp
-    ? DATABASE_LIST_DUE_NOW_ICON_COLOR
-    : DATABASE_LIST_DUE_FUTURE_ICON_COLOR;
 };
 
 export const databaseListPropertyHasValue = (

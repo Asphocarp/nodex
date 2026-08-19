@@ -1993,10 +1993,18 @@ export function SmallChevronDownIcon({ className }: IconProps) {
   );
 }
 
-export function ClockIcon({ className }: IconProps) {
+export function ClockIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
-      <path d="M8.4 2.1a6.3 6.3 0 1 1 0 12.6 6.3 6.3 0 0 1 0-12.6Zm0 1.575a4.725 4.725 0 1 0 0 9.45 4.725 4.725 0 0 0 0-9.45Zm.788.787v3.443l2.55 1.53-.81 1.352-3.315-1.99V4.462h1.575Z" fill="currentColor" />
+    <svg
+      {...props}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={cn("shrink-0", className ?? "icon-xs")}
+      aria-hidden="true"
+    >
+      <path d="M8 1C11.866 1 15 4.13401 15 8C15 11.866 11.866 15 8 15C4.13401 15 1 11.866 1 8C1 4.13401 4.13401 1 8 1ZM8 2.5C4.96243 2.5 2.5 4.96243 2.5 8C2.5 11.0376 4.96243 13.5 8 13.5C11.0376 13.5 13.5 11.0376 13.5 8C13.5 4.96243 11.0376 2.5 8 2.5ZM8.75 4.75V7.5752L10.8857 8.85645C11.2409 9.06962 11.3561 9.53034 11.1426 9.88574C10.9294 10.2406 10.4694 10.3552 10.1143 10.1426L7.61426 8.64258C7.38835 8.50694 7.25 8.2629 7.25 8V4.75C7.25 4.33579 7.58579 4 8 4C8.41421 4 8.75 4.33579 8.75 4.75Z" />
     </svg>
   );
 }
@@ -2538,12 +2546,20 @@ export function StatusIcon({ className }: IconProps) {
   );
 }
 
-export function CalendarIcon({ className }: IconProps) {
+const CALENDAR_ICON_PATH = "M11 1C13.2091 1 15 2.79086 15 5V11C15 13.2091 13.2091 15 11 15H5C2.79086 15 1 13.2091 1 11V5C1 2.79086 2.79086 1 5 1H11ZM13.5 6H2.5V11C2.5 12.3807 3.61929 13.5 5 13.5H11C12.3807 13.5 13.5 12.3807 13.5 11V6Z";
+
+export function CalendarIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M8 2V6M16 2V6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-      <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.75" />
-      <path d="M3 10H21" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      {...props}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      className={cn("shrink-0", className ?? "icon-xs")}
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d={CALENDAR_ICON_PATH} />
     </svg>
   );
 }

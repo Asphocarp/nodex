@@ -7,6 +7,8 @@ import {
 } from "react";
 import { NodexCheckbox } from "@/components/ui/settings";
 import { cn } from "@/lib/utils";
+import { dataSourcePropertyIcon } from "./data-source-property-presentation";
+import { DueDateValueIcon } from "./due-date-value-icon";
 import {
   createCustomOptionId,
   isCustomDataSourcePropertyId,
@@ -28,7 +30,10 @@ import { SemanticSelectPropertyEditor } from "./semantic-property-editors";
 import { DatePropertyEditor } from "./date-property-editor";
 import type { DataSourcePropertyEditorBinding } from "./data-source-property-editor-binding";
 import { PROPERTY_EMPTY_VALUE_LABEL } from "./property-empty-value";
-import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
+import {
+  DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
+  type DatabasePropertyValuePresentation,
+} from "./property-value-chip";
 
 const valueInputClass = cn(
   "h-6 min-w-0 rounded-md border border-transparent bg-transparent",
@@ -47,9 +52,9 @@ interface ScalarPropertyEditorProps {
   readonly value: string;
   readonly revision: number;
   readonly disabled: boolean;
-  readonly presentation: "compact" | "page" | "list";
+  readonly presentation: DatabasePropertyValuePresentation;
   readonly kind: "text" | "number";
-  readonly listIcon?: ReactNode;
+  readonly triggerIcon?: ReactNode;
   readonly onChange: (value: DatabaseJsonValue) => void;
 }
 
@@ -60,7 +65,7 @@ function ScalarPropertyEditor({
   disabled,
   presentation,
   kind,
-  listIcon,
+  triggerIcon,
   onChange,
 }: ScalarPropertyEditorProps) {
   const [draft, setDraft] = useState(value);
@@ -97,19 +102,14 @@ function ScalarPropertyEditor({
     onChange(parsed);
   };
 
-  return (
-    <span className={cn(
-      "inline-flex min-w-0",
-      presentation === "list"
-        ? DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
-        : "flex-col",
-    )}>
-      {presentation === "list" ? listIcon : null}
-      <input
+  const dense = presentation === "list" || presentation === "board";
+  const input = (
+    <input
         type="text"
         inputMode={kind === "number" ? "decimal" : "text"}
         aria-label={`${label} value`}
         aria-invalid={error !== null}
+        size={presentation === "board" ? Math.max(1, Math.min(draft.length, 18)) : undefined}
         value={draft}
         disabled={disabled}
         placeholder={PROPERTY_EMPTY_VALUE_LABEL}
@@ -136,10 +136,21 @@ function ScalarPropertyEditor({
             // borderless Page Property triggers such as Tags and Due date.
             ? "w-full max-w-72 px-[3px] text-sm"
             : presentation === "list"
-              ? "h-full min-w-0 max-w-40 flex-1 border-0 bg-transparent p-0 text-xs text-[var(--database-list-text-muted)] hover:bg-transparent focus:bg-transparent focus:ring-0"
+              ? "h-full min-w-0 max-w-40 flex-1 border-0 bg-transparent p-0 text-xs text-[var(--database-property-chip-current-text,var(--database-property-chip-text))] hover:bg-transparent focus:bg-transparent focus:ring-0"
+              : presentation === "board"
+                ? "h-full min-w-[2ch] max-w-40 flex-none border-0 bg-transparent p-0 text-xs text-[var(--database-property-chip-current-text,var(--database-property-chip-text))] hover:bg-transparent focus:bg-transparent focus:ring-0"
               : "w-32 px-1.5 text-[11px]",
         )}
-      />
+    />
+  );
+  return (
+    <span className="inline-flex min-w-0 flex-col items-start">
+      {dense ? (
+        <span className={DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME}>
+          {triggerIcon}
+          {input}
+        </span>
+      ) : input}
       {error ? <span role="alert" className="px-1.5 text-xs text-token-error-foreground">{error}</span> : null}
     </span>
   );
@@ -148,8 +159,8 @@ function ScalarPropertyEditor({
 export interface DataSourcePropertyValueEditorProps
   extends DataSourcePropertyEditorBinding {
   readonly showLabel?: boolean;
-  readonly presentation?: "compact" | "page" | "list";
-  readonly listIcon?: ReactNode;
+  readonly presentation?: DatabasePropertyValuePresentation;
+  readonly triggerIcon?: ReactNode;
   readonly optionPickerHost?: PropertyOptionPickerHost;
   readonly optionPickerTrigger?: ReactElement;
   readonly onOptionPickerCommit?: () => void;
@@ -165,7 +176,7 @@ export function DataSourcePropertyValueEditor({
   pending = false,
   showLabel = true,
   presentation = "compact",
-  listIcon,
+  triggerIcon,
   optionPickerHost,
   optionPickerTrigger,
   onOptionPickerCommit,
@@ -191,6 +202,15 @@ export function DataSourcePropertyValueEditor({
   onRelationValueStale,
 }: DataSourcePropertyValueEditorProps) {
   const role = resolveDataSourcePropertyPresentationRole(property);
+  const PropertyIcon = dataSourcePropertyIcon(property);
+  const boardIcon = presentation !== "board"
+    ? undefined
+    : role.kind === "due_date" || role.kind === "schedule_boundary"
+      ? <DueDateValueIcon value={value} />
+      : PropertyIcon
+        ? <PropertyIcon className="size-3.5 shrink-0 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]" />
+        : undefined;
+  const valueTriggerIcon = presentation === "board" ? boardIcon : triggerIcon;
   const createOption = onCreateOption
     ? (name: string) => {
         const optionId = createCustomOptionId();
@@ -244,13 +264,31 @@ export function DataSourcePropertyValueEditor({
         onValueStale={onRelationValueStale}
         showLabel={showLabel}
         presentation={presentation}
-        triggerIcon={listIcon}
+        triggerIcon={valueTriggerIcon}
         host={overlayHost}
         onRequestClose={onOverlayRequestClose}
       />
     );
   }
   if (property.valueType === "checkbox") {
+    if (presentation === "board") {
+      const checked = value === true;
+      return (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={checked}
+          aria-label={`${property.name} value: ${checked ? "Yes" : "No"}`}
+          title={`${property.name}: ${checked ? "Yes" : "No"}`}
+          disabled={disabled || pending}
+          onClick={() => onChange(!checked)}
+          className={DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME}
+        >
+          {boardIcon}
+          <span>{checked ? "Yes" : "No"}</span>
+        </button>
+      );
+    }
     return (
       <span className="inline-flex min-w-0 items-center gap-1">
         {label}
@@ -282,7 +320,7 @@ export function DataSourcePropertyValueEditor({
         disabled={disabled}
         pending={pending}
         presentation={presentation}
-        triggerPrefix={presentation === "list" ? listIcon : undefined}
+        triggerPrefix={presentation === "list" ? triggerIcon : presentation === "board" ? boardIcon : undefined}
         triggerButton={optionPickerTrigger}
         onRequestOptions={onRequestOptions}
         hasMore={optionRegistryHasMore}
@@ -301,7 +339,7 @@ export function DataSourcePropertyValueEditor({
         disabled={disabled}
         pending={pending}
         presentation={presentation}
-        triggerPrefix={presentation === "list" ? listIcon : undefined}
+        triggerPrefix={presentation === "list" ? triggerIcon : undefined}
         triggerButton={optionPickerTrigger}
         registryError={optionRegistryState === "error"}
         loading={optionRegistryState === "idle" || optionRegistryState === "loading"}
@@ -354,7 +392,7 @@ export function DataSourcePropertyValueEditor({
           disabled={disabled}
           pending={pending}
           presentation={presentation}
-          triggerPrefix={presentation === "list" ? listIcon : undefined}
+          triggerPrefix={presentation === "list" ? triggerIcon : undefined}
           triggerButton={optionPickerTrigger}
           onCommit={onOptionPickerCommit}
           allowCreate={
@@ -384,7 +422,7 @@ export function DataSourcePropertyValueEditor({
         revision={revision}
         disabled={disabled || pending}
         presentation={presentation}
-        triggerIcon={presentation === "list" ? listIcon : undefined}
+        triggerIcon={presentation === "list" || presentation === "board" ? valueTriggerIcon : undefined}
         host={overlayHost}
         onRequestClose={onOverlayRequestClose}
         onChange={onChange}
@@ -409,7 +447,7 @@ export function DataSourcePropertyValueEditor({
           disabled={disabled || pending}
           presentation={presentation}
           kind={property.valueType}
-          listIcon={presentation === "list" ? listIcon : undefined}
+          triggerIcon={presentation === "list" || presentation === "board" ? valueTriggerIcon : undefined}
           onChange={onChange}
         />
       </span>

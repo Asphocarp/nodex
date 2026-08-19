@@ -20,7 +20,10 @@ import {
 import { foldDataSourceRelationSearchText } from "@/lib/data-source-relation-runtime";
 import { cn } from "@/lib/utils";
 import { PropertyEmptyValue } from "./property-empty-value";
-import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
+import {
+  DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
+  type DatabasePropertyValuePresentation,
+} from "./property-value-chip";
 import {
   configuredPageSearchProjectIds,
   useInteractivePageSearch,
@@ -120,7 +123,7 @@ export function RelationPropertyEditor({
   readonly onOpenPage?: (pageId: string, title: string) => void;
   readonly onValueStale?: () => void;
   readonly showLabel?: boolean;
-  readonly presentation?: "compact" | "page" | "list";
+  readonly presentation?: DatabasePropertyValuePresentation;
   readonly triggerIcon?: ReactNode;
   readonly host?: RelationPropertyEditorHost;
   readonly onRequestClose?: () => void;
@@ -445,18 +448,21 @@ export function RelationPropertyEditor({
               "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
               presentation === "page"
                 ? "text-sm"
-                : presentation === "list"
-                  ? DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+                : presentation === "list" || presentation === "board"
+                  ? DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME
                   : "text-[11px]",
             )}
           >
-            {presentation === "list" && preview.totalCount > 0 ? triggerIcon : null}
+            {(presentation === "list" || presentation === "board") && preview.totalCount > 0 ? triggerIcon : null}
             {visibleTargets.slice(0, 3).map((target) => (
               <span key={target.pageId} className={cn(
-                "inline-flex min-w-0 max-w-36 items-center gap-1 text-token-text-secondary",
-                presentation !== "list" && "h-5.5 rounded-md bg-token-foreground/8 px-1.5",
+                "inline-flex min-w-0 max-w-36 items-center gap-1",
+                presentation === "list" || presentation === "board"
+                  ? "text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]"
+                  : "text-token-text-secondary",
+                presentation !== "list" && presentation !== "board" && "h-5.5 rounded-md bg-token-foreground/8 px-1.5",
               )}>
-                {presentation !== "list" ? <PageIcon className="icon-2xs shrink-0" /> : null}
+                {presentation !== "list" && presentation !== "board" ? <PageIcon className="icon-2xs shrink-0" /> : null}
                 <span className="truncate">{target.title || "Untitled"}</span>
               </span>
             ))}
@@ -473,7 +479,7 @@ export function RelationPropertyEditor({
             ) : preview.totalCount === 0 ? (
               <PropertyEmptyValue />
             ) : null}
-            {preview.totalCount > 0 && presentation !== "list" ? (
+            {preview.totalCount > 0 && presentation !== "list" && presentation !== "board" ? (
               <PlusIcon className="icon-2xs shrink-0 text-token-description-foreground" />
             ) : null}
           </button>

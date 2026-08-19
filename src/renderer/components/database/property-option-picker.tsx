@@ -36,10 +36,11 @@ import {
   PropertyEmptyValue,
 } from "./property-empty-value";
 import {
-  DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME,
-  databasePropertyListOptionDotColor,
+  DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
+  DATABASE_PROPERTY_VALUE_ICON_CHIP_CLASS_NAME,
+  databasePropertyOptionDotColor,
   useDatabasePropertyListInlineLabelLimit,
-} from "./property-list-chip";
+} from "./property-value-chip";
 
 export type PropertyOptionPickerMode = "single" | "multiple";
 export type PropertyOptionPickerHost = "popover" | "context-menu";
@@ -63,9 +64,10 @@ export interface PropertyOptionPickerProps {
   readonly loadingMore?: boolean;
   readonly registryError?: boolean;
   readonly hasMore?: boolean;
-  readonly presentation?: "compact" | "page" | "chip" | "list";
+  readonly presentation?: "compact" | "page" | "chip" | "list" | "board";
   readonly triggerButton?: ReactElement;
   readonly triggerPrefix?: ReactNode;
+  readonly triggerIconOnly?: boolean;
   readonly searchPlaceholder?: string;
   readonly searchLeading?: ReactNode;
   readonly contentClassName?: string;
@@ -106,7 +108,7 @@ export function PropertyOptionToken({
 
 const dedupe = (values: readonly string[]): readonly string[] => [...new Set(values)];
 
-function PropertyListOptionDot({
+function PropertyOptionDot({
   option,
   className,
   style,
@@ -120,10 +122,22 @@ function PropertyListOptionDot({
       aria-hidden="true"
       className={cn("size-[9px] shrink-0 rounded-full", className)}
       style={{
-        backgroundColor: databasePropertyListOptionDotColor(option.color, option.id),
+        backgroundColor: databasePropertyOptionDotColor(option.color, option.id),
         ...style,
       }}
     />
+  );
+}
+
+function PropertyOptionDotSlot({
+  option,
+}: {
+  readonly option: PresentedDataSourcePropertyOption;
+}) {
+  return (
+    <span aria-hidden="true" className="grid size-3.5 shrink-0 place-items-center">
+      <PropertyOptionDot option={option} />
+    </span>
   );
 }
 
@@ -140,10 +154,10 @@ function PropertyListMultipleDots({
       style={{ width: 9 + Math.max(0, visible.length - 1) * 4.5 }}
     >
       {visible.map((option, index) => (
-        <PropertyListOptionDot
+        <PropertyOptionDot
           key={option.id}
           option={option}
-          className="absolute top-0 ring-1 ring-[var(--database-list-chip-background)]"
+          className="absolute top-0 ring-1 ring-[var(--database-property-chip-surface)]"
           style={{ left: index * 4.5 }}
         />
       ))}
@@ -162,19 +176,36 @@ function PropertyListMultipleTrigger({
   return (
     <span className="flex h-6 min-w-0 max-w-full items-center gap-[3px] overflow-hidden">
       {inline.map((option) => (
-        <span key={option.id} className={DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME}>
-          <PropertyListOptionDot option={option} />
+        <span key={option.id} className={DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME}>
+          <PropertyOptionDotSlot option={option} />
           <span className="truncate">{option.name}</span>
         </span>
       ))}
       {hidden.length > 0 ? (
-        <span className={DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME}>
+        <span className={DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME}>
           <PropertyListMultipleDots options={hidden} />
           <span className="truncate">
             +{hidden.length} {hidden.length === 1 ? "label" : "labels"}
           </span>
         </span>
       ) : null}
+    </span>
+  );
+}
+
+function PropertyBoardMultipleTrigger({
+  options,
+}: {
+  readonly options: readonly PresentedDataSourcePropertyOption[];
+}) {
+  return (
+    <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
+      {options.map((option) => (
+        <span key={option.id} className={DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME}>
+          <PropertyOptionDotSlot option={option} />
+          <span className="truncate">{option.name}</span>
+        </span>
+      ))}
     </span>
   );
 }
@@ -253,6 +284,7 @@ export function PropertyOptionPicker({
   presentation = "compact",
   triggerButton,
   triggerPrefix,
+  triggerIconOnly = false,
   searchPlaceholder = "Search options…",
   searchLeading = <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />,
   contentClassName,
@@ -406,8 +438,27 @@ export function PropertyOptionPicker({
   const listMultipleTrigger = presentation === "list"
     && mode === "multiple"
     && presentedSelected.length > 0;
+  const boardMultipleTrigger = presentation === "board"
+    && mode === "multiple"
+    && presentedSelected.length > 0;
+  const selectedNames = presentedSelected.map((option) => option.name);
+  const closedTriggerLabel = triggerAriaLabel
+    ?? `Edit ${label}${presentation === "board" && selectedNames.length > 0 ? `: ${selectedNames.join(", ")}` : ""}`;
   const triggerContent = listMultipleTrigger
     ? <PropertyListMultipleTrigger options={presentedSelected} />
+    : boardMultipleTrigger
+      ? <PropertyBoardMultipleTrigger options={presentedSelected} />
+      : presentation === "board"
+        ? presentedSelected.length > 0
+          ? triggerIconOnly
+            ? null
+            : (
+                <>
+                  {!triggerPrefix ? <PropertyOptionDotSlot option={presentedSelected[0]!} /> : null}
+                  <span className="max-w-44 truncate">{selectedNames.join(", ")}</span>
+                </>
+              )
+          : <PropertyEmptyValue />
     : presentation === "chip" || presentation === "list"
       ? (
         <span className="max-w-44 truncate">
@@ -420,7 +471,8 @@ export function PropertyOptionPicker({
   const defaultTrigger = (
     <button
       type="button"
-      aria-label={triggerAriaLabel ?? `Edit ${label}`}
+      aria-label={closedTriggerLabel}
+      title={presentation === "board" ? closedTriggerLabel : undefined}
       className={cn(
         "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
         "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
@@ -434,13 +486,19 @@ export function PropertyOptionPicker({
             : presentation === "list"
               ? listMultipleTrigger
                 ? "h-6 gap-[3px] overflow-hidden rounded-[48px] border-0 bg-transparent p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
-                : DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+                : DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME
+              : presentation === "board"
+                ? boardMultipleTrigger
+                  ? "inline-flex max-w-full flex-wrap gap-1 rounded-[48px] border-0 bg-transparent p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[var(--database-property-chip-focus)]"
+                  : triggerIconOnly
+                    ? DATABASE_PROPERTY_VALUE_ICON_CHIP_CLASS_NAME
+                    : DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME
               : "rounded-md px-1 text-[11px]",
       )}
     >
-      {listMultipleTrigger ? null : triggerPrefix}
+      {listMultipleTrigger || boardMultipleTrigger ? null : triggerPrefix}
       {triggerContent}
-      {presentation !== "chip" && presentation !== "list" && mode === "multiple" && presentedSelected.length > 0 ? (
+      {presentation !== "chip" && presentation !== "list" && presentation !== "board" && mode === "multiple" && presentedSelected.length > 0 ? (
         <span className="ml-1 inline-flex shrink-0 items-center gap-0.5 text-token-description-foreground">
           <PlusIcon className="icon-2xs" />
         </span>

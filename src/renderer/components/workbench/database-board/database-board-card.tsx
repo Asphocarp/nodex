@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import type {
   DatabaseJsonValue,
   DatabasePropertyOption,
+  DatabaseViewField,
 } from "../../../../shared/database-kernel";
 import type {
   DataSourcePropertyRecordV2,
@@ -28,7 +29,10 @@ import type {
 import { DatabaseListRowContextMenu } from "../database-list/database-list-row-context-menu";
 import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
 import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
-import { projectDatabaseBoardCardProperties } from "./database-board-model";
+import {
+  formatDatabaseBoardMetadataTimestamp,
+  projectDatabaseBoardCardFooter,
+} from "./database-board-model";
 
 const DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR = [
   "button",
@@ -50,7 +54,7 @@ const DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR = [
 export interface DatabaseBoardCardProps {
   readonly model: DatabaseViewRenderModel;
   readonly row: DatabaseViewRenderRow;
-  readonly trailingProperties: readonly DataSourcePropertyRecordV2[];
+  readonly trailingFields: readonly DatabaseViewField[];
   readonly groupPropertyId: string | null;
   readonly subgroupPropertyId: string | null;
   readonly showPageKey: boolean;
@@ -140,7 +144,7 @@ export interface DatabaseBoardCardProps {
 export function DatabaseBoardCard({
   model,
   row,
-  trailingProperties,
+  trailingFields,
   groupPropertyId,
   subgroupPropertyId,
   showPageKey,
@@ -189,12 +193,15 @@ export function DatabaseBoardCard({
   );
   if (!authority) return null;
   const description = row.preview.trim();
-  const compactProperties = projectDatabaseBoardCardProperties({
+  const footerSlots = projectDatabaseBoardCardFooter({
     authority,
-    displayedProperties: trailingProperties,
+    displayedFields: trailingFields,
+    properties: model.query.properties,
     groupPropertyId,
     subgroupPropertyId,
   });
+  const propertySlots = footerSlots.filter((slot) => slot.kind === "property");
+  const metadataSlots = footerSlots.filter((slot) => slot.kind === "metadata");
   const propertyBinding = (property: DataSourcePropertyRecordV2) => {
     const current = authority.values[property.propertyId];
     const structural = property.propertyId === groupPropertyId
@@ -356,21 +363,60 @@ export function DatabaseBoardCard({
           {description}
         </p>
       ) : null}
-      {compactProperties.length > 0 ? (
-        <div className="mx-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 pb-2">
-          {compactProperties.map(({ property }) => {
-            const binding = propertyBinding(property);
-            return (
-              <div
-                key={property.propertyId}
-                data-database-view-property-id={property.propertyId}
-                className="min-w-0 shrink-0"
-              >
-                <DataSourcePropertyValueEditor {...binding} showLabel={false} />
-                {binding.error ? <PropertyEditorFeedback message={binding.error} /> : null}
-              </div>
-            );
-          })}
+      {footerSlots.length > 0 ? (
+        <div className={cn(
+          "mx-2 min-w-0 pb-2",
+          "[--database-property-chip-border:var(--color-token-border)]",
+          "[--database-property-chip-background:var(--card)]",
+          "[--database-property-chip-hover-background:color-mix(in_srgb,var(--color-token-foreground)_5%,var(--card))]",
+          "[--database-property-chip-hover-border:var(--color-token-border-heavy)]",
+          "[--database-property-chip-hover-text:var(--color-token-text-primary)]",
+          "[--database-property-chip-surface:var(--card)]",
+          "[--database-property-icon-muted:var(--color-token-description-foreground)]",
+          "[--database-property-chip-text:var(--color-token-text-secondary)]",
+          "[--database-property-chip-focus:var(--color-token-focus-border)]",
+        )}>
+          {propertySlots.length > 0 ? (
+            <div data-database-board-property-row="true" className="flex min-w-0 flex-wrap items-center gap-1">
+              {propertySlots.map((slot) => {
+                const binding = propertyBinding(slot.property);
+                return (
+                  <div
+                    key={slot.property.propertyId}
+                    data-database-view-property-id={slot.property.propertyId}
+                    className="min-w-0 max-w-full shrink-0"
+                  >
+                    <DataSourcePropertyValueEditor
+                      {...binding}
+                      showLabel={false}
+                      presentation="board"
+                    />
+                    {binding.error ? <PropertyEditorFeedback message={binding.error} /> : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          {metadataSlots.length > 0 ? (
+            <div className={cn(
+              "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1",
+              propertySlots.length > 0 && "mt-1",
+            )} data-database-board-metadata-row="true">
+              {metadataSlots.map((slot) => (
+                <span
+                  key={`intrinsic:${slot.field}`}
+                  data-database-board-metadata={slot.field}
+                  title={new Intl.DateTimeFormat(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  }).format(new Date(slot.value))}
+                  className="inline-flex h-6 min-h-6 items-center px-0.5 text-xs/4 [font-weight:450] text-(--color-token-text-secondary)"
+                >
+                  {formatDatabaseBoardMetadataTimestamp(slot.field, slot.value)}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {mutationErrors.get(`page:${row.pageId}`) ? (

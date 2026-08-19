@@ -1,50 +1,32 @@
 import { useSyncExternalStore } from "react";
 
-export const DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME = [
+export type DatabasePropertyValuePresentation = "compact" | "page" | "list" | "board";
+
+/** Dense chips keep their host surface opaque and strengthen on direct hover. */
+export const DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME = [
   "inline-flex h-6 min-h-6 max-w-[290px] items-center gap-1.5 overflow-hidden rounded-[48px] border-[0.5px]",
-  "border-[var(--database-list-chip-border)] bg-[var(--database-list-chip-background)] px-2",
-  "text-xs/4 [font-weight:450] text-[var(--database-list-text-muted)]",
-  "hover:bg-[var(--database-list-chip-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]",
+  "border-[var(--database-property-chip-border)] bg-[var(--database-property-chip-background)] px-2",
+  "text-xs/4 [font-weight:450] text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]",
+  "outline-hidden hover:[--database-property-chip-current-text:var(--database-property-chip-hover-text)] hover:border-[var(--database-property-chip-hover-border)] hover:bg-[var(--database-property-chip-hover-background)] hover:text-[var(--database-property-chip-hover-text)] focus-visible:ring-1 focus-visible:ring-[var(--database-property-chip-focus)] disabled:opacity-50",
   "[&_svg]:size-3.5 [&_svg]:shrink-0",
 ].join(" ");
 
-const DATABASE_PROPERTY_LIST_OPTION_COLORS: Readonly<Record<string, string>> = {
-  gray: "#A4A4A6",
-  default: "#A4A4A6",
-  brown: "#B18869",
-  orange: "#F67E49",
-  yellow: "#F8C531",
-  green: "#77D677",
-  blue: "#56ABFD",
-  purple: "#BB87FC",
-  pink: "#F84DD0",
-  red: "#D04A52",
-  teal: "#4ADAD3",
-  cyan: "#4ADAD3",
+export const DATABASE_PROPERTY_VALUE_ICON_CHIP_CLASS_NAME = [
+  DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
+  "size-6 min-w-6 justify-center p-0",
+].join(" ");
+
+const DATABASE_PROPERTY_OPTION_COLORS: Readonly<Record<string, string>> = {
+  gray: "#A4A4A6", default: "#A4A4A6", brown: "#B18869", orange: "#F67E49",
+  yellow: "#F8C531", green: "#77D677", blue: "#56ABFD", purple: "#BB87FC",
+  pink: "#F84DD0", red: "#D04A52", teal: "#4ADAD3", cyan: "#4ADAD3",
 };
 
-const DATABASE_PROPERTY_LIST_OPTION_PALETTE = [
-  "#9A48FF",
-  "#56ABFD",
-  "#4BB449",
-  "#E15F28",
-  "#F67E49",
-  "#CC05FF",
-  "#17A6A4",
-  "#9A3A63",
-  "#F84DD0",
-  "#1D8AF2",
-  "#F8C531",
-  "#BB87FC",
-  "#D04A52",
-  "#831FFF",
-  "#D09808",
-  "#B18869",
-  "#77D677",
-  "#A44907",
-  "#4ADAD3",
-  "#E166FF",
-  "#96D71E",
+const DATABASE_PROPERTY_OPTION_PALETTE = [
+  "#9A48FF", "#56ABFD", "#4BB449", "#E15F28", "#F67E49", "#CC05FF",
+  "#17A6A4", "#9A3A63", "#F84DD0", "#1D8AF2", "#F8C531", "#BB87FC",
+  "#D04A52", "#831FFF", "#D09808", "#B18869", "#77D677", "#A44907",
+  "#4ADAD3", "#E166FF", "#96D71E",
 ] as const;
 
 const CSS_COLOR_FUNCTION_OR_HEX = /^(?:#|(?:rgb|hsl|hwb|lab|lch|oklab|oklch|color)\()/i;
@@ -55,20 +37,20 @@ const stablePaletteIndex = (identity: string): number => {
     hash ^= character.codePointAt(0) ?? 0;
     hash = Math.imul(hash, 16_777_619);
   }
-  return (hash >>> 0) % DATABASE_PROPERTY_LIST_OPTION_PALETTE.length;
+  return (hash >>> 0) % DATABASE_PROPERTY_OPTION_PALETTE.length;
 };
 
-export const databasePropertyListOptionDotColor = (
+export const databasePropertyOptionDotColor = (
   color: string | undefined,
   identity: string,
 ): string => {
   const normalized = color?.trim();
   if (normalized && CSS_COLOR_FUNCTION_OR_HEX.test(normalized)) return normalized;
   if (normalized) {
-    const mapped = DATABASE_PROPERTY_LIST_OPTION_COLORS[normalized.toLocaleLowerCase()];
+    const mapped = DATABASE_PROPERTY_OPTION_COLORS[normalized.toLocaleLowerCase()];
     if (mapped) return mapped;
   }
-  return DATABASE_PROPERTY_LIST_OPTION_PALETTE[stablePaletteIndex(identity)]!;
+  return DATABASE_PROPERTY_OPTION_PALETTE[stablePaletteIndex(identity)]!;
 };
 
 export const databasePropertyListInlineLabelLimit = (viewportWidth: number): number => {
@@ -102,5 +84,6 @@ const subscribeToViewport = (subscriber: () => void): (() => void) => {
 const currentInlineLabelLimit = (): number =>
   databasePropertyListInlineLabelLimit(window.innerWidth);
 
+/** List alone uses a viewport label budget; Board renders all values and wraps. */
 export const useDatabasePropertyListInlineLabelLimit = (): number =>
   useSyncExternalStore(subscribeToViewport, currentInlineLabelLimit, () => 4);

@@ -2,13 +2,14 @@ import type {
   DatabaseJsonValue,
   DatabasePropertyOption,
   DatabasePropertyValueType,
+  DatabaseViewField,
 } from "../../../../shared/database-kernel";
 import type {
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
 } from "../../../../shared/database-module-v2";
 import type { DatabaseViewRenderColumn } from "@/lib/database-view-render-model";
-import { databasePropertyListOptionDotColor } from "@/components/database/property-list-chip";
+import { databasePropertyOptionDotColor } from "@/components/database/property-value-chip";
 import { columnStyles } from "@/lib/status-presentation";
 
 export type DatabaseBoardMarker =
@@ -36,11 +37,18 @@ export interface DatabaseBoardGroupPresentation {
   readonly activeSurfaceColor: string;
 }
 
-export interface DatabaseBoardCardPropertySlot {
-  readonly property: DataSourcePropertyRecordV2;
-  readonly value: DatabaseJsonValue;
-  readonly revision: number;
-}
+export type DatabaseBoardCardFooterSlot =
+  | {
+      readonly kind: "property";
+      readonly property: DataSourcePropertyRecordV2;
+      readonly value: DatabaseJsonValue;
+      readonly revision: number;
+    }
+  | {
+      readonly kind: "metadata";
+      readonly field: "created_at" | "updated_at";
+      readonly value: string;
+    };
 
 const quietAccent = "var(--foreground-tertiary)";
 
@@ -166,7 +174,7 @@ export const projectDatabaseBoardGroup = ({
     || property.propertyId === "estimate";
   if (optionBacked && option) {
     const accentColor = semanticAccent(property.propertyId, groupKey)
-      ?? databasePropertyListOptionDotColor(option.color, option.id);
+      ?? databasePropertyOptionDotColor(option.color, option.id);
     return {
       pathKey,
       groupKey,
@@ -174,7 +182,7 @@ export const projectDatabaseBoardGroup = ({
       marker: {
         kind: "option",
         optionId: option.id,
-        color: databasePropertyListOptionDotColor(option.color, option.id),
+        color: databasePropertyOptionDotColor(option.color, option.id),
       },
       ...presentationColors(accentColor),
     };
@@ -202,26 +210,72 @@ export const databaseBoardValueIsVisible = (
   return true;
 };
 
-/** Card body projection: structural grouping fields and empty values vanish. */
-export const projectDatabaseBoardCardProperties = ({
+/**
+ * Projects the configured Board footer in field order. Structural properties,
+ * empty values, and the Page key (which has its own title-line presenter) vanish.
+ */
+export const projectDatabaseBoardCardFooter = ({
   authority,
-  displayedProperties,
+  displayedFields,
+  properties,
   groupPropertyId,
   subgroupPropertyId,
 }: {
   readonly authority: DataSourcePageRowV2;
-  readonly displayedProperties: readonly DataSourcePropertyRecordV2[];
+  readonly displayedFields: readonly DatabaseViewField[];
+  readonly properties: readonly DataSourcePropertyRecordV2[];
   readonly groupPropertyId: string | null;
   readonly subgroupPropertyId: string | null;
-}): readonly DatabaseBoardCardPropertySlot[] => displayedProperties.flatMap((property) => {
-  if (
-    property.propertyId === groupPropertyId
-    || property.propertyId === subgroupPropertyId
-  ) return [];
-  const current = authority.values[property.propertyId];
-  if (!current || !databaseBoardValueIsVisible(current.value)) return [];
-  return [{ property, value: current.value, revision: current.revision }];
-});
+}): readonly DatabaseBoardCardFooterSlot[] => {
+  const propertyById = new Map<string, DataSourcePropertyRecordV2>(
+    properties
+      .filter((property) => property.lifecycle === "active")
+      .map((property) => [property.propertyId, property] as const),
+  );
+  return displayedFields.flatMap((field): readonly DatabaseBoardCardFooterSlot[] => {
+    if (field.kind === "intrinsic") {
+      if (field.field === "page_key") return [];
+      return [{
+        kind: "metadata",
+        field: field.field,
+        value: field.field === "created_at"
+          ? authority.page.createdAt
+          : authority.page.updatedAt,
+      }];
+    }
+    const property = propertyById.get(field.propertyId);
+    if (!property) return [];
+    if (
+      property.propertyId === groupPropertyId
+      || property.propertyId === subgroupPropertyId
+    ) return [];
+    const current = authority.values[property.propertyId];
+    if (!current || !databaseBoardValueIsVisible(current.value)) return [];
+    return [{
+      kind: "property",
+      property,
+      value: current.value,
+      revision: current.revision,
+    }];
+  });
+};
+
+export const formatDatabaseBoardMetadataTimestamp = (
+  field: "created_at" | "updated_at",
+  value: string,
+  now = new Date(),
+  locale?: string,
+): string => {
+  const prefix = field === "created_at" ? "Created" : "Updated";
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) return prefix;
+  const recent = timestamp.getFullYear() === now.getFullYear()
+    && Math.abs(now.getTime() - timestamp.getTime()) <= 31 * 86_400_000;
+  const formatted = new Intl.DateTimeFormat(locale, recent
+    ? { month: "short", day: "numeric" }
+    : { month: "short", year: "numeric" }).format(timestamp);
+  return `${prefix} ${formatted}`;
+};
 
 export interface DatabaseBoardSubgroupWindow {
   readonly key: string | null;

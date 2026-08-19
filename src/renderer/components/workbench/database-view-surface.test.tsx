@@ -242,6 +242,44 @@ const describedBoardModel = (): DatabaseViewRenderModel => {
   };
 };
 
+const boardMetadataModel = (): DatabaseViewRenderModel => {
+  const next = describedBoardModel();
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            layouts: {
+              ...next.query.view.config.presentation.layouts,
+              board: {
+                ...next.query.view.config.presentation.layouts.board,
+                fields: [
+                  { kind: "intrinsic", field: "created_at" },
+                  ...next.query.view.config.presentation.layouts.board.fields,
+                  { kind: "intrinsic", field: "updated_at" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      rows: next.query.rows.map((row) => ({
+        ...row,
+        page: {
+          ...row.page,
+          createdAt: "2020-02-10T10:00:00.000Z",
+          updatedAt: "2020-03-12T10:00:00.000Z",
+        },
+      })),
+    },
+  };
+};
+
 const keyedBoardModel = (): DatabaseViewRenderModel => {
   const next = boardModel();
   return {
@@ -684,7 +722,7 @@ describe("DatabaseViewSurface", () => {
     expect(onOpenPage).toHaveBeenCalledWith("page-focused", "Focused Page");
 
     await act(async () => {
-      fireEvent.click(within(card).getByRole("button", { name: "Edit Tags" }));
+      fireEvent.click(within(card).getByRole("button", { name: /^Edit Tags:/ }));
       await Promise.resolve();
     });
     const nextOption = await screen.findByRole("option", { name: "Next" });
@@ -693,6 +731,28 @@ describe("DatabaseViewSurface", () => {
       await Promise.resolve();
     });
     expect(onOpenPage).toHaveBeenCalledTimes(1);
+  });
+
+  test("renders configured Created and Updated metadata in Board cards", () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={boardMetadataModel()}
+        presentationLayout="board"
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+    const card = screen.container.querySelector(
+      '[data-database-view-page-id="page-focused"]',
+    );
+    const metadataRow = card?.querySelector('[data-database-board-metadata-row="true"]');
+    expect(metadataRow?.querySelector('[data-database-board-metadata="created_at"]')?.textContent)
+      .toBe("Created Feb 2020");
+    expect(metadataRow?.querySelector('[data-database-board-metadata="updated_at"]')?.textContent)
+      .toBe("Updated Mar 2020");
+    expect(metadataRow?.querySelector("[data-database-view-property-id]")).toBeNull();
+    expect(card?.querySelector('[data-database-board-property-row="true"]'))
+      .not.toBe(metadataRow);
   });
 
   test("renders an enabled Board Page key above the title and applies the shared key lookup", () => {

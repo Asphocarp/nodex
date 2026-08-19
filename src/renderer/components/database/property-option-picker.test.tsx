@@ -15,6 +15,30 @@ const options = [
 ] as const;
 
 describe("PropertyOptionPicker", () => {
+  test("renders Board multi-select values as sibling chips on one picker trigger", async () => {
+    const view = render(
+      <PropertyOptionPicker
+        label="Tags"
+        mode="multiple"
+        presentation="board"
+        options={options}
+        selectedIds={["one", "two"]}
+        onSelectedIdsChange={vi.fn()}
+      />,
+    );
+
+    const trigger = view.getByRole("button", {
+      name: "Edit Tags: Needs review, Ready",
+    });
+    expect(trigger.textContent).toBe("Needs reviewReady");
+    expect(view.getAllByRole("button")).toHaveLength(1);
+    await act(async () => {
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+    expect(view.getByRole("combobox", { name: "Search Tags options" })).toBeTruthy();
+  });
+
   test("portals above a clipping dialog while preserving focus and interaction", async () => {
     const onChange = vi.fn();
     const view = render(

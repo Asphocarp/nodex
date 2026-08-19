@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { DataSourcePropertyValueEditor } from "@/components/database/data-source-property-value-editor";
+import { DueDateValueIcon } from "@/components/database/due-date-value-icon";
 import type {
   DataSourcePropertyEditorBinding,
   DataSourcePropertyOptionRegistryState,
@@ -27,14 +28,12 @@ import type {
 } from "../../../../shared/database-module-v2";
 import {
   DatabaseListAssigneeIcon,
-  DatabaseListCalendarIcon,
   DatabaseListEstimateIcon,
   DatabaseListLabelIcon,
   DatabaseListProjectIcon,
 } from "./database-list-icons";
 import {
   DATABASE_LIST_MUTED_ICON_COLOR,
-  databaseListDueDateIconColor,
   databaseListPropertyHasValue,
 } from "./database-list-property-presentation";
 
@@ -149,7 +148,7 @@ const propertyIcon = (
 ): ReactNode => {
   const role = resolveDataSourcePropertyPresentationRole(property);
   if (role.kind === "due_date" || role.kind === "schedule_boundary") {
-    return <DatabaseListCalendarIcon style={{ color: databaseListDueDateIconColor(value) }} />;
+    return <DueDateValueIcon value={value} />;
   }
   if (role.kind === "estimate") {
     return <DatabaseListEstimateIcon style={{ color: DATABASE_LIST_MUTED_ICON_COLOR }} />;
@@ -260,7 +259,7 @@ function PropertyEditor({
         {...binding}
         showLabel={false}
         presentation="list"
-        listIcon={propertyIcon(property, current?.value)}
+        triggerIcon={propertyIcon(property, current?.value)}
       />
       {error ? <span role="alert" className="sr-only">{error}</span> : null}
     </span>

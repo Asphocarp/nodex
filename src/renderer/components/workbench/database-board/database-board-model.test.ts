@@ -11,7 +11,8 @@ import {
 import { testPropertySemantics } from "../../../../shared/testing/database-property-record";
 import {
   databaseBoardValueIsVisible,
-  projectDatabaseBoardCardProperties,
+  formatDatabaseBoardMetadataTimestamp,
+  projectDatabaseBoardCardFooter,
   projectDatabaseBoardGroup,
 } from "./database-board-model";
 
@@ -179,13 +180,13 @@ describe("database Board presentation model", () => {
     });
   });
 
-  test("omits structural grouping fields and empty values while preserving display order", () => {
+  test("projects properties and intrinsic metadata in configured order", () => {
     const status = property("status", "select", "Status");
     const priority = property("priority", "select", "Priority");
     const tags = property("tags", "multi_select", "Tags");
     const estimate = property("estimate", "number", "Estimate");
     const notes = property("p_NOTES001", "text", "Notes");
-    const slots = projectDatabaseBoardCardProperties({
+    const slots = projectDatabaseBoardCardFooter({
       authority: authority({
         status: "build",
         priority: "p1-high",
@@ -193,12 +194,46 @@ describe("database Board presentation model", () => {
         estimate: null,
         p_NOTES001: "Keep me",
       }),
-      displayedProperties: [priority, tags, status, estimate, notes],
+      displayedFields: [
+        { kind: "property", propertyId: priority.propertyId },
+        { kind: "intrinsic", field: "created_at" },
+        { kind: "property", propertyId: tags.propertyId },
+        { kind: "property", propertyId: status.propertyId },
+        { kind: "property", propertyId: estimate.propertyId },
+        { kind: "property", propertyId: notes.propertyId },
+        { kind: "intrinsic", field: "updated_at" },
+        { kind: "intrinsic", field: "page_key" },
+      ],
+      properties: [priority, tags, status, estimate, notes],
       groupPropertyId: "priority",
       subgroupPropertyId: "status",
     });
-    expect(slots.map((slot) => slot.property.propertyId)).toEqual(["p_NOTES001"]);
-    expect(slots[0]?.value).toBe("Keep me");
+    expect(slots).toEqual([
+      { kind: "metadata", field: "created_at", value: timestamp },
+      {
+        kind: "property",
+        property: notes,
+        value: "Keep me",
+        revision: 1,
+      },
+      { kind: "metadata", field: "updated_at", value: timestamp },
+    ]);
+  });
+
+  test("formats recent and older Board timestamps like quiet activity metadata", () => {
+    const now = new Date("2026-08-19T12:00:00.000Z");
+    expect(formatDatabaseBoardMetadataTimestamp(
+      "created_at",
+      "2026-08-12T10:00:00.000Z",
+      now,
+      "en-US",
+    )).toBe("Created Aug 12");
+    expect(formatDatabaseBoardMetadataTimestamp(
+      "updated_at",
+      "2026-02-10T10:00:00.000Z",
+      now,
+      "en-US",
+    )).toBe("Updated Feb 2026");
   });
 
   test("treats false and zero as meaningful compact values", () => {

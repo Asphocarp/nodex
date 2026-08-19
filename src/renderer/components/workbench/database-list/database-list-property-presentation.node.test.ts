@@ -2,10 +2,6 @@ import { describe, expect, test } from "vitest";
 
 import type { DataSourcePropertyRecordV2 } from "../../../../shared/database-module-v2";
 import {
-  DATABASE_LIST_DUE_FUTURE_ICON_COLOR,
-  DATABASE_LIST_DUE_NOW_ICON_COLOR,
-  DATABASE_LIST_MUTED_ICON_COLOR,
-  databaseListDueDateIconColor,
   databaseListGroupLabel,
   databaseListPropertyHasValue,
 } from "./database-list-property-presentation";
@@ -67,19 +63,4 @@ describe("Database List property presence", () => {
     expect(databaseListPropertyHasValue(property("relation"), emptyRelation)).toBe(false);
   });
 
-  test("distinguishes due-now and future calendar visuals by local date", () => {
-    const today = new Date(2026, 7, 12, 12);
-    expect(databaseListDueDateIconColor("2026-08-11", today)).toBe(
-      DATABASE_LIST_DUE_NOW_ICON_COLOR,
-    );
-    expect(databaseListDueDateIconColor("2026-08-12", today)).toBe(
-      DATABASE_LIST_DUE_NOW_ICON_COLOR,
-    );
-    expect(databaseListDueDateIconColor("2026-08-13", today)).toBe(
-      DATABASE_LIST_DUE_FUTURE_ICON_COLOR,
-    );
-    expect(databaseListDueDateIconColor("not-a-date", today)).toBe(
-      DATABASE_LIST_MUTED_ICON_COLOR,
-    );
-  });
 });
