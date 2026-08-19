@@ -29,6 +29,7 @@ const APP_ICON_NAMES = [
   "BrowserReloadIcon",
   "SearchIcon",
   "CalendarIcon",
+  "CalendarOverdueIcon",
   "ClockIcon",
   "BellIcon",
   "PriorityIcon",
