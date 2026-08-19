@@ -1261,10 +1261,23 @@ describe("DatabaseViewSurface", () => {
     await act(async () => {
       fireEvent.pointerMove(screen.getByRole("menuitem", { name: "Copy" }), {
         pointerType: "mouse",
+        movementX: 0,
+        movementY: 2,
       });
       await Promise.resolve();
     });
     expect(await screen.findByRole("menuitem", { name: "Copy title" })).toBeTruthy();
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", {
+        name: "Search Page actions and properties",
+      }), { key: "Escape" });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("textbox", {
+        name: "Search Page actions and properties",
+      })).toBeNull();
+    });
   });
 
   test("routes List Page session and delete commands through the shared action port", async () => {
@@ -1288,14 +1301,26 @@ describe("DatabaseViewSurface", () => {
       fireEvent.contextMenu(row, { clientX: 240, clientY: 120 });
       await Promise.resolve();
     });
+    const search = await screen.findByRole("textbox", {
+      name: "Search Page actions and properties",
+    });
+    await waitFor(() => expect(search).toBe(document.activeElement));
     await act(async () => {
       fireEvent.pointerMove(screen.getByRole("menuitem", { name: "Open in" }), {
         pointerType: "mouse",
+        clientX: 240,
+        clientY: 120,
+        movementX: 0,
+        movementY: 2,
       });
       await Promise.resolve();
     });
     const openInNewSessionItem = await screen.findByRole("menuitem", {
       name: "Open in new session",
+    });
+    await waitFor(() => {
+      expect(openInNewSessionItem.closest('[data-slot="context-menu-subcontent"]')
+        ?.getAttribute("data-state")).toBe("open");
     });
     await act(async () => {
       fireEvent.click(openInNewSessionItem);
@@ -1316,6 +1341,7 @@ describe("DatabaseViewSurface", () => {
       await Promise.resolve();
     });
     expect(deletePage).toHaveBeenCalledWith({
+      accessContext: { kind: "project", projectId: "project-1" },
       libraryId: "library-1",
       projectId: "project-1",
       pageId: "page-focused",
@@ -1706,6 +1732,8 @@ describe("DatabaseViewSurface", () => {
     await act(async () => {
       fireEvent.pointerMove(screen.getByRole("menuitem", { name: "Status" }), {
         pointerType: "mouse",
+        movementX: 0,
+        movementY: 2,
       });
       await Promise.resolve();
     });
