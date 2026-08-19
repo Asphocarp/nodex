@@ -50,7 +50,6 @@ import {
   Hash as LucideHash,
   Heading1 as LucideHeading1,
   History as LucideHistory,
-  Image as LucideImage,
   ImageIcon as LucideImageIcon,
   ImagePlus as LucideImagePlus,
   ImageUp as LucideImageUp,
@@ -230,7 +229,6 @@ export const GripVertical: LucideIconType = /* @__PURE__ */ createGenericIcon(Lu
 export const Hash: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideHash, "Hash");
 export const Heading1: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideHeading1, "Heading1");
 export const History: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideHistory, "History");
-export const Image: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImage, "Image");
 export const ImageIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImageIcon, "ImageIcon");
 export const ImagePlus: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImagePlus, "ImagePlus");
 export const ImageUp: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideImageUp, "ImageUp");
