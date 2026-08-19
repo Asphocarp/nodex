@@ -16,6 +16,7 @@ import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-prese
 import { WorkbenchDatabaseViewSurface } from "./workbench-database-view-surface";
 
 const api = vi.hoisted(() => ({
+  commitPageLifecycleIntent: vi.fn(),
   readDatabaseViewGroups: vi.fn(),
   readDatabaseViewWindow: vi.fn(),
   readLibraryDatabaseViewGroups: vi.fn(),
@@ -168,6 +169,10 @@ beforeEach(() => {
   api.readLibraryDatabaseViewWindow.mockResolvedValue(makeWindow(null));
   api.readDatabaseViewGroups.mockResolvedValue(makeGroups("project-alpha"));
   api.readDatabaseViewWindow.mockResolvedValue(makeWindow("project-alpha"));
+  api.commitPageLifecycleIntent.mockResolvedValue({
+    receipt: { lifecycle: "deleted" },
+    boardProjection: null,
+  });
 });
 
 describe("WorkbenchDatabaseViewSurface", () => {
@@ -196,6 +201,32 @@ describe("WorkbenchDatabaseViewSurface", () => {
     expect(pageActionPort.openInNewSession).toBe(onOpenPageInNewChat);
     expect(pageActionPort.sendToChat).toBe(onSendPageToChat);
     expect(pageActionPort.deletePage).toEqual(expect.any(Function));
+  });
+
+  test("routes Page deletion through the renderer API boundary", async () => {
+    render(
+      <TestQueryProvider>
+        <WorkbenchDatabaseViewSurface
+          accessContext={{ kind: "project", projectId: "project-alpha" }}
+          target={{ kind: "database-view", databaseViewId: viewId }}
+          onOpenPage={() => undefined}
+        />
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => expect(presenter.props?.model).toBeTruthy());
+    const pageActionPort = presenter.props?.pageActionPort as {
+      readonly deletePage: (input: { readonly pageId: string }) => Promise<void>;
+    };
+
+    await pageActionPort.deletePage({ pageId: "page-from-database" });
+
+    expect(api.commitPageLifecycleIntent).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "delete",
+      projectId: "project-alpha",
+      pageId: "page-from-database",
+      operationId: expect.any(String),
+    }));
   });
 
   test("uses Library reads and the shared Database View presenter", async () => {

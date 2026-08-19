@@ -88,7 +88,11 @@ import type {
   PageLifecycleMutationCommandResultV2,
   PageLifecycleMutationRequestV2,
 } from "../../shared/page-lifecycle-v2";
-import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
+import type {
+  PageLifecycleExecutionResultV2,
+  PageLifecycleIntentV2,
+  PageLifecyclePreflightResultV2,
+} from "../../shared/page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
 import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
@@ -401,6 +405,17 @@ export async function mutatePageLifecycle(
   );
   if (result.ok) await admitLocalCommitApply(result.localCommit);
   return result;
+}
+
+/**
+ * Run the renderer-owned Page lifecycle workflow behind the transport API.
+ * The lazy import keeps the workflow's dependency on this module acyclic.
+ */
+export async function commitPageLifecycleIntent(
+  intent: PageLifecycleIntentV2,
+): Promise<PageLifecycleExecutionResultV2> {
+  const runtime = await import("./page-lifecycle-runtime");
+  return runtime.commitPageLifecycleIntent(intent);
 }
 
 export function listPageHistory(
