@@ -1175,6 +1175,7 @@ mod tests {
             "/core/v1/handshake",
             "/core/v1/health",
             "/core/v1/local-mutations/resolve",
+            "/core/v1/requests/cancel",
             "/core/v1/modules/administration/apply",
             "/core/v1/modules/administration/read",
             "/core/v1/modules/automation/apply",
