@@ -122,6 +122,24 @@ function readNotificationThreadId(notification: ServerNotification): string | nu
   return typeof params.threadId === "string" ? params.threadId : null;
 }
 
+function readNotificationThreadSettingsCwd(notification: ServerNotification): string | null {
+  const params = notification.params as {
+    readonly threadSettings?: { readonly cwd?: unknown };
+  };
+  return typeof params.threadSettings?.cwd === "string"
+    ? params.threadSettings.cwd
+    : null;
+}
+
+function notificationHasThreadSettingsCwd(
+  notification: ServerNotification,
+  expectedCwd: string,
+): boolean {
+  const actualCwd = readNotificationThreadSettingsCwd(notification);
+  if (!actualCwd) return false;
+  return realpathSync(actualCwd) === realpathSync(expectedCwd);
+}
+
 function readNotificationTurnId(notification: ServerNotification): string | null {
   const params = notification.params as Record<string, unknown>;
   const turn = params.turn as Record<string, unknown> | undefined;
@@ -283,7 +301,8 @@ export async function probeWorktreeHandoffRuntime(input: {
     const settingsNotification = waitForNotification(
       firstClient,
       (notification) => notification.method === "thread/settings/updated"
-        && readNotificationThreadId(notification) === threadId,
+        && readNotificationThreadId(notification) === threadId
+        && notificationHasThreadSettingsCwd(notification, destinationOne),
       "thread/settings/updated",
     );
     await firstClient.request("thread/settings/update", {
@@ -431,7 +450,8 @@ export async function probeWorktreeHandoffRuntime(input: {
     const postInterruptSettings = waitForNotification(
       secondClient,
       (notification) => notification.method === "thread/settings/updated"
-        && readNotificationThreadId(notification) === threadId,
+        && readNotificationThreadId(notification) === threadId
+        && notificationHasThreadSettingsCwd(notification, destinationThree),
       "thread/settings/updated after interrupt",
     );
     await secondClient.request("thread/settings/update", {
