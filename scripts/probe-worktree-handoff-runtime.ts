@@ -118,17 +118,13 @@ function waitForNotification(
 }
 
 function readNotificationThreadId(notification: ServerNotification): string | null {
-  const params = notification.params as Record<string, unknown>;
-  return typeof params.threadId === "string" ? params.threadId : null;
+  if (!("threadId" in notification.params)) return null;
+  return notification.params.threadId;
 }
 
 function readNotificationThreadSettingsCwd(notification: ServerNotification): string | null {
-  const params = notification.params as {
-    readonly threadSettings?: { readonly cwd?: unknown };
-  };
-  return typeof params.threadSettings?.cwd === "string"
-    ? params.threadSettings.cwd
-    : null;
+  if (notification.method !== "thread/settings/updated") return null;
+  return notification.params.threadSettings.cwd;
 }
 
 function notificationHasThreadSettingsCwd(
@@ -141,9 +137,10 @@ function notificationHasThreadSettingsCwd(
 }
 
 function readNotificationTurnId(notification: ServerNotification): string | null {
-  const params = notification.params as Record<string, unknown>;
-  const turn = params.turn as Record<string, unknown> | undefined;
-  return typeof turn?.id === "string" ? turn.id : null;
+  if (notification.method !== "turn/started" && notification.method !== "turn/completed") {
+    return null;
+  }
+  return notification.params.turn.id;
 }
 
 function pathsMatch(actual: string, expected: string): boolean {
