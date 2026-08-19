@@ -111,31 +111,49 @@ describe("DatabaseViewPageContextMenu", () => {
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy ID" }));
+    const copyId = await screen.findByRole("menuitem", { name: "Copy ID" });
+    await act(async () => {
+      fireEvent.click(copyId);
+      await Promise.resolve();
+    });
     await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("LAB-13"));
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy deeplink" }));
+    const copyDeeplink = await screen.findByRole("menuitem", { name: "Copy deeplink" });
+    await act(async () => {
+      fireEvent.click(copyDeeplink);
+      await Promise.resolve();
+    });
     await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith(
       buildPageDeepLink({ pageId: "page-1" }),
     ));
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy title" }));
+    const copyTitle = await screen.findByRole("menuitem", { name: "Copy title" });
+    await act(async () => {
+      fireEvent.click(copyTitle);
+      await Promise.resolve();
+    });
     await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("Release plan"));
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");
-    fireEvent.click(await screen.findByRole("menuitem", {
+    const copyMarkdown = await screen.findByRole("menuitem", {
       name: "Copy content as Markdown",
-    }));
+    });
+    await act(async () => {
+      fireEvent.click(copyMarkdown);
+      await Promise.resolve();
+    });
     await waitFor(() => expect(mocks.loadPageDocumentMaterialization).toHaveBeenCalledWith({
       accessContext: { kind: "project", projectId: "project-1" },
       pageId: "page-1",
     }));
-    expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("# Release\n\nShip it");
+    await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith(
+      "# Release\n\nShip it",
+    ));
   });
 
   test("copies canonical Markdown through library access", async () => {
@@ -151,7 +169,10 @@ describe("DatabaseViewPageContextMenu", () => {
       name: "Copy content as Markdown",
     });
     expect(copyMarkdown.getAttribute("aria-disabled")).not.toBe("true");
-    fireEvent.click(copyMarkdown);
+    await act(async () => {
+      fireEvent.click(copyMarkdown);
+      await Promise.resolve();
+    });
 
     await waitFor(() => expect(mocks.loadPageDocumentMaterialization).toHaveBeenCalledWith({
       accessContext: { kind: "library" },
@@ -168,7 +189,11 @@ describe("DatabaseViewPageContextMenu", () => {
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy title" }));
+    const copyTitle = await screen.findByRole("menuitem", { name: "Copy title" });
+    await act(async () => {
+      fireEvent.click(copyTitle);
+      await Promise.resolve();
+    });
 
     await waitFor(() => expect(
       __getNodexToastSnapshotForTests().some((item) =>
@@ -183,8 +208,16 @@ describe("DatabaseViewPageContextMenu", () => {
 
     await openMenu(screen);
     await openSubmenu(screen, "Open in");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Send to chat…" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Choose chat" }));
+    const sendToChatItem = await screen.findByRole("menuitem", { name: "Send to chat…" });
+    await act(async () => {
+      fireEvent.click(sendToChatItem);
+      await Promise.resolve();
+    });
+    const chooseChat = await screen.findByRole("button", { name: "Choose chat" });
+    await act(async () => {
+      fireEvent.click(chooseChat);
+      await Promise.resolve();
+    });
 
     await waitFor(() => expect(sendToChat).toHaveBeenCalledWith({
       projectId: "project-1",
@@ -193,6 +226,27 @@ describe("DatabaseViewPageContextMenu", () => {
       titleSnapshot: "Release plan",
       target: { kind: "thread", threadId: "thread-1" },
     }));
+  });
+
+  test("reports failure when opening a Page in a new session fails", async () => {
+    const openInNewSession = vi.fn().mockRejectedValue(new Error("session unavailable"));
+    const screen = renderMenu({ openInNewSession });
+
+    await openMenu(screen);
+    await openSubmenu(screen, "Open in");
+    const openInNewSessionItem = await screen.findByRole("menuitem", {
+      name: "Open in new session",
+    });
+    await act(async () => {
+      fireEvent.click(openInNewSessionItem);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(
+      __getNodexToastSnapshotForTests().some((item) =>
+        item.kind === "plain" && item.title === "Failed to open Page in a new session"
+      ),
+    ).toBe(true));
   });
 
   test("keeps Radix keyboard navigation across the submenu boundary", async () => {

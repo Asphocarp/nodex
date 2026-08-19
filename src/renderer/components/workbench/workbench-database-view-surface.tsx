@@ -9,6 +9,7 @@ import type {
   DatabaseViewWindowSnapshot,
 } from "../../../shared/database-views";
 import {
+  commitPageLifecycleIntent,
   readDatabaseViewGroups,
   readDatabaseViewWindow,
   readLibraryDatabaseViewGroups,
@@ -463,7 +464,6 @@ export function WorkbenchDatabaseViewSurface({
           : {}),
         ...(onSendPageToChat ? { sendToChat: onSendPageToChat } : {}),
         deletePage: async ({ pageId }) => {
-          const { commitPageLifecycleIntent } = await import("@/lib/page-lifecycle-runtime");
           const committed = await commitPageLifecycleIntent({
             kind: "delete",
             projectId: accessProjectId,

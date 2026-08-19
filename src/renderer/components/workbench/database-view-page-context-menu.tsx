@@ -356,7 +356,11 @@ export function DatabaseViewPageContextMenu({
         }
       : null;
     if (actionId === "open-in-new-session" && pageChatInput) {
-      void actionPort.openInNewSession?.(pageChatInput);
+      void Promise.resolve()
+        .then(() => actionPort.openInNewSession?.(pageChatInput))
+        .catch(() => {
+          toast.danger("Failed to open Page in a new session");
+        });
       return;
     }
     if (actionId === "send-to-chat") {
