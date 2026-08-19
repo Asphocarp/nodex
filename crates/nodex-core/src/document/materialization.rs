@@ -25,6 +25,13 @@ const PAGE_OWNER_TYPE: &str = "page";
 const SYNCED_BLOCK_OWNER_TYPE: &str = "synced_block_source";
 const REUSABLE_TEMPLATE_OWNER_TYPE: &str = "reusable_template_source";
 
+/// Version of the code that derives persisted Document projections.
+///
+/// This is deliberately independent from `DocumentMaterialization::schema_version`:
+/// the latter describes the Yrs document shape, while this value describes the
+/// interpretation of its derived records.
+pub(crate) const CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION: i64 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockDocumentKind {

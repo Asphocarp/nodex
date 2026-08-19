@@ -18,6 +18,7 @@ use nodex_core_contracts::{
 };
 use rusqlite::{Connection, params};
 use serde::Deserialize;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::document::event_log::{
@@ -994,8 +995,8 @@ fn reconstruct_event(
         return Err(corrupt("Core event payload exceeds its bound"));
     }
     let payload = match row.kind.as_str() {
-        "library.changed" | "block_mutation" | "block_relocation" => {
-            let metadata = decode::<LibraryMetadata>(row, "Library")?;
+        "library.changed" | "block_mutation" | "block_relocation" | "block_transfer" => {
+            let metadata = decode_library_metadata(row)?;
             require_module(&metadata.module, "library")?;
             validate_strings(&metadata.affected_page_ids, "Library Page")?;
             validate_strings(&metadata.affected_database_ids, "Library Database")?;
@@ -1165,6 +1166,47 @@ fn local_commit_head(connection: &Connection) -> Result<i64, StoreError> {
 fn decode<T: for<'de> Deserialize<'de>>(row: &ChangeLogRow, label: &str) -> Result<T, StoreError> {
     serde_json::from_str(&row.payload_json)
         .map_err(|_| corrupt(&format!("{label} event payload is invalid")))
+}
+
+fn decode_library_metadata(row: &ChangeLogRow) -> Result<LibraryMetadata, StoreError> {
+    match serde_json::from_str(&row.payload_json) {
+        Ok(metadata) => Ok(metadata),
+        Err(_)
+            if matches!(
+                row.kind.as_str(),
+                "block_mutation" | "block_relocation" | "block_transfer"
+            ) =>
+        {
+            let payload = serde_json::from_str::<Value>(&row.payload_json)
+                .map_err(|_| corrupt("Library event payload is invalid"))?;
+            let is_legacy_typescript_payload = payload.is_object()
+                && payload.get("module").is_none()
+                && [
+                    "mutationKind",
+                    "operation",
+                    "mode",
+                    "requestHash",
+                    "rootBlockIds",
+                ]
+                .iter()
+                .any(|key| payload.get(*key).is_some());
+            if !is_legacy_typescript_payload {
+                return Err(corrupt("Library event payload is invalid"));
+            }
+            // TypeScript v84 retained the durable effect resources in the
+            // change-log columns, but its payload envelope predates the typed
+            // Core Library metadata. Reconstruct the event facet without
+            // rewriting the immutable historical payload.
+            Ok(LibraryMetadata {
+                module: "library".to_owned(),
+                affected_page_ids: Vec::new(),
+                affected_database_ids: Vec::new(),
+                affected_view_ids: Vec::new(),
+                affected_parent_keys: Vec::new(),
+            })
+        }
+        Err(_) => Err(corrupt("Library event payload is invalid")),
+    }
 }
 
 fn require_module(actual: &str, expected: &str) -> Result<(), StoreError> {
@@ -1410,6 +1452,34 @@ mod tests {
         )?;
         local_commit::finalize(connection, &commit)?;
         Ok(event_sequence)
+    }
+
+    #[test]
+    fn legacy_typescript_library_payloads_reconstruct_as_library_events() {
+        let row = ChangeLogRow {
+            sequence: 1,
+            project_id: "project:events".to_owned(),
+            store_epoch: "epoch:events".to_owned(),
+            kind: "block_transfer".to_owned(),
+            operation_id: Some("operation:legacy-transfer".to_owned()),
+            payload_json: r#"{
+              "mode": "move",
+              "requestHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "source": {"kind": "document"},
+              "target": {"kind": "space"},
+              "version": 1
+            }"#
+            .to_owned(),
+            projection_impact_json: None,
+            committed_at: "2026-08-07T00:00:00.000Z".to_owned(),
+        };
+
+        let connection = Connection::open_in_memory().expect("in-memory event connection");
+        let event = reconstruct_event(&connection, &row)
+            .expect("legacy Library payload should reconstruct")
+            .expect("Library event should be present");
+
+        assert!(matches!(event.payload, CoreModuleEventPayload::Library(_)));
     }
 
     #[test]

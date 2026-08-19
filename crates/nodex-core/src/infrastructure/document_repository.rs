@@ -127,6 +127,10 @@ impl<'connection> DocumentReadRepository<'connection> {
         Self { connection }
     }
 
+    pub(crate) fn connection(&self) -> &'connection Connection {
+        self.connection
+    }
+
     pub fn document_heads(&self) -> Result<Vec<DocumentHeadRow>, StoreError> {
         let rows = self
             .connection

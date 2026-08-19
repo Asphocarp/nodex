@@ -3768,7 +3768,9 @@ pub(crate) fn module_from_kind(kind: &str) -> Result<ModuleName, StoreError> {
         return Ok(ModuleName::OwnedDocument);
     }
     match kind {
-        "library.changed" | "block_mutation" | "block_relocation" => Ok(ModuleName::Library),
+        "library.changed" | "block_mutation" | "block_relocation" | "block_transfer" => {
+            Ok(ModuleName::Library)
+        }
         "database.changed" => Ok(ModuleName::Database),
         "project_workspace.changed" => Ok(ModuleName::ProjectWorkspace),
         "automation.changed" => Ok(ModuleName::Automation),

@@ -72,6 +72,14 @@ A migration follows one durable pattern:
 5. atomically publish the complete target Store;
 6. retain evidence sufficient to diagnose or retry an interrupted publication.
 
+Yrs is the authority for Document content during migration. If a migration
+changes the interpretation of derived materialization records, Core validates
+the Yrs update chain and state vector before the transaction, rebuilds the
+current materialization and normalized Page-reference projection inside that
+transaction, then performs the exact materialization check afterward. The
+materialization derivation version is independent from the Document schema
+version so future derived-record changes can add an explicit rebuild step.
+
 Unknown, future, ambiguous, drifted, partially migrated, or damaged inventories
 fail closed. Import compatibility is staging-only and never becomes a live
 runtime branch. Reopening a current Store validates its exact physical and
