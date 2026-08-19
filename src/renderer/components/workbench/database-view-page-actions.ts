@@ -2,9 +2,11 @@ import type {
   OpenPageInNewChatInput,
   SendPageToChatInput,
 } from "@/lib/page-chat-actions";
+import type { ContentAccessContext } from "../../../shared/content-access-context";
 
 export interface DatabaseViewPageTarget {
   readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly projectId: string | null;
   readonly pageId: string;
   readonly pageKey: string | null;

@@ -3,9 +3,10 @@ import { buildPageDeepLink } from "@/lib/page-deeplink";
 import { parseNfm } from "@/lib/nfm";
 import { materializePageDocument } from "../../shared/block-documents/block-document-codec";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contracts";
+import type { ContentAccessContext } from "../../shared/content-access-context";
 import {
-  createDocumentSyncAdapter,
-  prepareOwnedBlockDocument,
+  createDocumentSyncAdapterForContentAccess,
+  prepareOwnedBlockDocumentForContentAccess,
 } from "./api";
 import {
   BlockDocumentSurfaceRuntime,
@@ -34,26 +35,28 @@ export type PageDocumentMaterialization = ReturnType<
 >;
 
 interface PageDocumentRuntimeFactoryInput {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly descriptor: OwnedDocumentDescriptor;
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
-  readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
+  readonly createAdapter?: (
+    accessContext: ContentAccessContext,
+  ) => DocumentSyncAdapter;
 }
 
 /** Connects one prepared Page Document, reads its canonical content, and always closes it. */
 export async function materializePreparedPageDocument({
-  projectId,
+  accessContext,
   descriptor,
   createRuntime,
-  createAdapter = createDocumentSyncAdapter,
+  createAdapter = createDocumentSyncAdapterForContentAccess,
 }: PageDocumentRuntimeFactoryInput): Promise<PageDocumentMaterialization> {
   const runtimeFactory = createRuntime ?? ((options) =>
     new BlockDocumentSurfaceRuntime(options));
   const runtime = createPageDocumentRuntime(
     descriptor,
-    projectId,
+    accessContext,
     runtimeFactory,
     createAdapter,
   );
@@ -68,18 +71,20 @@ export async function materializePreparedPageDocument({
 }
 
 export async function loadPageDocumentMaterialization(input: {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly pageId: string;
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
-  readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
+  readonly createAdapter?: (
+    accessContext: ContentAccessContext,
+  ) => DocumentSyncAdapter;
 }): Promise<PageDocumentMaterialization> {
   const descriptor = unwrapOwnedBlockDocumentPreparationResult(
-    await prepareOwnedBlockDocument(input.projectId, input.pageId),
+    await prepareOwnedBlockDocumentForContentAccess(input.accessContext, input.pageId),
   );
   return await materializePreparedPageDocument({
-    projectId: input.projectId,
+    accessContext: input.accessContext,
     descriptor,
     createRuntime: input.createRuntime,
     createAdapter: input.createAdapter,
@@ -127,9 +132,14 @@ export async function loadPagePromptContext(input: {
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
-  readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
+  readonly createAdapter?: (
+    accessContext: ContentAccessContext,
+  ) => DocumentSyncAdapter;
 }): Promise<PagePromptContext> {
-  const materialized = await loadPageDocumentMaterialization(input);
+  const materialized = await loadPageDocumentMaterialization({
+    ...input,
+    accessContext: { kind: "project", projectId: input.projectId },
+  });
   return buildPagePromptContext({
     projectId: input.projectId,
     pageId: input.pageId,
@@ -141,15 +151,15 @@ export async function loadPagePromptContext(input: {
 
 function createPageDocumentRuntime(
   descriptor: OwnedDocumentDescriptor,
-  projectId: string,
+  accessContext: ContentAccessContext,
   runtimeFactory: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime,
-  createAdapter: (projectId: string) => DocumentSyncAdapter,
+  createAdapter: (accessContext: ContentAccessContext) => DocumentSyncAdapter,
 ): BlockDocumentSurfaceRuntime {
   return runtimeFactory({
     descriptor,
-    adapter: createAdapter(projectId),
+    adapter: createAdapter(accessContext),
     localCheckpointStore: null,
   });
 }
