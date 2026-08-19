@@ -14,10 +14,18 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if timeout --signal=TERM --kill-after=30s 8m \
-          pnpm exec playwright install --with-deps chromium; then
+        install_status=0
+        timeout --signal=TERM --kill-after=30s 8m \
+          pnpm exec playwright install --with-deps chromium || install_status=$?
+        if [[ "$install_status" == 0 ]]; then
           exit 0
         fi
-        echo "::warning::Playwright dependency installation timed out or failed; retrying browser-only installation"
+
+        if [[ "$install_status" != 124 && "$install_status" != 137 ]]; then
+          echo "::error::Playwright dependency installation failed with status $install_status"
+          exit "$install_status"
+        fi
+
+        echo "::warning::Playwright dependency installation timed out; retrying browser-only installation"
         timeout --signal=TERM --kill-after=30s 8m \
           pnpm exec playwright install chromium
