@@ -98,7 +98,11 @@ import { undoDatabaseViewBlockTransfer } from "./database-view-block-transfer-un
 import { commitDatabaseViewBlockDrop } from "./database-view-block-drop-command";
 import { projectDatabaseBoardGroup } from "./database-board/database-board-model";
 import { DatabaseBoardGroupMarker } from "./database-board/database-board-group-marker";
-import { DatabaseBoardCard } from "./database-board/database-board-card";
+import {
+  createDatabaseBoardPageMenuSession,
+  DatabaseBoardCard,
+} from "./database-board/database-board-card";
+import { DatabaseViewPageContextMenuHost } from "./database-view-page-context-menu-host";
 import { buildDatabaseViewPageDragData } from "./database-view-page-drag";
 import { ColumnActionPopover } from "../board/column-action-popover";
 import {
@@ -1362,6 +1366,12 @@ function BoardDatabaseViewSurface({
   };
 
   return (
+    <DatabaseViewPageContextMenuHost
+      resolveSession={(targetKey) => {
+        const row = allRows.find((candidate) => candidate.pageId === targetKey);
+        return row ? createDatabaseBoardPageMenuSession(pageProps(row)) : null;
+      }}
+    >
     <div
       ref={surfaceRef}
       className="flex h-full min-h-0 flex-col bg-token-main-surface-primary"
@@ -1805,5 +1815,6 @@ function BoardDatabaseViewSurface({
         </div>
       )}
     </div>
+    </DatabaseViewPageContextMenuHost>
   );
 }

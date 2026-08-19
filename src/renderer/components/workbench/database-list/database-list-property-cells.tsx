@@ -51,7 +51,7 @@ export interface DatabaseListPropertyRuntime {
   readonly optionStates: Readonly<Record<string, DataSourcePropertyOptionRegistryState>>;
   readonly optionHasMore: Readonly<Record<string, boolean>>;
   readonly optionLoadingMore: Readonly<Record<string, boolean>>;
-  readonly relationCandidates: readonly {
+  readonly relationCandidates: () => readonly {
     readonly pageId: string;
     readonly title: string;
   }[];
@@ -126,7 +126,9 @@ export const createDatabaseListPropertyEditorBinding = (
     optionRegistryLoadingMore: runtime.optionLoadingMore[property.propertyId] ?? false,
     onRequestOptions: () => runtime.onRequestOptions(property),
     onRequestMoreOptions: () => runtime.onRequestMoreOptions(property),
-    relationCandidates: runtime.relationCandidates,
+    relationCandidates: property.valueType === "relation"
+      ? runtime.relationCandidates()
+      : undefined,
     relationSourcePageId: pageId,
     onChange: (value) => runtime.onSetValue(pageId, property.propertyId, value),
     onPatchOptions: (delta) => runtime.onPatchOptions(pageId, property, delta),

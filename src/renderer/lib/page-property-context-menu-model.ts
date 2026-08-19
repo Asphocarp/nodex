@@ -1,4 +1,4 @@
-import type { DataSourcePropertyEditorBinding } from "@/components/database/data-source-property-editor-binding";
+import type { DataSourcePagePropertyMenuDescriptor } from "@/components/database/data-source-page-property-menu-source";
 import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
 
 const DEFAULT_FEATURED_LIMIT = 7;
@@ -14,9 +14,9 @@ const FEATURED_ROLE_RANK: Readonly<Partial<Record<string, number>>> = {
 
 export interface PagePropertyContextMenuModel {
   /** Root entries. With a query, this is the complete matching Property set. */
-  readonly visible: readonly DataSourcePropertyEditorBinding[];
+  readonly visible: readonly DataSourcePagePropertyMenuDescriptor[];
   /** Non-featured Properties shown below `More properties…` when not searching. */
-  readonly overflow: readonly DataSourcePropertyEditorBinding[];
+  readonly overflow: readonly DataSourcePagePropertyMenuDescriptor[];
   readonly searching: boolean;
   readonly hasMatches: boolean;
 }
@@ -25,7 +25,7 @@ const normalizedSearchText = (value: string): string =>
   value.normalize("NFKC").trim().toLocaleLowerCase();
 
 const featuredRank = (
-  binding: DataSourcePropertyEditorBinding,
+  binding: DataSourcePagePropertyMenuDescriptor,
   groupingPropertyId: string | null,
 ): number | null => {
   if (String(binding.property.propertyId) === groupingPropertyId) return -1;
@@ -38,7 +38,7 @@ const featuredRank = (
  * Input order remains the tie-breaker so custom schema rank is preserved.
  */
 export const buildPagePropertyContextMenuModel = (
-  bindings: readonly DataSourcePropertyEditorBinding[],
+  bindings: readonly DataSourcePagePropertyMenuDescriptor[],
   {
     groupingPropertyId = null,
     query = "",

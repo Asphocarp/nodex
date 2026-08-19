@@ -115,6 +115,7 @@ export function DatabaseListRow({
       data-list-row="true"
       data-list-key={item.key}
       data-database-view-page-id={item.pageId}
+      data-database-view-page-menu-target={item.key}
       data-selected={selected || undefined}
       data-previous-selected={selectedBefore || undefined}
       data-next-selected={selectedAfter || undefined}

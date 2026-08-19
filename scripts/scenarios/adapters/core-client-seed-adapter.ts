@@ -16,6 +16,10 @@ import type {
   ScenarioSeedPort,
 } from "../contracts";
 import { normalizeScenarioBoardGroups } from "./normalize-board-groups";
+import {
+  ensurePrimaryDataSourcePropertyCount,
+  readPrimaryDataSourcePropertyCount,
+} from "../seed/primary-data-source-properties";
 
 const requireSuccess = <Value>(
   result: { readonly ok: true; readonly value: Value } | {
@@ -73,6 +77,17 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
       `Create ${input.title}`,
     );
     return { documentId: receipt.documentId };
+  }
+
+  async ensurePrimaryDataSourcePropertyCount(
+    projectId: string,
+    count: number,
+  ): Promise<{ readonly commitSeq: number; readonly propertyCount: number }> {
+    return await ensurePrimaryDataSourcePropertyCount(this.#database, projectId, count);
+  }
+
+  async readPrimaryDataSourcePropertyCount(projectId: string): Promise<number> {
+    return await readPrimaryDataSourcePropertyCount(this.#database, projectId);
   }
 
   async replaceOwnedDocument(

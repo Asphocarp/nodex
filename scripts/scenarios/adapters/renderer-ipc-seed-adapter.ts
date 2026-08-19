@@ -12,6 +12,11 @@ import type {
   ScenarioSeedPort,
 } from "../contracts";
 import { normalizeScenarioBoardGroups } from "./normalize-board-groups";
+import {
+  ensurePrimaryDataSourcePropertyCount,
+  readPrimaryDataSourcePropertyCount,
+  type ScenarioDatabasePort,
+} from "../seed/primary-data-source-properties";
 
 type IpcChannel = keyof IpcApi;
 
@@ -82,6 +87,32 @@ export class RendererIpcSeedAdapter implements ScenarioSeedPort {
       `Create ${input.title}`,
     );
     return { documentId: receipt.documentId };
+  }
+
+  #databasePort(): ScenarioDatabasePort {
+    return {
+      read: async (request) => await this.#invoke(
+        "database-module:read",
+        request.projectId,
+        request,
+      ),
+      apply: async (request) => await this.#invoke(
+        "database-module:apply",
+        request.projectId,
+        request,
+      ),
+    };
+  }
+
+  async ensurePrimaryDataSourcePropertyCount(
+    projectId: string,
+    count: number,
+  ): Promise<{ readonly commitSeq: number; readonly propertyCount: number }> {
+    return await ensurePrimaryDataSourcePropertyCount(this.#databasePort(), projectId, count);
+  }
+
+  async readPrimaryDataSourcePropertyCount(projectId: string): Promise<number> {
+    return await readPrimaryDataSourcePropertyCount(this.#databasePort(), projectId);
   }
 
   async replaceOwnedDocument(

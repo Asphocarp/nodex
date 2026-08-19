@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import type { DataSourcePropertyEditorBinding } from "@/components/database/data-source-property-editor-binding";
+import type { DataSourcePagePropertyMenuDescriptor } from "@/components/database/data-source-page-property-menu-source";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import type { DatabasePropertyValueType } from "../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
@@ -13,7 +13,7 @@ const binding = (
   name: string,
   valueType: DatabasePropertyValueType,
   lifecycle: DataSourcePropertyRecordV2["lifecycle"] = "active",
-): DataSourcePropertyEditorBinding => ({
+): DataSourcePagePropertyMenuDescriptor => ({
   property: {
     propertyId,
     dataSourceId: "source-1",
@@ -27,10 +27,8 @@ const binding = (
     createdAt: "2026-08-16T00:00:00.000Z",
     updatedAt: "2026-08-16T00:00:00.000Z",
   } as DataSourcePropertyRecordV2,
-  value: null,
-  revision: 1,
   disabled: false,
-  onChange: vi.fn(),
+  pending: false,
 });
 
 describe("buildPagePropertyContextMenuModel", () => {

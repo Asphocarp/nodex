@@ -357,7 +357,7 @@ export function DataSourcePropertyValueEditor({
         onCreateOption={createOption}
       />
     );
-    if (optionPickerHost === "context-menu") return editor;
+    if (optionPickerHost === "embedded") return editor;
     return <span className="inline-flex min-w-0 items-center gap-1">{label}{editor}</span>;
   }
   if (property.valueType === "multi_select") {
@@ -407,7 +407,7 @@ export function DataSourcePropertyValueEditor({
           onCreateOption={createOption}
       />
     );
-    if (optionPickerHost === "context-menu") return editor;
+    if (optionPickerHost === "embedded") return editor;
     return <span className="inline-flex min-w-0 items-center gap-1">{label}{editor}</span>;
   }
   if (
