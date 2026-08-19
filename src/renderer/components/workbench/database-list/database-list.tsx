@@ -1737,6 +1737,7 @@ export function DatabaseList({
     return {
       page: {
         libraryId: model.libraryId,
+        accessContext: model.accessContext,
         projectId: model.accessContext.kind === "project"
           ? model.accessContext.projectId
           : null,

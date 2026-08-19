@@ -242,6 +242,7 @@ export const createDatabaseBoardPageMenuSession = (
   return {
     page: {
       libraryId: props.model.libraryId,
+      accessContext: props.model.accessContext,
       projectId: props.model.accessContext.kind === "project"
         ? props.model.accessContext.projectId
         : null,

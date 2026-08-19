@@ -232,7 +232,7 @@ export function NfmEditorContextMenuContent({
   onCommand,
 }: NfmEditorContextMenuContentProps) {
   return (
-    <NodexDropdownSurface className="min-w-36 p-1">
+    <>
       <NfmEditorContextMenuItem
         disabled={!editable || selectionEmpty}
         onSelect={() => onCommand("cut")}
@@ -254,7 +254,7 @@ export function NfmEditorContextMenuContent({
       >
         Paste
       </NfmEditorContextMenuItem>
-    </NodexDropdownSurface>
+    </>
   );
 }
 
@@ -369,7 +369,7 @@ export function NfmEditorContextMenu({
       <NodexContextMenuPortal>
         <NodexContextMenuContent
           onCloseAutoFocus={(event) => event.preventDefault()}
-          className="z-50 no-drag outline-hidden"
+          className="z-50 no-drag min-w-36 outline-hidden"
         >
           {content}
         </NodexContextMenuContent>
