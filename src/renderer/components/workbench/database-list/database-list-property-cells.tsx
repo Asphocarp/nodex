@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { DataSourcePropertyValueEditor } from "@/components/database/data-source-property-value-editor";
 import { DueDateValueIcon } from "@/components/database/due-date-value-icon";
+import { CalendarIcon } from "@/components/shared/icons";
 import type {
   DataSourcePropertyEditorBinding,
   DataSourcePropertyOptionRegistryState,
@@ -147,8 +148,11 @@ const propertyIcon = (
   value: DatabaseJsonValue | undefined,
 ): ReactNode => {
   const role = resolveDataSourcePropertyPresentationRole(property);
-  if (role.kind === "due_date" || role.kind === "schedule_boundary") {
+  if (role.kind === "due_date") {
     return <DueDateValueIcon value={value} />;
+  }
+  if (role.kind === "schedule_boundary") {
+    return <CalendarIcon style={{ color: DATABASE_LIST_MUTED_ICON_COLOR }} />;
   }
   if (role.kind === "estimate") {
     return <DatabaseListEstimateIcon style={{ color: DATABASE_LIST_MUTED_ICON_COLOR }} />;
