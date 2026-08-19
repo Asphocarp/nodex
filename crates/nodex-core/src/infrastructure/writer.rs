@@ -183,6 +183,9 @@ impl ReadPoolInner {
                 .map_err(|_| poisoned_pool())?;
             state = next_state;
             if wait.timed_out() && state.idle.is_empty() && Instant::now() >= pool_deadline {
+                if cancellation.is_cancelled() || Instant::now() >= request_deadline {
+                    return Err(query_interrupted(cancellation.is_cancelled()));
+                }
                 return Err(StoreError::new(
                     StoreErrorCode::ReaderPoolTimeout,
                     "Timed out waiting for a SQLite read connection",

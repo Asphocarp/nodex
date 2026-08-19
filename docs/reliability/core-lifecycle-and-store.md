@@ -54,7 +54,7 @@ Core reports `deadline_exceeded`, `cancelled`, and `overloaded` as semantic
 Module errors. Electron's HTTP timer is the semantic deadline plus a five-second
 liveness grace. Crossing only that outer grace is a transport timeout and still
 does not prove Core generation loss or mutation failure. Interactive Page
-search releases cancel stale enrichment requests end to end. Scheduled Store
+search cancels stale enrichment requests end to end. Scheduled Store
 maintenance is globally single-flight before it enters Core, then also uses the
 executor's maintenance lane.
 

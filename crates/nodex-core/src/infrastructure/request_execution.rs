@@ -53,6 +53,26 @@ pub fn request_is_cancelled() -> bool {
     })
 }
 
+/// Stops synchronous CPU work at the same cancellation/deadline boundary as
+/// SQLite work. Callers use this at bounded collection and transformation
+/// checkpoints so a cancelled request does not retain an execution permit
+/// until an entire reconstruction or transfer finishes.
+pub fn check_request_interruption() -> Result<(), super::sqlite::StoreError> {
+    CURRENT.with(|current| {
+        let current = current.borrow();
+        let Some(context) = current.last() else {
+            return Ok(());
+        };
+        if context.cancellation.is_cancelled() {
+            return Err(super::sqlite::query_interrupted(true));
+        }
+        if Instant::now() >= context.deadline {
+            return Err(super::sqlite::query_interrupted(false));
+        }
+        Ok(())
+    })
+}
+
 pub(crate) fn query_control(
     fallback_budget: Duration,
     cancellation: QueryCancellation,
@@ -116,6 +136,38 @@ mod tests {
                 let (deadline, _) =
                     query_control(Duration::from_secs(10), QueryCancellation::new());
                 assert_eq!(deadline, request_deadline);
+            },
+        );
+    }
+
+    #[test]
+    fn interruption_checkpoint_reports_request_cancellation_and_deadline() {
+        let cancellation = QueryCancellation::new();
+        within_request_execution(
+            RequestExecutionContext::new(
+                cancellation.clone(),
+                Instant::now() + Duration::from_secs(2),
+            ),
+            || {
+                cancellation.cancel();
+                assert_eq!(
+                    check_request_interruption()
+                        .expect_err("cancelled request passed an interruption checkpoint")
+                        .code,
+                    crate::infrastructure::sqlite::StoreErrorCode::QueryCancelled,
+                );
+            },
+        );
+
+        within_request_execution(
+            RequestExecutionContext::new(QueryCancellation::new(), Instant::now()),
+            || {
+                assert_eq!(
+                    check_request_interruption()
+                        .expect_err("expired request passed an interruption checkpoint")
+                        .code,
+                    crate::infrastructure::sqlite::StoreErrorCode::DeadlineExceeded,
+                );
             },
         );
     }

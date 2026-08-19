@@ -16,6 +16,7 @@ use crate::infrastructure::document_repository::{
 };
 use crate::infrastructure::event_log::{NewChangeLogEntry, append_change_log};
 use crate::infrastructure::local_commit::CommitContext;
+use crate::infrastructure::request_execution::check_request_interruption;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::canvas_scene::{
@@ -933,6 +934,7 @@ pub(crate) fn load_canvas_scene(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
 ) -> Result<LoadedCanvasAuthority, StoreError> {
+    check_request_interruption()?;
     #[cfg(test)]
     FULL_SCENE_LOAD_COUNT.with(|count| count.set(count.get().saturating_add(1)));
     validate_canvas_authority(authority)?;
@@ -998,8 +1000,10 @@ pub(crate) fn load_canvas_scene(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| corrupt("Canvas element row has invalid column types"))?;
+    check_request_interruption()?;
     let mut elements = Vec::with_capacity(element_rows.len());
     for row in element_rows {
+        check_request_interruption()?;
         let value = serde_json::from_str::<Value>(&row.5)
             .map_err(|_| corrupt("Canvas element JSON is invalid"))?;
         let element = parse_stored_element(&value, &row.0, row.3.clone())?;
@@ -1040,8 +1044,10 @@ pub(crate) fn load_canvas_scene(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| corrupt("Canvas file row has invalid column types"))?;
+    check_request_interruption()?;
     let mut files = BTreeMap::new();
     for row in file_rows {
+        check_request_interruption()?;
         let value = serde_json::from_str::<Value>(&row.4)
             .map_err(|_| corrupt("Canvas file JSON is invalid"))?;
         let file = parse_stored_file(&value, &row.0)?;
@@ -1058,6 +1064,7 @@ pub(crate) fn load_canvas_scene(
     let app_state = serde_json::from_str::<Value>(&scene_row.4)
         .map_err(|_| corrupt("Canvas appState JSON is invalid"))?;
     let scene = materialize_loaded_scene(elements, &app_state, files)?;
+    check_request_interruption()?;
     let metadata = compute_canvas_scene_incremental_metadata(&scene)
         .map_err(|_| corrupt("Canvas incremental scene metadata is invalid"))?;
     let mismatches = [
@@ -1168,6 +1175,7 @@ pub(crate) fn load_v94_canvas_scene(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
 ) -> Result<LoadedCanvasAuthority, StoreError> {
+    check_request_interruption()?;
     validate_canvas_authority(authority)?;
     let scene_row = connection
         .query_row(
@@ -1213,9 +1221,11 @@ pub(crate) fn load_v94_canvas_scene(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    check_request_interruption()?;
     let mut elements = Vec::with_capacity(element_rows.len());
     let mut raw_element_jsons = Vec::with_capacity(element_rows.len());
     for row in element_rows {
+        check_request_interruption()?;
         let value = serde_json::from_str::<Value>(&row.5)
             .map_err(|_| corrupt("v94 Canvas element JSON is invalid"))?;
         let element = parse_stored_element(&value, &row.0, row.3.clone())?;
@@ -1251,9 +1261,11 @@ pub(crate) fn load_v94_canvas_scene(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    check_request_interruption()?;
     let mut files = BTreeMap::new();
     let mut raw_file_jsons = BTreeMap::new();
     for row in file_rows {
+        check_request_interruption()?;
         let value = serde_json::from_str::<Value>(&row.4)
             .map_err(|_| corrupt("v94 Canvas file JSON is invalid"))?;
         let file = parse_stored_file(&value, &row.0)?;
@@ -1270,6 +1282,7 @@ pub(crate) fn load_v94_canvas_scene(
     let app_state = serde_json::from_str::<Value>(&scene_row.3)
         .map_err(|_| corrupt("v94 Canvas appState JSON is invalid"))?;
     let scene = materialize_loaded_scene(elements, &app_state, files)?;
+    check_request_interruption()?;
     let scene_hash = sha256(scene.fingerprint()?.as_bytes());
     let legacy_fingerprint = legacy_canvas_scene_fingerprint(
         &raw_element_jsons,

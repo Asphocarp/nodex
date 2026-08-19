@@ -1,5 +1,6 @@
 use base64::prelude::{BASE64_STANDARD, Engine as _};
 use nodex_core::document::CanvasSceneSyncSnapshot;
+use nodex_core::infrastructure::request_execution::request_is_cancelled;
 use nodex_core_contracts::document::{
     OwnedDocumentAccessContext, OwnedDocumentCommitValue, OwnedDocumentDescriptor,
     OwnedDocumentReadValue, OwnedDocumentReceipt, OwnedDocumentSyncDescriptor,
@@ -257,6 +258,9 @@ pub(crate) fn parse_yjs_sync(
 }
 
 pub(crate) fn encode_sync(value: &YjsSyncValue) -> Result<Vec<u8>, CoreError> {
+    ensure_request_active()?;
+    let state_vector = BASE64_STANDARD.encode(&value.state_vector);
+    ensure_request_active()?;
     encode_envelope(
         &SyncResponseMetadata {
             version: 3,
@@ -265,7 +269,7 @@ pub(crate) fn encode_sync(value: &YjsSyncValue) -> Result<Vec<u8>, CoreError> {
             store_epoch: &value.store_epoch,
             generation: value.generation,
             head_seq: value.head_seq,
-            state_vector: BASE64_STANDARD.encode(&value.state_vector),
+            state_vector,
         },
         &value.update,
     )
@@ -367,6 +371,7 @@ pub(crate) fn encode_apply_ack(
 pub(crate) fn encode_realtime_event(
     event: &nodex_core::document::DocumentRealtimeEvent,
 ) -> Result<String, CoreError> {
+    ensure_request_active()?;
     let nodex_core::document::DocumentRealtimeEvent::Awareness {
         document_id,
         store_epoch,
@@ -374,7 +379,7 @@ pub(crate) fn encode_realtime_event(
         client_session_id,
         update,
     } = event;
-    serde_json::to_string(&serde_json::json!({
+    let encoded = serde_json::to_string(&serde_json::json!({
         "version": 1,
         "kind": "awareness",
         "documentId": document_id,
@@ -383,7 +388,9 @@ pub(crate) fn encode_realtime_event(
         "clientSessionId": client_session_id,
         "update": BASE64_STANDARD.encode(update),
     }))
-    .map_err(|_| invalid("Document realtime event cannot be encoded"))
+    .map_err(|_| invalid("Document realtime event cannot be encoded"))?;
+    ensure_request_active()?;
+    Ok(encoded)
 }
 
 fn decode_envelope<T: DeserializeOwned>(
@@ -426,8 +433,10 @@ fn decode_metadata_bytes(bytes: &[u8]) -> Result<&[u8], CoreError> {
 }
 
 fn encode_envelope<T: Serialize>(metadata: &T, payload: &[u8]) -> Result<Vec<u8>, CoreError> {
+    ensure_request_active()?;
     let metadata = serde_json::to_vec(metadata)
         .map_err(|_| invalid("Document binary metadata cannot be encoded"))?;
+    ensure_request_active()?;
     if metadata.len() > MAX_METADATA_BYTES {
         return Err(invalid("Document binary metadata exceeds its bound"));
     }
@@ -438,7 +447,24 @@ fn encode_envelope<T: Serialize>(metadata: &T, payload: &[u8]) -> Result<Vec<u8>
     frame.extend_from_slice(&length.to_be_bytes());
     frame.extend_from_slice(&metadata);
     frame.extend_from_slice(payload);
+    ensure_request_active()?;
     Ok(frame)
+}
+
+fn ensure_request_active() -> Result<(), CoreError> {
+    if request_is_cancelled() {
+        return Err(cancelled());
+    }
+    Ok(())
+}
+
+fn cancelled() -> CoreError {
+    CoreError {
+        code: nodex_core_contracts::CoreErrorCode::Cancelled,
+        message: "Core request was cancelled".to_owned(),
+        retryable: true,
+        recovery: nodex_core_contracts::CoreErrorRecovery::None,
+    }
 }
 
 fn invalid(message: &str) -> CoreError {
@@ -459,6 +485,13 @@ fn is_sha256(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
+    use nodex_core::infrastructure::request_execution::{
+        RequestExecutionContext, within_request_execution,
+    };
+    use nodex_core::infrastructure::sqlite::QueryCancellation;
+
     use super::*;
 
     #[test]
@@ -604,6 +637,26 @@ mod tests {
                 .expect_err("oversized Canvas snapshot")
                 .message,
             "Canvas scene snapshot exceeds its byte bound",
+        );
+    }
+
+    #[test]
+    fn response_encoding_preserves_request_cancellation() {
+        let cancellation = QueryCancellation::new();
+        let result = within_request_execution(
+            RequestExecutionContext::new(
+                cancellation.clone(),
+                Instant::now() + Duration::from_secs(2),
+            ),
+            || {
+                cancellation.cancel();
+                encode_envelope(&serde_json::json!({ "kind": "sync" }), &[])
+            },
+        );
+
+        assert_eq!(
+            result.expect_err("cancelled response was encoded").code,
+            nodex_core_contracts::CoreErrorCode::Cancelled,
         );
     }
 }

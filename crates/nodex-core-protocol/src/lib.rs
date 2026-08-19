@@ -951,9 +951,9 @@ mod api {
         post,
         path = "/core/v1/local-mutations/resolve",
         params(
-            ("x-nodex-request-id" = String, Header),
-            ("x-nodex-request-class" = CoreRequestClass, Header),
-            ("x-nodex-request-deadline-ms" = u64, Header)
+            ("x-nodex-request-id" = Option<String>, Header),
+            ("x-nodex-request-class" = Option<CoreRequestClass>, Header),
+            ("x-nodex-request-deadline-ms" = Option<u64>, Header)
         ),
         request_body = LocalMutationResolveRequest,
         responses((status = 200, body = LocalMutationResolveResponse))

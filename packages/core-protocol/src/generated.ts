@@ -7934,10 +7934,10 @@ export interface operations {
     readonly resolve_local_mutation: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;

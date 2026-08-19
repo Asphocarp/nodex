@@ -1163,11 +1163,12 @@ function createGitActionWorkerPort(
   };
 }
 
+const pageSearchRequests = new Map<string, AbortController>();
+
 export function registerIpcHandlers(
   options: RegisterIpcHandlersOptions = {},
 ): void {
   ensureBrowserGuestBridge();
-  const pageSearchRequests = new Map<string, AbortController>();
   ipcMain.removeAllListeners(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL);
   ipcMain.on(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL, (event) => {
     try {
