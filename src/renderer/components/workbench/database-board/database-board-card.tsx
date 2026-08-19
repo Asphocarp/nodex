@@ -22,6 +22,7 @@ import {
 import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
 import type { RelationTargetWindow } from "@/lib/data-source-relation-value";
 import { cn } from "@/lib/utils";
+import { canMoveDatabaseViewPage } from "@/lib/database-view-row-mutations";
 import type {
   DatabaseJsonValue,
   DatabasePropertyOption,
@@ -66,8 +67,6 @@ export interface DatabaseBoardCardProps {
   readonly showDescription: boolean;
   readonly pendingMutationKeys: ReadonlyMap<string, number>;
   readonly mutationErrors: ReadonlyMap<string, string>;
-  readonly canMoveUp: boolean;
-  readonly canMoveDown: boolean;
   readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
   readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onSetValue: (
@@ -213,11 +212,24 @@ const createDatabaseBoardPropertyEditorBinding = (
 
 export const createDatabaseBoardPageMenuSession = (
   props: DatabaseBoardCardProps,
+  { groupComplete }: { readonly groupComplete: boolean },
 ): DatabaseViewPageMenuSession | null => {
   const authority = props.model.query.rows.find(
     (candidate) => candidate.page.pageId === props.row.pageId,
   );
   if (!authority) return null;
+  const canMoveUp = canMoveDatabaseViewPage({
+    model: props.model,
+    pageId: props.row.pageId,
+    direction: "up",
+    groupComplete,
+  });
+  const canMoveDown = canMoveDatabaseViewPage({
+    model: props.model,
+    pageId: props.row.pageId,
+    direction: "down",
+    groupComplete,
+  });
   const activeProperties = props.model.query.properties.filter(
     (property) => property.lifecycle === "active",
   );
@@ -250,8 +262,8 @@ export const createDatabaseBoardPageMenuSession = (
       pageKey: props.row.pageKey,
       titleSnapshot: props.row.title,
     },
-    canMoveUp: props.canMoveUp,
-    canMoveDown: props.canMoveDown,
+    canMoveUp,
+    canMoveDown,
     propertySource,
     groupingPropertyId: props.groupPropertyId,
     actionPort: props.pageActionPort,

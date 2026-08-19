@@ -1348,52 +1348,95 @@ function AutomationPreviousRunStatusIcon({
   return <span aria-hidden="true" className="size-2 rounded-full bg-token-description-foreground" />;
 }
 
-function AutomationPreviousRunContextMenu({
-  row,
+const AUTOMATION_PREVIOUS_RUN_MENU_TARGET_ATTRIBUTE =
+  "data-automation-previous-run-menu-target";
+
+function AutomationPreviousRunsContextMenu({
+  rows,
   disabled,
   onArchive,
   onUnarchive,
   onMarkReadState,
   children,
 }: {
-  row: WorkbenchAutomationPreviousRunRowModel;
+  rows: WorkbenchAutomationPreviousRunRowModel[];
   disabled: boolean;
   onArchive: (row: WorkbenchAutomationPreviousRunRowModel) => void;
   onUnarchive: (row: WorkbenchAutomationPreviousRunRowModel) => void;
   onMarkReadState: (row: WorkbenchAutomationPreviousRunRowModel, readAt: number | null) => void;
   children: ReactNode;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [targetThreadId, setTargetThreadId] = useState<string | null>(null);
+  const targetRow = targetThreadId === null
+    ? null
+    : rows.find((row) => row.threadId === targetThreadId) ?? null;
+
+  const handleMenuOpenChange = (open: boolean): void => {
+    setMenuOpen(open);
+    if (!open) setTargetThreadId(null);
+  };
+
+  const handleContextMenu = (event: MouseEvent<HTMLSpanElement>): void => {
+    if (!(event.target instanceof Element)) {
+      event.stopPropagation();
+      return;
+    }
+    const target = event.target.closest<HTMLElement>(
+      `[${AUTOMATION_PREVIOUS_RUN_MENU_TARGET_ATTRIBUTE}]`,
+    );
+    const nextTargetThreadId = target?.getAttribute(
+      AUTOMATION_PREVIOUS_RUN_MENU_TARGET_ATTRIBUTE,
+    );
+    if (
+      !nextTargetThreadId
+      || !rows.some((row) => row.threadId === nextTargetThreadId)
+    ) {
+      event.stopPropagation();
+      return;
+    }
+    setTargetThreadId(nextTargetThreadId);
+  };
+
   if (disabled) return <>{children}</>;
 
   return (
-    <NodexContextMenuRoot>
-      <NodexContextMenuTrigger asChild>{children}</NodexContextMenuTrigger>
-      <NodexContextMenuPortal>
-        <NodexContextMenuContent className="min-w-40">
-          {row.canUnarchive ? (
+    <NodexContextMenuRoot open={menuOpen} onOpenChange={handleMenuOpenChange}>
+      <NodexContextMenuTrigger asChild>
+        <span className="contents" data-automation-previous-run-menu-region="true">
+          <span className="contents" onContextMenu={handleContextMenu}>
+            {children}
+          </span>
+        </span>
+      </NodexContextMenuTrigger>
+      {targetRow ? (
+        <NodexContextMenuPortal>
+          <NodexContextMenuContent className="min-w-40">
+            {targetRow.canUnarchive ? (
+              <NodexContextMenuItem
+                className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
+                onSelect={() => onUnarchive(targetRow)}
+              >
+                Unarchive
+              </NodexContextMenuItem>
+            ) : null}
             <NodexContextMenuItem
               className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
-              onSelect={() => onUnarchive(row)}
+              onSelect={() => onMarkReadState(targetRow, targetRow.isUnread ? Date.now() : null)}
             >
-              Unarchive
+              {targetRow.isUnread ? "Mark as read" : "Mark as unread"}
             </NodexContextMenuItem>
-          ) : null}
-          <NodexContextMenuItem
-            className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
-            onSelect={() => onMarkReadState(row, row.isUnread ? Date.now() : null)}
-          >
-            {row.isUnread ? "Mark as read" : "Mark as unread"}
-          </NodexContextMenuItem>
-          {row.canArchive ? (
-            <NodexContextMenuItem
-              className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
-              onSelect={() => onArchive(row)}
-            >
-              Archive
-            </NodexContextMenuItem>
-          ) : null}
-        </NodexContextMenuContent>
-      </NodexContextMenuPortal>
+            {targetRow.canArchive ? (
+              <NodexContextMenuItem
+                className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
+                onSelect={() => onArchive(targetRow)}
+              >
+                Archive
+              </NodexContextMenuItem>
+            ) : null}
+          </NodexContextMenuContent>
+        </NodexContextMenuPortal>
+      ) : null}
     </NodexContextMenuRoot>
   );
 }
@@ -1402,16 +1445,12 @@ function AutomationPreviousRunRow({
   row,
   disabled,
   onOpenRun,
-  onArchive,
   onUnarchive,
-  onMarkReadState,
 }: {
   row: WorkbenchAutomationPreviousRunRowModel;
   disabled: boolean;
   onOpenRun?: (row: WorkbenchAutomationPreviousRunRowModel) => void;
-  onArchive: (row: WorkbenchAutomationPreviousRunRowModel) => void;
   onUnarchive: (row: WorkbenchAutomationPreviousRunRowModel) => void;
-  onMarkReadState: (row: WorkbenchAutomationPreviousRunRowModel, readAt: number | null) => void;
 }) {
   const canOpen = row.canOpen && onOpenRun !== undefined && !disabled;
   const selectRun = () => {
@@ -1428,69 +1467,62 @@ function AutomationPreviousRunRow({
     <div
       role="listitem"
       data-testid={`automation-previous-run-${row.threadId}`}
+      data-automation-previous-run-menu-target={row.threadId}
       className="group relative min-w-0"
     >
-      <AutomationPreviousRunContextMenu
-        row={row}
-        disabled={disabled}
-        onArchive={onArchive}
-        onUnarchive={onUnarchive}
-        onMarkReadState={onMarkReadState}
+      <div
+        role="button"
+        tabIndex={canOpen ? 0 : -1}
+        aria-disabled={!canOpen}
+        aria-label={row.title}
+        onClick={selectRun}
+        onKeyDown={handleKeyDown}
+        className={cn(
+          "flex min-h-11 min-w-0 items-center gap-2 rounded-md py-2 pr-3 pl-1 text-base outline-none",
+          canOpen ? "cursor-interaction hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-2" : "cursor-default",
+          row.isArchived && "opacity-65 hover:opacity-100 focus-within:opacity-100",
+        )}
       >
-        <div
-          role="button"
-          tabIndex={canOpen ? 0 : -1}
-          aria-disabled={!canOpen}
-          aria-label={row.title}
-          onClick={selectRun}
-          onKeyDown={handleKeyDown}
-          className={cn(
-            "flex min-h-11 min-w-0 items-center gap-2 rounded-md py-2 pr-3 pl-1 text-base outline-none",
-            canOpen ? "cursor-interaction hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-2" : "cursor-default",
-            row.isArchived && "opacity-65 hover:opacity-100 focus-within:opacity-100",
-          )}
-        >
-          <span className="flex w-5 shrink-0 items-center justify-center text-token-description-foreground">
-            <AutomationPreviousRunStatusIcon row={row} />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="min-w-0 truncate text-token-foreground">{row.title}</span>
-              {row.sourceLabel ? (
-                <span className="min-w-0 truncate text-sm text-token-description-foreground">
-                  {row.sourceLabel}
-                </span>
-              ) : null}
-            </span>
-            {row.item.description ? (
-              <span className="min-w-0 truncate text-sm text-token-text-tertiary">
-                {row.item.description}
+        <span className="flex w-5 shrink-0 items-center justify-center text-token-description-foreground">
+          <AutomationPreviousRunStatusIcon row={row} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate text-token-foreground">{row.title}</span>
+            {row.sourceLabel ? (
+              <span className="min-w-0 truncate text-sm text-token-description-foreground">
+                {row.sourceLabel}
               </span>
             ) : null}
           </span>
-          <span className="flex min-w-[4.5rem] shrink-0 items-center justify-end">
-            {row.canUnarchive ? (
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onUnarchive(row);
-                }}
-                className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md px-2 py-1 text-sm text-token-foreground opacity-0 outline-none hover:bg-token-list-hover-background focus:pointer-events-auto focus:opacity-100 focus-visible:ring-token-focus focus-visible:ring-2 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 disabled:cursor-default disabled:opacity-40"
-              >
-                Unarchive
-              </button>
-            ) : null}
-            <span className={cn(
-              "text-sm whitespace-nowrap text-token-description-foreground tabular-nums",
-              row.canUnarchive && "group-focus-within:opacity-0 group-hover:opacity-0",
-            )}>
-              {row.relativeTimeLabel}
+          {row.item.description ? (
+            <span className="min-w-0 truncate text-sm text-token-text-tertiary">
+              {row.item.description}
             </span>
+          ) : null}
+        </span>
+        <span className="flex min-w-[4.5rem] shrink-0 items-center justify-end">
+          {row.canUnarchive ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={(event) => {
+                event.stopPropagation();
+                onUnarchive(row);
+              }}
+              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md px-2 py-1 text-sm text-token-foreground opacity-0 outline-none hover:bg-token-list-hover-background focus:pointer-events-auto focus:opacity-100 focus-visible:ring-token-focus focus-visible:ring-2 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 disabled:cursor-default disabled:opacity-40"
+            >
+              Unarchive
+            </button>
+          ) : null}
+          <span className={cn(
+            "text-sm whitespace-nowrap text-token-description-foreground tabular-nums",
+            row.canUnarchive && "group-focus-within:opacity-0 group-hover:opacity-0",
+          )}>
+            {row.relativeTimeLabel}
           </span>
-        </div>
-      </AutomationPreviousRunContextMenu>
+        </span>
+      </div>
     </div>
   );
 }
@@ -1588,19 +1620,25 @@ function AutomationPreviousRunsSection({
             No chats
           </div>
         ) : (
-          <div role="list" className="vertical-scroll-fade-mask flex max-h-64 min-h-0 flex-col overflow-y-auto [--edge-fade-distance:1rem]">
-            {rows.map((row) => (
-              <AutomationPreviousRunRow
-                key={row.threadId}
-                row={row}
-                disabled={actionBusy}
-                onOpenRun={onOpenRun}
-                onArchive={(target) => openArchiveDialog([target])}
-                onUnarchive={onUnarchiveRun}
-                onMarkReadState={onMarkReadState}
-              />
-            ))}
-          </div>
+          <AutomationPreviousRunsContextMenu
+            rows={rows}
+            disabled={actionBusy}
+            onArchive={(target) => openArchiveDialog([target])}
+            onUnarchive={onUnarchiveRun}
+            onMarkReadState={onMarkReadState}
+          >
+            <div role="list" className="vertical-scroll-fade-mask flex max-h-64 min-h-0 flex-col overflow-y-auto [--edge-fade-distance:1rem]">
+              {rows.map((row) => (
+                <AutomationPreviousRunRow
+                  key={row.threadId}
+                  row={row}
+                  disabled={actionBusy}
+                  onOpenRun={onOpenRun}
+                  onUnarchive={onUnarchiveRun}
+                />
+              ))}
+            </div>
+          </AutomationPreviousRunsContextMenu>
         )}
       </AutomationDetailSection>
       <AutomationArchiveRunsDialog

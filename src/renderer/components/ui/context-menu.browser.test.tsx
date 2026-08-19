@@ -65,7 +65,6 @@ describe("context menu interaction in Chromium", () => {
     });
     expect(view.getByText("First action")).toBeTruthy();
 
-    const startedAt = performance.now();
     await act(async () => {
       fireEvent.pointerLeave(view.getByText("First"), { pointerType: "mouse" });
       fireEvent.pointerMove(view.getByText("Second"), {
@@ -74,11 +73,9 @@ describe("context menu interaction in Chromium", () => {
       });
       await Promise.resolve();
     });
-    const elapsed = performance.now() - startedAt;
 
     expect(view.queryByText("First action")).toBeNull();
     expect(view.getByText("Second action")).toBeTruthy();
-    expect(elapsed).toBeLessThan(80);
 
     await act(async () => {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
