@@ -2680,7 +2680,7 @@ fn ensure_v130_document_materialization_derivation(
         );
         connection.execute_batch(&sql)?;
     }
-    validate_v130_document_materialization_derivation(connection)
+    Ok(())
 }
 
 fn validate_v130_document_materialization_derivation(
@@ -2787,15 +2787,6 @@ fn prepare_profile_store_impl(
         to_version: CURRENT_STORE_REVISION,
     });
     let backup_path = create_migration_backup(connection, profile_home, source_version)?;
-    // A TypeScript v84 store crosses the same import boundary as the staged
-    // legacy path below. Rebuild its derived projections from the Rust Yrs
-    // decoder before the first exact materialization check; the persisted
-    // projection is not authoritative for this boundary.
-    with_immediate_transaction(connection, |transaction| {
-        rebuild_legacy_import_document_projections(transaction)
-    })?;
-    let validated_yjs_documents =
-        validate_live_yjs_documents(connection, YjsValidationMode::ExactMaterialization)?;
     let backup_name = backup_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -2806,7 +2797,7 @@ fn prepare_profile_store_impl(
                 false,
             )
         })?;
-    publish_current_store(
+    let validated_yjs_documents = publish_current_store(
         connection,
         profile_home,
         Some(source_version),
@@ -2851,13 +2842,8 @@ pub(crate) fn prepare_legacy_import_candidate(
                 false,
             )
         })?;
-    with_immediate_transaction(connection, |transaction| {
-        rebuild_legacy_import_document_projections(transaction)
-    })?;
-    let validated_yjs_documents =
-        validate_live_yjs_documents(connection, YjsValidationMode::ExactMaterialization)?;
     let now = unix_time_millis()?;
-    publish_current_store(
+    let validated_yjs_documents = publish_current_store(
         connection,
         profile_home,
         Some(LEGACY_TYPESCRIPT_STORE_REVISION),
@@ -2881,19 +2867,31 @@ fn rebuild_legacy_import_document_projections(connection: &Connection) -> Result
     for head in heads {
         // A few historical stores can contain standalone Yjs Documents that
         // were never attached to a Block. They still belong to the Yrs
-        // integrity pass below, but there is no owner-scoped projection to
-        // rebuild for them.
+        // integrity pass below, so persist their materialization while
+        // leaving owner-scoped projections absent.
         let has_owner: bool = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM block_documents \
              WHERE document_id = ?1 AND project_id = ?2)",
             params![head.id, head.library_id],
             |row| row.get(0),
         )?;
-        if !has_owner {
-            continue;
-        }
         let reconstructed = reconstruct_live_yjs_document(&repository, &head)?;
-        rebuild_legacy_import_projections(connection, &head.id, &reconstructed.materialization)?;
+        if has_owner {
+            rebuild_legacy_import_projections(
+                connection,
+                &head.id,
+                &reconstructed.materialization,
+            )?;
+        } else {
+            rebuild_document_materialization_projection_for_migration(
+                connection,
+                &head.id,
+                head.generation,
+                head.head_seq,
+                &reconstructed.materialization,
+                &head.updated_at,
+            )?;
+        }
     }
     Ok(())
 }
@@ -2945,11 +2943,16 @@ fn upgrade_owned_store(
         validate_live_yjs_documents(connection, YjsValidationMode::DurableOnly)?;
     let migration_now = unix_time_millis()?;
     with_schema_rebuild_transaction(connection, |transaction| {
-        StoreMigrationLedger::migrate_forward(transaction, source_version, migration_now, observer)
+        StoreMigrationLedger::migrate_forward(
+            transaction,
+            source_version,
+            migration_now,
+            observer,
+        )?;
+        validate_live_yjs_documents(transaction, YjsValidationMode::ExactMaterialization)
     })?;
 
     StoreMigrationLedger::validate_current_store(connection)?;
-    validate_live_yjs_documents(connection, YjsValidationMode::ExactMaterialization)?;
     Ok(StorePreparation {
         schema_version: CURRENT_STORE_REVISION,
         created_fresh: false,
@@ -3379,8 +3382,9 @@ fn publish_current_store(
     backup_name: Option<&str>,
     now: u64,
     observer: &mut dyn FnMut(StorePreparationEvent),
-) -> Result<(), StoreError> {
+) -> Result<usize, StoreError> {
     with_schema_rebuild_transaction(connection, |transaction| {
+        rebuild_legacy_import_document_projections(transaction)?;
         transaction.execute_batch(V85_SCHEMA_SQL)?;
         transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
@@ -3394,8 +3398,11 @@ fn publish_current_store(
             now,
             observer,
         )?;
+        let validated_yjs_documents =
+            validate_live_yjs_documents(transaction, YjsValidationMode::ExactMaterialization)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
-        import_automation_jitter_salt(transaction, profile_home, now)
+        import_automation_jitter_salt(transaction, profile_home, now)?;
+        Ok(validated_yjs_documents)
     })
 }
 
@@ -6491,6 +6498,33 @@ fn migrate_v95_canvas_scene(connection: &Connection, document_id: &str) -> Resul
     Ok(())
 }
 
+fn trusted_legacy_canvas_project_scope(
+    connection: &Connection,
+    project_id: &str,
+    document_id: &str,
+) -> Result<Option<(String, String)>, StoreError> {
+    connection
+        .query_row(
+            "SELECT library.id, library.profile_id
+             FROM projects project
+             JOIN documents document
+               ON document.id = ?2 AND document.project_id = project.id
+             JOIN block_documents ownership
+               ON ownership.document_id = document.id
+              AND ownership.project_id = project.id
+             JOIN blocks block
+               ON block.id = ownership.block_id
+              AND block.project_id = project.id
+              AND block.type = 'canvas'
+             JOIN libraries library ON library.id = project.library_id
+             WHERE project.id = ?1",
+            params![project_id, document_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(StoreError::from)
+}
+
 fn backfill_v95_legacy_canvas_module_receipts(connection: &Connection) -> Result<(), StoreError> {
     let rows = connection
         .prepare(
@@ -6524,21 +6558,19 @@ fn backfill_v95_legacy_canvas_module_receipts(connection: &Connection) -> Result
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| corrupt("v95 legacy Canvas request is missing projectId"))?;
+        let document_id = request
+            .get("documentId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| corrupt("v95 legacy Canvas request is missing documentId"))?;
         let store_epoch = request
             .get("storeEpoch")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| corrupt("v95 legacy Canvas request is missing storeEpoch"))?;
-        let profile_id = connection
-            .query_row(
-                "SELECT library.profile_id FROM projects project \
-                 JOIN libraries library ON library.id = project.library_id \
-                 WHERE project.id = ?1",
-                [project_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-            .ok_or_else(|| corrupt("v95 legacy Canvas request project has no Profile"))?;
+        let (_, profile_id) =
+            trusted_legacy_canvas_project_scope(connection, project_id, document_id)?
+                .ok_or_else(|| corrupt("v95 legacy Canvas request has no trusted Profile"))?;
         let result = serde_json::from_str::<Value>(&result_json)
             .map_err(|_| corrupt("v95 legacy Canvas result JSON is invalid"))?;
         let module_result = serde_json::to_string(&json!({
@@ -6689,14 +6721,22 @@ fn migrate_v95_canvas_receipts(connection: &Connection) -> Result<(), StoreError
                 "v94 Canvas private result diverges from its Module receipt",
             ));
         }
-        let library_id = connection
-            .query_row(
-                "SELECT id FROM libraries WHERE profile_id = ?1",
-                [&row.12],
-                |library| library.get::<_, String>(0),
-            )
-            .optional()?
-            .ok_or_else(|| corrupt("v94 Canvas receipt profile has no Library"))?;
+        let project_id = row
+            .13
+            .as_deref()
+            .ok_or_else(|| corrupt("v94 Canvas receipt is missing its Project"))?;
+        let Some((library_id, trusted_profile_id)) =
+            trusted_legacy_canvas_project_scope(connection, project_id, &row.0)?
+        else {
+            return Err(corrupt(
+                "v94 Canvas receipt has no trusted Project-to-Profile relation",
+            ));
+        };
+        if trusted_profile_id != row.12 {
+            return Err(corrupt(
+                "v94 Canvas receipt Profile diverges from its trusted Project relation",
+            ));
+        }
         let intent_hash = if row.17 == "apply_canvas_mutation" {
             sha256(&canvas_semantic_intent_fingerprint(
                 &row.12,
@@ -7812,10 +7852,13 @@ impl StoreMigrationLedger {
         ensure_v124_thread_execution_hosts(transaction)?;
         ensure_v125_default_draft_sessions(transaction)?;
         ensure_v126_thread_recency(transaction)?;
+        // Install the marker before the authoritative v127 rebuild so every
+        // rewritten materialization is stamped with the current derivation.
+        ensure_v130_document_materialization_derivation(transaction)?;
         ensure_v127_document_page_references(transaction)?;
         ensure_v128_block_transfer_undo(transaction)?;
         ensure_v129_store_revision_authority(transaction)?;
-        ensure_v130_document_materialization_derivation(transaction)?;
+        validate_v130_document_materialization_derivation(transaction)?;
         transaction.pragma_update(None, "user_version", CURRENT_STORE_REVISION)?;
         Ok(())
     }
@@ -13128,6 +13171,119 @@ mod tests {
     }
 
     #[test]
+    fn v95_canvas_receipt_scope_requires_a_trusted_v94_project_relation() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v94_store_with_canvas(&home);
+        let connection = open_writer(&home.join("nodex.db")).expect("v94 writer");
+
+        assert_eq!(
+            trusted_legacy_canvas_project_scope(
+                &connection,
+                "project:canvas-v94",
+                "document:canvas-v94",
+            )
+            .expect("trusted Canvas scope"),
+            Some((
+                "library:canvas-v94".to_owned(),
+                "profile:canvas-v94".to_owned(),
+            ))
+        );
+        connection
+            .execute(
+                "UPDATE projects SET library_id = NULL WHERE id = 'project:canvas-v94'",
+                [],
+            )
+            .expect("remove legacy Project library relation");
+        assert_eq!(
+            trusted_legacy_canvas_project_scope(
+                &connection,
+                "project:canvas-v94",
+                "document:canvas-v94",
+            )
+            .expect("unresolvable Canvas scope"),
+            None
+        );
+    }
+
+    #[test]
+    fn v95_canvas_migration_rejects_missing_rows_from_the_legacy_scene_aggregate() {
+        for missing_table in ["canvas_scene_elements", "canvas_scene_files"] {
+            let directory = tempdir().expect("Profile");
+            let home = directory.path().canonicalize().expect("absolute Profile");
+            seed_owned_v94_store_with_canvas(&home);
+            let mut connection = open_writer(&home.join("nodex.db")).expect("v94 writer");
+            let element_json = serde_json::to_string(&json!({
+                "id": "element:aggregate",
+                "type": "rectangle",
+                "version": 1,
+                "versionNonce": 0,
+                "index": "a0",
+                "isDeleted": false,
+            }))
+            .expect("legacy element JSON");
+            let file_json = serde_json::to_string(&json!({
+                "id": "file:aggregate",
+                "mimeType": "image/png",
+                "source": "nodex://assets/aggregate.png",
+                "created": 1,
+            }))
+            .expect("legacy file JSON");
+            let aggregate_hash = sha256(
+                serde_json::to_string(&json!({
+                    "schemaVersion": 1,
+                    "elements": [serde_json::from_str::<Value>(&element_json).expect("element")],
+                    "appState": {},
+                    "files": {
+                        "file:aggregate": serde_json::from_str::<Value>(&file_json).expect("file")
+                    },
+                    "pageReferences": [],
+                }))
+                .expect("legacy aggregate JSON")
+                .as_bytes(),
+            );
+            with_immediate_transaction(&mut connection, |transaction| {
+                transaction.execute(
+                    "INSERT INTO canvas_scene_elements(\
+                       document_id, element_id, version, version_nonce, order_key, is_deleted, \
+                       element_json, element_hash, updated_at\
+                     ) VALUES ('document:canvas-v94', 'element:aggregate', 1, 0, 'a0', 0, ?1, ?2, ?3)",
+                    params![element_json, sha256(element_json.as_bytes()), "2026-07-29T00:00:00.000Z"],
+                )?;
+                transaction.execute(
+                    "INSERT INTO canvas_scene_files(\
+                       document_id, file_id, mime_type, asset_uri, created_ms, file_json, file_hash, updated_at\
+                     ) VALUES ('document:canvas-v94', 'file:aggregate', 'image/png', \
+                               'nodex://assets/aggregate.png', 1, ?1, ?2, ?3)",
+                    params![file_json, sha256(file_json.as_bytes()), "2026-07-29T00:00:00.000Z"],
+                )?;
+                transaction.execute(
+                    "UPDATE canvas_scenes SET scene_hash = ?1 WHERE document_id = 'document:canvas-v94'",
+                    [&aggregate_hash],
+                )?;
+                transaction.execute(
+                    "UPDATE documents SET state_hash = ?1 WHERE id = 'document:canvas-v94'",
+                    [&aggregate_hash],
+                )?;
+                Ok(())
+            })
+            .expect("seed non-empty legacy Canvas scene");
+            connection
+                .execute(
+                    &format!(
+                        "DELETE FROM {missing_table} WHERE document_id = 'document:canvas-v94'"
+                    ),
+                    [],
+                )
+                .expect("remove legacy Canvas row");
+            drop(connection);
+
+            let error = open_error(&home);
+            assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        }
+    }
+
+    #[test]
     fn v92_upgrade_removes_threadless_database_starter_session() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -14454,22 +14610,23 @@ mod tests {
     }
 
     #[test]
-    fn failed_document_validation_keeps_the_live_store_at_v84() {
+    fn failed_document_migration_rolls_back_rebuilt_projection() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         seed_v84_page(&home);
-        let connection = Connection::open(home.join("nodex.db")).expect("v84 store");
+        let mut connection = Connection::open(home.join("nodex.db")).expect("v84 store");
         connection
             .execute(
                 "UPDATE document_materializations SET nfm = 'corrupt projection' WHERE document_id = ?1",
                 [DOCUMENT_ID],
             )
             .expect("corrupt projection");
-        drop(connection);
-
-        let error = open_error(&home);
+        let error = with_schema_rebuild_transaction(&mut connection, |transaction| {
+            rebuild_legacy_import_document_projections(transaction)?;
+            Err::<(), StoreError>(corrupt("test failure after legacy materialization rebuild"))
+        })
+        .expect_err("atomic migration should fail");
         assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
-        let connection = Connection::open(home.join("nodex.db")).expect("live v84 store");
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("live version");
@@ -14483,10 +14640,14 @@ mod tests {
             .expect("Core table count");
         assert_eq!(core_tables, 0);
         assert_eq!(
-            fs::read_dir(home.join("backups/core-migrations"))
-                .expect("backup directory")
-                .count(),
-            1
+            connection
+                .query_row(
+                    "SELECT nfm FROM document_materializations WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("live projection"),
+            "corrupt projection"
         );
     }
 
