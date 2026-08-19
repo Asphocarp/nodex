@@ -36,6 +36,11 @@ export function DatabaseViewPageContextMenuHost({
   const [targetKey, setTargetKey] = useState<string | null>(null);
   const session = targetKey ? resolveSession(targetKey) : null;
 
+  const handleMenuOpenChange = (open: boolean): void => {
+    setMenuOpen(open);
+    if (!open) setTargetKey(null);
+  };
+
   const handleContextMenu = (event: ReactMouseEvent<HTMLSpanElement>): void => {
     if (!(event.target instanceof Element)) {
       event.stopPropagation();
@@ -55,7 +60,7 @@ export function DatabaseViewPageContextMenuHost({
   };
 
   return (
-    <NodexContextMenuRoot open={menuOpen} onOpenChange={setMenuOpen}>
+    <NodexContextMenuRoot open={menuOpen} onOpenChange={handleMenuOpenChange}>
       <NodexContextMenuTrigger asChild>
         <span className="contents" data-database-view-page-menu-region="true">
           <span className="contents" onContextMenu={handleContextMenu}>
@@ -67,7 +72,7 @@ export function DatabaseViewPageContextMenuHost({
         <DatabaseViewPageContextMenuOverlay
           {...session}
           menuOpen={menuOpen}
-          onMenuOpenChange={setMenuOpen}
+          onMenuOpenChange={handleMenuOpenChange}
         />
       ) : null}
     </NodexContextMenuRoot>

@@ -9,6 +9,7 @@ import { DatabaseViewPageContextMenuHost } from "./database-view-page-context-me
 const session = (pageId: string): DatabaseViewPageMenuSession => ({
   page: {
     libraryId: "library-1",
+    accessContext: { kind: "project", projectId: "project-1" },
     projectId: "project-1",
     pageId,
     pageKey: pageId.toUpperCase(),
@@ -80,5 +81,50 @@ describe("DatabaseViewPageContextMenuHost", () => {
       view.queryByRole("textbox", { name: "Search Page actions and properties" }),
     ).toBeNull());
     expect(resolveSession).not.toHaveBeenCalled();
+  });
+
+  test("resets search and focus after root dismissal", async () => {
+    const resolveSession = vi.fn((targetKey: string) => session(targetKey));
+    const view = render(
+      <DatabaseViewPageContextMenuHost resolveSession={resolveSession}>
+        <button type="button" data-database-view-page-menu-target="page-1">
+          Page
+        </button>
+      </DatabaseViewPageContextMenuHost>,
+    );
+
+    await act(async () => {
+      fireEvent.contextMenu(view.getByRole("button", { name: "Page" }), {
+        clientX: 80,
+        clientY: 60,
+      });
+      await Promise.resolve();
+    });
+    const search = await view.findByRole("textbox", {
+      name: "Search Page actions and properties",
+    });
+    fireEvent.change(search, { target: { value: "copy" } });
+    expect((search as HTMLInputElement).value).toBe("copy");
+
+    await act(async () => {
+      fireEvent.keyDown(search, { key: "Escape" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.queryByRole("textbox", {
+      name: "Search Page actions and properties",
+    })).toBeNull());
+
+    await act(async () => {
+      fireEvent.contextMenu(view.getByRole("button", { name: "Page" }), {
+        clientX: 80,
+        clientY: 60,
+      });
+      await Promise.resolve();
+    });
+    const reopenedSearch = await view.findByRole("textbox", {
+      name: "Search Page actions and properties",
+    });
+    expect((reopenedSearch as HTMLInputElement).value).toBe("");
+    await waitFor(() => expect(reopenedSearch).toBe(document.activeElement));
   });
 });
