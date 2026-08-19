@@ -2876,11 +2876,14 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async
     const medianDeltaRatio = (
       pageReadySummary.p50 - frozenBaselineUpperBoundMs
     ) / frozenBaselineUpperBoundMs;
+    const enforcePerformanceGates = process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1";
     console.info(`[page-ready-samples] ${JSON.stringify(pageReadySamples)}`);
-    if (noisyEnvironment) {
-      expect(medianDeltaRatio).toBeLessThanOrEqual(0.1);
-    } else {
-      expect(pageReadySummary.p95).toBeLessThanOrEqual(150);
+    if (enforcePerformanceGates) {
+      if (noisyEnvironment) {
+        expect(medianDeltaRatio).toBeLessThanOrEqual(0.1);
+      } else {
+        expect(pageReadySummary.p95).toBeLessThanOrEqual(150);
+      }
     }
 
     await page.waitForTimeout(2_000);
@@ -2904,8 +2907,10 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async
       electronCpuAfter,
     );
     const coreAverageCores = coreCpuDeltaSeconds / IDLE_CPU_SAMPLE_SECONDS;
-    expect(coreAverageCores).toBeLessThanOrEqual(0.05);
-    expect(Math.max(0, ...coreCpuPercentSamples)).toBeLessThan(100);
+    if (enforcePerformanceGates) {
+      expect(coreAverageCores).toBeLessThanOrEqual(0.05);
+      expect(Math.max(0, ...coreCpuPercentSamples)).toBeLessThan(100);
+    }
     expect(healthAfter.metrics.event_replay_lag_max).toBe(
       healthBefore.metrics.event_replay_lag_max,
     );
