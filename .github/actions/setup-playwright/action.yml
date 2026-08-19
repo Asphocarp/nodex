@@ -14,11 +14,26 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        install_marker="${RUNNER_TEMP}/nodex-playwright-install-complete"
+        rm -f "$install_marker"
         install_status=0
         timeout --signal=TERM --kill-after=30s 8m \
-          pnpm exec playwright install --with-deps chromium || install_status=$?
-        if [[ "$install_status" == 0 ]]; then
-          exit 0
+          bash -c '
+            pnpm exec playwright install --with-deps chromium
+            status=$?
+            printf "%s\\n" "$status" > "$1"
+            exit "$status"
+          ' _ "$install_marker" || install_status=$?
+
+        if [[ -f "$install_marker" ]]; then
+          completed_status="$(<"$install_marker")"
+          rm -f "$install_marker"
+          if [[ "$completed_status" == 0 ]]; then
+            exit 0
+          fi
+
+          echo "::error::Playwright dependency installation failed with status $completed_status"
+          exit "$completed_status"
         fi
 
         if [[ "$install_status" != 124 && "$install_status" != 137 ]]; then
