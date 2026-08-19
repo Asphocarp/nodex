@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +12,8 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
 const conformanceText = "NODEX_WIRE_CONFORMANCE_OK";
 const requestTimeoutMs = 30_000;
+const temporaryRootCleanupRetries = 10;
+const temporaryRootCleanupRetryDelayMs = 100;
 
 type WireApi = "responses" | "chat" | "messages";
 
@@ -405,7 +408,12 @@ export async function probeAgentRuntimeWire(input: {
   } finally {
     await client.stop();
     await server.close();
-    rmSync(temporaryRoot, { recursive: true, force: true });
+    await rm(temporaryRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: temporaryRootCleanupRetries,
+      retryDelay: temporaryRootCleanupRetryDelayMs,
+    });
   }
 }
 
