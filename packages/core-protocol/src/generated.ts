@@ -7961,10 +7961,10 @@ export interface operations {
     readonly administration_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -7988,10 +7988,10 @@ export interface operations {
     readonly administration_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8015,10 +8015,10 @@ export interface operations {
     readonly automation_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8042,10 +8042,10 @@ export interface operations {
     readonly automation_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8069,10 +8069,10 @@ export interface operations {
     readonly database_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8096,10 +8096,10 @@ export interface operations {
     readonly database_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8123,10 +8123,10 @@ export interface operations {
     readonly document_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8150,10 +8150,10 @@ export interface operations {
     readonly document_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8177,10 +8177,10 @@ export interface operations {
     readonly library_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8204,10 +8204,10 @@ export interface operations {
     readonly library_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8231,10 +8231,10 @@ export interface operations {
     readonly workspace_apply: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;
@@ -8258,10 +8258,10 @@ export interface operations {
     readonly workspace_read: {
         readonly parameters: {
             readonly query?: never;
-            readonly header: {
-                readonly "x-nodex-request-class": components["schemas"]["CoreRequestClass"];
-                readonly "x-nodex-request-deadline-ms": number;
-                readonly "x-nodex-request-id": string;
+            readonly header?: {
+                readonly "x-nodex-request-class"?: null | components["schemas"]["CoreRequestClass"];
+                readonly "x-nodex-request-deadline-ms"?: number | null;
+                readonly "x-nodex-request-id"?: string | null;
             };
             readonly path?: never;
             readonly cookie?: never;

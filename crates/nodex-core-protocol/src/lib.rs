@@ -982,9 +982,9 @@ mod api {
                                         post,
                                         path = concat!($path, "/read"),
                                         params(
-                                            ("x-nodex-request-id" = String, Header),
-                                            ("x-nodex-request-class" = CoreRequestClass, Header),
-                                            ("x-nodex-request-deadline-ms" = u64, Header)
+                                            ("x-nodex-request-id" = Option<String>, Header),
+                                            ("x-nodex-request-class" = Option<CoreRequestClass>, Header),
+                                            ("x-nodex-request-deadline-ms" = Option<u64>, Header)
                                         ),
                                         request_body = $read,
                                         responses((status = 200, body = $read_response))
@@ -995,9 +995,9 @@ mod api {
                                         post,
                                         path = concat!($path, "/apply"),
                                         params(
-                                            ("x-nodex-request-id" = String, Header),
-                                            ("x-nodex-request-class" = CoreRequestClass, Header),
-                                            ("x-nodex-request-deadline-ms" = u64, Header)
+                                            ("x-nodex-request-id" = Option<String>, Header),
+                                            ("x-nodex-request-class" = Option<CoreRequestClass>, Header),
+                                            ("x-nodex-request-deadline-ms" = Option<u64>, Header)
                                         ),
                                         request_body = $apply,
                                         responses((status = 200, body = $apply_response))
@@ -1200,6 +1200,25 @@ mod tests {
     fn openapi_is_version_3_1() {
         let json = serde_json::to_value(openapi()).expect("OpenAPI serializes");
         assert_eq!(json["openapi"], "3.1.0");
+    }
+
+    #[test]
+    fn module_execution_headers_are_optional_in_openapi() {
+        let json = serde_json::to_value(openapi()).expect("OpenAPI serializes");
+        for path in json["paths"]
+            .as_object()
+            .expect("OpenAPI paths")
+            .keys()
+            .filter(|path| path.starts_with("/core/v1/modules/"))
+        {
+            let parameters = json["paths"][path]["post"]["parameters"]
+                .as_array()
+                .expect("module execution headers");
+            assert_eq!(parameters.len(), 3);
+            assert!(parameters.iter().all(|parameter| {
+                parameter["in"] == "header" && parameter["required"] == false
+            }));
+        }
     }
 
     #[test]
