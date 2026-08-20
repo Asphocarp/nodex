@@ -2275,7 +2275,6 @@ test("moves a Block into Board and List views with native DnD @dnd-smoke", async
         "\tDnD smoke first child",
         "\tDnD smoke middle child",
         "\tDnD smoke last child",
-        "After smoke sibling",
       ].join("\n"),
     );
 
@@ -2390,9 +2389,8 @@ test("moves a Block into Board and List views with native DnD @dnd-smoke", async
     await expect(sourceSurface.locator(".bn-block[data-id]").filter({
       hasText: "Before smoke sibling",
     })).toHaveCount(1);
-    await expect(sourceSurface.locator(".bn-block[data-id]").filter({
-      hasText: "After smoke sibling",
-    })).toHaveCount(1);
+    await expect(sourcePanel.getByRole("button", { name: "Reload" })).toHaveCount(0);
+    await expect(sourceSurface).toHaveAttribute("contenteditable", "true");
 
     const promotedPageId = requireString(
       await promotedCards.getAttribute("data-board-uuid-v7"),
@@ -2489,6 +2487,8 @@ test("moves a Block into Board and List views with native DnD @dnd-smoke", async
     ).filter({ hasText: "DnD smoke title" });
     await expect(promotedListRows).toHaveCount(1, { timeout: 15_000 });
     await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
+    await expect(sourcePanel.getByRole("button", { name: "Reload" })).toHaveCount(0);
+    await expect(sourceSurface).toHaveAttribute("contenteditable", "true");
     const promotedListPageId = requireString(
       await promotedListRows.getAttribute("data-database-view-page-id"),
       "Native List DnD promoted Page id",

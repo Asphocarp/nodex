@@ -1,0 +1,19 @@
+diff --git a/src/plugins/sync-plugin.js b/src/plugins/sync-plugin.js
+index dccfb76..09dd1e1 100644
+--- a/src/plugins/sync-plugin.js
++++ b/src/plugins/sync-plugin.js
+@@ -7 +7 @@ import * as PModel from 'prosemirror-model'
+-import { AllSelection, Plugin, TextSelection, NodeSelection } from "prosemirror-state"; // eslint-disable-line
++import { AllSelection, Plugin, Selection, TextSelection, NodeSelection } from "prosemirror-state"; // eslint-disable-line
+@@ -260 +260,10 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
+-      tr.setSelection(NodeSelection.create(tr.doc, anchor))
++      if (anchor !== null) {
++        const safeAnchor = Math.max(0, Math.min(anchor, tr.doc.content.size))
++        const $anchor = tr.doc.resolve(safeAnchor)
++        const node = $anchor.nodeAfter
++        tr.setSelection(
++          node !== null && NodeSelection.isSelectable(node)
++            ? NodeSelection.create(tr.doc, safeAnchor)
++            : Selection.near($anchor)
++        )
++      }

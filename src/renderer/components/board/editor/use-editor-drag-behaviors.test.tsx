@@ -77,6 +77,18 @@ function DragBehaviorHarness({
               storeEpoch: "epoch-a",
               hostPageId: "card-host",
               ancestorPageIds: [],
+              prepareAndFence: async () => ({
+                documentId: "document-a",
+                storeEpoch: "epoch-a",
+                generation: 1,
+                expectedHeadSeq: 0,
+              }),
+              prepareSourceAndFence: async () => ({
+                documentId: "document-source",
+                storeEpoch: "epoch-a",
+                generation: 1,
+                expectedHeadSeq: 0,
+              }),
               createOperationId: () => "operation-a",
               transfer: async () => ({
                 ok: false,

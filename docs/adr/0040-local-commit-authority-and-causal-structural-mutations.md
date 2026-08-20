@@ -163,13 +163,17 @@ fingerprints may share computed patch bytes, but never scope identity,
 revision, hash, or deduplication. Main maintains one multiplexed scoped-live
 broker and changes its active scope set make-before-break.
 
-Every mounted collaborative Document surface exposes a
-`BlockDocumentMutationBarrier`. It flushes local durable updates and returns a
-`DocumentHeadToken` containing Document identity, Store epoch, generation, and
-head sequence. Move-to and cross-surface Block DnD pass the tokens as causal
-dependencies. Core verifies them while preparing and revalidates them in the
-writer transaction against current SQLite Document rows. The dependency is excluded from the semantic
-intent hash so a retry after a fresh read remains the same idempotent command.
+Every mounted collaborative Document editor registers one structural-mutation
+participant over its `BlockDocumentMutationBarrier`. The participant first
+settles transient editor state, including IME, native Block drag ownership, and
+focus, then flushes local durable updates and returns a `DocumentHeadToken`
+containing Document identity, Store epoch, generation, and head sequence.
+Move-to and cross-surface Block DnD require the affected mounted participants
+and pass their tokens as causal dependencies; a participant that disappears
+causes the renderer command to fail closed. Core verifies the tokens while
+preparing and revalidates them in the writer transaction against current SQLite
+Document rows. The dependency is excluded from the semantic intent hash so a
+retry after a fresh read remains the same idempotent command.
 
 Document/Canvas live streams independently enforce per-surface head order. They
 buffer a bounded future-head gap and emit typed repair on overflow or epoch

@@ -1,7 +1,7 @@
 import {
   BlockNoteEditor,
 } from "@blocknote/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { BlockNoteViewRaw, useCreateBlockNote } from "@blocknote/react";
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -30,6 +30,96 @@ function ExternalEditorHookOwner({
 }
 
 describe("collaborative NFM undo in Chromium", () => {
+  test("keeps a valid selection when a remote structural update removes the selected Block", async () => {
+    let nextBlockId = 0;
+    const genesis = createPageDocumentGenesis({
+      documentId: "document:remote-selected-block-deletion",
+      title: "Remote selected Block deletion",
+      nfm: "Before\n\nMiddle\n\nDragged last Block",
+      allocateBlockId: () => `block-${++nextBlockId}`,
+    });
+    const localDocument = genesis.document;
+    const remoteDocument = new Y.Doc({ guid: localDocument.guid });
+    Y.applyUpdate(remoteDocument, Y.encodeStateAsUpdate(localDocument));
+    const remoteBaseVector = Y.encodeStateVector(remoteDocument);
+    const createEditor = (
+      document: Y.Doc,
+      clientSessionId: string,
+      name: string,
+    ) => BlockNoteEditor.create(createNfmEditorModeOptions({
+      kind: "collaborative-document",
+      documentId: document.guid,
+      storeEpoch: "epoch:remote-selected-block-deletion",
+      generation: 1,
+      clientSessionId,
+      fragment: document.getXmlFragment("body"),
+      user: { name, color: name === "Local" ? "#2563eb" : "#16a34a" },
+    }));
+    const localEditor = createEditor(localDocument, "surface:local", "Local");
+    const remoteEditor = createEditor(remoteDocument, "surface:remote", "Remote");
+    const localHost = globalThis.document.createElement("div");
+    const remoteHost = globalThis.document.createElement("div");
+    globalThis.document.body.append(localHost, remoteHost);
+    localEditor.mount(localHost);
+    remoteEditor.mount(remoteHost);
+
+    try {
+      await act(settleEditor);
+      const draggedBlockId = localEditor.document.at(-1)?.id;
+      if (!draggedBlockId) {
+        throw new Error("Expected a final Block to drag");
+      }
+      let draggedBlockPosition: number | null = null;
+      localEditor.prosemirrorState.doc.descendants((node, position) => {
+        if (node.type.name !== "blockContainer") return true;
+        if (node.attrs.id !== draggedBlockId) return false;
+        draggedBlockPosition = position;
+        return false;
+      });
+      if (draggedBlockPosition === null) {
+        throw new Error("Expected the dragged Block in ProseMirror");
+      }
+      localEditor.prosemirrorView.dispatch(
+        localEditor.prosemirrorState.tr.setSelection(
+          NodeSelection.create(
+            localEditor.prosemirrorState.doc,
+            draggedBlockPosition,
+          ),
+        ),
+      );
+
+      remoteEditor.removeBlocks([draggedBlockId]);
+      const remoteUpdate = Y.encodeStateAsUpdate(
+        remoteDocument,
+        remoteBaseVector,
+      );
+
+      Y.applyUpdate(localDocument, remoteUpdate);
+      expect(localEditor.getBlock(draggedBlockId)).toBeUndefined();
+      expect(localEditor.prosemirrorState.selection).not.toBeInstanceOf(
+        NodeSelection,
+      );
+      expect(localEditor.prosemirrorState.selection.$head.parent).toBeDefined();
+      const survivingBlock = localEditor.document.at(-1);
+      if (!survivingBlock) {
+        throw new Error("Expected a surviving Block after the remote deletion");
+      }
+      localEditor.updateBlock(survivingBlock, { content: "Still editable" });
+      expect(localEditor.getBlock(survivingBlock.id)?.content).not.toEqual(
+        survivingBlock.content,
+      );
+    } finally {
+      localEditor.unmount();
+      remoteEditor.unmount();
+      localHost.remove();
+      remoteHost.remove();
+      localEditor._tiptapEditor.destroy();
+      remoteEditor._tiptapEditor.destroy();
+      localDocument.destroy();
+      remoteDocument.destroy();
+    }
+  });
+
   test("leaves an externally owned editor alive after its React owner unmounts", async () => {
     const editor = BlockNoteEditor.create();
     const destroy = vi.spyOn(editor._tiptapEditor, "destroy");

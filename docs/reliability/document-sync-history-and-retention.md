@@ -40,10 +40,21 @@ compact retry delta and stops automatic retry until new local work or an
 explicit lifecycle checkpoint arrives.
 
 Structural operations that consume mounted Document shape first flush pending
-updates and carry a typed causal head token. Core rechecks the token with every
-owner, membership, and authorization fact in the committing transaction.
+updates and carry a typed causal head token. The mounted editor participant
+finishes transient native drag/focus/IME state before that flush; losing any
+required participant fails the command instead of silently omitting its causal
+head. Core rechecks the token with every owner, membership, and authorization fact in the committing transaction.
 Response-loss retry retains the original logical intent; the transient head
 proof is not part of idempotent identity.
+
+Yjs invokes editor observers synchronously while applying remote updates. An
+observer may fail after the Y.Doc has already integrated the update, leaving
+the editor projection and provider head behind the CRDT state. This boundary is
+`recovery_required`: the surface discards that replica and synchronizes a fresh
+one. It must not retry on the same Y.Doc or misclassify a local editor
+projection failure as malformed Core content. Collaborative selection restore
+falls back to a nearby valid selection when a remotely removed Node selection
+no longer has a selectable node at its relative anchor.
 
 Cross-Document transfer and copy prepare against isolated clones, then recheck
 all captured heads and ownership facts under the writer. Each affected Document

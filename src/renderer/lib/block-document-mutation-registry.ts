@@ -1,36 +1,45 @@
-import type { BlockDocumentMutationBarrier } from "./block-document-surface-runtime";
+import type { DocumentHeadFence } from "./block-document-surface-runtime";
 
 /**
- * Resolves the live mutation barrier for a mounted document surface. Drag
- * payloads carry this renderer-local identity so a target surface can flush
- * the actual source session before Core captures its structural fence.
+ * One mounted editor's complete preparation boundary for a structural command.
+ * The participant settles transient editor state before returning the durable
+ * Document head that Core must recheck.
  */
-const barriers = new Map<
+export interface BlockDocumentStructuralMutationParticipant {
+  readonly prepareAndFence: () => Promise<DocumentHeadFence>;
+}
+
+/**
+ * Resolves the live structural participant for a mounted document surface.
+ * Drag payloads carry this renderer-local identity so a target can prepare the
+ * actual source editor before Core captures its structural fence.
+ */
+const participants = new Map<
   string,
-  Map<number, BlockDocumentMutationBarrier>
+  Map<number, BlockDocumentStructuralMutationParticipant>
 >();
 let nextRegistrationId = 1;
 
-export const registerBlockDocumentMutationBarrier = (
+export const registerBlockDocumentStructuralMutationParticipant = (
   surfaceId: string,
-  barrier: BlockDocumentMutationBarrier,
+  participant: BlockDocumentStructuralMutationParticipant,
 ): (() => void) => {
   const registrationId = nextRegistrationId;
   nextRegistrationId += 1;
-  const registrations = barriers.get(surfaceId) ?? new Map();
-  registrations.set(registrationId, barrier);
-  barriers.set(surfaceId, registrations);
+  const registrations = participants.get(surfaceId) ?? new Map();
+  registrations.set(registrationId, participant);
+  participants.set(surfaceId, registrations);
   return () => {
-    const current = barriers.get(surfaceId);
+    const current = participants.get(surfaceId);
     if (!current || !current.delete(registrationId)) return;
-    if (current.size === 0) barriers.delete(surfaceId);
+    if (current.size === 0) participants.delete(surfaceId);
   };
 };
 
-export const resolveBlockDocumentMutationBarrier = (
+export const resolveBlockDocumentStructuralMutationParticipant = (
   surfaceId: string,
-): BlockDocumentMutationBarrier | null => {
-  const registrations = barriers.get(surfaceId);
+): BlockDocumentStructuralMutationParticipant | null => {
+  const registrations = participants.get(surfaceId);
   if (!registrations || registrations.size === 0) return null;
   return [...registrations.values()].at(-1) ?? null;
 };

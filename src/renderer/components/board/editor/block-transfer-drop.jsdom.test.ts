@@ -57,6 +57,21 @@ const input = (altKey: boolean) => ({
   shiftKey: false,
 });
 
+const structuralPreparation = {
+  prepareAndFence: async () => ({
+    documentId: "document-target",
+    storeEpoch: "epoch-a",
+    generation: 1,
+    expectedHeadSeq: 0,
+  }),
+  prepareSourceAndFence: async () => ({
+    documentId: "document-source",
+    storeEpoch: "epoch-a",
+    generation: 1,
+    expectedHeadSeq: 0,
+  }),
+};
+
 describe("Board Card Block transfer drop", () => {
   test("resolves before/after against the target Block hierarchy", () => {
     const editor: BlockTransferDropEditor = {
@@ -89,6 +104,7 @@ describe("Board Card Block transfer drop", () => {
       container,
       { document: [] },
       {
+        ...structuralPreparation,
         surfaceId: "surface-target",
         projectId: "project-a",
         documentId: "document-host",
@@ -166,6 +182,7 @@ describe("Board Card Block transfer drop", () => {
         container,
         { document: [] },
         {
+          ...structuralPreparation,
           surfaceId: "surface-target",
           projectId: "project-a",
           documentId: "document-host",
@@ -243,13 +260,13 @@ describe("Board Card Block transfer drop", () => {
         },
       };
     });
-    const flushAndFence = vi.fn(async () => ({
+    const prepareAndFence = vi.fn(async () => ({
       documentId: "document-target",
       storeEpoch: "epoch-a",
       generation: 1,
       expectedHeadSeq: 0,
     }));
-    const flushSourceAndFence = vi.fn(async () => ({
+    const prepareSourceAndFence = vi.fn(async () => ({
       documentId: "document-source",
       storeEpoch: "epoch-a",
       generation: 1,
@@ -264,8 +281,8 @@ describe("Board Card Block transfer drop", () => {
         documentId: "document-target",
         storeEpoch: "epoch-a",
         ancestorPageIds: [],
-        flushAndFence,
-        flushSourceAndFence,
+        prepareAndFence,
+        prepareSourceAndFence,
         createOperationId: () => "operation-editor",
         transfer,
         reportError: vi.fn(),
@@ -312,8 +329,8 @@ describe("Board Card Block transfer drop", () => {
         source: { kind: "document", documentId: "document-source" },
         target: { kind: "document", documentId: "document-target" },
       });
-      expect(flushAndFence).toHaveBeenCalledOnce();
-      expect(flushSourceAndFence).toHaveBeenCalledWith("surface-source");
+      expect(prepareAndFence).toHaveBeenCalledOnce();
+      expect(prepareSourceAndFence).toHaveBeenCalledWith("surface-source");
     } finally {
       cleanup();
       endLocalBlockDragSession();
@@ -330,6 +347,7 @@ describe("Board Card Block transfer drop", () => {
       container,
       { document: [{ id: "canvas-1" }, { id: "paragraph-1" }] },
       {
+        ...structuralPreparation,
         surfaceId: "surface-page",
         projectId: "project-a",
         documentId: "document-page",
@@ -424,6 +442,7 @@ describe("Board Card Block transfer drop", () => {
         getExtension: () => ({ clearDropCursor: clearOuterDropCursor }),
       },
       {
+        ...structuralPreparation,
         surfaceId: "surface-outer",
         projectId: "project-a",
         documentId: "document-outer",
@@ -438,6 +457,7 @@ describe("Board Card Block transfer drop", () => {
       inner,
       { document: [] },
       {
+        ...structuralPreparation,
         surfaceId: "surface-inner",
         projectId: "project-a",
         documentId: "document-inner",
@@ -541,6 +561,7 @@ describe("Board Card Block transfer drop", () => {
       outer,
       { document: [] },
       {
+        ...structuralPreparation,
         surfaceId: "surface-outer-pragmatic",
         projectId: "project-a",
         documentId: "document-outer",
@@ -555,6 +576,7 @@ describe("Board Card Block transfer drop", () => {
       inner,
       { document: [] },
       {
+        ...structuralPreparation,
         surfaceId: "surface-inner-pragmatic",
         projectId: "project-a",
         documentId: "document-inner",
