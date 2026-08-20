@@ -41,8 +41,7 @@ const nonProjectSources = [
 const rendererRestrictedImportPaths = [
   {
     name: "@radix-ui/react-context-menu",
-    message:
-      "Use the app-owned deep context menu module from @/components/ui/context-menu.",
+    message: "Use the app-owned deep context menu module from @/components/ui/context-menu.",
   },
   {
     name: "lucide-react",
@@ -72,14 +71,15 @@ const pluginRule = <Options>(
 ): ["error" | "warn", Options] => [severity, options];
 const betterTailwindRules = betterTailwindEnabled
   ? {
-    "better-tailwindcss/enforce-canonical-classes": pluginRule("warn", betterTailwindOptions),
-    "better-tailwindcss/enforce-consistent-class-order": pluginRule("warn", betterTailwindOptions),
-    "better-tailwindcss/no-conflicting-classes": pluginRule("error", betterTailwindOptions),
-    "better-tailwindcss/no-deprecated-classes": pluginRule("warn", betterTailwindOptions),
-    "better-tailwindcss/no-duplicate-classes": pluginRule("warn", betterTailwindOptions),
-    "better-tailwindcss/no-unknown-classes": pluginRule(
-      "error",
-      {
+      "better-tailwindcss/enforce-canonical-classes": pluginRule("warn", betterTailwindOptions),
+      "better-tailwindcss/enforce-consistent-class-order": pluginRule(
+        "warn",
+        betterTailwindOptions,
+      ),
+      "better-tailwindcss/no-conflicting-classes": pluginRule("error", betterTailwindOptions),
+      "better-tailwindcss/no-deprecated-classes": pluginRule("warn", betterTailwindOptions),
+      "better-tailwindcss/no-duplicate-classes": pluginRule("warn", betterTailwindOptions),
+      "better-tailwindcss/no-unknown-classes": pluginRule("error", {
         ...betterTailwindOptions,
         ignore: [
           "^excalidraw-button$",
@@ -89,10 +89,9 @@ const betterTailwindRules = betterTailwindEnabled
           "^nodex-",
           "^codex-",
         ],
-      },
-    ),
-    "better-tailwindcss/no-unnecessary-whitespace": pluginRule("warn", betterTailwindOptions),
-  }
+      }),
+      "better-tailwindcss/no-unnecessary-whitespace": pluginRule("warn", betterTailwindOptions),
+    }
   : {};
 
 const workbenchRefreshBoundaries = [
@@ -109,15 +108,15 @@ const workbenchRefreshBoundaries = [
   "src/renderer/components/workbench/workbench-session-sidebar.tsx",
 ];
 
+const toolingFixtureIgnorePatterns = new Set(["scripts/fixtures/tooling/**", "**/fixtures/**"]);
+
 export default defineConfig({
   lint: {
     ignorePatterns: [
       ...generatedOrExternalPaths.filter(
-        (path) => !toolingFixtureMode || path !== "scripts/fixtures/tooling/**",
+        (path) => !toolingFixtureMode || !toolingFixtureIgnorePatterns.has(path),
       ),
-      ...nonProjectSources.filter(
-        (path) => !toolingFixtureMode || path !== "scripts/**/*.test.ts",
-      ),
+      ...nonProjectSources.filter((path) => !toolingFixtureMode || path !== "scripts/**/*.test.ts"),
     ],
     jsPlugins: [
       { name: "@tanstack/query", specifier: "@tanstack/eslint-plugin-query" },
@@ -136,10 +135,7 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: [
-          "src/renderer/**/*.{ts,tsx}",
-          "scripts/fixtures/tooling/renderer/**/*.{ts,tsx}",
-        ],
+        files: ["src/renderer/**/*.{ts,tsx}", "scripts/fixtures/tooling/renderer/**/*.{ts,tsx}"],
         rules: {
           "no-restricted-imports": ["error", { paths: rendererRestrictedImportPaths }],
           "react/exhaustive-deps": "error",
@@ -153,10 +149,7 @@ export default defineConfig({
           "src/renderer/**/*testkit*/**/*.{ts,tsx}",
           "scripts/fixtures/tooling/renderer-tests/**/*.{ts,tsx}",
         ],
-        excludeFiles: [
-          "src/renderer/**/*.browser.test.tsx",
-          "src/renderer/**/*.node.test.tsx",
-        ],
+        excludeFiles: ["src/renderer/**/*.browser.test.tsx", "src/renderer/**/*.node.test.tsx"],
         rules: {
           "no-restricted-imports": [
             "error",
@@ -174,10 +167,7 @@ export default defineConfig({
         },
       },
       {
-        files: [
-          ...workbenchRefreshBoundaries,
-          "scripts/fixtures/tooling/workbench/**/*.{ts,tsx}",
-        ],
+        files: [...workbenchRefreshBoundaries, "scripts/fixtures/tooling/workbench/**/*.{ts,tsx}"],
         rules: {
           "react/only-export-components": "error",
         },
