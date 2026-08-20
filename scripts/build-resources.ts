@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -12,13 +13,6 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  LEGACY_PROFILE_MIGRATOR_BUNDLE_FILENAME,
-  LEGACY_PROFILE_MIGRATOR_LEGAL_FILENAME,
-  LEGACY_PROFILE_MIGRATOR_MANIFEST_FILENAME,
-  LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT,
-  verifyLegacyProfileMigratorArtifacts,
-} from "./legacy-profile-migrator-artifacts";
 import { sha256File } from "./native-runtime-manifest";
 import {
   BUILD_RESOURCES_MANIFEST_FILENAME,
@@ -33,11 +27,10 @@ export {
   resolveBuildResources,
 } from "../src/shared/build-resources";
 
-const BUILD_RESOURCE_FILENAMES = [
-  "THIRD_PARTY_NOTICES.txt",
-  LEGACY_PROFILE_MIGRATOR_BUNDLE_FILENAME,
-  LEGACY_PROFILE_MIGRATOR_LEGAL_FILENAME,
-  LEGACY_PROFILE_MIGRATOR_MANIFEST_FILENAME,
+const BUILD_RESOURCE_FILENAMES = ["THIRD_PARTY_NOTICES.txt"] as const;
+const BUILD_RESOURCE_TREE_FILENAMES = [
+  ...BUILD_RESOURCE_FILENAMES,
+  BUILD_RESOURCES_MANIFEST_FILENAME,
 ] as const;
 
 export type BuildResourceFilename = (typeof BUILD_RESOURCE_FILENAMES)[number];
@@ -47,23 +40,9 @@ export interface BuildResourceOutput {
   readonly size: number;
 }
 
-export interface BuildResourcesInputs {
-  readonly dependencyFingerprint: string;
-  readonly esbuildVersion: string;
-  readonly nodeVersion: string;
-  readonly pnpmVersion: string;
-  readonly repositoryLockfileSha256: string;
-  readonly repositoryPackageJsonSha256: string;
-  readonly sourceCommit: typeof LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT;
-  readonly sourceLockfileSha256: string;
-  readonly sourcePackageJsonSha256: string;
-  readonly sourceWorkspaceSha256: string;
-}
-
 export interface BuildResourcesManifest {
-  readonly inputs: BuildResourcesInputs;
   readonly outputs: Readonly<Record<BuildResourceFilename, BuildResourceOutput>>;
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
 }
 
 export interface BuildResourcesInput {
@@ -75,6 +54,12 @@ const defaultRepositoryRoot = path.resolve(".");
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const hasOnlyKeys = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean => {
+  const expected = new Set(keys);
+  return Object.keys(value).length === expected.size
+    && Object.keys(value).every((key) => expected.has(key));
+};
 
 const pathsForRoot = (root: string): BuildResourcesPaths => buildResourcesPathsAtRoot(root);
 
@@ -107,15 +92,10 @@ const requireDigest = (value: unknown, label: string): string => {
   return value;
 };
 
-const requireString = (value: unknown, label: string): string => {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`Build resources manifest has an invalid ${label}`);
-  }
-  return value;
-};
-
 const parseOutput = (value: unknown, filename: BuildResourceFilename): BuildResourceOutput => {
-  if (!isObject(value)) throw new Error(`Build resources manifest omits ${filename}`);
+  if (!isObject(value) || !hasOnlyKeys(value, ["sha256", "size"])) {
+    throw new Error(`Build resources manifest omits ${filename}`);
+  }
   const size = value.size;
   if (!Number.isSafeInteger(size) || (size as number) <= 0) {
     throw new Error(`Build resources manifest has an invalid ${filename} size`);
@@ -127,45 +107,23 @@ const parseOutput = (value: unknown, filename: BuildResourceFilename): BuildReso
 };
 
 const parseManifest = (value: unknown): BuildResourcesManifest => {
-  if (!isObject(value) || value.schemaVersion !== 1) {
+  if (
+    !isObject(value)
+    || !hasOnlyKeys(value, ["outputs", "schemaVersion"])
+    || value.schemaVersion !== 2
+    || !isObject(value.outputs)
+    || !hasOnlyKeys(value.outputs, BUILD_RESOURCE_FILENAMES)
+  ) {
     throw new Error("Build resources manifest is invalid");
   }
-  if (!isObject(value.inputs) || !isObject(value.outputs)) {
-    throw new Error("Build resources manifest is incomplete");
-  }
-  const inputs = value.inputs;
-  const outputsValue = value.outputs;
-  const sourceCommit = requireString(inputs.sourceCommit, "source commit");
-  if (sourceCommit !== LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT) {
-    throw new Error("Build resources manifest has an unexpected source commit");
-  }
-  const outputs = Object.fromEntries(
-    BUILD_RESOURCE_FILENAMES.map((filename) => [filename, parseOutput(outputsValue[filename], filename)]),
-  ) as Record<BuildResourceFilename, BuildResourceOutput>;
   return {
-    inputs: {
-      dependencyFingerprint: requireDigest(inputs.dependencyFingerprint, "dependency fingerprint"),
-      esbuildVersion: requireString(inputs.esbuildVersion, "esbuild version"),
-      nodeVersion: requireString(inputs.nodeVersion, "Node version"),
-      pnpmVersion: requireString(inputs.pnpmVersion, "pnpm version"),
-      repositoryLockfileSha256: requireDigest(
-        inputs.repositoryLockfileSha256,
-        "repository lockfile digest",
+    outputs: {
+      "THIRD_PARTY_NOTICES.txt": parseOutput(
+        value.outputs["THIRD_PARTY_NOTICES.txt"],
+        "THIRD_PARTY_NOTICES.txt",
       ),
-      repositoryPackageJsonSha256: requireDigest(
-        inputs.repositoryPackageJsonSha256,
-        "repository package manifest digest",
-      ),
-      sourceCommit: LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT,
-      sourceLockfileSha256: requireDigest(inputs.sourceLockfileSha256, "source lockfile digest"),
-      sourcePackageJsonSha256: requireDigest(
-        inputs.sourcePackageJsonSha256,
-        "source package manifest digest",
-      ),
-      sourceWorkspaceSha256: requireDigest(inputs.sourceWorkspaceSha256, "source workspace digest"),
     },
-    outputs,
-    schemaVersion: 1,
+    schemaVersion: 2,
   };
 };
 
@@ -184,21 +142,11 @@ const readManifest = (resourceRoot: string): BuildResourcesManifest => {
   return manifest;
 };
 
-const outputPathFor = (
-  paths: BuildResourcesPaths,
-  filename: BuildResourceFilename,
-): string => {
-  if (filename === "THIRD_PARTY_NOTICES.txt") return paths.noticesPath;
-  if (filename === LEGACY_PROFILE_MIGRATOR_BUNDLE_FILENAME) return paths.legacyMigratorBundlePath;
-  if (filename === LEGACY_PROFILE_MIGRATOR_LEGAL_FILENAME) return paths.legacyMigratorLegalPath;
-  return paths.legacyMigratorManifestPath;
-};
-
 const inspectOutput = (
   paths: BuildResourcesPaths,
   filename: BuildResourceFilename,
 ): BuildResourceOutput => {
-  const outputPath = outputPathFor(paths, filename);
+  const outputPath = paths.noticesPath;
   let stat;
   try {
     stat = lstatSync(outputPath);
@@ -211,8 +159,21 @@ const inspectOutput = (
   return { sha256: sha256File(outputPath), size: stat.size };
 };
 
+const verifyTreeInventory = (resourceRoot: string): void => {
+  const rootStat = lstatSync(resourceRoot);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("Build resources root must be a real directory");
+  }
+  const entries = readdirSync(resourceRoot).sort();
+  const expected = [...BUILD_RESOURCE_TREE_FILENAMES].sort();
+  if (entries.length !== expected.length || entries.some((entry, index) => entry !== expected[index])) {
+    throw new Error("Build resources tree contains an unexpected entry");
+  }
+};
+
 export function verifyBuildResourceTree(resourceRoot: string): BuildResourcesManifest {
   const paths = pathsForRoot(path.resolve(resourceRoot));
+  verifyTreeInventory(paths.root);
   const manifest = readManifest(paths.root);
   for (const filename of BUILD_RESOURCE_FILENAMES) {
     const actual = inspectOutput(paths, filename);
@@ -221,7 +182,6 @@ export function verifyBuildResourceTree(resourceRoot: string): BuildResourcesMan
       throw new Error(`Build resource ${filename} does not match its manifest`);
     }
   }
-  verifyLegacyProfileMigratorArtifacts(paths.root);
   return manifest;
 }
 
@@ -229,37 +189,17 @@ const buildStagedResources = async (
   repositoryRoot: string,
   resourceRoot: string,
 ): Promise<BuildResourcesManifest> => {
-  const [{ buildLegacyProfileMigrator }, { generateThirdPartyNotices }] = await Promise.all([
-    import("./build-legacy-profile-migrator"),
-    import("./generate-third-party-notices"),
-  ]);
+  const { generateThirdPartyNotices } = await import("./generate-third-party-notices");
   const paths = pathsForRoot(resourceRoot);
   mkdirSync(resourceRoot, { recursive: true });
-  const migrator = await buildLegacyProfileMigrator({ outputRoot: resourceRoot, repositoryRoot });
-  const notices = await generateThirdPartyNotices({
-    migratorLegalPath: paths.legacyMigratorLegalPath,
-    repositoryRoot,
-  });
+  const notices = await generateThirdPartyNotices({ repositoryRoot });
   writeAtomic(paths.noticesPath, notices);
-  verifyLegacyProfileMigratorArtifacts(resourceRoot);
 
   const manifest: BuildResourcesManifest = {
-    inputs: {
-      dependencyFingerprint: migrator.dependencyClosure.dependencyFingerprint,
-      esbuildVersion: migrator.dependencyClosure.esbuildVersion,
-      nodeVersion: migrator.dependencyClosure.nodeVersion,
-      pnpmVersion: migrator.dependencyClosure.pnpmVersion,
-      repositoryLockfileSha256: sha256File(path.join(repositoryRoot, "pnpm-lock.yaml")),
-      repositoryPackageJsonSha256: sha256File(path.join(repositoryRoot, "package.json")),
-      sourceCommit: migrator.manifest.sourceCommit,
-      sourceLockfileSha256: migrator.dependencyClosure.sourceLockfileSha256,
-      sourcePackageJsonSha256: migrator.dependencyClosure.sourcePackageJsonSha256,
-      sourceWorkspaceSha256: migrator.dependencyClosure.sourceWorkspaceSha256,
+    outputs: {
+      "THIRD_PARTY_NOTICES.txt": inspectOutput(paths, "THIRD_PARTY_NOTICES.txt"),
     },
-    outputs: Object.fromEntries(
-      BUILD_RESOURCE_FILENAMES.map((filename) => [filename, inspectOutput(paths, filename)]),
-    ) as Record<BuildResourceFilename, BuildResourceOutput>,
-    schemaVersion: 1,
+    schemaVersion: 2,
   };
   writeAtomic(paths.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return verifyBuildResourceTree(resourceRoot);
@@ -309,7 +249,7 @@ export async function verifyBuildResources(
   try {
     await buildStagedResources(repositoryRoot, firstRoot);
     await buildStagedResources(repositoryRoot, secondRoot);
-    for (const filename of [...BUILD_RESOURCE_FILENAMES, BUILD_RESOURCES_MANIFEST_FILENAME]) {
+    for (const filename of BUILD_RESOURCE_TREE_FILENAMES) {
       const firstPath = path.join(firstRoot, filename);
       const secondPath = path.join(secondRoot, filename);
       if (!readFileSync(firstPath).equals(readFileSync(secondPath))) {

@@ -120,6 +120,11 @@ describe("CI change classification", () => {
       runtime: true,
       stressRelevant: true,
     });
+    expect(classifyChangedPaths(["scripts/build-resources.ts"])).toMatchObject({
+      migration: false,
+      runtime: true,
+      storage: false,
+    });
   });
 
   test("runs stress gates when their shared runtime or selection changes", () => {

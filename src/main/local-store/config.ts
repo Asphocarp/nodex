@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { resolveNodexHomePath } from "../nodex-home";
-import { DATABASE_FILE_NAME } from "./database-file-migration";
 import {
   applyCommandKeybindingUpdate,
   createCommandKeymapState,
@@ -84,6 +83,7 @@ interface RootTomlConfig extends Record<string, unknown> {
 }
 
 const BACKUP_AUTO_DEFAULT = false;
+const DATABASE_FILE_NAME = "nodex.db";
 const BACKUP_INTERVAL_DEFAULT = 6;
 const BACKUP_RETENTION_DEFAULT = 28;
 const THREAD_NOTIFICATIONS_TURN_MODE_DEFAULT: ThreadNotificationTurnMode = "unfocused";

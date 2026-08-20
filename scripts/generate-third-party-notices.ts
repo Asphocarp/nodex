@@ -54,7 +54,6 @@ export interface ThirdPartyLegalEntry {
 }
 
 export interface ThirdPartyNoticesGenerationOptions {
-  readonly migratorLegalPath?: string;
   readonly repositoryRoot?: string;
 }
 
@@ -199,7 +198,6 @@ async function readCombinedLegalFiles(paths: string[]): Promise<string | null> {
 
 async function collectBundledRuntimeEntries(
   repositoryRoot: string,
-  migratorLegalPath: string,
 ): Promise<ThirdPartyLegalEntry[]> {
   const openInterpreterRoot = join(
     repositoryRoot,
@@ -225,14 +223,6 @@ async function collectBundledRuntimeEntries(
         join(openInterpreterRoot, "NOTICE"),
       ]),
       license: "Apache-2.0",
-    },
-    {
-      homepage: null,
-      identity: "Nodex legacy profile migrator dependency bundle",
-      legalText: await readCombinedLegalFiles([
-        migratorLegalPath,
-      ]),
-      license: "See bundled notices",
     },
   ];
 }
@@ -285,14 +275,10 @@ export async function generateThirdPartyNotices(
   options: ThirdPartyNoticesGenerationOptions = {},
 ): Promise<string> {
   const repositoryRoot = resolve(options.repositoryRoot ?? REPOSITORY_ROOT);
-  const migratorLegalPath = resolve(
-    options.migratorLegalPath
-      ?? join(repositoryRoot, ".generated/build-resources/legacy-profile-migrator.mjs.LEGAL.txt"),
-  );
   const [pnpmEntries, cargoEntries, runtimeEntries] = await Promise.all([
     collectPnpmEntries(repositoryRoot),
     collectCargoEntries(repositoryRoot),
-    collectBundledRuntimeEntries(repositoryRoot, migratorLegalPath),
+    collectBundledRuntimeEntries(repositoryRoot),
   ]);
   return renderThirdPartyNotices([
     ...pnpmEntries,
@@ -316,10 +302,7 @@ function parseArguments(args: string[]): { outputFile: string; verify: boolean }
 
 async function main(): Promise<void> {
   const { outputFile, verify } = parseArguments(process.argv.slice(2));
-  const generated = await generateThirdPartyNotices({
-    repositoryRoot: REPOSITORY_ROOT,
-    migratorLegalPath: join(dirname(outputFile), "legacy-profile-migrator.mjs.LEGAL.txt"),
-  });
+  const generated = await generateThirdPartyNotices({ repositoryRoot: REPOSITORY_ROOT });
 
   if (verify) {
     const existing = await readFile(outputFile, "utf8").catch(() => null);

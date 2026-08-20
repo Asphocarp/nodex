@@ -54,11 +54,8 @@ const isRuntimePath = (path: string): boolean =>
   || path.startsWith("resources/browser-runtime/")
   || path.startsWith("resources/macos/")
   || path.startsWith("scripts/ci/")
-  || path.startsWith("scripts/legacy-profile-migrator/")
   || path === "scripts/build-resources.ts"
-  || path === "scripts/build-legacy-profile-migrator.ts"
   || path === "scripts/generate-third-party-notices.ts"
-  || path === "scripts/legacy-profile-migrator-artifacts.ts"
   || path.startsWith("scripts/release/")
   || /^(scripts\/(archive|materialize|probe|sign|stage|verify)-.*runtime)/u.test(path)
   || path.startsWith("src/main/codex/")
@@ -94,34 +91,17 @@ const isRustPath = (path: string): boolean =>
   path === "Cargo.toml"
   || path === "Cargo.lock"
   || path === "rust-toolchain.toml"
-  || path.startsWith("crates/")
-  || path.startsWith("scripts/legacy-profile-migrator/")
-  || path === "scripts/build-legacy-profile-migrator.ts";
+  || path.startsWith("crates/");
 
 const isStoragePath = (path: string): boolean =>
   path.startsWith("crates/nodex-core/src/infrastructure/")
   || path.startsWith("crates/nodex-core/schema/")
-  || path.startsWith("crates/nodex-store-format/")
-  || path.startsWith("resources/legacy-profile-migrator/")
-  || path.startsWith("scripts/legacy-profile-migrator/")
-  || path === "scripts/build-resources.ts"
-  || path === "scripts/build-legacy-profile-migrator.ts"
-  || path === "scripts/generate-third-party-notices.ts"
-  || path === "scripts/legacy-profile-migrator-artifacts.ts"
-  || path === "src/shared/build-resources.ts";
+  || path.startsWith("crates/nodex-store-format/");
 
 const isMigrationPath = (path: string): boolean =>
   path === "crates/nodex-core/src/infrastructure/migration.rs"
-  || path === "crates/nodex-core/src/infrastructure/legacy_migration.rs"
   || path.startsWith("crates/nodex-core/schema/")
-  || path.startsWith("crates/nodex-store-format/")
-  || path.startsWith("resources/legacy-profile-migrator/")
-  || path.startsWith("scripts/legacy-profile-migrator/")
-  || path === "scripts/build-resources.ts"
-  || path === "scripts/build-legacy-profile-migrator.ts"
-  || path === "scripts/generate-third-party-notices.ts"
-  || path === "scripts/legacy-profile-migrator-artifacts.ts"
-  || path === "src/shared/build-resources.ts";
+  || path.startsWith("crates/nodex-store-format/");
 
 const isProtocolPath = (path: string): boolean =>
   path.startsWith("crates/nodex-core-contracts/")

@@ -8,14 +8,6 @@
       "tier": "scale",
       "script": "core:test:relation-scale"
     },
-    "imports_every_frozen_legacy_inventory_and_reopens_idempotently": {
-      "tier": "legacy-exhaustive",
-      "script": "core:test:legacy-inventory"
-    },
-    "high_cardinality_v87_ledger_migrates_with_bounded_monotonic_progress": {
-      "tier": "scale",
-      "script": "core:test:ledger-scale"
-    },
     "canvas_incremental_hot_path_stays_bounded_at_twenty_thousand_elements": {
       "tier": "performance",
       "script": "core:test:canvas-performance"

@@ -150,7 +150,6 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/setup-rust-ci
-      - uses: ./.github/actions/fetch-legacy-migrator
       - name: Run static contracts
         run: pnpm exec tsx scripts/ci/run-timed.ts --name static-contracts -- pnpm run verify:static
       - name: Show Rust compiler cache statistics
@@ -177,7 +176,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
         with:
           nextest: true
@@ -202,7 +200,7 @@ jobs:
         run: sccache --show-stats || true
 
   rust-migration:
-    name: Rust migration compatibility
+    name: Store baseline migration
     if: needs.classify.outputs.app == 'true' && needs.classify.outputs.migration == 'true'
     needs: classify
     runs-on: ubuntu-latest
@@ -221,9 +219,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
-      - name: Run migration compatibility suite
+      - name: Run Store baseline migration suite
         run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-migration -- pnpm run core:test:migration
       - name: Show Rust compiler cache statistics
         if: always()
@@ -249,7 +246,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
       - run: pnpm run build-resources:prepare
       - name: Run application test suites
@@ -323,7 +319,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-playwright
       - name: Run functional Electron E2E
         env:
