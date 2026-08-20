@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { parseCiGatePlan, requiredJobIdsForGatePlan } from "./ci-gate-plan";
+import { parseCiGatePlan, requiredJobIdsForGatePlan } from "./ci-gate-plan.ts";
 
 export type GitHubJobResult = "cancelled" | "failure" | "skipped" | "success";
 

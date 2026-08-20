@@ -35,6 +35,11 @@ unselected jobs are allowed to be skipped. A manual `workflow_dispatch` with
 `full=true` selects every ordinary PR gate. It does not promote the Rust job to
 the exhaustive Main tier.
 
+The classifier and final aggregators intentionally run before dependency setup
+with the runner's native Node 22 TypeScript stripping. Their relative
+TypeScript imports must include the `.ts` extension; `tsconfig.node.json`
+enables extension rewriting so the same entrypoints remain typecheck-safe.
+
 ## Parallel feedback topology
 
 `.github/workflows/_app-tests.yml` runs unit, CoreClient, Main, renderer, and

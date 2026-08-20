@@ -1,7 +1,7 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { parseCiGatePlan, type CiGatePlan } from "./ci-gate-plan";
+import { parseCiGatePlan, type CiGatePlan } from "./ci-gate-plan.ts";
 
 interface ClassificationDocument {
   readonly changedPaths: readonly string[];

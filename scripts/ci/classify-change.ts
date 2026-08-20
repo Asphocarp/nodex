@@ -10,14 +10,14 @@ import {
   type CiGatePlan,
   type DependencyKind,
   type StaticGroup,
-} from "./ci-gate-plan";
+} from "./ci-gate-plan.ts";
 
 export type {
   AppTestSuite,
   CiGatePlan,
   DependencyKind,
   StaticGroup,
-} from "./ci-gate-plan";
+} from "./ci-gate-plan.ts";
 
 const RELEASE_PATHS = new Set(["Cargo.lock", "Cargo.toml", "CHANGELOG.md", "package.json"]);
 
