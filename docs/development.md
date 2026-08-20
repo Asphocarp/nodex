@@ -21,20 +21,20 @@ Document authority are native Rust code and do not use a Node addon.
 Start the desktop app in development mode:
 
 ```bash
-pnpm run dev
+pnpm exec vp run dev
 ```
 
-`pnpm run dev` is the single manual real-app launcher. It starts the HMR app by
+`vp run dev` is the single manual real-app launcher. It starts the HMR app by
 default and accepts options directly, without an intermediate `--`:
 
 ```bash
-pnpm run dev --home runs.local/perf
-pnpm run dev --seed board/dense
-pnpm run dev --home runs.local/perf --build
-pnpm run dev --home runs.local/ephemeral --delete
-pnpm run dev --auth-json /path/to/auth.json
-pnpm run dev --agent-config-toml /path/to/config.toml
-pnpm run dev --enable runtime-metrics
+pnpm exec vp run dev --home runs.local/perf
+pnpm exec vp run dev --seed board/dense
+pnpm exec vp run dev --home runs.local/perf --build
+pnpm exec vp run dev --home runs.local/ephemeral --delete
+pnpm exec vp run dev --auth-json /path/to/auth.json
+pnpm exec vp run dev --agent-config-toml /path/to/config.toml
+pnpm exec vp run dev --enable runtime-metrics
 ```
 
 The default environment root is `<worktree>/runs.local/default`. Relative
@@ -101,7 +101,7 @@ environment and before Electron starts. `board/dense` creates a Project with
 five workflow columns, ten Pages, and structured NFM content:
 
 ```bash
-pnpm run dev --home runs.local/board-dense --seed board/dense
+pnpm exec vp run dev --home runs.local/board-dense --seed board/dense
 ```
 
 The manifest records the seed id and revision. Reopening the same home with the
@@ -117,7 +117,7 @@ Playwright, focuses a Page, or performs assertions.
 Build the app:
 
 ```bash
-pnpm run build
+pnpm exec vp run build
 ```
 
 Package local macOS installers:
@@ -131,27 +131,37 @@ pnpm run package
 Run the standard checks before handing off code changes:
 
 ```bash
-pnpm run typecheck
-pnpm run lint
-pnpm run verify:source
+pnpm exec vp check
+pnpm exec vp fmt --check
+pnpm exec vp run test
+pnpm exec vp run verify:source
 ```
+
+Vite+ is the repository engineering control plane. `vp check` combines the
+configured TypeScript 7 checker, Oxlint, and Oxfmt check; `vp run test` invokes
+Nodex's standard multi-runtime test aggregate. The aggregate delegates ordinary
+Node, CoreClient, Renderer, and Browser suites to `vp test`, while Main and
+Integration keep their Electron-hosted Vitest adapter so native modules load
+under Electron's ABI. Package scripts such as `pnpm test` and `pnpm run build`
+remain compatibility aliases for existing automation. Use `pnpm exec` to select
+the repository-pinned `vp` binary when Vite+ is not installed on the shell PATH.
 
 The test commands follow production boundaries:
 
-- `pnpm test` runs the ordinary deterministic test tier across the Node, main,
+- `pnpm exec vp run test` runs the ordinary deterministic test tier across the Node, main,
   renderer, and integration runtimes.
-- `pnpm test:unit` runs pure shared, script, configuration, and renderer helper
+- `pnpm exec vp run test:unit` runs pure shared, script, configuration, and renderer helper
   logic in Node. Under `src/renderer`, ordinary `.test.ts` files run in Node by
   default; use `.node.test.tsx` when a pure test needs TSX syntax.
-- `pnpm test:core-client` builds the development Core binary, then runs the
+- `pnpm exec vp run test:core-client` builds the development Core binary, then runs the
   Node-side Core client, adapter, projection, and supervisor contracts. These
   tests seed disposable Stores only through public Core APIs.
-- `pnpm test:main` runs Electron main-process adapter and host tests.
-- `pnpm test:renderer` runs ordinary `.test.tsx` React behavior and explicit
+- `pnpm exec vp run test:main` runs Electron main-process adapter and host tests.
+- `pnpm exec vp run test:renderer` runs ordinary `.test.tsx` React behavior and explicit
   `.jsdom.test.ts` DOM behavior in jsdom. A `.test.ts` file must not rely on
   browser globals implicitly.
-- `pnpm test:browser` runs browser-sensitive renderer contracts in Chromium.
-- `pnpm test:integration` runs integration tests in Electron's Node runtime.
+- `pnpm exec vp run test:browser` runs browser-sensitive renderer contracts in Chromium.
+- `pnpm exec vp run test:integration` runs integration tests in Electron's Node runtime.
 - `pnpm run test:stress` runs volume, repeated-lifecycle, and concurrency
   contracts one worker at a time, independently of the ordinary suite.
 - `pnpm run test:complete` runs both ordinary and stress tiers without the
@@ -276,22 +286,22 @@ Use the matching runtime when running one test file:
 
 ```bash
 # Pure Node/shared logic
-pnpm exec vitest run --config vitest.node.config.ts <test-file>
+pnpm exec vp test run --config vitest.node.config.ts <test-file>
 
 # Core client and adapter behavior
-pnpm test:core-client <test-file>
+pnpm exec vp run test:core-client <test-file>
 
 # Renderer/jsdom behavior
-pnpm exec vitest run --config vitest.renderer.config.ts <test-file>
+pnpm exec vp test run --config vitest.renderer.config.ts <test-file>
 
 # Electron main process, local store, and native addons
-pnpm test:main <test-file>
+pnpm exec vp run test:main <test-file>
 
 # Electron integration behavior
-pnpm test:integration <test-file>
+pnpm exec vp run test:integration <test-file>
 
 # A specific stress test in its owning runtime
-NODEX_TEST_TIER=stress pnpm test:renderer <stress-test-file>
+NODEX_TEST_TIER=stress pnpm exec vp run test:renderer <stress-test-file>
 ```
 
 Do not run `vitest.main.config.ts` or `vitest.integration.config.ts` directly.
