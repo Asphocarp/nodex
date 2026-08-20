@@ -1,6 +1,15 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import ts from "typescript";
+import {
+  Visitor,
+  type ImportDeclaration,
+  type JSXAttribute,
+  type Program,
+} from "oxc-parser";
+import {
+  parseTypeScriptSource,
+  sourcePosition,
+} from "../lib/oxc-source";
 
 const projectRoot = resolve(import.meta.dirname, "../..");
 const rendererRoot = resolve(projectRoot, "src/renderer");
@@ -33,56 +42,47 @@ function projectPath(path: string): string {
   return relative(projectRoot, path);
 }
 
-function importedNames(declaration: ts.ImportDeclaration): string[] {
-  const bindings = declaration.importClause?.namedBindings;
-  if (!bindings || !ts.isNamedImports(bindings)) return [];
-  return bindings.elements.map((element) =>
-    (element.propertyName ?? element.name).text
-  );
+function importedNames(declaration: ImportDeclaration): string[] {
+  return declaration.specifiers.flatMap((specifier) => {
+    if (specifier.type !== "ImportSpecifier") return [];
+    return [specifier.imported.type === "Identifier"
+      ? specifier.imported.name
+      : specifier.imported.value];
+  });
 }
 
 function verifySharedIconIntrinsicSizing(
-  sourceFile: ts.SourceFile,
+  sourceFile: Program,
+  sourceText: string,
   path: string,
   failures: string[],
 ): void {
-  const visit = (node: ts.Node): void => {
-    if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) {
-      ts.forEachChild(node, visit);
-      return;
-    }
-    if (node.tagName.getText(sourceFile) !== "svg") {
-      ts.forEachChild(node, visit);
-      return;
-    }
+  new Visitor({
+    JSXOpeningElement(node) {
+      if (node.name.type !== "JSXIdentifier" || node.name.name !== "svg") return;
 
-    const attributes = node.attributes.properties.filter(ts.isJsxAttribute);
-    const className = attributes.find(
-      (attribute) => attribute.name.getText(sourceFile) === "className",
-    );
-    if (!iconSizeClassPattern.test(className?.initializer?.getText(sourceFile) ?? "")) {
-      ts.forEachChild(node, visit);
-      return;
-    }
+      const attributes = node.attributes.filter(
+        (attribute): attribute is JSXAttribute => attribute.type === "JSXAttribute",
+      );
+      const className = attributes.find(
+        (attribute) => attribute.name.type === "JSXIdentifier"
+          && attribute.name.name === "className",
+      );
+      const classNameSource = className
+        ? sourceText.slice(className.start, className.end)
+        : "";
+      if (!iconSizeClassPattern.test(classNameSource)) return;
 
-    const attributeNames = new Set(
-      attributes.map((attribute) => attribute.name.getText(sourceFile)),
-    );
-    if (attributeNames.has("width") && attributeNames.has("height")) {
-      ts.forEachChild(node, visit);
-      return;
-    }
+      const attributeNames = new Set(attributes.map((attribute) => (
+        attribute.name.type === "JSXIdentifier" ? attribute.name.name : ""
+      )));
+      if (attributeNames.has("width") && attributeNames.has("height")) return;
 
-    const { line } = sourceFile.getLineAndCharacterOfPosition(
-      node.getStart(sourceFile),
-    );
-    failures.push(
-      `${projectPath(path)}:${line + 1} gives a shared SVG an icon-* default without intrinsic width and height.`,
-    );
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
+      failures.push(
+        `${projectPath(path)}:${sourcePosition(sourceText, node.start).line} gives a shared SVG an icon-* default without intrinsic width and height.`,
+      );
+    },
+  }).visit(sourceFile);
 }
 
 const failures: string[] = [];
@@ -92,18 +92,11 @@ const genericIconExports = new Set<string>();
 for (const path of listSourceFiles(rendererRoot)) {
   if (path.includes("/third_party/")) continue;
   const sourceText = readFileSync(path, "utf8");
-  const sourceFile = ts.createSourceFile(
-    path,
-    sourceText,
-    ts.ScriptTarget.Latest,
-    true,
-    path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  );
+  const sourceFile = parseTypeScriptSource(path, sourceText);
 
-  for (const statement of sourceFile.statements) {
-    if (ts.isImportDeclaration(statement)
-      && ts.isStringLiteral(statement.moduleSpecifier)) {
-      const moduleName = statement.moduleSpecifier.text;
+  for (const statement of sourceFile.body) {
+    if (statement.type === "ImportDeclaration") {
+      const moduleName = statement.source.value;
       if (moduleName === "lucide-react" && path !== genericIconModule) {
         failures.push(
           `${projectPath(path)} imports lucide-react directly; use the shared icon boundary.`,
@@ -115,15 +108,13 @@ for (const path of listSourceFiles(rendererRoot)) {
     }
 
     if (path !== genericIconModule
-      || !ts.isVariableStatement(statement)
-      || !statement.modifiers?.some(
-        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
-      )) {
+      || statement.type !== "ExportNamedDeclaration"
+      || statement.declaration?.type !== "VariableDeclaration") {
       continue;
     }
-    for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name)) {
-        genericIconExports.add(declaration.name.text);
+    for (const declaration of statement.declaration.declarations) {
+      if (declaration.id.type === "Identifier") {
+        genericIconExports.add(declaration.id.name);
       }
     }
   }
@@ -138,7 +129,7 @@ for (const path of listSourceFiles(rendererRoot)) {
   }
 
   if (path.startsWith(sharedIconRoot)) {
-    verifySharedIconIntrinsicSizing(sourceFile, path, failures);
+    verifySharedIconIntrinsicSizing(sourceFile, sourceText, path, failures);
     continue;
   }
   const inlineSvgCount = sourceText.match(/<svg\b/g)?.length ?? 0;

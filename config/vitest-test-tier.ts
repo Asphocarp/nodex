@@ -8,8 +8,8 @@ interface TieredTestFilesInput {
 }
 
 export interface TieredTestFiles {
-  readonly exclude: readonly string[];
-  readonly include: readonly string[];
+  readonly exclude: string[];
+  readonly include: string[];
   readonly isStress: boolean;
 }
 
@@ -30,14 +30,14 @@ export function selectTieredTestFiles(
   const defaultExclude = input.defaultExclude ?? [];
   if (tier === "stress") {
     return {
-      exclude: input.stressExclude ?? defaultExclude,
-      include: input.stressInclude,
+      exclude: [...(input.stressExclude ?? defaultExclude)],
+      include: [...input.stressInclude],
       isStress: true,
     };
   }
   return {
     exclude: [...defaultExclude, ...input.stressInclude],
-    include: input.defaultInclude,
+    include: [...input.defaultInclude],
     isStress: false,
   };
 }

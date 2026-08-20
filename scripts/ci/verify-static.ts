@@ -13,6 +13,7 @@ export interface StaticCheck {
 export const STATIC_CHECKS: readonly StaticCheck[] = [
   { command: ["run", "typecheck"], group: "types", id: "typecheck", name: "typecheck" },
   { command: ["run", "lint"], group: "types", id: "lint", name: "lint" },
+  { command: ["run", "tooling:verify"], group: "repository-contracts", id: "tooling-contracts", name: "tooling contracts" },
   { command: ["run", "semantic-theme:verify"], group: "ui-contracts", id: "semantic-theme", name: "semantic theme" },
   { command: ["run", "verify:icons"], group: "ui-contracts", id: "icon-boundaries", name: "icon boundaries" },
   { command: ["run", "ci:workflow-contracts"], group: "ci-contracts", id: "workflow-contracts", name: "workflow contracts" },
