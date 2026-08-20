@@ -1221,6 +1221,9 @@ async function sampleLargeContentScenario(input: {
   }
 }
 
+test.describe("parallel functional Electron smoke", () => {
+  test.describe.configure({ mode: process.env.CI ? "parallel" : "default" });
+
 test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
   test.setTimeout(120_000);
   const harness = await ElectronScenarioHarness.create({
@@ -1428,14 +1431,24 @@ test("New Chat reuses its default draft and opens a pre-thread Terminal", async 
     expect(repeatedSessions[0]?.id).toBe(firstSessionId);
     expect(repeatedSessions[0]?.thread).toBeNull();
 
-    await page.getByRole("button", { name: "Toggle bottom panel" }).click();
+    const bottomPanelToggle = page.getByRole("button", { name: "Toggle bottom panel" });
+    await bottomPanelToggle.click();
+    await expect(bottomPanelToggle).toHaveAttribute("aria-pressed", "true");
+    const terminalSurface = page.locator(".xterm-screen").last();
+    await expect(terminalSurface).toBeVisible();
+    const terminalRows = page.locator(".xterm-rows").last();
+    await expect.poll(
+      async () => (await terminalRows.textContent())?.trim() ?? "",
+      { timeout: 30_000 },
+    ).not.toBe("");
+    await terminalSurface.click();
     const terminalInput = page.getByRole("textbox", { name: "Terminal input" });
-    await expect(terminalInput).toBeVisible();
-    await terminalInput.pressSequentially("pwd");
-    await terminalInput.press("Enter");
+    await expect(terminalInput).toBeFocused();
+    await page.keyboard.type("pwd", { delay: 20 });
+    await page.keyboard.press("Enter");
     await expect.poll(async () => (
-      await page.locator(".xterm-rows").last().textContent()
-    ) ?? "").toContain(project.primaryWorkspaceRoot);
+      await terminalRows.textContent()
+    ) ?? "", { timeout: 30_000 }).toContain(project.primaryWorkspaceRoot);
   } finally {
     await harness.close();
   }
@@ -1849,13 +1862,18 @@ test("creates one stable Board Page and edits its grouping Property @create-moda
       `[data-list-row="true"][data-database-view-page-id="${createdPageId}"]`,
     );
     await expect(createdRow).toBeVisible();
-    await createdRow.click({ button: "right" });
     const priorityItem = page.getByRole("menuitem", { name: /Priority/ });
-    await expect(priorityItem).toBeVisible();
-    await priorityItem.click();
     const priorityOption = page.getByRole("option", { name: "P1 - High", exact: true });
-    await expect(priorityOption).toBeVisible();
-    await priorityOption.click();
+    await expect(async () => {
+      if (await priorityOption.isVisible()) return;
+      if (!(await priorityItem.isVisible())) {
+        await createdRow.click({ button: "right", timeout: 2_000 });
+        await expect(priorityItem).toBeVisible({ timeout: 2_000 });
+      }
+      await priorityItem.click({ timeout: 2_000 });
+      await expect(priorityOption).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
+    await priorityOption.evaluate((option) => (option as HTMLElement).click());
 
     await expect.poll(async () => {
       const snapshot = requireIpcValue<Record<string, unknown>>(
@@ -2699,8 +2717,9 @@ test("opens and pointer-reorders a nested List subtree without changing its inte
     await harness.close();
   }
 });
+});
 
-test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async ({}, testInfo) => {
+test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @performance", async ({}, testInfo) => {
   test.setTimeout(360_000);
   const harness = await ElectronScenarioHarness.create({ label: "page-ready-pressure" });
   const nodexHome = harness.profile.nodexHome;
@@ -3496,7 +3515,7 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
   }
 });
 
-test("measures high-pressure nested Block transfer into a populated Board", async ({}, testInfo) => {
+test("measures high-pressure nested Block transfer into a populated Board @performance", async ({}, testInfo) => {
   test.setTimeout(HIGH_PRESSURE_TEST_TIMEOUT_MS);
   const keepFixture = process.env.NODEX_KEEP_BOARD_TRANSFER_FIXTURE === "1";
   const harness = await ElectronScenarioHarness.create({
@@ -3905,7 +3924,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
   }
 });
 
-test("keeps representative large-content surfaces bounded in a real Electron renderer", async ({}, testInfo) => {
+test("keeps representative large-content surfaces bounded in a real Electron renderer @performance", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-large-content-e2e-"));
   const builtFixtureDir = path.join(fixtureRoot, "renderer");

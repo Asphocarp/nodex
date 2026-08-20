@@ -95,6 +95,39 @@ const setBoardCardPriority = async ({
   await page.getByRole("option", { name: optionName, exact: true }).click();
 };
 
+const openFilterPicker = async ({
+  trigger,
+  search,
+}: {
+  readonly trigger: Locator;
+  readonly search: Locator;
+}): Promise<void> => {
+  await expect(async () => {
+    if (await search.isVisible()) return;
+    await trigger.click({ timeout: 2_000 });
+    await expect(search).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 10_000 });
+};
+
+const chooseFilterPickerOption = async ({
+  trigger,
+  search,
+  option,
+  expectedLabel,
+}: {
+  readonly trigger: Locator;
+  readonly search: Locator;
+  readonly option: Locator;
+  readonly expectedLabel: string;
+}): Promise<void> => {
+  await expect(async () => {
+    if ((await trigger.textContent())?.includes(expectedLabel)) return;
+    await openFilterPicker({ trigger, search });
+    await option.evaluate((element) => (element as HTMLElement).click());
+    await expect(trigger).toContainText(expectedLabel, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+};
+
 const dragBoardCardWithMouse = async ({
   page,
   source,
@@ -389,14 +422,24 @@ test("keeps the canonical Board while grouping and dragging by Priority", async 
 
     await page.getByRole("button", { name: "Display options" }).click();
     const orderBy = page.getByRole("button", { name: "Order by", exact: true });
-    await orderBy.click();
-    await page.getByRole("option", { name: "Priority", exact: true }).click();
-    await expect(orderBy).toContainText("Priority");
+    const orderBySearch = page.getByRole("combobox", { name: "Search Order by" });
+    await chooseFilterPickerOption({
+      trigger: orderBy,
+      search: orderBySearch,
+      option: page.getByRole("option", { name: "Priority", exact: true }),
+      expectedLabel: "Priority",
+    });
+    await expect(orderBySearch).toBeHidden();
     const groupBy = page.getByRole("button", { name: "Group by", exact: true });
     await expect(groupBy).toHaveAttribute("aria-disabled", "false");
-    await groupBy.click();
-    await page.getByRole("option", { name: "Priority", exact: true }).click();
-    await expect(groupBy).toContainText("Priority");
+    const groupBySearch = page.getByRole("combobox", { name: "Search Group by" });
+    await chooseFilterPickerOption({
+      trigger: groupBy,
+      search: groupBySearch,
+      option: page.getByRole("option", { name: "Priority", exact: true }),
+      expectedLabel: "Priority",
+    });
+    await expect(groupBySearch).toBeHidden();
 
     const highColumn = page.locator(
       '[data-board-column-root][data-board-column-id="p1-high"]',

@@ -90,6 +90,11 @@ runner's system dependencies with Playwright's installer.
 ## Electron E2E isolation
 
 The E2E config uses two workers in CI while keeping `fullyParallel: false`.
+The functional Electron smoke suite opts its independent fresh-Profile
+scenarios into Playwright's parallel describe mode, so the large source file no
+longer collapses those workers into one serial lane. Tests tagged
+`@performance` are excluded from PR and Main functional E2E and are selected
+only by `pnpm run test:e2e:performance` in Performance CI.
 Each Electron scenario creates a disposable Profile under the operating
 system's owned temporary namespace. That Profile supplies its own `NODEX_HOME`,
 Core Unix socket, Electron user-data/session directories, workspace, agent home,

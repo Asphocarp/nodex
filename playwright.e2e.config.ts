@@ -11,6 +11,10 @@ export const baseElectronE2eConfig = defineConfig({
   },
 });
 
+const excludedElectronTests = process.env.NODEX_E2E_INCLUDE_PERFORMANCE === "1"
+  ? /@subscription-quota/
+  : /@performance|@subscription-quota/;
+
 export default defineConfig(baseElectronE2eConfig, {
-  grepInvert: /@subscription-quota/,
+  grepInvert: excludedElectronTests,
 });
