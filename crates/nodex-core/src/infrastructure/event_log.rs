@@ -1627,6 +1627,15 @@ mod tests {
         let store_epoch = first.store_epoch.to_owned();
         let project_id = first.project_id.to_owned();
         let committed_at = first.committed_at.to_owned();
+        for entry in &entries {
+            if entry.operation_id != Some(operation_id.as_str())
+                || entry.project_id != project_id
+                || entry.store_epoch != store_epoch
+                || entry.committed_at != committed_at
+            {
+                return Err(corrupt("Test LocalCommit effects must share one identity"));
+            }
+        }
         let request_hash = format!(
             "{:x}",
             Sha256::digest(format!("{module_name}\0{operation_id}").as_bytes())
@@ -1640,12 +1649,6 @@ mod tests {
         )?;
         let mut event_sequence = None;
         for entry in entries {
-            if entry.operation_id != Some(operation_id.as_str())
-                || entry.project_id != project_id
-                || entry.committed_at != committed_at
-            {
-                return Err(corrupt("Test LocalCommit effects must share one identity"));
-            }
             event_sequence = Some(append_change_log(connection, entry, &commit)?);
         }
         let event_sequence =
@@ -1677,6 +1680,63 @@ mod tests {
         )?;
         local_commit::finalize(connection, &commit)?;
         Ok(event_sequence)
+    }
+
+    #[test]
+    fn test_local_commit_fixture_rejects_mixed_store_epochs_before_allocation() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                let (store_epoch, _) = store_identity(connection)?;
+                let other_store_epoch = format!("{store_epoch}:other");
+                let before: i64 =
+                    connection
+                        .query_row("SELECT count(*) FROM local_commits", [], |row| row.get(0))?;
+                let error = append_finalized_test_events(
+                    connection,
+                    "library",
+                    vec![
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: &store_epoch,
+                            kind: "library.changed",
+                            operation_id: Some("fixture:mixed-epoch"),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: "{}",
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-01-01",
+                        },
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: &other_store_epoch,
+                            kind: "library.changed",
+                            operation_id: Some("fixture:mixed-epoch"),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: "{}",
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-01-01",
+                        },
+                    ],
+                )
+                .expect_err("mixed Store epochs");
+                assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+                assert_eq!(
+                    error.message,
+                    "Test LocalCommit effects must share one identity"
+                );
+                let after: i64 =
+                    connection
+                        .query_row("SELECT count(*) FROM local_commits", [], |row| row.get(0))?;
+                assert_eq!(after, before);
+                Ok(())
+            })
+            .expect("fixture identity validation");
     }
 
     #[test]

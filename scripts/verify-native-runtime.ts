@@ -15,7 +15,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -67,6 +67,19 @@ const DEFAULT_PREVIOUS_STORE_FIXTURE = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../crates/nodex-core/tests/fixtures/store-v130.db",
 );
+
+const STORE_MIGRATION_BACKUP_NAME = /^v130-to-v131-([a-f0-9]{64})\.db$/u;
+
+export const assertContentAddressedStoreMigrationBackup = (backupPath: string): void => {
+  const metadata = lstatSync(backupPath);
+  const match = STORE_MIGRATION_BACKUP_NAME.exec(basename(backupPath));
+  if (!metadata.isFile() || metadata.isSymbolicLink() || !match) {
+    throw new Error("Packaged Store migration did not retain one content-addressed backup");
+  }
+  if (sha256File(backupPath) !== match[1]) {
+    throw new Error("Packaged Store migration backup digest does not match its filename");
+  }
+};
 
 const run = (command: string, arguments_: readonly string[], label: string): CommandResult => {
   const result = spawnSync(command, arguments_, { encoding: "utf8" });
@@ -581,17 +594,11 @@ const smokePreviousStoreMigration = async (
       throw new Error("Migrated packaged Core doctor did not return a successful envelope");
     }
     const backupRoot = join(profile, "backups/core-migrations");
-    const backups = readdirSync(backupRoot)
-      .filter((entry) => !entry.startsWith("."))
-      .filter((entry) => /^v130-to-v131-[a-f0-9]{64}\.db$/u.test(entry))
-      .map((entry) => join(backupRoot, entry));
-    if (
-      backups.length !== 1
-      || !statSync(backups[0]!).isFile()
-      || lstatSync(backups[0]!).isSymbolicLink()
-    ) {
+    const backups = readdirSync(backupRoot).filter((entry) => !entry.startsWith("."));
+    if (backups.length !== 1) {
       throw new Error("Packaged Store migration did not retain one content-addressed backup");
     }
+    assertContentAddressedStoreMigrationBackup(join(backupRoot, backups[0]!));
     const reopened = runWithEnvironment(
       linkedCli,
       ["--json", "doctor"],

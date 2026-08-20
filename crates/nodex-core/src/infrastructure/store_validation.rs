@@ -130,21 +130,19 @@ pub(crate) fn validate_database_priority_invariants(
         registries.insert(data_source_id, option_ids);
     }
 
-    let values = connection
-        .prepare(
-            "SELECT data_source_id, membership_id, value_json \
-             FROM data_source_property_values WHERE property_id = 'priority' \
-             ORDER BY data_source_id, membership_id",
-        )?
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (data_source_id, membership_id, raw) in values {
+    let mut values_statement = connection.prepare(
+        "SELECT data_source_id, membership_id, value_json \
+         FROM data_source_property_values WHERE property_id = 'priority'",
+    )?;
+    let values = values_statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    for value in values {
+        let (data_source_id, membership_id, raw) = value?;
         let registry = registries.get(&data_source_id).ok_or_else(|| {
             corrupt(format!(
                 "Priority value {data_source_id}/{membership_id} has no registry"
@@ -169,16 +167,13 @@ pub(crate) fn validate_database_priority_invariants(
         )));
     }
 
-    let projections = connection
-        .prepare(
-            "SELECT page_block_id, database_values_json \
-             FROM page_read_model ORDER BY page_block_id",
-        )?
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (page_id, raw) in projections {
+    let mut projections_statement =
+        connection.prepare("SELECT page_block_id, database_values_json FROM page_read_model")?;
+    let projections = projections_statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for projection in projections {
+        let (page_id, raw) = projection?;
         let values = serde_json::from_str::<Map<String, Value>>(&raw)
             .map_err(|_| corrupt(format!("Page {page_id} Database values are invalid")))?;
         if let Some(value) = values.get("priority")
@@ -543,25 +538,22 @@ fn validate_canonical_text_timestamp_invariants(connection: &Connection) -> Resu
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (table, column) in columns {
         let query = format!(
-            "SELECT {} FROM {} WHERE {} IS NOT NULL ORDER BY {}",
+            "SELECT {} FROM {} WHERE {} IS NOT NULL",
             quote_identifier(&column),
             quote_identifier(&table),
             quote_identifier(&column),
-            quote_identifier(&column),
         );
-        let values = connection
-            .prepare(&query)?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if values
-            .iter()
-            .all(|value| canonical_utc_timestamp(value).is_some_and(|value_| value_ == *value))
-        {
-            continue;
+        let mut statement = connection.prepare(&query)?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let value = row.get::<_, String>(0)?;
+            if canonical_utc_timestamp(&value).is_some_and(|canonical| canonical == value) {
+                continue;
+            }
+            return Err(corrupt(format!(
+                "Store protocol timestamp invariant failed for {table}.{column}"
+            )));
         }
-        return Err(corrupt(format!(
-            "Store protocol timestamp invariant failed for {table}.{column}"
-        )));
     }
     Ok(())
 }
