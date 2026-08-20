@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { parseCiGatePlan, requiredJobIdsForGatePlan } from "./ci-gate-plan";
+
 export type GitHubJobResult = "cancelled" | "failure" | "skipped" | "success";
 
 export interface RequiredGateVerification {
@@ -74,18 +76,26 @@ const parseSelectedGates = (value: string): readonly string[] => {
 };
 
 const main = (): void => {
-  const selected = process.env.CI_SELECTED_GATES_JSON;
+  const planJson = process.env.CI_GATE_PLAN_JSON;
   const needsJson = process.env.CI_NEEDS_JSON;
-  if (!selected || !needsJson) {
-    throw new Error("CI_SELECTED_GATES_JSON and CI_NEEDS_JSON are required.");
-  }
+  if (!needsJson) throw new Error("CI_NEEDS_JSON is required.");
   const needs = parseNeeds(needsJson);
-  const classifierResult = needs.classify?.result;
-  if (!classifierResult) throw new Error("CI_NEEDS_JSON.classify.result is required.");
+  const classifierResult = process.env.CI_CLASSIFIER_RESULT
+    ? requireGitHubJobResult(process.env.CI_CLASSIFIER_RESULT, "CI_CLASSIFIER_RESULT")
+    : needs.classify?.result;
+  if (!classifierResult) throw new Error("A classifier result is required.");
+  if (classifierResult !== "success") {
+    verifyRequiredGates({ classifierResult, results: {}, selectedGates: [] });
+    return;
+  }
+  const selectedJson = process.env.CI_SELECTED_GATES_JSON;
+  const selectedGates = selectedJson
+    ? parseSelectedGates(selectedJson)
+    : requiredJobIdsForGatePlan(parseCiGatePlan(JSON.parse(planJson ?? "")));
   verifyRequiredGates({
     classifierResult,
     results: Object.fromEntries(Object.entries(needs).map(([name, job]) => [name, job.result])),
-    selectedGates: parseSelectedGates(selected),
+    selectedGates,
   });
   process.stdout.write("Every selected required gate succeeded.\n");
 };

@@ -3,34 +3,26 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export interface ChangeClassification {
-  readonly app: boolean;
-  readonly dependencyKind: "editor" | "github-actions" | "javascript" | "none" | "rust" | "source";
-  readonly browser: boolean;
-  readonly docsOnly: boolean;
-  readonly electronMain: boolean;
-  readonly fullRequired: boolean;
-  readonly landingOnly: boolean;
-  readonly migration: boolean;
-  readonly protocol: boolean;
-  readonly releaseMetadata: boolean;
-  readonly renderer: boolean;
-  readonly rust: boolean;
-  readonly runtime: boolean;
-  readonly storage: boolean;
-  readonly stressRelevant: boolean;
-}
+import {
+  APP_TEST_SUITES,
+  assertCiGatePlan,
+  STATIC_GROUPS,
+  type CiGatePlan,
+  type DependencyKind,
+  type StaticGroup,
+} from "./ci-gate-plan";
 
-const RELEASE_PATHS = new Set([
-  "Cargo.lock",
-  "Cargo.toml",
-  "CHANGELOG.md",
-  "package.json",
-]);
+export type {
+  AppTestSuite,
+  CiGatePlan,
+  DependencyKind,
+  StaticGroup,
+} from "./ci-gate-plan";
+
+const RELEASE_PATHS = new Set(["Cargo.lock", "Cargo.toml", "CHANGELOG.md", "package.json"]);
 
 const isDocumentationPath = (path: string): boolean =>
   path === "AGENTS.md"
-  || path === "docs/ARCHITECTURE.md"
   || path === "CONTEXT.md"
   || path.endsWith(".md")
   || path.startsWith("docs/");
@@ -46,14 +38,11 @@ const isRuntimePath = (path: string): boolean =>
   || path === "package.json"
   || path === "pnpm-lock.yaml"
   || path === "rust-toolchain.toml"
-  || path.startsWith(".github/workflows/")
-  || path.startsWith(".github/actions/")
   || path.startsWith("crates/")
   || path.startsWith("packages/codex-app-server-protocol/")
   || path.startsWith("resources/agent-runtime/")
   || path.startsWith("resources/browser-runtime/")
   || path.startsWith("resources/macos/")
-  || path.startsWith("scripts/ci/")
   || path === "scripts/build-resources.ts"
   || path === "scripts/generate-third-party-notices.ts"
   || path.startsWith("scripts/release/")
@@ -68,7 +57,7 @@ const isRendererPath = (path: string): boolean =>
   path.startsWith("src/renderer/")
   || path.startsWith("packages/storybook/")
   || path.startsWith("src/shared/")
-  || path.startsWith("config/renderer-vite")
+  || path.startsWith("config/renderer-")
   || path.startsWith("vitest.renderer")
   || path.startsWith("vitest.browser");
 
@@ -131,22 +120,20 @@ const isStressRelevantPath = (path: string): boolean =>
   || path.startsWith("src/main/core-client/")
   || path.startsWith("src/main/codex/");
 
-const isFullRequiredPath = (path: string): boolean =>
-  RELEASE_PATHS.has(path)
-  || path === "pnpm-lock.yaml"
-  || path === "rust-toolchain.toml"
-  || path.startsWith(".github/workflows/")
-  || path.startsWith(".github/actions/")
-  || path.startsWith("scripts/ci/");
+const isGeneratedResourcePath = (path: string): boolean =>
+  path === "scripts/build-resources.ts"
+  || path === "scripts/generate-third-party-notices.ts"
+  || path === "src/shared/build-resources.ts"
+  || path.startsWith("resources/");
 
 const isKnownAppPath = (path: string): boolean =>
   path.startsWith("src/")
-  || path.startsWith("packages/storybook/")
+  || path.startsWith("packages/")
+  || path.startsWith("third_party/")
   || path.startsWith("scripts/")
   || path.startsWith("resources/")
   || path.startsWith("crates/")
   || path.startsWith(".config/")
-  || path.startsWith(".github/")
   || path.startsWith("playwright")
   || path.startsWith("vitest")
   || path.startsWith("tsconfig")
@@ -154,33 +141,24 @@ const isKnownAppPath = (path: string): boolean =>
   || path === "electron-builder.yml"
   || path === "pnpm-workspace.yaml";
 
-const isGitHubActionPath = (path: string): boolean =>
-  path.startsWith(".github/workflows/")
-  || path.startsWith(".github/actions/");
+const isGitHubPath = (path: string): boolean => path.startsWith(".github/");
 
 const isRustDependencyPath = (path: string): boolean =>
   path === "Cargo.lock"
   || path === "Cargo.toml"
-  || (/^crates\/[^/]+\/Cargo\.toml$/u.test(path));
+  || /^crates\/[^/]+\/Cargo\.toml$/u.test(path);
 
 const isJavaScriptDependencyPath = (path: string): boolean =>
   path === "package.json"
   || path === "pnpm-lock.yaml"
   || /^(?:packages|third_party\/blocknote\/packages)\/[^/]+\/package\.json$/u.test(path);
 
-const isEditorDependencyPath = (path: string): boolean =>
-  path.startsWith("third_party/blocknote/") && path.endsWith("/package.json");
-
-const dependencyKindFor = (
-  paths: readonly string[],
-): ChangeClassification["dependencyKind"] => {
+const dependencyKindFor = (paths: readonly string[]): DependencyKind => {
   if (paths.length === 0) return "source";
-  if (paths.every(isGitHubActionPath)) return "github-actions";
+  if (paths.every(isGitHubPath)) return "github-actions";
   if (paths.every(isRustDependencyPath)) return "rust";
-  if (paths.every(isJavaScriptDependencyPath)) {
-    return paths.some(isEditorDependencyPath) ? "editor" : "javascript";
-  }
-  return "none";
+  if (!paths.every(isJavaScriptDependencyPath)) return "none";
+  return paths.some((path) => path.startsWith("third_party/blocknote/")) ? "editor" : "javascript";
 };
 
 const normalizePath = (value: string): string => {
@@ -191,62 +169,148 @@ const normalizePath = (value: string): string => {
   return path.replace(/^\.\//u, "");
 };
 
+const createPlan = (overrides: Partial<CiGatePlan>): CiGatePlan => {
+  const candidate: CiGatePlan = {
+    allGates: false,
+    appTestSuites: [],
+    browser: false,
+    dependencyKind: "none",
+    docsOnly: false,
+    electronE2e: false,
+    landingOnly: false,
+    protocolContracts: false,
+    releaseTransition: false,
+    runtimeMac: false,
+    rustFast: false,
+    rustMigration: false,
+    staticGroups: [],
+    stress: false,
+    ...overrides,
+  };
+  assertCiGatePlan(candidate);
+  return candidate;
+};
+
+const allGatesPlan = (dependencyKind: DependencyKind, allGates = true): CiGatePlan => createPlan({
+  allGates,
+  appTestSuites: APP_TEST_SUITES,
+  browser: true,
+  dependencyKind,
+  electronE2e: true,
+  protocolContracts: true,
+  runtimeMac: true,
+  rustFast: true,
+  rustMigration: true,
+  staticGroups: STATIC_GROUPS,
+  stress: true,
+});
+
+const githubActionPlan = (paths: readonly string[]): CiGatePlan => {
+  if (paths.some((path) => path.startsWith(".github/workflows/"))) {
+    return allGatesPlan("github-actions");
+  }
+  if (paths.every((path) => path === ".github/actions/run-stress-tests/action.yml")) {
+    return createPlan({
+      dependencyKind: "github-actions",
+      staticGroups: ["ci-contracts"],
+      stress: true,
+    });
+  }
+  if (paths.every((path) => path === ".github/actions/setup-playwright/action.yml")) {
+    return createPlan({
+      browser: true,
+      dependencyKind: "github-actions",
+      electronE2e: true,
+      staticGroups: ["ci-contracts"],
+      stress: true,
+    });
+  }
+  if (paths.every((path) => path === ".github/actions/setup-rust-ci/action.yml")) {
+    return createPlan({
+      appTestSuites: APP_TEST_SUITES,
+      dependencyKind: "github-actions",
+      electronE2e: true,
+      protocolContracts: true,
+      runtimeMac: true,
+      rustFast: true,
+      rustMigration: true,
+      staticGroups: ["ci-contracts", "repository-contracts"],
+      stress: true,
+    });
+  }
+  return allGatesPlan("github-actions");
+};
+
+const sourcePlan = (paths: readonly string[], dependencyKind: DependencyKind): CiGatePlan => {
+  const renderer = paths.some(isRendererPath);
+  const electronMain = paths.some(isElectronMainPath);
+  const rust = paths.some(isRustPath);
+  const migration = paths.some(isMigrationPath);
+  const protocol = paths.some(isProtocolPath);
+  const browser = paths.some(isBrowserPath);
+  const staticGroups = new Set<StaticGroup>(["types"]);
+  if (renderer) staticGroups.add("ui-contracts");
+  if (electronMain || rust || protocol) staticGroups.add("repository-contracts");
+  if (paths.some(isGeneratedResourcePath)) staticGroups.add("generated");
+  return createPlan({
+    appTestSuites: APP_TEST_SUITES,
+    browser,
+    dependencyKind,
+    electronE2e: electronMain || browser,
+    protocolContracts: protocol,
+    runtimeMac: paths.some(isRuntimePath),
+    rustFast: rust || protocol,
+    rustMigration: migration,
+    staticGroups: [...staticGroups],
+    stress: paths.some(isStressRelevantPath),
+  });
+};
+
 export function classifyChangedPaths(
   changedPaths: readonly string[],
   options: { readonly full?: boolean } = {},
-): ChangeClassification {
+): CiGatePlan {
   const paths = [...new Set(changedPaths.map(normalizePath))];
-  if (options.full || paths.length === 0) {
-    return {
-      app: true,
-      dependencyKind: "source",
-      browser: true,
-      docsOnly: false,
-      electronMain: true,
-      fullRequired: true,
-      landingOnly: false,
-      migration: true,
-      protocol: true,
-      releaseMetadata: false,
-      renderer: true,
-      rust: true,
-      runtime: true,
-      storage: true,
-      stressRelevant: true,
-    };
+  if (options.full || paths.length === 0) return allGatesPlan("source");
+
+  const releaseTransition = paths.length === RELEASE_PATHS.size
+    && [...RELEASE_PATHS].every((path) => paths.includes(path));
+  if (releaseTransition) return createPlan({ releaseTransition: true });
+
+  if (paths.every(isDocumentationPath)) return createPlan({ docsOnly: true });
+  const landingOnly = paths.some(isLandingPath)
+    && paths.every((path) => isLandingPath(path) || isDocumentationPath(path));
+  if (landingOnly) return createPlan({ landingOnly: true, staticGroups: ["landing"] });
+
+  const dependencyKind = dependencyKindFor(paths);
+  if (dependencyKind === "github-actions") return githubActionPlan(paths);
+  if (dependencyKind === "javascript" || dependencyKind === "editor") {
+    return allGatesPlan(dependencyKind, false);
+  }
+  if (dependencyKind === "rust") {
+    return createPlan({
+      appTestSuites: APP_TEST_SUITES,
+      dependencyKind,
+      electronE2e: true,
+      protocolContracts: true,
+      runtimeMac: true,
+      rustFast: true,
+      rustMigration: true,
+      staticGroups: ["repository-contracts", "generated"],
+      stress: true,
+    });
   }
 
-  const releaseMetadata = paths.length === RELEASE_PATHS.size
-    && [...RELEASE_PATHS].every((path) => paths.includes(path));
-  const docsOnly = !releaseMetadata && paths.every(isDocumentationPath);
-  const landingOnly = !releaseMetadata && paths.every(isLandingPath);
   const hasUnknownPath = paths.some((path) => (
     !isDocumentationPath(path)
     && !isLandingPath(path)
     && !isKnownAppPath(path)
     && !RELEASE_PATHS.has(path)
   ));
-  const fullRequired = !releaseMetadata
-    && (paths.some(isFullRequiredPath) || hasUnknownPath);
-  const dependencyKind = dependencyKindFor(paths);
-
-  return {
-    app: !releaseMetadata && !docsOnly && !landingOnly,
-    dependencyKind,
-    browser: paths.some(isBrowserPath),
-    docsOnly,
-    electronMain: paths.some(isElectronMainPath),
-    fullRequired,
-    landingOnly,
-    migration: paths.some(isMigrationPath),
-    protocol: paths.some(isProtocolPath),
-    releaseMetadata,
-    renderer: paths.some(isRendererPath),
-    rust: !releaseMetadata && paths.some(isRustPath),
-    runtime: !releaseMetadata && (hasUnknownPath || paths.some(isRuntimePath)),
-    storage: paths.some(isStoragePath),
-    stressRelevant: !releaseMetadata && paths.some(isStressRelevantPath),
-  };
+  if (hasUnknownPath || paths.some((path) => path.startsWith("scripts/ci/"))) {
+    return allGatesPlan(dependencyKind === "none" ? "source" : dependencyKind);
+  }
+  return sourcePlan(paths, dependencyKind);
 }
 
 const readOption = (args: readonly string[], name: string): string | undefined => {
@@ -269,9 +333,9 @@ const main = (): void => {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const paths = output.split("\0").filter(Boolean);
-  const classification = classifyChangedPaths(paths, { full: args.includes("--full") });
+  const gatePlan = classifyChangedPaths(paths, { full: args.includes("--full") });
+  const serialized = `${JSON.stringify({ changedPaths: paths, plan: gatePlan }, null, 2)}\n`;
   const destination = readOption(args, "--output");
-  const serialized = `${JSON.stringify({ ...classification, changedPaths: paths }, null, 2)}\n`;
   if (!destination) {
     process.stdout.write(serialized);
     return;
