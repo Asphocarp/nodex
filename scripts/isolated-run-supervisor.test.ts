@@ -400,6 +400,53 @@ describe("isolated run supervisor", () => {
     expect(readIsolatedRunLeaseOwner(nodexHome)).toBeNull();
   });
 
+  test("abandons cleanup and preserves the lease after a distinct second signal", async () => {
+    const nodexHome = createNodexHome();
+    const child = new FakeChild();
+    const signalSource = new EventEmitter() as unknown as SupervisorSignalSource;
+    const signalProcessGroup = vi.fn();
+    const forceExit = vi.fn();
+    const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(500);
+
+    const resultPromise = superviseIsolatedRun({
+      environment: { NODEX_HOME: nodexHome },
+      nodexHome,
+      repositoryRoot: path.resolve("."),
+      command: { command: "pnpm", args: ["exec", "electron-vite", "dev"] },
+      dependencies: {
+        cleanupDependencies: cleanupDependencies({
+          readClaim: vi.fn(() => null),
+        }),
+        delay: vi.fn(async () => undefined),
+        forceExit,
+        generateRunId: () => RUN_A,
+        isProcessGroupAlive: vi.fn(() => false),
+        now,
+        signalSource,
+        signalProcessGroup,
+        spawnChild: () => {
+          queueMicrotask(() => {
+            const emitter = signalSource as unknown as EventEmitter;
+            emitter.emit("SIGINT");
+            emitter.emit("SIGTERM");
+            child.close(0);
+          });
+          return child.asChildProcess();
+        },
+      },
+    });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      childExitCode: 130,
+      safeToDeleteRunRoot: false,
+    });
+    expect(forceExit).toHaveBeenCalledWith(143);
+    expect(signalProcessGroup).toHaveBeenCalledWith(4321, "SIGINT");
+    expect(readIsolatedRunLeaseOwner(nodexHome)?.runId).toBe(RUN_A);
+    expect((signalSource as unknown as EventEmitter).listenerCount("SIGINT")).toBe(0);
+    expect((signalSource as unknown as EventEmitter).listenerCount("SIGTERM")).toBe(0);
+  });
+
   test("terminates remaining application descendants after a normal child exit", async () => {
     const nodexHome = createNodexHome();
     const child = new FakeChild();
@@ -524,5 +571,38 @@ describe("isolated run supervisor", () => {
       cleanupStatus: "not_started",
     });
     expect(readIsolatedRunLeaseOwner(nodexHome)).toBeNull();
+  });
+
+  test("releases signal listeners and leases across repeated lifecycles", async () => {
+    const signalSource = new EventEmitter() as unknown as SupervisorSignalSource;
+
+    for (let iteration = 0; iteration < 10; iteration += 1) {
+      const nodexHome = createNodexHome();
+      const child = new FakeChild();
+      await superviseIsolatedRun({
+        environment: { NODEX_HOME: nodexHome },
+        nodexHome,
+        repositoryRoot: path.resolve("."),
+        command: { command: "pnpm", args: ["exec", "electron", "."] },
+        dependencies: {
+          cleanupDependencies: cleanupDependencies({ readClaim: vi.fn(() => null) }),
+          delay: vi.fn(async () => undefined),
+          forceExit: vi.fn(),
+          generateRunId: () => `${RUN_A.slice(0, -2)}${String(iteration).padStart(2, "0")}`,
+          isProcessGroupAlive: vi.fn(() => false),
+          now: vi.fn(() => iteration),
+          signalSource,
+          signalProcessGroup: vi.fn(),
+          spawnChild: () => {
+            queueMicrotask(() => child.close(0));
+            return child.asChildProcess();
+          },
+        },
+      });
+
+      expect(readIsolatedRunLeaseOwner(nodexHome)).toBeNull();
+      expect((signalSource as unknown as EventEmitter).listenerCount("SIGINT")).toBe(0);
+      expect((signalSource as unknown as EventEmitter).listenerCount("SIGTERM")).toBe(0);
+    }
   });
 });
