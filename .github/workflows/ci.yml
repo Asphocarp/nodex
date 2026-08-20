@@ -278,7 +278,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/fetch-legacy-migrator
       - uses: ./.github/actions/setup-rust-ci
+      - run: pnpm run build-resources:prepare
       - uses: ./.github/actions/setup-playwright
       - name: Run selected stress suites
         run: pnpm exec tsx scripts/ci/run-timed.ts --name stress-tests -- xvfb-run --auto-servernum pnpm run test:stress
