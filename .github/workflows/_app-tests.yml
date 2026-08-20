@@ -26,8 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CI_TIMING_JOB: ${{ inputs.timing_prefix }}-${{ matrix.suite }}
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,14 +42,29 @@ jobs:
         run: pnpm exec tsx scripts/ci/app-test-suite.ts --suite "${{ matrix.suite }}"
       - uses: ./.github/actions/setup-rust-ci
         if: steps.suite.outputs.needs_rust == 'true'
-      - run: pnpm run build-resources:prepare
+      - name: Prepare build resources
+        env:
+          NEEDS_RUST: ${{ steps.suite.outputs.needs_rust }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${NEEDS_RUST}" == "true" ]]; then
+            export RUSTC_WRAPPER=sccache
+            export SCCACHE_GHA_ENABLED=true
+          fi
+          pnpm run build-resources:prepare
       - name: Run application suite
         env:
+          NEEDS_RUST: ${{ steps.suite.outputs.needs_rust }}
           NEEDS_XVFB: ${{ steps.suite.outputs.needs_xvfb }}
           PACKAGE_SCRIPT: ${{ steps.suite.outputs.package_script }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "${NEEDS_RUST}" == "true" ]]; then
+            export RUSTC_WRAPPER=sccache
+            export SCCACHE_GHA_ENABLED=true
+          fi
           if [[ "${NEEDS_XVFB}" == "true" ]]; then
             pnpm exec tsx scripts/ci/run-timed.ts \
               --name "app-${{ matrix.suite }}" \

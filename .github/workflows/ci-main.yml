@@ -223,5 +223,4 @@ jobs:
         env:
           CI_CLASSIFIER_RESULT: success
           CI_NEEDS_JSON: ${{ toJSON(needs) }}
-          CI_SELECTED_GATES_JSON: '["static-contracts","rust-quality","rust-workspace","rust-migration","app-tests","stress-tests","browser-tests","electron-e2e","runtime-contracts"]'
         run: node --no-warnings scripts/ci/verify-required-gates.ts

@@ -27,8 +27,15 @@ describe("GitHub classification outputs", () => {
 
   test("rejects non-string paths before they can reach a summary", () => {
     expect(() => parseClassificationDocument({
-      changedPaths: ["safe", "unsafe\npath", 42],
+      changedPaths: ["safe", 42],
       plan: classifyChangedPaths(["README.md"]),
     })).toThrow("string array");
+  });
+
+  test("rejects newline-bearing paths independently", () => {
+    expect(() => parseClassificationDocument({
+      changedPaths: ["unsafe\npath"],
+      plan: classifyChangedPaths(["README.md"]),
+    })).toThrow("must not contain line breaks");
   });
 });

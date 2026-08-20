@@ -50,6 +50,13 @@ interface GitHubNeedsJob {
   readonly result: GitHubJobResult;
 }
 
+export const requiredGateNames = (
+  availableGateNames: readonly string[],
+  rawPlan: unknown | undefined,
+): readonly string[] => rawPlan === undefined
+  ? availableGateNames
+  : requiredJobIdsForGatePlan(parseCiGatePlan(rawPlan));
+
 const parseNeeds = (value: string): Readonly<Record<string, GitHubNeedsJob>> => {
   const parsed: unknown = JSON.parse(value);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -67,14 +74,6 @@ const parseNeeds = (value: string): Readonly<Record<string, GitHubNeedsJob>> => 
   }));
 };
 
-const parseSelectedGates = (value: string): readonly string[] => {
-  const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed) || !parsed.every((gate) => typeof gate === "string")) {
-    throw new Error("CI_SELECTED_GATES_JSON must be a JSON string array.");
-  }
-  return parsed;
-};
-
 const main = (): void => {
   const planJson = process.env.CI_GATE_PLAN_JSON;
   const needsJson = process.env.CI_NEEDS_JSON;
@@ -88,10 +87,10 @@ const main = (): void => {
     verifyRequiredGates({ classifierResult, results: {}, selectedGates: [] });
     return;
   }
-  const selectedJson = process.env.CI_SELECTED_GATES_JSON;
-  const selectedGates = selectedJson
-    ? parseSelectedGates(selectedJson)
-    : requiredJobIdsForGatePlan(parseCiGatePlan(JSON.parse(planJson ?? "")));
+  const selectedGates = requiredGateNames(
+    Object.keys(needs),
+    planJson === undefined ? undefined : JSON.parse(planJson),
+  );
   verifyRequiredGates({
     classifierResult,
     results: Object.fromEntries(Object.entries(needs).map(([name, job]) => [name, job.result])),

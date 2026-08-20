@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  fetchRuns,
   parseReportArguments,
   summarizeWorkflowRuns,
+  timingRecordForRun,
   type ActionsRunRecord,
 } from "./report-actions-timings";
 
@@ -87,6 +89,76 @@ describe("GitHub Actions timing reports", () => {
       { ...run({ id: 21, terminalAt: "2026-08-20T00:02:00.000Z" }), branch: "feature" },
     ], { branch: "main", event: "push" });
     expect(report.runs.map(({ id }) => id)).toEqual([20]);
+  });
+
+  test("filters runs at the API and flattens every paginated job page", () => {
+    const calls: string[][] = [];
+    const request = <T>(args: readonly string[]): T => {
+      calls.push([...args]);
+      if (args[2]?.includes("/actions/workflows/")) {
+        return {
+          workflow_runs: [{
+            conclusion: "success",
+            created_at: "2026-08-20T00:00:00.000Z",
+            event: "push",
+            head_branch: "main",
+            head_sha: "sha-30",
+            html_url: "https://example.test/runs/30",
+            id: 30,
+            run_attempt: 2,
+            run_started_at: "2026-08-20T00:00:05.000Z",
+            updated_at: "2026-08-20T00:03:00.000Z",
+          }],
+        } as T;
+      }
+      const ordinaryJobs = Array.from({ length: 100 }, (_, index) => ({
+        completed_at: "2026-08-20T00:01:00.000Z",
+        conclusion: "success",
+        name: `job-${index}`,
+        started_at: "2026-08-20T00:00:10.000Z",
+        status: "completed",
+      }));
+      return [
+        { jobs: ordinaryJobs },
+        { jobs: [{
+          completed_at: "2026-08-20T00:02:00.000Z",
+          conclusion: "success",
+          name: "required",
+          started_at: "2026-08-20T00:01:59.000Z",
+          status: "completed",
+        }] },
+      ] as T;
+    };
+
+    const [fetched] = fetchRuns(
+      "owner/repo",
+      7,
+      20,
+      { branch: "main", event: "push" },
+      request,
+    );
+    expect(calls[0]).toEqual([
+      "--method",
+      "GET",
+      "repos/owner/repo/actions/workflows/7/runs",
+      "-f",
+      "branch=main",
+      "-f",
+      "event=push",
+      "-f",
+      "per_page=20",
+    ]);
+    expect(calls[1]).toEqual([
+      "--method",
+      "GET",
+      "repos/owner/repo/actions/runs/30/attempts/2/jobs",
+      "-f",
+      "per_page=100",
+      "--paginate",
+      "--slurp",
+    ]);
+    expect(fetched?.jobs).toHaveLength(101);
+    expect(fetched && timingRecordForRun(fetched).wallMs).toBe(120_000);
   });
 
   test("requires an explicit workflow, sample limit, and output", () => {

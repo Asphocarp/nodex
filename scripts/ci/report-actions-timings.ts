@@ -39,6 +39,8 @@ interface GitHubWorkflowJob {
   readonly status: string;
 }
 
+type GitHubJsonRequest = <T>(args: readonly string[]) => T;
+
 export interface ActionsJobRecord {
   readonly completedAt: string | null;
   readonly conclusion: string | null;
@@ -259,22 +261,36 @@ const resolveWorkflowId = (repository: string, workflow: string): number => {
   throw new Error(`Workflow ${JSON.stringify(workflow)} is ambiguous.`);
 };
 
-const fetchRuns = (repository: string, workflowId: number, limit: number): readonly ActionsRunRecord[] => {
-  const response = ghJson<GitHubWorkflowRunList>([
+export const fetchRuns = (
+  repository: string,
+  workflowId: number,
+  limit: number,
+  options: TimingReportOptions = {},
+  request: GitHubJsonRequest = ghJson,
+): readonly ActionsRunRecord[] => {
+  const runArguments = [
     "--method",
     "GET",
     `repos/${repository}/actions/workflows/${workflowId}/runs`,
-    "-f",
-    `per_page=${limit}`,
-  ]);
+  ];
+  if (options.branch) runArguments.push("-f", `branch=${options.branch}`);
+  if (options.event) runArguments.push("-f", `event=${options.event}`);
+  runArguments.push("-f", `per_page=${limit}`);
+  const response = request<GitHubWorkflowRunList>(runArguments);
   return response.workflow_runs.slice(0, limit).map((run) => {
-    const jobs = ghJson<GitHubJobList>([
+    const jobResponse = request<GitHubJobList | readonly GitHubJobList[]>([
       "--method",
       "GET",
       `repos/${repository}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`,
       "-f",
       "per_page=100",
-    ]).jobs;
+      "--paginate",
+      "--slurp",
+    ]);
+    const jobPages: readonly GitHubJobList[] = Array.isArray(jobResponse)
+      ? jobResponse
+      : [jobResponse as GitHubJobList];
+    const jobs = jobPages.flatMap((page) => page.jobs);
     return {
       attempt: run.run_attempt,
       branch: run.head_branch,
@@ -319,7 +335,7 @@ const main = (): void => {
   const repository = resolveRepository(options.repo);
   const workflowId = resolveWorkflowId(repository, options.workflow);
   const report = summarizeWorkflowRuns(
-    fetchRuns(repository, workflowId, options.limit),
+    fetchRuns(repository, workflowId, options.limit, options),
     { branch: options.branch, event: options.event },
   );
   const output = path.resolve(options.output);

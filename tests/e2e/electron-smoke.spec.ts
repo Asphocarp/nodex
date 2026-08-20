@@ -1873,7 +1873,7 @@ test("creates one stable Board Page and edits its grouping Property @create-moda
       await priorityItem.click({ timeout: 2_000 });
       await expect(priorityOption).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 15_000 });
-    await priorityOption.evaluate((option) => (option as HTMLElement).click());
+    await priorityOption.click({ timeout: 2_000 });
 
     await expect.poll(async () => {
       const snapshot = requireIpcValue<Record<string, unknown>>(

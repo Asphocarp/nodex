@@ -108,12 +108,19 @@ describe("CI change classification", () => {
   });
 
   test("routes each local action to its real consumers", () => {
-    expect(classifyChangedPaths([".github/actions/run-stress-tests/action.yml"]))
+    expect(classifyChangedPaths([
+      ".github/actions/run-stress-tests/action.yml",
+      ".github/actions/run-stress-tests/scripts/prepare.sh",
+    ]))
       .toMatchObject({ browser: false, rustFast: false, stress: true });
     expect(classifyChangedPaths([".github/actions/setup-playwright/action.yml"]))
       .toMatchObject({ browser: true, electronE2e: true, rustFast: false, stress: true });
     expect(classifyChangedPaths([".github/actions/setup-rust-ci/action.yml"]))
       .toMatchObject({ protocolContracts: true, runtimeMac: true, rustFast: true });
+    expect(classifyChangedPaths([
+      ".github/actions/setup-playwright/action.yml",
+      ".github/actions/setup-rust-ci/action.yml",
+    ])).toMatchObject({ allGates: true });
   });
 
   test("selects every ordinary gate for orchestration, unknown, empty, and explicit full inputs", () => {

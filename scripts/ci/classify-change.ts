@@ -209,14 +209,14 @@ const githubActionPlan = (paths: readonly string[]): CiGatePlan => {
   if (paths.some((path) => path.startsWith(".github/workflows/"))) {
     return allGatesPlan("github-actions");
   }
-  if (paths.every((path) => path === ".github/actions/run-stress-tests/action.yml")) {
+  if (paths.every((path) => path.startsWith(".github/actions/run-stress-tests/"))) {
     return createPlan({
       dependencyKind: "github-actions",
       staticGroups: ["ci-contracts"],
       stress: true,
     });
   }
-  if (paths.every((path) => path === ".github/actions/setup-playwright/action.yml")) {
+  if (paths.every((path) => path.startsWith(".github/actions/setup-playwright/"))) {
     return createPlan({
       browser: true,
       dependencyKind: "github-actions",
@@ -225,7 +225,7 @@ const githubActionPlan = (paths: readonly string[]): CiGatePlan => {
       stress: true,
     });
   }
-  if (paths.every((path) => path === ".github/actions/setup-rust-ci/action.yml")) {
+  if (paths.every((path) => path.startsWith(".github/actions/setup-rust-ci/"))) {
     return createPlan({
       appTestSuites: APP_TEST_SUITES,
       dependencyKind: "github-actions",

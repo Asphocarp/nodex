@@ -18,6 +18,9 @@ export const parseClassificationDocument = (value: unknown): ClassificationDocum
   if (!Array.isArray(value.changedPaths) || !value.changedPaths.every((entry) => typeof entry === "string")) {
     throw new Error("Classification changedPaths must be a string array.");
   }
+  if (value.changedPaths.some((entry) => /[\r\n]/u.test(entry))) {
+    throw new Error("Classification changedPaths must not contain line breaks.");
+  }
   return {
     changedPaths: value.changedPaths,
     plan: parseCiGatePlan(value.plan),

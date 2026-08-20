@@ -46,6 +46,9 @@ enables extension rewriting so the same entrypoints remain typecheck-safe.
 integration suites as independent matrix cells. The integration cell builds
 its own Core test support instead of depending on a preceding suite. Renderer
 tests use four fork workers in CI, two locally, and one in the stress tier.
+Rust compiler-cache variables stay scoped to Rust-bearing steps: every cell
+prepares build-resource metadata, while unit and renderer intentionally skip
+the Rust and sccache setup action.
 
 `.github/workflows/_static-checks.yml` runs typed JavaScript checks, UI
 contracts, CI contracts, repository contracts, generated resources, and the
@@ -67,6 +70,8 @@ Project-specific test semantics live in `package.json`, not in workflow YAML:
 
 - `pnpm run core:test:pr` runs the ordinary Rust suite through cargo-nextest
   plus doctests. It is the only ordinary PR Rust test tier.
+- `pnpm run core:test:workspace` runs the exhaustive Rust workspace suite as a
+  separate parallel Main CI job.
 - `pnpm run core:test:full` runs the ordinary workspace suite and the complete
   supported Store-baseline migration layer.
 - `pnpm run core:test:migration` verifies fresh/current Store preparation, the

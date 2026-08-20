@@ -123,7 +123,7 @@ const chooseFilterPickerOption = async ({
   await expect(async () => {
     if ((await trigger.textContent())?.includes(expectedLabel)) return;
     await openFilterPicker({ trigger, search });
-    await option.evaluate((element) => (element as HTMLElement).click());
+    await option.click({ timeout: 2_000 });
     await expect(trigger).toContainText(expectedLabel, { timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
 };
