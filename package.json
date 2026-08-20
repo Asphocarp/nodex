@@ -209,7 +209,7 @@
     "@statsig/js-client": "3.33.2",
     "@statsig/react-bindings": "3.33.2",
     "@statsig/web-analytics": "3.33.2",
-    "@storybook/react-vite": "10.4.6",
+    "@storybook/react-vite": "10.5.9",
     "@streamdown/cjk": "1.0.3",
     "@streamdown/code": "1.1.1",
     "@streamdown/math": "1.0.2",
@@ -284,6 +284,7 @@
     "typescript-eslint": "8.61.1",
     "unified": "^11.0.5",
     "vite": "8.0.16",
+    "vite-plus": "0.2.9",
     "vitest": "4.1.10",
     "zod": "4.4.3"
   },
