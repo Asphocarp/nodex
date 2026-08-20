@@ -9,7 +9,7 @@ export interface SourcePosition {
 export function parseTypeScriptSource(path: string, sourceText: string): Program {
   const result = parseSync(path, sourceText, {
     astType: "ts",
-    lang: path.endsWith(".d.ts") ? "dts" : path.endsWith(".tsx") ? "tsx" : "ts",
+    lang: /\.d\.[cm]?ts$/.test(path) ? "dts" : path.endsWith(".tsx") ? "tsx" : "ts",
     sourceType: "module",
   });
   const errors = result.errors.filter((error) => error.severity === "Error");

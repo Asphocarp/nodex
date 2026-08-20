@@ -1,4 +1,5 @@
 import { defineConfig } from "vite-plus";
+import { recommended as effectRecommended } from "@effect/tsgo/oxlint-presets";
 
 const toolingFixtureMode = process.env.NODEX_TOOLING_FIXTURE_MODE === "1";
 const generatedOrExternalPaths = [
@@ -109,6 +110,13 @@ const workbenchRefreshBoundaries = [
 ];
 
 const toolingFixtureIgnorePatterns = new Set(["scripts/fixtures/tooling/**", "**/fixtures/**"]);
+const effectControlPlaneFiles = [
+  "src/main/effect-control-plane/**/*.{ts,tsx}",
+  "src/main/effect-adapters/**/*.{ts,tsx}",
+  "src/main/main-program*.ts",
+  "scripts/effect-control-plane/**/*.ts",
+  "scripts/effect-adapters/**/*.ts",
+];
 
 export default defineConfig({
   lint: {
@@ -128,7 +136,7 @@ export default defineConfig({
       typeAware: !toolingFixtureMode,
       typeCheck: !toolingFixtureMode,
     },
-    plugins: ["eslint", "oxc", "react", "typescript", "unicorn"],
+    plugins: ["effecttsgo", "eslint", "oxc", "react", "typescript", "unicorn"],
     rules: {
       ...tanstackQueryRules,
       ...betterTailwindRules,
@@ -180,6 +188,10 @@ export default defineConfig({
         rules: {
           "no-restricted-imports": "off",
         },
+      },
+      {
+        files: effectControlPlaneFiles,
+        rules: effectRecommended.rules,
       },
     ],
   },
