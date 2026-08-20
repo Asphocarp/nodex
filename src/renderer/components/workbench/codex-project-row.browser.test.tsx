@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
-import { describe, expect, test } from "vitest";
-import { userEvent } from "vitest/browser";
+import { act } from "@testing-library/react";
+import { describe, expect, test } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 import type { Project } from "@/lib/types";
 import { NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -31,7 +32,7 @@ describe("CodexProjectRow interaction chrome in Chromium", () => {
   test("keeps the marker at rest and layers row and disclosure hover states", async () => {
     const view = render(
       <TestQueryProvider>
-        <NodexHoverCardProvider>
+        <NodexHoverCardProvider delay={0} timeoutMs={0}>
           <NodexTooltipProvider>
             <div
               className="w-72"
@@ -66,22 +67,30 @@ describe("CodexProjectRow interaction chrome in Chromium", () => {
     expect(getComputedStyle(marker).visibility).toBe("visible");
     expect(getComputedStyle(disclosure).opacity).toBe("0");
 
-    await userEvent.click(projectNavigation);
-    await userEvent.unhover(row);
+    await act(async () => {
+      await userEvent.click(projectNavigation);
+      await userEvent.unhover(row);
+    });
     expect(document.activeElement).toBe(projectNavigation);
     expect(getComputedStyle(marker).visibility).toBe("visible");
     expect(getComputedStyle(disclosure).opacity).toBe("0");
 
-    await userEvent.hover(row);
+    await act(async () => {
+      await userEvent.hover(row);
+    });
     expect(getComputedStyle(marker).visibility).toBe("hidden");
     expect(getComputedStyle(disclosure).opacity).toBe("1");
     expect(getComputedStyle(disclosure).backgroundColor).toBe("rgba(0, 0, 0, 0)");
 
-    await userEvent.hover(disclosure);
+    await act(async () => {
+      await userEvent.hover(disclosure);
+    });
     expect(getComputedStyle(disclosure).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
 
-    await userEvent.unhover(row);
-    await userEvent.tab({ shift: true });
+    await act(async () => {
+      await userEvent.unhover(row);
+      await userEvent.tab({ shift: true });
+    });
     expect(document.activeElement).toBe(disclosure);
     expect(getComputedStyle(marker).visibility).toBe("hidden");
     expect(getComputedStyle(disclosure).opacity).toBe("1");
