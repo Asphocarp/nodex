@@ -1,36 +1,21 @@
-import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-import { load } from "js-yaml";
+import {
+  isRecord,
+  readWorkflow,
+  repositoryRoot,
+  requireRecord,
+  workflowFiles,
+  workflowsDirectory,
+} from "./github-workflow-files";
+import type { UnknownRecord } from "./github-workflow-files";
 
-type UnknownRecord = Readonly<Record<string, unknown>>;
-
-const repositoryRoot = path.resolve(import.meta.dirname, "../..");
-const workflowsDirectory = path.join(repositoryRoot, ".github/workflows");
 const secretReferencePattern = /secrets\.([A-Za-z_][A-Za-z0-9_]*)/gu;
 const environmentSecretContracts = new Map<string, ReadonlySet<string>>([
   ["sparkle-feed-finalization", new Set(["SPARKLE_ED25519_PRIVATE_KEY"])],
 ]);
 const environmentSecretNames = new Set(
   [...environmentSecretContracts.values()].flatMap((names) => [...names]),
-);
-
-const isRecord = (value: unknown): value is UnknownRecord =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const requireRecord = (value: unknown, label: string): UnknownRecord => {
-  if (isRecord(value)) return value;
-  throw new Error(`${label} must be an object`);
-};
-
-const workflowFiles = (): readonly string[] => readdirSync(workflowsDirectory)
-  .filter((entry) => entry.endsWith(".yml") || entry.endsWith(".yaml"))
-  .sort()
-  .map((entry) => path.join(workflowsDirectory, entry));
-
-const readWorkflow = (filePath: string): UnknownRecord => requireRecord(
-  load(readFileSync(filePath, "utf8")),
-  path.relative(repositoryRoot, filePath),
 );
 
 const workflowCallSecrets = (workflow: UnknownRecord): UnknownRecord => {

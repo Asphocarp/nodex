@@ -271,22 +271,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/fetch-legacy-migrator
-      - uses: ./.github/actions/setup-rust-ci
-      - run: pnpm run build-resources:prepare
-      - uses: ./.github/actions/setup-playwright
-      - name: Run selected stress suites
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name stress-tests -- xvfb-run --auto-servernum pnpm run test:stress
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
+      - uses: ./.github/actions/run-stress-tests
 
   browser-tests:
     name: browser tests
