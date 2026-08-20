@@ -13,6 +13,10 @@ initializeRendererDocument({ storybook: true });
 
 const DEFAULT_SANS_FONT_SIZE = readDevStorySansFontSize();
 const DEFAULT_CODE_FONT_SIZE = readDevStoryCodeFontSize();
+const FONT_SIZE_TOOLBAR_ITEMS = [12, 13, 14, 15, 16, 18].map((value) => ({
+  value: String(value),
+  title: `${value}px`,
+}));
 
 function resolveTheme(value: unknown): "light" | "dark" | "system" {
   if (value === "light" || value === "dark" || value === "system") return value;
@@ -79,25 +83,19 @@ const preview: Preview = {
     sansFontSize: {
       name: "Sans",
       description: "Story sans font size",
-      defaultValue: DEFAULT_SANS_FONT_SIZE,
+      defaultValue: String(DEFAULT_SANS_FONT_SIZE),
       toolbar: {
         icon: "paragraph",
-        items: [12, 13, 14, 15, 16, 18].map((value) => ({
-          value,
-          title: `${value}px`,
-        })),
+        items: FONT_SIZE_TOOLBAR_ITEMS,
       },
     },
     codeFontSize: {
       name: "Code",
       description: "Story code font size",
-      defaultValue: DEFAULT_CODE_FONT_SIZE,
+      defaultValue: String(DEFAULT_CODE_FONT_SIZE),
       toolbar: {
         icon: "markup",
-        items: [12, 13, 14, 15, 16, 18].map((value) => ({
-          value,
-          title: `${value}px`,
-        })),
+        items: FONT_SIZE_TOOLBAR_ITEMS,
       },
     },
   },

@@ -1,4 +1,8 @@
-import ts from "typescript";
+import { Visitor } from "oxc-parser";
+import {
+  parseTypeScriptSource,
+  sourcePosition,
+} from "../lib/oxc-source";
 
 export interface SemanticMigrationPolicy {
   readonly path: string;
@@ -18,31 +22,33 @@ export const collectSemanticMigrationViolations = (
   sourceText: string,
   policy: SemanticMigrationPolicy,
 ): readonly SemanticMigrationViolation[] => {
-  const sourceFile = ts.createSourceFile(
-    policy.path,
-    sourceText,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
+  const sourceFile = parseTypeScriptSource(policy.path, sourceText);
   const forbidden = new Set(policy.forbiddenClassNames);
   const violations: SemanticMigrationViolation[] = [];
 
-  const visit = (node: ts.Node): void => {
-    if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      const matches = collectClassTokens(node.text).filter((className) => forbidden.has(className));
-      if (matches.length > 0) {
-        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-        violations.push(...matches.map((className) => ({
-          className,
-          line: position.line + 1,
-          column: position.character + 1,
-        })));
-      }
-    }
-    ts.forEachChild(node, visit);
+  const collectViolations = (value: string, offset: number): void => {
+    const matches = collectClassTokens(value).filter((className) => forbidden.has(className));
+    if (matches.length === 0) return;
+
+    const position = sourcePosition(sourceText, offset);
+    violations.push(...matches.map((className) => ({
+      className,
+      line: position.line,
+      column: position.column,
+    })));
   };
 
-  visit(sourceFile);
+  new Visitor({
+    Literal(node) {
+      if (typeof node.value !== "string") return;
+      collectViolations(node.value, node.start);
+    },
+    TemplateLiteral(node) {
+      if (node.expressions.length > 0) return;
+      const value = node.quasis[0]?.value.cooked;
+      if (value === null || value === undefined) return;
+      collectViolations(value, node.start);
+    },
+  }).visit(sourceFile);
   return violations;
 };
