@@ -34,6 +34,8 @@ overrides:
   sass: 1.101.0
   tar: 7.5.16
   tmp: 0.2.7
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.9
+  vitest: 4.1.10
   yaml: 2.9.0
 
 allowBuilds:
@@ -45,3 +47,8 @@ allowBuilds:
   node-pty: true
   sharp: false
   unrs-resolver: false
+
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
