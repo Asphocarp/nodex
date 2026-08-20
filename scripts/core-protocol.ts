@@ -15,6 +15,7 @@ type Command = "generate" | "verify";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const packageRoot = join(repositoryRoot, "packages/core-protocol");
+const codegenPackageRoot = join(repositoryRoot, "packages/core-protocol-codegen");
 const committedOpenApi = join(packageRoot, "openapi.json");
 const committedTypes = join(packageRoot, "src/generated.ts");
 const committedRequirements = join(
@@ -28,9 +29,9 @@ interface GeneratedArtifacts {
   readonly requirements: string;
 }
 
-function run(command: string, args: readonly string[]): void {
+function run(command: string, args: readonly string[], cwd = repositoryRoot): void {
   execFileSync(command, args, {
-    cwd: repositoryRoot,
+    cwd,
     stdio: "inherit",
   });
 }
@@ -53,15 +54,11 @@ function generateArtifacts(directory: string): GeneratedArtifacts {
     "--requirements-output",
     requirements,
   ]);
-  run("pnpm", [
-    "exec",
-    "openapi-typescript",
-    openApi,
-    "--output",
-    types,
-    "--alphabetize",
-    "--immutable",
-  ]);
+  run(
+    "pnpm",
+    ["exec", "openapi-typescript", openApi, "--output", types, "--alphabetize", "--immutable"],
+    codegenPackageRoot,
+  );
 
   return { openApi, types, requirements };
 }
