@@ -139,6 +139,14 @@ verifyInvalidFixtures([
     code: "react(only-export-components)",
     filename: "scripts/fixtures/tooling/workbench/refresh-invalid.tsx",
   },
+  {
+    code: "nodex(no-manual-effect-runtime-in-tests)",
+    filename: "scripts/fixtures/tooling/nodex/manual-effect-runtime-invalid.test.ts",
+  },
+  {
+    code: "nodex(no-native-title-tooltip)",
+    filename: "scripts/fixtures/tooling/nodex/native-title-invalid.tsx",
+  },
 ]);
 
 verifyValidFixtures([
@@ -146,6 +154,8 @@ verifyValidFixtures([
   "scripts/fixtures/tooling/query-valid.tsx",
   "src/renderer/components/ui/context-menu.tsx",
   "src/renderer/components/shared/icons/generic-icons.tsx",
+  "scripts/fixtures/tooling/nodex/manual-effect-runtime-valid.test.ts",
+  "scripts/fixtures/tooling/nodex/native-title-valid.tsx",
 ]);
 
 const tailwindEnvironment = { ESLINT_BETTER_TAILWIND: "1" };

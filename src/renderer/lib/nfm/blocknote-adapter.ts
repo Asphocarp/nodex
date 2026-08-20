@@ -8,7 +8,6 @@ import type { NfmBlock } from "../../../shared/nfm/types";
 // The legacy renderer surface has several schema-specific BlockNote generics.
 // Keep its compatibility facade permissive until BF-04 removes snapshot
 // rehydration; authority-side codecs import the strict shared adapter directly.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LegacyBlockNoteBlock = any;
 
 export function nfmToBlockNote(

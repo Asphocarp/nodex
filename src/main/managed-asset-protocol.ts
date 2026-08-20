@@ -27,12 +27,14 @@ function response(
   body: BodyInit | null = null,
   headers: HeadersInit = {},
 ): Response {
+  const responseHeaders = new Headers(headers);
+  for (const [name, value] of Object.entries(RESPONSE_SECURITY_HEADERS)) {
+    if (!responseHeaders.has(name)) responseHeaders.set(name, value);
+  }
+
   return new Response(body, {
     status,
-    headers: {
-      ...RESPONSE_SECURITY_HEADERS,
-      ...headers,
-    },
+    headers: responseHeaders,
   });
 }
 

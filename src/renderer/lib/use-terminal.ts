@@ -97,11 +97,17 @@ function scaleMouseEventCoordinates(
   zoom: number,
 ): unknown {
   if (zoom === 1 || !(event instanceof MouseEvent)) return event;
-  return {
-    ...event,
-    clientX: rect.left + (event.clientX - rect.left) / zoom,
-    clientY: rect.top + (event.clientY - rect.top) / zoom,
-  };
+  const clientX = rect.left + (event.clientX - rect.left) / zoom;
+  const clientY = rect.top + (event.clientY - rect.top) / zoom;
+
+  return new Proxy(event, {
+    get(target, property) {
+      if (property === "clientX") return clientX;
+      if (property === "clientY") return clientY;
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 function patchXtermWindowZoomMouseCoordinates(term: Terminal): () => void {

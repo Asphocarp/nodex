@@ -1528,12 +1528,10 @@ function createWindow(
     );
   });
 
-  // In dev mode, load the vite dev server URL
-  if (process.env.ELECTRON_RENDERER_URL) {
-    window.loadURL(process.env.ELECTRON_RENDERER_URL);
-  } else {
-    window.loadURL(APP_RENDERER_URL);
-  }
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? APP_RENDERER_URL;
+  void window.loadURL(rendererUrl).catch((error) => {
+    logger.error("Could not load the application renderer", { error, rendererUrl });
+  });
 
   const webContentsId = window.webContents.id;
   if (!windowSessionState) {

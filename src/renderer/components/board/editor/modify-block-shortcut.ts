@@ -126,7 +126,7 @@ export function modifyCurrentBlock(
 
   if (block.type === "checkListItem") {
     if (!editor.updateBlock) return false;
-    editor.updateBlock(block, { props: { checked: !Boolean(block.props?.checked) } });
+    editor.updateBlock(block, { props: { checked: !block.props?.checked } });
     return true;
   }
 

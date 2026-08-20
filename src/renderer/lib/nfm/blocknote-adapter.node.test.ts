@@ -4,7 +4,6 @@ import { blockNoteToNfm, nfmToBlockNote } from "./blocknote-adapter";
 import { parseNfm } from "./parser";
 import { serializeNfm } from "./serializer";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function asDoc(blocks: any[]) {
   return blocks as unknown[];
 }

@@ -12,6 +12,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "lib": [
       "ES2023",
       "DOM",
@@ -26,6 +27,7 @@
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "scripts/**/*.ts",
+    "oxlint-plugin-nodex/**/*.ts",
     "electron.vite.config.ts",
     "vite.config.ts",
     "packages/codex-app-server-protocol/**/*.ts",

@@ -131,20 +131,37 @@ pnpm run package
 Run the standard checks before handing off code changes:
 
 ```bash
-pnpm exec vp check
-pnpm exec vp fmt --check
-pnpm exec vp run test
-pnpm exec vp run verify:source
+vp check
+vp lint --format agent --report-unused-disable-directives-severity error --max-warnings 0
+vp run test
+vp run verify:source
 ```
 
 Vite+ is the repository engineering control plane. `vp check` combines the
-configured TypeScript 7 checker, Oxlint, and Oxfmt check; `vp run test` invokes
-Nodex's standard multi-runtime test aggregate. The aggregate delegates ordinary
-Node, CoreClient, Renderer, and Browser suites to `vp test`, while Main and
-Integration keep their Electron-hosted Vitest adapter so native modules load
-under Electron's ABI. Package scripts such as `pnpm test` and `pnpm run build`
-remain compatibility aliases for existing automation. Use `pnpm exec` to select
-the repository-pinned `vp` binary when Vite+ is not installed on the shell PATH.
+configured Effect-patched TypeScript 7 checker, type-aware Oxlint, and Oxfmt
+check. The second command is the compact agent-facing form of the strict lint
+gate: it covers the repository from the config ignore boundary, rejects any
+warning, and reports stale suppression comments. CI runs the equivalent
+`vp fmt --check` plus integrated `vp lint` pair so the extra lint gate flags can
+be enforced without running a second type checker. `vp run typecheck` remains a
+compatibility alias to this same integrated semantic path; it is deliberately
+not a lint-bypassing type-only authority.
+
+High-volume heuristic rules that do not encode a stable Nodex invariant are
+explicitly disabled in `vite.config.ts`. High-confidence correctness rules are
+errors, and `oxlint-plugin-nodex` adds project-native remediation messages. Its
+Effect test-runtime rule directs tests to `@effect/vitest`; its native tooltip
+rule ratchets existing per-file debt while requiring new UI to use
+`NodexTooltip`.
+
+`vp run test` invokes Nodex's standard multi-runtime test aggregate. The
+aggregate delegates ordinary Node, CoreClient, Renderer, and Browser suites to
+`vp test`, while Main and Integration keep their Electron-hosted Vitest adapter
+so native modules load under Electron's ABI. Package-manager script aliases
+remain available for compatibility, but contributors and automation use the
+installed `vp` command as the canonical entry point. GitHub Actions acquire the
+package.json-pinned version through the shared `setup-vite-plus` action and
+likewise execute `vp install`, `vp run`, and `vp exec` directly.
 
 The test commands follow production boundaries:
 
