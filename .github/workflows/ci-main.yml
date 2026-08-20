@@ -9,10 +9,6 @@ permissions:
   actions: write
   contents: read
 
-concurrency:
-  group: main-ci
-  cancel-in-progress: false
-
 jobs:
   static-contracts:
     name: main static contracts

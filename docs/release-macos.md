@@ -188,9 +188,10 @@ lockfiles only: CI derives third-party notices and their build-resource
 manifest in `.generated/build-resources/`, verifies two independent staging
 builds, and does not ask the bot branch to commit generated output.
 CI also classifies dependency-only changes as GitHub Actions, Rust, ordinary
-JavaScript, or editor dependencies for later matrix tuning; the first rollout
-keeps the existing full application/runtime coverage so classification cannot
-hide a dependency regression. The exact four-file stable release transition is
+JavaScript, or editor dependencies and maps them to explicit fail-closed gate
+plans. Broad dependency and orchestration changes select every relevant
+ordinary PR gate without promoting Rust to the exhaustive Main-only tier. The
+exact four-file stable release transition is
 the deliberate exception: its PR runs only the classifier and semantic release
 transition guard; the protected-main Main CI and production Release workflow
 still provide the post-merge source and signed-distribution gates.
@@ -371,11 +372,16 @@ successful protected-main CI run on that commit is the release trigger.
 
 ## Automatic production path
 
-The successful `CI` workflow for the main push wakes `Release` through
+The successful `Main CI` workflow for a main push wakes `Release` through
 `workflow_run`. Before repository code or secrets are used, it validates the
 triggering repository, `push` event, `main` branch, successful conclusion, and
 source reachability. It checks the commit has one parent and asks the Release
 Module to classify that parent-to-head transition.
+
+Main CI runs may overlap so a newer source push does not add an entire CI run
+to an older commit's queue. Release executions remain serialized by the
+`release-main` concurrency group, and each execution validates and publishes
+only its triggering Main CI source SHA.
 
 An ordinary main commit returns `shouldRelease: false` and exits successfully.
 A valid version transition runs this sequence:
