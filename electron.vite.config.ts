@@ -1,5 +1,5 @@
 import { resolve } from "path";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { defineConfig } from "electron-vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import type { Plugin, Rollup } from "vite";
 import { createExcalidrawFontAssetPlugins } from "./config/excalidraw-font-assets";
@@ -108,7 +108,7 @@ function isKnownYProsemirrorAwarenessTypeImportWarning(
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin(), ...createSentryPlugins()],
+    plugins: createSentryPlugins(),
     build: {
       sourcemap: sentrySourcemapSetting,
       rollupOptions: {
@@ -133,7 +133,6 @@ export default defineConfig({
   },
   preload: {
     plugins: [
-      externalizeDepsPlugin(),
       enforceSelfContainedSandboxedPreloads(),
       ...createSentryPlugins(),
     ],
