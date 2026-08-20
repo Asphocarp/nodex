@@ -11,6 +11,7 @@ use super::sqlite::{StoreError, StoreErrorCode};
 pub const LEGACY_TYPESCRIPT_STORE_REVISION: i64 = 84;
 pub const CURRENT_STORE_REVISION: i64 = nodex_store_format::CURRENT_STORE_VERSION as i64;
 pub const V84_SCHEMA_SQL: &str = include_str!("../../schema/v84.sql");
+pub const CURRENT_SCHEMA_SQL: &str = include_str!("../../schema/current.sql");
 
 pub fn v84_schema_objects_sql() -> &'static str {
     let start_marker = "BEGIN IMMEDIATE;\n\n";
@@ -55,6 +56,32 @@ pub fn install_v84_schema(connection: &Connection) -> Result<(), StoreError> {
         return Err(StoreError::new(
             StoreErrorCode::StoreCorrupt,
             format!("v84 schema artifact published v{installed}"),
+            false,
+        ));
+    }
+    Ok(())
+}
+
+pub fn install_current_schema(connection: &Connection) -> Result<(), StoreError> {
+    let current: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let object_count: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    )?;
+    if current != 0 || object_count != 0 {
+        return Err(StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "Current schema installation requires an empty SQLite database",
+            false,
+        ));
+    }
+    connection.execute_batch(CURRENT_SCHEMA_SQL)?;
+    let installed: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if installed != CURRENT_STORE_REVISION {
+        return Err(StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            format!("Current schema artifact published v{installed}"),
             false,
         ));
     }
@@ -174,6 +201,8 @@ fn normalize_sql(sql: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use tempfile::tempdir;
 
     use crate::infrastructure::sqlite::{open_writer, validate_store};
@@ -225,5 +254,28 @@ mod tests {
                 .keys()
                 .all(|key| !key.name.starts_with("thread_search"))
         );
+    }
+
+    #[test]
+    fn current_schema_artifact_matches_v130_inventory() {
+        assert_eq!(CURRENT_STORE_REVISION, 130);
+        let artifact = Connection::open_in_memory().expect("artifact Store");
+        install_current_schema(&artifact).expect("current schema artifact");
+        let artifact_inventory = read_schema_inventory(&artifact).expect("artifact inventory");
+        assert_eq!(
+            schema_inventory_fingerprint(&artifact_inventory),
+            nodex_store_format::CURRENT_STORE_SCHEMA_FINGERPRINT,
+        );
+
+        let directory = tempdir().expect("fixture Store");
+        let fixture_path = directory.path().join("nodex.db");
+        fs::write(
+            &fixture_path,
+            include_bytes!("../../tests/fixtures/store-v130.db"),
+        )
+        .expect("frozen v130 fixture");
+        let fixture = open_writer(&fixture_path).expect("fixture writer");
+        let fixture_inventory = read_schema_inventory(&fixture).expect("fixture inventory");
+        assert_eq!(fixture_inventory, artifact_inventory);
     }
 }
