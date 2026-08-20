@@ -193,6 +193,14 @@ export default defineConfig({
         files: effectControlPlaneFiles,
         rules: effectRecommended.rules,
       },
+      {
+        files: ["src/main/effect-adapters/**/*.{ts,tsx}", "scripts/effect-adapters/**/*.ts"],
+        rules: {
+          ...effectRecommended.rules,
+          // These app-owned adapters are the intentional Node/platform frontier.
+          "effecttsgo/node-builtin-import": "off",
+        },
+      },
     ],
   },
   fmt: {
