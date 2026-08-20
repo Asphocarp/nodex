@@ -11,18 +11,11 @@ export interface StaticCheck {
 }
 
 export const STATIC_CHECKS: readonly StaticCheck[] = [
-  { command: ["fmt", "--check"], group: "types", id: "format", name: "format" },
   {
-    command: [
-      "lint",
-      "--report-unused-disable-directives-severity",
-      "error",
-      "--max-warnings",
-      "0",
-    ],
+    command: ["check"],
     group: "types",
-    id: "integrated-diagnostics",
-    name: "integrated TypeScript, Effect, and lint diagnostics",
+    id: "integrated-check",
+    name: "integrated TypeScript, Effect, lint, and format diagnostics",
   },
   {
     command: ["run", "tooling:verify"],

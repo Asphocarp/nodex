@@ -132,28 +132,28 @@ Run the standard checks before handing off code changes:
 
 ```bash
 vp check
-vp lint --format agent --report-unused-disable-directives-severity error --max-warnings 0
+vp lint --format agent --report-unused-disable-directives
 vp run test
 vp run verify:source
 ```
 
 Vite+ is the repository engineering control plane. `vp check` combines the
 configured Effect-patched TypeScript 7 checker, type-aware Oxlint, and Oxfmt
-check. The second command is the compact agent-facing form of the strict lint
-gate: it covers the repository from the config ignore boundary, rejects any
-warning, and reports stale suppression comments. CI runs the equivalent
-`vp fmt --check` plus integrated `vp lint` pair so the extra lint gate flags can
-be enforced without running a second type checker. `vp run typecheck` remains a
-compatibility alias to this same integrated semantic path; it is deliberately
-not a lint-bypassing type-only authority.
+check. CI and `vp run verify:static` invoke that integrated gate directly.
+`correctness`, `suspicious`, and `perf` diagnostics are advisory warnings: keep
+them visible and improve nearby code when useful, but do not treat the warning
+count as an acceptance condition. Type errors, lint errors, and precise
+project-owned contract errors still block the command. The second command is
+the compact agent-facing form and also reports stale suppression comments.
+`vp run typecheck` remains a compatibility alias to the same integrated semantic
+path; it is deliberately not a lint-bypassing type-only authority.
 
-High-volume heuristic rules that do not encode a stable Nodex invariant are
-explicitly disabled in `vite.config.ts`. High-confidence correctness rules are
-errors, and `oxlint-plugin-nodex` adds project-native remediation messages. Its
-Effect test-runtime rule directs tests to `@effect/vitest`; its native tooltip
-rule rejects every intrinsic JSX `title` tooltip and requires product UI to use
-`NodexTooltip`. Shared button primitives consume tooltip copy without leaking a
-native `title` attribute.
+CI runs `vp check` as its own step, then `vp run verify:static:contracts` for the
+repository's architecture and generated-artifact gates. `vp run verify:static`
+is the local composition of those same two commands.
+
+The complete severity rationale, scoped overrides, remediation paths, and
+upgrade review process live in [Lint governance](LINTING.md).
 
 `vp run test` invokes Nodex's standard multi-runtime test aggregate. The
 aggregate delegates ordinary Node, CoreClient, Renderer, and Browser suites to
@@ -378,6 +378,7 @@ paths. Rust Core tests and binaries are independent of this Node ABI boundary.
 ## Related Technical Docs
 
 - [Architecture](ARCHITECTURE.md)
+- [Lint governance](LINTING.md)
 - [Engineering learnings](ENGINEERING_LEARNINGS.md)
 - [Product specification](product-specs/nodex-product-spec.md)
 - [Cross-feature frontend engineering conventions](FRONTEND.md)

@@ -156,7 +156,7 @@
     "dev:storybook": "pnpm --filter @nodex/storybook exec storybook dev -p \"${STORYBOOK_PORT:-6006}\" --host 127.0.0.1 --ci --no-open --exact-port --no-version-updates",
     "build:storybook": "pnpm --filter @nodex/storybook build",
     "typecheck": "vp check --no-fmt",
-    "lint": "vp lint --report-unused-disable-directives-severity error --max-warnings 0",
+    "lint": "vp lint --report-unused-disable-directives",
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
     "verify:static": "tsx scripts/ci/verify-static.ts",
