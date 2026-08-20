@@ -122,6 +122,20 @@ describe("CI change classification", () => {
     });
   });
 
+  test("runs stress gates when their shared runtime or selection changes", () => {
+    for (const path of [
+      "vitest.main.config.ts",
+      "config/vitest-test-tier.ts",
+      "config/electron-test-runtime.ts",
+      "scripts/run-vitest-in-electron.mjs",
+    ]) {
+      expect(classifyChangedPaths([path]), path).toMatchObject({
+        app: true,
+        stressRelevant: true,
+      });
+    }
+  });
+
   test("keeps mixed renderer and Rust changes broad without forcing release gates", () => {
     expect(classifyChangedPaths([
       "src/renderer/components/app.tsx",

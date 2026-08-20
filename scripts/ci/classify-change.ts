@@ -132,9 +132,16 @@ const isProtocolPath = (path: string): boolean =>
   || path.startsWith("src/shared/codex-")
   || path.startsWith("src/main/core-client/");
 
+const isStressInfrastructurePath = (path: string): boolean =>
+  path.startsWith("vitest.")
+  || path.startsWith("config/vitest-")
+  || path === "config/electron-test-runtime.ts"
+  || path === "scripts/run-vitest-in-electron.mjs";
+
 const isStressRelevantPath = (path: string): boolean =>
   isRustPath(path)
   || isStoragePath(path)
+  || isStressInfrastructurePath(path)
   || path.includes(".stress.")
   || path.includes("performance")
   || path.includes("concurrency")

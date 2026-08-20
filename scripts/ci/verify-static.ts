@@ -11,6 +11,7 @@ export const STATIC_CHECKS: readonly StaticCheck[] = [
   { command: ["run", "semantic-theme:verify"], name: "semantic theme" },
   { command: ["run", "verify:icons"], name: "icon boundaries" },
   { command: ["run", "ci:workflow-contracts"], name: "workflow contracts" },
+  { command: ["run", "ci:stress-workflow-contracts"], name: "stress workflow ownership" },
   { command: ["run", "ci:verify-ignored-rust-tests"], name: "ignored Rust test tiers" },
   { command: ["run", "core:protocol:verify"], name: "protocol contracts" },
   { command: ["run", "core:module-boundaries"], name: "module boundaries" },
