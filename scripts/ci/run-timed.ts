@@ -10,7 +10,11 @@ export interface TimedCommandArguments {
 }
 
 export interface TimedCommandRecord {
+  readonly attempt: number | null;
+  readonly job: string | null;
   readonly name: string;
+  readonly runId: string | null;
+  readonly sha: string | null;
   readonly startedAt: string;
   readonly finishedAt: string;
   readonly durationMs: number;
@@ -72,6 +76,16 @@ const formatDuration = (durationMs: number): string => {
 
 const escapeSummaryCell = (value: string): string => value.replaceAll("|", "\\|");
 
+const optionalText = (value: string | undefined): string | null => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+};
+
+const optionalPositiveInteger = (value: string | undefined): number | null => {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
 const runChild = async (
   options: Pick<RunTimedOptions, "command" | "commandArguments" | "cwd" | "env">,
 ): Promise<number> => await new Promise((resolve) => {
@@ -118,8 +132,13 @@ export const runTimedCommand = async (
   const started = now();
   const exitCode = await runChild(options);
   const finished = now();
+  const environment = options.env ?? process.env;
   const record: TimedCommandRecord = {
+    attempt: optionalPositiveInteger(environment.GITHUB_RUN_ATTEMPT),
+    job: optionalText(environment.CI_TIMING_JOB ?? environment.GITHUB_JOB),
     name: options.name,
+    runId: optionalText(environment.GITHUB_RUN_ID),
+    sha: optionalText(environment.GITHUB_SHA),
     startedAt: started.toISOString(),
     finishedAt: finished.toISOString(),
     durationMs: Math.max(0, finished.getTime() - started.getTime()),
@@ -129,9 +148,8 @@ export const runTimedCommand = async (
     ?? path.resolve(process.cwd(), ".generated/ci-timings");
   await mkdir(timingDirectory, { recursive: true });
   const jobName = sanitizeJobName(
-    options.env?.CI_TIMING_JOB
-      ?? process.env.CI_TIMING_JOB
-      ?? process.env.GITHUB_JOB
+    environment.CI_TIMING_JOB
+      ?? environment.GITHUB_JOB
       ?? "local",
   );
   await appendFile(
@@ -139,7 +157,7 @@ export const runTimedCommand = async (
     `${JSON.stringify(record)}\n`,
     "utf8",
   );
-  await appendSummary(options.summaryPath ?? process.env.GITHUB_STEP_SUMMARY, record);
+  await appendSummary(options.summaryPath ?? environment.GITHUB_STEP_SUMMARY, record);
   return record;
 };
 

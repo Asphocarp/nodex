@@ -133,6 +133,7 @@
     "ci:workflow-contracts": "tsx scripts/ci/verify-reusable-workflow-secrets.ts",
     "ci:stress-workflow-contracts": "tsx scripts/ci/verify-stress-workflow-contracts.ts",
     "ci:verify-ignored-rust-tests": "tsx scripts/ci/verify-ignored-rust-tests.ts",
+    "ci:report-timings": "tsx scripts/ci/report-actions-timings.ts",
     "verify:icons": "tsx scripts/ci/verify-icon-boundaries.ts",
     "dev": "tsx scripts/dev-launcher.ts",
     "build": "pnpm --silent run appshot-helper:build:dev && tsx scripts/prepared-electron-build.ts build",
