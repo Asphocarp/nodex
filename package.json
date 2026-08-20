@@ -18,6 +18,7 @@
     "test:renderer": "vitest run --config vitest.renderer.config.ts",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:integration": "node scripts/run-vitest-in-electron.mjs --config vitest.integration.config.ts",
+    "test:integration:ci": "pnpm --silent run core:test-support:build:dev && pnpm run test:integration",
     "test:unit:stress": "NODEX_TEST_TIER=stress vitest run --config vitest.node.config.ts",
     "test:main:stress": "pnpm --silent run core:test-support:build:dev && NODEX_TEST_TIER=stress node scripts/run-vitest-in-electron.mjs --config vitest.main.config.ts",
     "test:renderer:stress": "NODEX_TEST_TIER=stress vitest run --config vitest.renderer.config.ts",

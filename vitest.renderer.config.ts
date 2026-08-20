@@ -5,6 +5,7 @@ import {
   rendererViteResolve,
 } from "./config/renderer-vite-shared";
 import { selectTieredTestFiles } from "./config/vitest-test-tier";
+import { rendererWorkerCount } from "./config/renderer-worker-count";
 
 const testFiles = selectTieredTestFiles({
   defaultExclude: [
@@ -32,7 +33,7 @@ export default defineConfig({
     exclude: testFiles.exclude,
     include: testFiles.include,
     pool: "forks",
-    maxWorkers: testFiles.isStress ? 1 : 2,
+    maxWorkers: rendererWorkerCount({ ci: process.env.CI === "true", stress: testFiles.isStress }),
     fileParallelism: !testFiles.isStress,
     passWithNoTests: testFiles.isStress,
     setupFiles: ["./src/renderer/test/setup.ts"],
