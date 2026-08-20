@@ -1,0 +1,47 @@
+name: Reusable Static Checks
+
+on:
+  workflow_call:
+    inputs:
+      groups_json:
+        description: JSON array of canonical static check groups.
+        required: true
+        type: string
+      timing_prefix:
+        description: Stable prefix for timing artifacts and summaries.
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  check:
+    name: static ${{ matrix.group }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(inputs.groups_json) }}
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: ${{ inputs.timing_prefix }}-${{ matrix.group }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Run static group
+        env:
+          STATIC_GROUP: ${{ matrix.group }}
+        run: >-
+          pnpm exec tsx scripts/ci/run-timed.ts
+          --name "static-${STATIC_GROUP}"
+          -- pnpm exec tsx scripts/ci/verify-static.ts --group "${STATIC_GROUP}"

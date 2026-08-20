@@ -23,29 +23,13 @@ jobs:
     name: classify
     runs-on: ubuntu-latest
     outputs:
-      app: ${{ steps.classify.outputs.app }}
-      browser: ${{ steps.classify.outputs.browser }}
-      dependency_kind: ${{ steps.classify.outputs.dependency_kind }}
-      docs_only: ${{ steps.classify.outputs.docs_only }}
-      electron_main: ${{ steps.classify.outputs.electron_main }}
-      full_required: ${{ steps.classify.outputs.full_required }}
-      landing_only: ${{ steps.classify.outputs.landing_only }}
-      migration: ${{ steps.classify.outputs.migration }}
-      protocol: ${{ steps.classify.outputs.protocol }}
-      release_metadata: ${{ steps.classify.outputs.release_metadata }}
-      renderer: ${{ steps.classify.outputs.renderer }}
-      rust: ${{ steps.classify.outputs.rust }}
-      runtime: ${{ steps.classify.outputs.runtime }}
-      storage: ${{ steps.classify.outputs.storage }}
-      stress_relevant: ${{ steps.classify.outputs.stress_relevant }}
+      plan: ${{ steps.outputs.outputs.plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-
       - name: Classify changed paths
-        id: classify
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           FORCE_FULL: ${{ github.event_name == 'workflow_dispatch' && inputs.full || false }}
@@ -62,22 +46,13 @@ jobs:
             arguments+=(--full)
           fi
           node --no-warnings scripts/ci/classify-change.ts "${arguments[@]}"
-          node -e '
-            const fs = require("node:fs");
-            const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const keys = [
-              "app", "browser", "dependencyKind", "docsOnly", "electronMain", "fullRequired", "landingOnly",
-              "migration", "protocol", "releaseMetadata", "renderer", "rust", "runtime",
-              "storage", "stressRelevant",
-            ];
-            const snake = (key) => key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, keys.map((key) => `${snake(key)}=${value[key]}`).join("\n") + "\n");
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Change classification\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`);
-          ' "${RUNNER_TEMP}/classification.json"
+      - name: Publish typed gate plan
+        id: outputs
+        run: node --no-warnings scripts/ci/write-github-outputs.ts --input "${RUNNER_TEMP}/classification.json"
 
   release-transition:
     name: release transition
-    if: needs.classify.outputs.release_metadata == 'true'
+    if: ${{ fromJSON(needs.classify.outputs.plan).releaseTransition }}
     needs: classify
     runs-on: ubuntu-latest
     steps:
@@ -131,34 +106,16 @@ jobs:
 
   static-contracts:
     name: static contracts
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.release_metadata != 'true'
+    if: ${{ toJSON(fromJSON(needs.classify.outputs.plan).staticGroups) != '[]' }}
     needs: classify
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: static-contracts
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/setup-rust-ci
-      - name: Run static contracts
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name static-contracts -- pnpm run verify:static
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
+    uses: ./.github/workflows/_static-checks.yml
+    with:
+      groups_json: ${{ toJSON(fromJSON(needs.classify.outputs.plan).staticGroups) }}
+      timing_prefix: pr-static
 
   rust-pr:
     name: Rust fast suite
-    if: needs.classify.outputs.app == 'true' && (needs.classify.outputs.rust == 'true' || needs.classify.outputs.full_required == 'true')
+    if: ${{ fromJSON(needs.classify.outputs.plan).rustFast }}
     needs: classify
     runs-on: ubuntu-latest
     env:
@@ -185,23 +142,18 @@ jobs:
         run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-format -- pnpm run core:fmt
       - name: Run Rust lint
         run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-clippy -- pnpm run core:clippy
-      - name: Run selected Rust test tier
-        env:
-          FULL_REQUIRED: ${{ needs.classify.outputs.full_required }}
-        run: |
-          set -euo pipefail
-          test_command=core:test:pr
-          if [[ "${FULL_REQUIRED}" == "true" ]]; then
-            test_command=core:test:full
-          fi
-          pnpm exec tsx scripts/ci/run-timed.ts --name "${test_command}" -- pnpm run "${test_command}"
+      - name: Verify generated protocol contracts
+        if: ${{ fromJSON(needs.classify.outputs.plan).protocolContracts }}
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name protocol-contracts -- pnpm run core:protocol:verify
+      - name: Run ordinary Rust test tier
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name core:test:pr -- pnpm run core:test:pr
       - name: Show Rust compiler cache statistics
         if: always()
         run: sccache --show-stats || true
 
   rust-migration:
     name: Store baseline migration
-    if: needs.classify.outputs.app == 'true' && needs.classify.outputs.migration == 'true'
+    if: ${{ fromJSON(needs.classify.outputs.plan).rustMigration }}
     needs: classify
     runs-on: ubuntu-latest
     env:
@@ -228,35 +180,16 @@ jobs:
 
   app-tests:
     name: app tests
-    if: needs.classify.outputs.app == 'true'
+    if: ${{ toJSON(fromJSON(needs.classify.outputs.plan).appTestSuites) != '[]' }}
     needs: classify
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: app-tests
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/setup-rust-ci
-      - run: pnpm run build-resources:prepare
-      - name: Run application test suites
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name app-tests -- xvfb-run --auto-servernum pnpm test
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
+    uses: ./.github/workflows/_app-tests.yml
+    with:
+      suites_json: ${{ toJSON(fromJSON(needs.classify.outputs.plan).appTestSuites) }}
+      timing_prefix: pr-app
 
   stress-tests:
     name: selected stress tests
-    if: needs.classify.outputs.app == 'true' && (needs.classify.outputs.stress_relevant == 'true' || needs.classify.outputs.full_required == 'true')
+    if: ${{ fromJSON(needs.classify.outputs.plan).stress }}
     needs: classify
     runs-on: ubuntu-latest
     env:
@@ -271,7 +204,7 @@ jobs:
 
   browser-tests:
     name: browser tests
-    if: needs.classify.outputs.app == 'true' && (needs.classify.outputs.browser == 'true' || needs.classify.outputs.full_required == 'true')
+    if: ${{ fromJSON(needs.classify.outputs.plan).browser }}
     needs: classify
     runs-on: ubuntu-latest
     env:
@@ -303,11 +236,13 @@ jobs:
 
   electron-e2e:
     name: Electron E2E
-    if: needs.classify.outputs.app == 'true' && (needs.classify.outputs.electron_main == 'true' || needs.classify.outputs.browser == 'true' || needs.classify.outputs.full_required == 'true')
+    if: ${{ fromJSON(needs.classify.outputs.plan).electronE2e }}
     needs: classify
     runs-on: ubuntu-latest
     env:
       CI_TIMING_JOB: electron-e2e
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -319,6 +254,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
       - uses: ./.github/actions/setup-playwright
       - name: Run functional Electron E2E
         env:
@@ -334,10 +270,13 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
 
   runtime-contracts:
     name: runtime contracts
-    if: needs.classify.outputs.runtime == 'true'
+    if: ${{ fromJSON(needs.classify.outputs.plan).runtimeMac }}
     needs: classify
     runs-on: macos-26
     env:
@@ -378,66 +317,11 @@ jobs:
       - runtime-contracts
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Require every selected gate
         env:
-          APP: ${{ needs.classify.outputs.app }}
-          APP_TESTS_RESULT: ${{ needs.app-tests.result }}
-          BROWSER: ${{ needs.classify.outputs.browser }}
-          BROWSER_RESULT: ${{ needs.browser-tests.result }}
-          CLASSIFY_RESULT: ${{ needs.classify.result }}
-          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
-          ELECTRON_MAIN: ${{ needs.classify.outputs.electron_main }}
-          ELECTRON_RESULT: ${{ needs.electron-e2e.result }}
-          FULL_REQUIRED: ${{ needs.classify.outputs.full_required }}
-          LANDING_ONLY: ${{ needs.classify.outputs.landing_only }}
-          MIGRATION: ${{ needs.classify.outputs.migration }}
-          MIGRATION_RESULT: ${{ needs.rust-migration.result }}
-          RUNTIME: ${{ needs.classify.outputs.runtime }}
-          RUNTIME_RESULT: ${{ needs.runtime-contracts.result }}
-          RUST: ${{ needs.classify.outputs.rust }}
-          RUST_RESULT: ${{ needs.rust-pr.result }}
-          RELEASE_METADATA: ${{ needs.classify.outputs.release_metadata }}
-          RELEASE_TRANSITION_RESULT: ${{ needs.release-transition.result }}
-          STATIC_RESULT: ${{ needs.static-contracts.result }}
-          STRESS_RELEVANT: ${{ needs.classify.outputs.stress_relevant }}
-          STRESS_RESULT: ${{ needs.stress-tests.result }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          require_success() {
-            local name="$1"
-            local result="$2"
-            if [[ "${result}" != "success" ]]; then
-              echo "${name} finished with ${result}; expected success." >&2
-              exit 1
-            fi
-          }
-          require_success classify "${CLASSIFY_RESULT}"
-          if [[ "${RELEASE_METADATA}" == "true" ]]; then
-            require_success release-transition "${RELEASE_TRANSITION_RESULT}"
-            exit 0
-          fi
-          if [[ "${DOCS_ONLY}" != "true" ]]; then
-            require_success static-contracts "${STATIC_RESULT}"
-          fi
-          if [[ "${APP}" == "true" ]]; then
-            require_success app-tests "${APP_TESTS_RESULT}"
-          fi
-          if [[ "${APP}" == "true" && ( "${RUST}" == "true" || "${FULL_REQUIRED}" == "true" ) ]]; then
-            require_success rust-fast "${RUST_RESULT}"
-          fi
-          if [[ "${APP}" == "true" && "${MIGRATION}" == "true" ]]; then
-            require_success rust-migration "${MIGRATION_RESULT}"
-          fi
-          if [[ "${APP}" == "true" && ( "${STRESS_RELEVANT}" == "true" || "${FULL_REQUIRED}" == "true" ) ]]; then
-            require_success stress-tests "${STRESS_RESULT}"
-          fi
-          if [[ "${APP}" == "true" && ( "${BROWSER}" == "true" || "${FULL_REQUIRED}" == "true" ) ]]; then
-            require_success browser-tests "${BROWSER_RESULT}"
-          fi
-          if [[ "${APP}" == "true" && ( "${ELECTRON_MAIN}" == "true" || "${BROWSER}" == "true" || "${FULL_REQUIRED}" == "true" ) ]]; then
-            require_success electron-e2e "${ELECTRON_RESULT}"
-          fi
-          if [[ "${RUNTIME}" == "true" ]]; then
-            require_success runtime-contracts "${RUNTIME_RESULT}"
-          fi
+          CI_GATE_PLAN_JSON: ${{ needs.classify.outputs.plan }}
+          CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node --no-warnings scripts/ci/verify-required-gates.ts

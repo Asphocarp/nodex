@@ -1,0 +1,92 @@
+name: Reusable Application Tests
+
+on:
+  workflow_call:
+    inputs:
+      suites_json:
+        description: JSON array of canonical application test suites.
+        required: true
+        type: string
+      timing_prefix:
+        description: Stable prefix for timing artifacts and summaries.
+        required: true
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  test:
+    name: app ${{ matrix.suite }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(inputs.suites_json) }}
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: ${{ inputs.timing_prefix }}-${{ matrix.suite }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Resolve suite prerequisites
+        id: suite
+        run: pnpm exec tsx scripts/ci/app-test-suite.ts --suite "${{ matrix.suite }}"
+      - uses: ./.github/actions/setup-rust-ci
+        if: steps.suite.outputs.needs_rust == 'true'
+      - name: Prepare build resources
+        env:
+          NEEDS_RUST: ${{ steps.suite.outputs.needs_rust }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${NEEDS_RUST}" == "true" ]]; then
+            export RUSTC_WRAPPER=sccache
+            export SCCACHE_GHA_ENABLED=true
+          fi
+          pnpm run build-resources:prepare
+      - name: Run application suite
+        env:
+          NEEDS_RUST: ${{ steps.suite.outputs.needs_rust }}
+          NEEDS_XVFB: ${{ steps.suite.outputs.needs_xvfb }}
+          PACKAGE_SCRIPT: ${{ steps.suite.outputs.package_script }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${NEEDS_RUST}" == "true" ]]; then
+            export RUSTC_WRAPPER=sccache
+            export SCCACHE_GHA_ENABLED=true
+          fi
+          if [[ "${NEEDS_XVFB}" == "true" ]]; then
+            pnpm exec tsx scripts/ci/run-timed.ts \
+              --name "app-${{ matrix.suite }}" \
+              -- xvfb-run --auto-servernum pnpm run "${PACKAGE_SCRIPT}"
+            exit 0
+          fi
+          pnpm exec tsx scripts/ci/run-timed.ts \
+            --name "app-${{ matrix.suite }}" \
+            -- pnpm run "${PACKAGE_SCRIPT}"
+      - name: Show renderer memory state
+        if: always() && matrix.suite == 'renderer'
+        run: free -h
+      - name: Upload application diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-${{ matrix.suite }}-failure-${{ github.run_attempt }}
+          path: |
+            .vitest-attachments/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Show Rust compiler cache statistics
+        if: always() && steps.suite.outputs.needs_rust == 'true'
+        run: sccache --show-stats || true

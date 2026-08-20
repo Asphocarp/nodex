@@ -555,6 +555,7 @@ export const setupBlockTransferDocumentDrop = (
   container.addEventListener("drop", onNativeDrop, true);
 
   return () => {
+    clear();
     pragmaticCleanup();
     container.removeEventListener("dragenter", onNativeDragOver, true);
     container.removeEventListener("dragover", onNativeDragOver, true);

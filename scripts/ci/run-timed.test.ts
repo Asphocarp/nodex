@@ -34,13 +34,26 @@ describe("CI timed command runner", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "nodex-ci-timed-"));
     temporaryRoots.push(root);
     const summaryPath = path.join(root, "summary.md");
+    const environmentWithoutGitHubRunIdentity = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => ![
+        "GITHUB_RUN_ATTEMPT",
+        "GITHUB_RUN_ID",
+        "GITHUB_SHA",
+      ].includes(name)),
+    );
     const success = await runTimedCommand({
       name: "successful step",
       command: process.execPath,
       commandArguments: ["-e", "process.exit(0)"],
       timingDirectory: root,
       summaryPath,
-      env: { ...process.env, CI_TIMING_JOB: "test job" },
+      env: {
+        ...process.env,
+        CI_TIMING_JOB: "test job",
+        GITHUB_RUN_ATTEMPT: "2",
+        GITHUB_RUN_ID: "12345",
+        GITHUB_SHA: "abc123",
+      },
     });
     const failure = await runTimedCommand({
       name: "failed step",
@@ -48,18 +61,30 @@ describe("CI timed command runner", () => {
       commandArguments: ["-e", "process.exit(7)"],
       timingDirectory: root,
       summaryPath,
-      env: { ...process.env, CI_TIMING_JOB: "test job" },
+      env: { ...environmentWithoutGitHubRunIdentity, CI_TIMING_JOB: "test job" },
     });
     expect(success.exitCode).toBe(0);
     expect(failure.exitCode).toBe(7);
     const records = (await readFile(path.join(root, "test-job.jsonl"), "utf8"))
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { name: string; exitCode: number });
-    expect(records.map(({ name, exitCode }) => ({ name, exitCode }))).toEqual([
-      { name: "successful step", exitCode: 0 },
-      { name: "failed step", exitCode: 7 },
-    ]);
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records[0]).toMatchObject({
+      attempt: 2,
+      exitCode: 0,
+      job: "test job",
+      name: "successful step",
+      runId: "12345",
+      sha: "abc123",
+    });
+    expect(records[1]).toMatchObject({
+      attempt: null,
+      exitCode: 7,
+      job: "test job",
+      name: "failed step",
+      runId: null,
+      sha: null,
+    });
     const summary = await readFile(summaryPath, "utf8");
     expect(summary).toContain("| successful step |");
     expect(summary).toContain("| failed step |");

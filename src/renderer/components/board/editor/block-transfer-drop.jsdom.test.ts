@@ -82,6 +82,45 @@ describe("Board Card Block transfer drop", () => {
     ).toEqual({ parentBlockId: "parent" });
   });
 
+  test("removes active drop feedback when the target is replaced", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const cleanup = setupBlockTransferDocumentDrop(
+      container,
+      { document: [] },
+      {
+        surfaceId: "surface-target",
+        projectId: "project-a",
+        documentId: "document-host",
+        storeEpoch: "epoch-a",
+        ancestorPageIds: [],
+        createOperationId: () => "operation-a",
+        transfer: async () => {
+          throw new Error("The test does not drop");
+        },
+        reportError: vi.fn(),
+      },
+    );
+    const registration = dropTargetHarness.registration as ElementDropTargetArgs;
+    const self = { element: container, data: {}, dropEffect: "move" as const };
+    registration.onDrag?.({
+      source: { data: dragData },
+      location: {
+        current: { input: input(false), dropTargets: [self] },
+      },
+      self,
+    } as unknown as Parameters<NonNullable<ElementDropTargetArgs["onDrag"]>>[0]);
+
+    expect(container.hasAttribute("data-block-transfer-drop-hover")).toBe(true);
+    expect(container.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(1);
+
+    cleanup();
+
+    expect(container.hasAttribute("data-block-transfer-drop-hover")).toBe(false);
+    expect(container.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(0);
+    container.remove();
+  });
+
   test.each([
     [false, "move"],
     [true, "copy"],

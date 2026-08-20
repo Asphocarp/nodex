@@ -87,7 +87,7 @@ const measureCopySubmenuOpen = async (page: Page): Promise<number> =>
     return performance.now() - startedAt;
   });
 
-test("keeps production-scale Database context menus inside the interaction budget", async ({}, testInfo) => {
+test("keeps production-scale Database context menus inside the interaction budget @performance", async ({}, testInfo) => {
   test.setTimeout(300_000);
   await withElectronScenario({
     label: "database-context-menu-performance",
