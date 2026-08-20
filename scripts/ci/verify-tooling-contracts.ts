@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 interface LintDiagnostic {
-  readonly code: string;
+  readonly code?: string;
   readonly filename: string;
   readonly severity: "error" | "warning";
 }
@@ -16,6 +16,11 @@ interface ExpectedDiagnostic {
   readonly filename: string;
 }
 
+interface RunLintOptions {
+  readonly quiet?: boolean;
+  readonly reportUnusedDisableDirectives?: boolean;
+}
+
 const projectRoot = resolve(import.meta.dirname, "../..");
 const vpExecutable = resolve(
   projectRoot,
@@ -26,16 +31,28 @@ const vpExecutable = resolve(
 function runLint(
   paths: readonly string[],
   extraEnvironment: Readonly<Record<string, string>> = {},
+  options: RunLintOptions = {},
 ): { readonly report: LintReport; readonly status: number } {
-  const result = spawnSync(vpExecutable, ["lint", "--quiet", "--format", "json", ...paths], {
-    cwd: projectRoot,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      NODEX_TOOLING_FIXTURE_MODE: "1",
-      ...extraEnvironment,
+  const result = spawnSync(
+    vpExecutable,
+    [
+      "lint",
+      ...(options.quiet === false ? [] : ["--quiet"]),
+      ...(options.reportUnusedDisableDirectives ? ["--report-unused-disable-directives"] : []),
+      "--format",
+      "json",
+      ...paths,
+    ],
+    {
+      cwd: projectRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODEX_TOOLING_FIXTURE_MODE: "1",
+        ...extraEnvironment,
+      },
     },
-  });
+  );
   if (result.error) throw result.error;
   if (result.signal) {
     throw new Error(`Vite+ fixture lint terminated by ${result.signal}`);
@@ -96,6 +113,32 @@ function verifyValidFixtures(
   throw new Error(`Valid tooling fixtures failed Oxlint: ${JSON.stringify(result.report)}`);
 }
 
+function verifyAdvisoryPolicy(): void {
+  const result = runLint(
+    ["scripts/fixtures/tooling/advisory-warning.tsx", "scripts/fixtures/tooling/unused-disable.ts"],
+    {},
+    { quiet: false, reportUnusedDisableDirectives: true },
+  );
+  if (result.status !== 0) {
+    throw new Error(`Advisory tooling fixtures blocked Oxlint: ${JSON.stringify(result.report)}`);
+  }
+
+  const warnings = result.report.diagnostics.filter(
+    (diagnostic) => diagnostic.severity === "warning",
+  );
+  const hasCategoryWarning = warnings.some(
+    (diagnostic) =>
+      diagnostic.code === "react(no-array-index-key)" &&
+      diagnostic.filename === "scripts/fixtures/tooling/advisory-warning.tsx",
+  );
+  const hasUnusedDisableWarning = warnings.some(
+    (diagnostic) => diagnostic.filename === "scripts/fixtures/tooling/unused-disable.ts",
+  );
+  if (hasCategoryWarning && hasUnusedDisableWarning && warnings.length === 2) return;
+
+  throw new Error(`Unexpected advisory tooling diagnostics: ${JSON.stringify(warnings)}`);
+}
+
 function verifyWorkspaceTaskGraph(): void {
   const result = spawnSync(vpExecutable, ["run", "--workspace-root", "version-surfaces:audit"], {
     cwd: projectRoot,
@@ -154,6 +197,8 @@ verifyValidFixtures([
   "scripts/fixtures/tooling/nodex/manual-effect-runtime-valid.test.ts",
   "scripts/fixtures/tooling/nodex/native-title-valid.tsx",
 ]);
+
+verifyAdvisoryPolicy();
 
 const tailwindEnvironment = { ESLINT_BETTER_TAILWIND: "1" };
 verifyInvalidFixtures(

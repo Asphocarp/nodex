@@ -134,6 +134,11 @@ export default defineConfig({
         ? [{ name: "better-tailwindcss", specifier: "eslint-plugin-better-tailwindcss" }]
         : []),
     ],
+    categories: {
+      correctness: "warn",
+      suspicious: "warn",
+      perf: "warn",
+    },
     options: {
       typeAware: !toolingFixtureMode,
       typeCheck: !toolingFixtureMode,
@@ -142,23 +147,40 @@ export default defineConfig({
     rules: {
       // These broad heuristics consume the diagnostic budget without expressing
       // a stable Nodex invariant. Keep correctness rules below strict instead.
+      "eslint/no-await-in-loop": "off",
       "eslint/no-control-regex": "off",
       "eslint/no-empty-pattern": "off",
+      "eslint/no-shadow": "off",
+      "eslint/no-underscore-dangle": "off",
       "eslint/no-useless-escape": "off",
+      "oxc/no-map-spread": "off",
       "react/no-children-prop": "off",
       "react/react-in-jsx-scope": "off",
       "typescript/await-thenable": "off",
+      "typescript/consistent-return": "off",
       "typescript/no-base-to-string": "off",
       "typescript/no-duplicate-type-constituents": "off",
       "typescript/no-meaningless-void-operator": "off",
       "typescript/no-redundant-type-constituents": "off",
+      "typescript/no-unnecessary-boolean-literal-compare": "off",
+      "typescript/no-unnecessary-type-assertion": "off",
+      "typescript/no-unnecessary-type-conversion": "off",
+      "typescript/no-unnecessary-type-parameters": "off",
+      "typescript/no-unsafe-type-assertion": "off",
       "typescript/restrict-template-expressions": "off",
       "typescript/unbound-method": "off",
+      "unicorn/consistent-function-scoping": "off",
+      "unicorn/no-array-fill-with-reference-type": "off",
+      "unicorn/no-array-reverse": "off",
+      "unicorn/no-array-sort": "off",
       "unicorn/no-new-array": "off",
       "unicorn/no-useless-fallback-in-spread": "off",
       "unicorn/no-useless-spread": "off",
+      "unicorn/prefer-array-find": "off",
 
-      // A clean default result makes every diagnostic actionable for humans and agents.
+      // Only stable correctness contracts and app-owned invariants block the gate.
+      // Broad category diagnostics remain advisory so agents can improve nearby code
+      // without turning historical warning volume into unrelated cleanup work.
       "eslint/no-extra-boolean-cast": "error",
       "eslint/no-unreachable": "error",
       "eslint/no-unsafe-finally": "error",
@@ -233,6 +255,18 @@ export default defineConfig({
         ],
         rules: {
           "no-restricted-imports": "off",
+        },
+      },
+      {
+        files: [
+          "src/main/git-worker-host.ts",
+          "src/main/worktree-worker/worktree-worker-host.ts",
+          "src/renderer/lib/mcp-app/mcp-app-port-rpc.ts",
+        ],
+        rules: {
+          // Worker and MessagePort postMessage use a transfer-list overload;
+          // unlike Window.postMessage, they do not accept a target origin.
+          "unicorn/require-post-message-target-origin": "off",
         },
       },
       {
