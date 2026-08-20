@@ -43,6 +43,33 @@ describe("semantic theme integrity", () => {
     )).toContain("THEME_COLLISION_UNOWNED");
   });
 
+  test("treats formatter-only declaration whitespace as the same root value", () => {
+    expect(
+      codesFor(
+        [
+          {
+            path: "generated.css",
+            content: ":root { --shared: color-mix(in oklab, var(--foreground) 60%, transparent); }",
+          },
+        ],
+        [
+          {
+            path: "product.css",
+            content: `
+              :root {
+                --shared: color-mix(
+                  in oklab,
+                  var(--foreground) 60%,
+                  transparent
+                );
+              }
+            `,
+          },
+        ],
+      ),
+    ).not.toContain("THEME_COLLISION_UNOWNED");
+  });
+
   test("accepts a complete non-cyclic dependency graph", () => {
     expect(codesFor([{
       path: "generated.css",
