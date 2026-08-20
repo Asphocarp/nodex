@@ -88,25 +88,33 @@ supported revisions, exact normalized schema fingerprints, and current
 identity. Core protocol manifests and Host requirements derive their Store
 identities from that catalog instead of restating version or fingerprint
 constants. `PRAGMA user_version` is the only revision authority in the SQLite
-file. `core_store_metadata` records Rust Core ownership and migration evidence;
-current Stores do not duplicate the revision there.
+file. `core_store_metadata` records current Rust Core ownership state;
+`core_store_migration_history` retains completed migration evidence without
+duplicating the current revision.
 
-`StoreMigrationLedger::prepare` is the only live Store-open entry point. The
-ledger classifies recognized sources through the published catalog, validates
-their exact physical inventory and revision-specific semantics, orders the
-forward migration, and applies the complete current validation set before a
-Store becomes ready. Schema construction and fingerprinting share the same
-revision-aware inventory builder, so manifest identity and migration acceptance
-cannot drift into parallel schema descriptions.
+`prepare_profile_store_with_observer` is the only live Store-open preparation
+entry point. An empty Store installs the complete `current.sql` snapshot. A
+current Store must match the catalog's exact current fingerprint. A supported
+predecessor must match its catalog fingerprint and semantic preconditions
+before the small forward-only registry can select a migration step. Every path
+applies the complete current validation set before a Store becomes ready.
 
 A migration follows one durable pattern:
 
 1. identify an exact recognized source inventory;
-2. create and validate a content-addressed database/assets backup;
-3. migrate only a staged copy through the applicable frozen/native path;
-4. rebuild derived projections and validate semantic authority;
-5. atomically publish the complete target Store;
-6. retain evidence sufficient to diagnose or retry an interrupted publication.
+2. validate source semantics before reporting migration work;
+3. create and verify a regular content-addressed SQLite Online Backup;
+4. apply the ordered forward step in one `BEGIN IMMEDIATE` transaction;
+5. rebuild affected projections and validate exact current physical and
+   semantic authority;
+6. commit the target revision and one migration-history row together.
+
+The verified backup exists before the write transaction and remains available
+after either success or rollback. A failed transaction leaves the live Store at
+its exact source identity. A successful reopen observes the current identity
+and does not repeat the backup or history row. Native migration does not replace
+the Store file with a staging copy and therefore does not rotate Store epoch or
+enter the Store-replacement journal.
 
 Yrs is the authority for Document content during migration. If a migration
 changes the interpretation of derived materialization records, Core validates
@@ -117,19 +125,19 @@ materialization derivation version is independent from the Document schema
 version so future derived-record changes can add an explicit rebuild step.
 
 Unknown, future, ambiguous, drifted, partially migrated, or damaged inventories
-fail closed. Import compatibility is staging-only and never becomes a live
-runtime branch. Reopening a current Store validates its exact physical and
-semantic invariants rather than silently repairing damage.
+fail closed before backup or mutation. Reopening a current Store validates its
+exact physical and semantic invariants rather than silently repairing damage.
 
-Every Store revision bump must check in a database produced by the exact
-previously published Core under
-`crates/nodex-core/tests/fixtures/store-v<revision>.db`. The aggregate migration
-gate copies that frozen artifact into a disposable Profile, opens it through the
-real Store path, proves the content-addressed backup and source revision,
-validates the complete current Store, closes it, and reopens it without another
-migration. Reverse-removing current schema objects remains acceptable only for
-narrow historical migration unit cases; it is not evidence for the
-previous-published boundary.
+Before every Store revision bump, maintainers must check in a database produced
+by the exact current Core under
+`crates/nodex-core/tests/fixtures/store-v<revision>.db`, before changing that
+Core's schema. The repository retains fixtures only for the deliberately
+supported migration window. The aggregate migration gate copies the minimum
+supported artifact into a disposable Profile, opens it through the real Store
+path, proves the content-addressed backup and source revision, validates
+convergence with a fresh `current.sql` Store, closes it, and reopens it without
+another migration. Reverse-removing current schema objects remains acceptable
+only for narrow failure injection; it is not predecessor-boundary evidence.
 
 Migration progress is authoritative evidence, not elapsed-time estimation. The
 startup UI remains quiet for ordinary opening, shows migration language only
@@ -145,5 +153,5 @@ authority. Every retained Rust and TypeScript version declaration is classified
 as runtime compatibility, durable format, or algorithm identity with an owner
 and a coexistence, migration, invalidation, or rejection strategy. Same-build
 DTO contract versions are forbidden.
-Release packaging and frozen legacy acceptance are documented operationally in
+Release packaging and supported-baseline acceptance are documented operationally in
 [the macOS Release Runbook](../release-macos.md).

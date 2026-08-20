@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Nodex now requires Profiles to be at the v130 Store baseline: v130 upgrades automatically to v131 with a verified backup, while earlier Stores and the former `kanban.db` import path are no longer supported.
+
 ### Fixed
 
 - Fixed Core-backed views intermittently timing out during larger searches or maintenance; interactive work keeps reserved capacity, Full Page search avoids pathological SQLite query plans and preserves multi-term evidence, stale searches cancel silently end to end, and slow requests return typed Core outcomes instead of arbitrary transport failures.

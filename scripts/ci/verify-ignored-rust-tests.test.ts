@@ -10,8 +10,6 @@ describe("ignored Rust test CI contract", () => {
     const tests = await findIgnoredRustTests();
     expect(tests.map((test) => test.name)).toEqual(expect.arrayContaining([
       "canvas_incremental_hot_path_stays_bounded_at_twenty_thousand_elements",
-      "high_cardinality_v87_ledger_migrates_with_bounded_monotonic_progress",
-      "imports_every_frozen_legacy_inventory_and_reopens_idempotently",
       "million_edge_relation_projection_stays_bounded_at_sqlite_boundary",
       "read_budget_gate_large_fixture",
     ]));

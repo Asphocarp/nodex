@@ -274,23 +274,16 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   non-symlinked Core binary, then trusts readiness only after the existing
   descriptor, capability, UDS, and handshake checks succeed; failed startup
   never falls back to another authority.
-- Legacy Profile import does not restore JavaScript storage authority.
-  Packaged Core derives one absolute regular-file Electron executable,
-  migrator bundle, and canonical manifest from its own enclosing app layout;
-  development/test overrides must supply all three coordinates together. Core
-  verifies the bundle against its manifest SHA-256 before use and accepts only
-  complete normalized schema fingerprints
-  for the frozen v26/two-v57/v68/v82/v83 inventories, creates an online database
-  snapshot and validated no-symlink asset backup, and gives the hash-pinned,
-  reproducibly generated sidecar only a staging Profile. Its reviewed
-  compatibility overlays are limited to import-time legacy projection,
-  workflow-status, recovered option-registry, explicit same-Library
-  cross-Project Page read-grant, unresolved-reference diagnostic, and
-  token-bound authority/evidence audit coordinates; opaque Session UI JSON
-  remains under its own schema validation. Native exact-v84 and semantic
-  validation must succeed before an
-  fsynced journaled rename can replace live files; failure or interruption
-  preserves or restores the original database, SQLite companions, and assets.
+- Store preparation never restores JavaScript storage authority. Core accepts
+  only an empty Store, the exact current catalog identity, or an exact declared
+  migration source. Unknown revisions, future revisions, non-empty
+  revision-zero databases, physical drift, and semantic corruption fail before
+  backup or mutation. A supported predecessor is protected by a
+  content-addressed SQLite Online Backup whose ancestry and regular-file type
+  are validated without following symlinks; the native forward step then runs
+  in one SQLite write transaction and must pass exact current validation before
+  readiness. The package contains no migration sidecar or executable override
+  path.
 - Store Administration accepts no filesystem path or Project identity from its
   caller. Core derives bounded backup, staging, cleanup, and restore paths from
   validated operation/Backup identities; every traversed entry must remain a

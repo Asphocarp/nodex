@@ -36,10 +36,12 @@ Project-specific test semantics live in `package.json`, not in workflow YAML:
 - `pnpm run core:test:pr` runs the ordinary Rust suite through cargo-nextest
   plus doctests.
 - `pnpm run core:test:full` runs the ordinary workspace suite and the complete
-  migration compatibility layer.
-- `pnpm run core:test:migration` runs the migration-focused compatibility tier.
+  supported Store-baseline migration layer.
+- `pnpm run core:test:migration` verifies fresh/current Store preparation, the
+  minimum supported baseline, exact inventory convergence, backup, rollback,
+  fail-closed inputs, and idempotent reopen.
 - `pnpm run core:test:nightly` runs each explicitly named ignored scale,
-  performance, reliability, and legacy-inventory gate.
+  performance, and reliability gate.
 - `pnpm run core:test` remains the local/source-verification alias for the full
   and nightly Rust tiers.
 
