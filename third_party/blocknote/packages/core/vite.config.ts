@@ -1,5 +1,5 @@
 import * as path from "path";
-import { webpackStats } from "rollup-plugin-webpack-stats";
+import webpackStats from "rollup-plugin-webpack-stats";
 import { defineConfig } from "vitest/config";
 import pkg from "./package.json";
 // import eslintPlugin from "vite-plugin-eslint";
