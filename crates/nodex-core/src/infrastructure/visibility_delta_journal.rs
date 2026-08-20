@@ -19,157 +19,24 @@ use super::resource_authorization::{
 };
 use super::sqlite::{StoreError, StoreErrorCode};
 
-const CONTEXT_TABLE: &str = "local_commit_visibility_context";
 const MAX_ACTIVE_PROJECT_SCOPES: usize = 200;
 const MAX_CANDIDATE_RESOURCES: usize = 512;
 const MAX_EXACT_VISIBILITY_CLAIMS: usize = 4_096;
 
-const VISIBILITY_JOURNAL_SCHEMA_SQL: &str = r#"
-CREATE TABLE local_commit_visibility_context (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  mode TEXT NOT NULL CHECK (mode IN ('active', 'overlay', 'maintenance')),
-  store_epoch TEXT,
-  commit_seq INTEGER,
-  CHECK (
-    (mode IN ('active', 'overlay') AND store_epoch IS NOT NULL AND commit_seq IS NOT NULL)
-    OR (mode = 'maintenance' AND store_epoch IS NULL AND commit_seq IS NULL)
-  ),
-  FOREIGN KEY (store_epoch, commit_seq)
-    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE
-) STRICT;
-
-CREATE TABLE local_commit_visibility_dirty_facts (
-  fact_seq INTEGER PRIMARY KEY AUTOINCREMENT,
-  store_epoch TEXT NOT NULL,
-  commit_seq INTEGER NOT NULL,
-  relation_kind TEXT NOT NULL,
-  operation TEXT NOT NULL CHECK (operation IN ('insert', 'update', 'delete')),
-  old_row_json TEXT,
-  new_row_json TEXT,
-  consumed INTEGER NOT NULL DEFAULT 0 CHECK (consumed IN (0, 1)),
-  FOREIGN KEY (store_epoch, commit_seq)
-    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE,
-  CHECK (length(relation_kind) BETWEEN 1 AND 128),
-  CHECK (old_row_json IS NULL OR json_valid(old_row_json)),
-  CHECK (new_row_json IS NULL OR json_valid(new_row_json)),
-  CHECK (
-    (operation = 'insert' AND old_row_json IS NULL AND new_row_json IS NOT NULL)
-    OR (operation = 'update' AND old_row_json IS NOT NULL AND new_row_json IS NOT NULL)
-    OR (operation = 'delete' AND old_row_json IS NOT NULL AND new_row_json IS NULL)
-  )
-) STRICT;
-
-CREATE INDEX idx_local_commit_visibility_dirty_facts_commit
-  ON local_commit_visibility_dirty_facts(store_epoch, commit_seq, fact_seq);
-
-CREATE TABLE local_commit_visibility_deltas (
-  store_epoch TEXT NOT NULL,
-  commit_seq INTEGER NOT NULL,
-  scope_key TEXT NOT NULL,
-  authorization_scope_json TEXT NOT NULL,
-  delta_kind TEXT NOT NULL CHECK (delta_kind IN ('grant', 'revoke', 'conservative_reset')),
-  roots_json TEXT NOT NULL,
-  delta_hash TEXT NOT NULL,
-  PRIMARY KEY (store_epoch, commit_seq, scope_key, delta_hash),
-  FOREIGN KEY (store_epoch, commit_seq)
-    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE,
-  CHECK (json_valid(authorization_scope_json) AND json_type(authorization_scope_json) = 'object'),
-  CHECK (json_valid(roots_json) AND json_type(roots_json) = 'array'),
-  CHECK (length(delta_hash) = 64 AND delta_hash NOT GLOB '*[^0-9a-f]*')
-) WITHOUT ROWID, STRICT;
-
-CREATE TABLE local_commit_sealed_projection_effects (
-  store_epoch TEXT NOT NULL,
-  commit_seq INTEGER NOT NULL,
-  effect_order INTEGER NOT NULL CHECK (effect_order >= 0),
-  descriptor_json TEXT NOT NULL,
-  descriptor_hash TEXT NOT NULL,
-  PRIMARY KEY (store_epoch, commit_seq, effect_order),
-  FOREIGN KEY (store_epoch, commit_seq)
-    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE,
-  CHECK (json_valid(descriptor_json) AND json_type(descriptor_json) = 'object'),
-  CHECK (length(descriptor_hash) = 64 AND descriptor_hash NOT GLOB '*[^0-9a-f]*')
-) WITHOUT ROWID, STRICT;
-"#;
-
-struct AuthorityRelation {
-    table: &'static str,
-    watched_columns: &'static [&'static str],
-}
-
-const AUTHORITY_RELATIONS: &[AuthorityRelation] = &[
-    AuthorityRelation {
-        table: "projects",
-        watched_columns: &["library_id", "database_block_id", "lifecycle"],
-    },
-    AuthorityRelation {
-        table: "project_database_bindings",
-        watched_columns: &["project_id", "library_id", "database_block_id", "lifecycle"],
-    },
-    AuthorityRelation {
-        table: "project_resource_grants",
-        watched_columns: &[
-            "project_id",
-            "library_id",
-            "root_kind",
-            "root_id",
-            "access",
-            "recursive",
-            "lifecycle",
-        ],
-    },
-    AuthorityRelation {
-        table: "blocks",
-        watched_columns: &[
-            "project_id",
-            "type",
-            "lifecycle",
-            "location_kind",
-            "containing_document_id",
-            "containing_database_id",
-        ],
-    },
-    AuthorityRelation {
-        table: "documents",
-        watched_columns: &["project_id", "readiness"],
-    },
-    AuthorityRelation {
-        table: "block_documents",
-        watched_columns: &["block_id", "document_id", "project_id"],
-    },
-    AuthorityRelation {
-        table: "pages",
-        watched_columns: &[
-            "block_id",
-            "library_id",
-            "document_id",
-            "parent_kind",
-            "parent_id",
-            "lifecycle",
-        ],
-    },
-    AuthorityRelation {
-        table: "database_containers",
-        watched_columns: &["block_id", "library_id", "lifecycle"],
-    },
-    AuthorityRelation {
-        table: "data_sources",
-        watched_columns: &["id", "library_id", "home_database_block_id", "lifecycle"],
-    },
-    AuthorityRelation {
-        table: "database_views",
-        watched_columns: &["id", "database_block_id", "data_source_id", "lifecycle"],
-    },
-    AuthorityRelation {
-        table: "data_source_page_memberships",
-        watched_columns: &["id", "data_source_id", "page_block_id", "removed_at"],
-    },
-    AuthorityRelation {
-        table: "canvas_owners",
-        watched_columns: &["block_id", "library_id"],
-    },
+const AUTHORITY_RELATIONS: &[&str] = &[
+    "projects",
+    "project_database_bindings",
+    "project_resource_grants",
+    "blocks",
+    "documents",
+    "block_documents",
+    "pages",
+    "database_containers",
+    "data_sources",
+    "database_views",
+    "data_source_page_memberships",
+    "canvas_owners",
 ];
-
 #[derive(Debug)]
 pub(crate) struct VisibilityDeltaJournal {
     restore_maintenance_context: bool,
@@ -209,134 +76,6 @@ struct CanonicalVisibilityDelta<'a> {
     authorization_scope: &'a DeliveryAuthorizationScope,
     delta_kind: &'a str,
     roots: &'a [ResourceKey],
-}
-
-pub(crate) fn install_schema(connection: &Connection) -> Result<(), StoreError> {
-    connection.execute_batch(VISIBILITY_JOURNAL_SCHEMA_SQL)?;
-    for relation in AUTHORITY_RELATIONS {
-        install_relation_triggers(connection, relation)?;
-    }
-    validate_trigger_inventory(connection)
-}
-
-pub(crate) fn refresh_authority_relation_triggers(
-    connection: &Connection,
-    relation_names: &[&str],
-) -> Result<(), StoreError> {
-    for relation_name in relation_names {
-        let relation = AUTHORITY_RELATIONS
-            .iter()
-            .find(|candidate| candidate.table == *relation_name)
-            .ok_or_else(|| corrupt("Authority relation trigger refresh is not inventoried"))?;
-        for operation in ["insert", "update", "delete"] {
-            connection.execute_batch(&format!(
-                "DROP TRIGGER IF EXISTS {}",
-                quote_identifier(&trigger_name(relation.table, operation))
-            ))?;
-        }
-        install_relation_triggers(connection, relation)?;
-    }
-    validate_trigger_inventory(connection)
-}
-
-/// Reinstalls the content-authority triggers after the v117 ownership cutover.
-/// Historical schema inventories continue to use `AUTHORITY_RELATIONS`; only
-/// the current Library-owned registry has these columns.
-pub(crate) fn refresh_library_content_authority_triggers(
-    connection: &Connection,
-) -> Result<(), StoreError> {
-    let relations = [
-        AuthorityRelation {
-            table: "blocks",
-            watched_columns: &["library_id", "type", "lifecycle"],
-        },
-        AuthorityRelation {
-            table: "documents",
-            watched_columns: &["library_id", "readiness"],
-        },
-        AuthorityRelation {
-            table: "block_documents",
-            watched_columns: &["block_id", "document_id", "library_id"],
-        },
-        AuthorityRelation {
-            table: "pages",
-            watched_columns: &[
-                "block_id",
-                "library_id",
-                "document_id",
-                "parent_kind",
-                "parent_id",
-            ],
-        },
-    ];
-    for relation in &relations {
-        for operation in ["insert", "update", "delete"] {
-            connection.execute_batch(&format!(
-                "DROP TRIGGER IF EXISTS {}",
-                quote_identifier(&trigger_name(relation.table, operation))
-            ))?;
-        }
-        install_relation_triggers(connection, relation)?;
-    }
-    validate_trigger_inventory(connection)
-}
-
-pub(crate) fn is_installed(connection: &Connection) -> Result<bool, StoreError> {
-    Ok(connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)",
-        [CONTEXT_TABLE],
-        |row| row.get::<_, i64>(0),
-    )? == 1)
-}
-
-/// Runs Store maintenance that may touch authorization-bearing rows without
-/// manufacturing a user-visible LocalCommit. A pre-existing maintenance
-/// context is preserved so nested migration helpers compose safely.
-pub(crate) fn with_maintenance_context<T>(
-    connection: &Connection,
-    operation: impl FnOnce(&Connection) -> Result<T, StoreError>,
-) -> Result<T, StoreError> {
-    if !is_installed(connection)? {
-        return operation(connection);
-    }
-
-    let existing = connection
-        .query_row(
-            "SELECT mode FROM local_commit_visibility_context WHERE id = 1",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    match existing.as_deref() {
-        Some("maintenance") => return operation(connection),
-        Some(_) => {
-            return Err(corrupt(
-                "VisibilityDeltaJournal context is active during Store maintenance",
-            ));
-        }
-        None => {}
-    }
-
-    connection.execute(
-        "INSERT INTO local_commit_visibility_context(id, mode, store_epoch, commit_seq)
-         VALUES (1, 'maintenance', NULL, NULL)",
-        [],
-    )?;
-    let result = operation(connection);
-    let cleanup = connection.execute(
-        "DELETE FROM local_commit_visibility_context WHERE id = 1 AND mode = 'maintenance'",
-        [],
-    );
-    match (result, cleanup) {
-        (Ok(value), Ok(1)) => Ok(value),
-        (Err(error), Ok(1)) => Err(error),
-        (Ok(_), Ok(_)) => Err(corrupt(
-            "VisibilityDeltaJournal maintenance context identity diverged",
-        )),
-        (Err(error), Ok(_)) => Err(error),
-        (Ok(_), Err(error)) => Err(StoreError::from(error)),
-        (Err(error), Err(_)) => Err(error),
-    }
 }
 
 pub(crate) fn rebase_store_epoch(
@@ -1623,10 +1362,7 @@ struct TableColumn {
 }
 
 fn table_columns(connection: &Connection, table: &str) -> Result<Vec<TableColumn>, StoreError> {
-    if !AUTHORITY_RELATIONS
-        .iter()
-        .any(|relation| relation.table == table)
-    {
+    if !AUTHORITY_RELATIONS.contains(&table) {
         return Err(corrupt("Visibility inverse relation is not inventoried"));
     }
     connection
@@ -1801,149 +1537,6 @@ pub(crate) fn install_test_maintenance_context(connection: &Connection) -> Resul
         [],
     )?;
     Ok(())
-}
-
-fn install_relation_triggers(
-    connection: &Connection,
-    relation: &AuthorityRelation,
-) -> Result<(), StoreError> {
-    let columns = connection
-        .prepare(&format!(
-            "PRAGMA table_info({})",
-            quote_identifier(relation.table)
-        ))?
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if columns.is_empty()
-        || relation
-            .watched_columns
-            .iter()
-            .any(|watched| !columns.iter().any(|(column, _)| column == watched))
-    {
-        return Err(corrupt("Authority relation trigger inventory is stale"));
-    }
-    let old_json = row_json_expression("OLD", &columns);
-    let new_json = row_json_expression("NEW", &columns);
-    let update_columns = relation
-        .watched_columns
-        .iter()
-        .map(|column| quote_identifier(column))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let table = quote_identifier(relation.table);
-    for (operation, event, old_row, new_row) in [
-        (
-            "insert".to_owned(),
-            "INSERT".to_owned(),
-            "NULL".to_owned(),
-            new_json.clone(),
-        ),
-        (
-            "update".to_owned(),
-            format!("UPDATE OF {update_columns}"),
-            old_json.clone(),
-            new_json.clone(),
-        ),
-        (
-            "delete".to_owned(),
-            "DELETE".to_owned(),
-            old_json.clone(),
-            "NULL".to_owned(),
-        ),
-    ] {
-        let trigger = quote_identifier(&trigger_name(relation.table, &operation));
-        let row_predicate = trigger_row_predicate(relation, &operation);
-        connection.execute_batch(&format!(
-            "CREATE TRIGGER {trigger}\n\
-             BEFORE {event} ON {table}\n\
-             WHEN {row_predicate}\n\
-             BEGIN\n\
-               SELECT CASE WHEN NOT EXISTS (\n\
-                 SELECT 1 FROM local_commit_visibility_context\n\
-                 WHERE id = 1 AND mode IN ('active', 'overlay', 'maintenance')\n\
-               ) THEN RAISE(ABORT, 'authority-bearing write requires VisibilityDeltaJournal') END;\n\
-               INSERT INTO local_commit_visibility_dirty_facts(\n\
-                 store_epoch, commit_seq, relation_kind, operation, old_row_json, new_row_json\n\
-               )\n\
-               SELECT store_epoch, commit_seq, '{}', '{operation}', {old_row}, {new_row}\n\
-               FROM local_commit_visibility_context WHERE id = 1 AND mode = 'active';\n\
-             END;",
-            relation.table,
-        ))?;
-    }
-    Ok(())
-}
-
-fn trigger_row_predicate(relation: &AuthorityRelation, operation: &str) -> String {
-    let row_filter = if relation.table == "blocks" {
-        match operation {
-            "insert" => "NEW.type IN ('page', 'database', 'canvas')",
-            "update" => {
-                "OLD.type IN ('page', 'database', 'canvas') OR NEW.type IN ('page', 'database', 'canvas')"
-            }
-            "delete" => "OLD.type IN ('page', 'database', 'canvas')",
-            _ => "0",
-        }
-    } else {
-        "1"
-    };
-    if operation != "update" {
-        return row_filter.to_owned();
-    }
-    let changed = relation
-        .watched_columns
-        .iter()
-        .map(|column| {
-            let column = quote_identifier(column);
-            format!("OLD.{column} IS NOT NEW.{column}")
-        })
-        .collect::<Vec<_>>()
-        .join(" OR ");
-    format!("({row_filter}) AND ({changed})")
-}
-
-fn row_json_expression(prefix: &str, columns: &[(String, String)]) -> String {
-    let values = columns
-        .iter()
-        .flat_map(|(column, declared_type)| {
-            let value = if declared_type.eq_ignore_ascii_case("BLOB") {
-                format!(
-                    "CASE WHEN {prefix}.{} IS NULL THEN NULL ELSE hex({prefix}.{}) END",
-                    quote_identifier(column),
-                    quote_identifier(column)
-                )
-            } else {
-                format!("{prefix}.{}", quote_identifier(column))
-            };
-            [format!("'{}'", column.replace('\'', "''")), value]
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("json_object({values})")
-}
-
-fn validate_trigger_inventory(connection: &Connection) -> Result<(), StoreError> {
-    for relation in AUTHORITY_RELATIONS {
-        for operation in ["insert", "update", "delete"] {
-            let exists: i64 = connection.query_row(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'trigger' AND name = ?1)",
-                [trigger_name(relation.table, operation)],
-                |row| row.get(0),
-            )?;
-            if exists != 1 {
-                return Err(corrupt(
-                    "Authority relation is missing its dirty-fact trigger",
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn trigger_name(table: &str, operation: &str) -> String {
-    format!("visibility_dirty_{table}_{operation}")
 }
 
 fn quote_identifier(identifier: &str) -> String {
@@ -2183,13 +1776,6 @@ mod tests {
             pure_resource_births(&facts).expect("grant classification"),
             None
         );
-        let blocks = AUTHORITY_RELATIONS
-            .iter()
-            .find(|relation| relation.table == "blocks")
-            .expect("blocks authority relation");
-        assert!(
-            trigger_row_predicate(blocks, "update").contains("OLD.\"type\" IS NOT NEW.\"type\"")
-        );
     }
 
     #[test]
@@ -2249,13 +1835,12 @@ mod tests {
     }
 
     #[test]
-    fn trigger_inventory_is_complete_and_maintenance_writes_do_not_emit_facts() {
+    fn maintenance_writes_do_not_emit_visibility_facts() {
         let directory = tempdir().expect("Profile");
         let kernel = SqliteStoreKernel::open_test(directory.path()).expect("test Core store");
         kernel
             .writer()
             .call(|connection| {
-                validate_trigger_inventory(connection)?;
                 connection.execute(
                     "INSERT INTO projects(id, name, created, updated)
                      VALUES ('project:maintenance', 'Maintenance', '2026-08-09', '2026-08-09')",

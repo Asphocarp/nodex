@@ -49,16 +49,6 @@ pub(crate) fn project_appearance_from_storage(
     Ok(ProjectAppearance { color, marker })
 }
 
-pub(crate) fn legacy_project_appearance(icon: &str) -> ProjectAppearance {
-    normalize_project_emoji(icon).map_or_else(
-        |_| ProjectAppearance::default(),
-        |emoji| ProjectAppearance {
-            color: ProjectMarkerColor::Black,
-            marker: ProjectMarker::Emoji { emoji },
-        },
-    )
-}
-
 pub(crate) fn normalize_project_emoji(value: &str) -> Result<String, &'static str> {
     let value = value.trim();
     if value.is_empty()
@@ -179,7 +169,7 @@ mod tests {
     };
 
     use super::{
-        legacy_project_appearance, normalize_project_appearance, project_appearance_from_storage,
+        normalize_project_appearance, project_appearance_from_storage,
         project_marker_color_literal, project_marker_icon_literal,
     };
 
@@ -273,28 +263,5 @@ mod tests {
             .is_err()
         );
         assert!(project_appearance_from_storage("black", "emoji", "🚀 launch").is_err());
-    }
-
-    #[test]
-    fn legacy_values_preserve_valid_emoji_and_default_everything_else() {
-        assert_eq!(
-            legacy_project_appearance("Launch 🚀 now").marker,
-            ProjectMarker::Emoji {
-                emoji: "🚀".to_owned(),
-            }
-        );
-        assert_eq!(
-            legacy_project_appearance("not an emoji"),
-            ProjectAppearance::default()
-        );
-        assert_eq!(
-            legacy_project_appearance(""),
-            ProjectAppearance {
-                color: ProjectMarkerColor::Black,
-                marker: ProjectMarker::Icon {
-                    icon: ProjectMarkerIcon::Folder,
-                },
-            }
-        );
     }
 }

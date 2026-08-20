@@ -71,27 +71,11 @@ const rustRows: readonly FailureRow[] = [
   },
   {
     failurePoint: "migration-before-publication",
-    test: "infrastructure::migration::tests::typescript_v84_migration_backs_up_validates_and_retires_wire_fingerprints",
-  },
-  {
-    failurePoint: "legacy-import-before-publication",
-    test: "infrastructure::legacy_migration::tests::imports_every_frozen_legacy_inventory_and_reopens_idempotently",
-  },
-  {
-    failurePoint: "legacy-import-sidecar-failure",
-    test: "infrastructure::legacy_migration::tests::failed_sidecar_keeps_the_source_and_removes_its_staging_directory",
-  },
-  {
-    failurePoint: "legacy-import-interrupted-before-first-move",
-    test: "infrastructure::legacy_migration::tests::recovery_before_the_first_move_preserves_live_companion_files",
-  },
-  {
-    failurePoint: "legacy-import-interrupted-install",
-    test: "infrastructure::legacy_migration::tests::interrupted_install_restores_the_legacy_database_and_assets",
+    test: "infrastructure::migration::tests::failed_migration_rolls_back_after_preserving_backup",
   },
   {
     failurePoint: "backup-after-filesystem-before-receipt",
-    test: "administration::tests::adopts_a_published_backup_after_a_pre_receipt_crash_boundary",
+    test: "administration::tests::reuses_a_staged_backup_after_a_pre_receipt_crash_boundary",
   },
   {
     failurePoint: "restore-runtime-reset",
@@ -334,7 +318,7 @@ async function main(): Promise<void> {
     "-p",
     "nodex-core",
     "--test",
-    "v84_store_recovery",
+    "store_recovery",
     "--all-features",
   ]);
   run("cargo", ["build", "-p", "nodex-core-server"]);
@@ -349,7 +333,7 @@ async function main(): Promise<void> {
     })),
     {
       failurePoint: "abrupt-wal-process-exit",
-      test: "v84_store_recovery::fresh_v85_recovers_a_committed_wal_after_abrupt_writer_exit",
+      test: "store_recovery::current_store_recovers_a_committed_wal_after_abrupt_writer_exit",
       recovered: true,
       finalCommittedSequence: verification.finalCommittedSequence,
       integrityCheck: verification.integrityCheck,

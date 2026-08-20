@@ -35,8 +35,8 @@ export const CORE_CLIENT_REQUIREMENTS = {
   "accepted_store_formats": [
     {
       "lineage": "nodex-rust-core",
-      "version": 130,
-      "schema_fingerprint": "baedc982cdfd3e48a69c8786eb5da261dd3e34a8320abedf15121f8ded935f93"
+      "version": 131,
+      "schema_fingerprint": "46dd2a5762d431f063ced596735d7330a12b1bda9854b08eea66ff9a0f81bc8c"
     }
   ]
 } as const satisfies components["schemas"]["CoreClientRequirements"];

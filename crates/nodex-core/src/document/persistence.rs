@@ -198,66 +198,39 @@ pub(crate) fn read_document_authority(
     let Some(head) = DocumentReadRepository::new(connection).document_head(document_id)? else {
         return Ok(None);
     };
-    read_document_authority_for_head(connection, head, false)
-}
-
-/// Reads the frozen Project-owned registry while an old Store is being
-/// migrated. The returned head's `library_id` temporarily carries that legacy
-/// scope only inside the migration adapter; current runtime code never calls it.
-pub(crate) fn read_legacy_project_owned_document_authority(
-    connection: &Connection,
-    document_id: &str,
-) -> Result<Option<DocumentAuthorityRow>, StoreError> {
-    let Some(head) =
-        DocumentReadRepository::new(connection).legacy_project_owned_document_head(document_id)?
-    else {
-        return Ok(None);
-    };
-    read_document_authority_for_head(connection, head, true)
+    read_document_authority_for_head(connection, head)
 }
 
 fn read_document_authority_for_head(
     connection: &Connection,
     head: DocumentHeadRow,
-    legacy_project_owned: bool,
 ) -> Result<Option<DocumentAuthorityRow>, StoreError> {
-    let query = if legacy_project_owned {
-        "SELECT ownership.block_id, owner.type, owner.lifecycle, \
-                page.library_id, page.parent_kind, page.parent_id, \
-                source.home_database_block_id \
-         FROM block_documents ownership \
-         JOIN blocks owner ON owner.id = ownership.block_id \
-           AND owner.project_id = ownership.project_id \
-         LEFT JOIN pages page ON page.block_id = owner.id \
-           AND page.document_id = ownership.document_id \
-         LEFT JOIN data_sources source ON page.parent_kind = 'data_source' \
-           AND source.id = page.parent_id AND source.library_id = page.library_id \
-         WHERE ownership.document_id = ?1 AND ownership.project_id = ?2"
-    } else {
-        "SELECT ownership.block_id, owner.type, owner.lifecycle, \
-                page.library_id, page.parent_kind, page.parent_id, \
-                source.home_database_block_id \
-         FROM block_documents ownership \
-         JOIN blocks owner ON owner.id = ownership.block_id \
-           AND owner.library_id = ownership.library_id \
-         LEFT JOIN pages page ON page.block_id = owner.id \
-           AND page.document_id = ownership.document_id \
-         LEFT JOIN data_sources source ON page.parent_kind = 'data_source' \
-           AND source.id = page.parent_id AND source.library_id = page.library_id \
-         WHERE ownership.document_id = ?1 AND ownership.library_id = ?2"
-    };
     let owner = connection
-        .query_row(query, params![head.id, head.library_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, Option<String>>(6)?,
-            ))
-        })
+        .query_row(
+            "SELECT ownership.block_id, owner.type, owner.lifecycle, \
+                    page.library_id, page.parent_kind, page.parent_id, \
+                    source.home_database_block_id \
+             FROM block_documents ownership \
+             JOIN blocks owner ON owner.id = ownership.block_id \
+               AND owner.library_id = ownership.library_id \
+             LEFT JOIN pages page ON page.block_id = owner.id \
+               AND page.document_id = ownership.document_id \
+             LEFT JOIN data_sources source ON page.parent_kind = 'data_source' \
+               AND source.id = page.parent_id AND source.library_id = page.library_id \
+             WHERE ownership.document_id = ?1 AND ownership.library_id = ?2",
+            params![head.id, head.library_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            },
+        )
         .optional()
         .map_err(|_| corrupt("Document owner row has invalid column types"))?;
     let Some((
@@ -1309,156 +1282,6 @@ fn reconcile_document_blocks(
     })
 }
 
-fn reconcile_legacy_document_blocks(
-    connection: &Connection,
-    authority: &DocumentAuthorityRow,
-    materialization: &DocumentMaterialization,
-    projected_seq: i64,
-    now: &str,
-) -> Result<(), StoreError> {
-    let existing = connection
-        .prepare(
-            "SELECT id, project_id, type, lifecycle, location_kind, containing_document_id \
-             FROM blocks WHERE containing_document_id = ?1 ORDER BY id",
-        )?
-        .query_map([&authority.head.id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, Option<String>>(5)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|_| corrupt("Document Block registry has invalid column types"))?;
-    let existing_ids = existing
-        .iter()
-        .map(|row| row.0.clone())
-        .collect::<HashSet<_>>();
-    let active_ids = materialization
-        .search_units
-        .iter()
-        .map(|unit| unit.block_id.clone())
-        .collect::<HashSet<_>>();
-    for unit in &materialization.search_units {
-        let registered = connection
-            .query_row(
-                "SELECT project_id, type, lifecycle, location_kind, containing_document_id \
-                 FROM blocks WHERE id = ?1",
-                [&unit.block_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|_| corrupt("Registered Block row has invalid column types"))?;
-        match registered {
-            None => {
-                if !is_uuid_v7(&unit.block_id)
-                    || TYPED_CREATION_BLOCK_TYPES.contains(&unit.block_type.as_str())
-                {
-                    return Err(invalid(format!(
-                        "Block {} requires a typed creation operation",
-                        unit.block_id
-                    )));
-                }
-                connection.execute(
-                    "INSERT INTO blocks (\
-                       id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                       location_revision, metadata_revision, created_at, updated_at\
-                     ) VALUES (?1, ?2, ?3, 'active', 'document', ?4, 1, 1, ?5, ?5)",
-                    params![
-                        unit.block_id,
-                        authority.head.library_id,
-                        unit.block_type,
-                        authority.head.id,
-                        now,
-                    ],
-                )?;
-            }
-            Some((project_id, block_type, lifecycle, location_kind, containing_document_id)) => {
-                if project_id != authority.head.library_id
-                    || location_kind != "document"
-                    || containing_document_id.as_deref() != Some(authority.head.id.as_str())
-                {
-                    return Err(invalid(format!(
-                        "Block {} belongs to another authority",
-                        unit.block_id
-                    )));
-                }
-                if block_type != unit.block_type
-                    && (TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str())
-                        || TYPED_CREATION_BLOCK_TYPES.contains(&unit.block_type.as_str()))
-                {
-                    return Err(invalid(format!(
-                        "Block {} requires a typed reclassification",
-                        unit.block_id
-                    )));
-                }
-                let typed_resource = TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str());
-                if (lifecycle != "active" && !typed_resource) || block_type != unit.block_type {
-                    connection.execute(
-                        "UPDATE blocks SET type = ?1, \
-                           lifecycle = CASE WHEN ?2 THEN lifecycle ELSE 'active' END, \
-                           metadata_revision = metadata_revision + 1, updated_at = ?3 WHERE id = ?4",
-                        params![unit.block_type, typed_resource, now, unit.block_id],
-                    )?;
-                }
-            }
-        }
-    }
-    for (block_id, _, block_type, lifecycle, _, _) in &existing {
-        if active_ids.contains(block_id) {
-            continue;
-        }
-        if TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str()) && lifecycle != "deleted" {
-            return Err(StoreError::new(
-                StoreErrorCode::ProtectedOwnerDeletion,
-                format!(
-                    "Typed owner Block {block_id} cannot be removed by a generic Document update"
-                ),
-                false,
-            ));
-        }
-    }
-    for block_id in existing_ids.difference(&active_ids) {
-        connection.execute(
-            "UPDATE blocks SET lifecycle = 'deleted', metadata_revision = metadata_revision + 1, \
-               updated_at = ?1 WHERE id = ?2 AND lifecycle <> 'deleted'",
-            params![now, block_id],
-        )?;
-    }
-    connection.execute(
-        "DELETE FROM document_block_index WHERE document_id = ?1",
-        [&authority.head.id],
-    )?;
-    for unit in &materialization.search_units {
-        connection.execute(
-            "INSERT INTO document_block_index (\
-               document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                authority.head.id,
-                unit.block_id,
-                unit.parent_block_id,
-                i64::try_from(unit.ordinal).map_err(|_| internal("Block ordinal overflow"))?,
-                unit.block_type,
-                unit.text,
-                projected_seq,
-            ],
-        )?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 fn record_internal_receipt(
     connection: &Connection,
@@ -1493,89 +1316,42 @@ fn persist_materialization_row(
         .map_err(|_| internal("Reference JSON"))?;
     let asset_refs_json = serde_json::to_string(&materialization.asset_refs)
         .map_err(|_| internal("Asset reference JSON"))?;
-    if has_materialization_derivation_version_column(connection)? {
-        connection.execute(
-            "INSERT INTO document_materializations (\
-               document_id, generation, projected_seq, schema_version, \
-               materialization_derivation_version, title, title_rich_json, title_rich_hash, \
-               nfm, plain_text, preview, block_tree_json, references_json, asset_refs_json, \
-               updated_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
-             ON CONFLICT(document_id) DO UPDATE SET \
-               generation = excluded.generation, projected_seq = excluded.projected_seq, \
-               schema_version = excluded.schema_version, \
-               materialization_derivation_version = excluded.materialization_derivation_version, \
-               title = excluded.title, title_rich_json = excluded.title_rich_json, \
-               title_rich_hash = excluded.title_rich_hash, nfm = excluded.nfm, \
-               plain_text = excluded.plain_text, preview = excluded.preview, \
-               block_tree_json = excluded.block_tree_json, \
-               references_json = excluded.references_json, asset_refs_json = excluded.asset_refs_json, \
-               updated_at = excluded.updated_at",
-            params![
-                document_id,
-                generation,
-                projected_seq,
-                materialization.schema_version,
-                CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION,
-                materialization.title,
-                rich_title_json,
-                rich_title_hash,
-                materialization.nfm,
-                materialization.plain_text,
-                materialization.preview,
-                block_tree_json,
-                references_json,
-                asset_refs_json,
-                now,
-            ],
-        )?;
-    } else {
-        // v84-v129 stores do not have the independent derivation marker yet.
-        // The migration adds it only after the v127 Yrs-authoritative rebuild.
-        connection.execute(
-            "INSERT INTO document_materializations (\
-               document_id, generation, projected_seq, schema_version, title, title_rich_json, \
-               title_rich_hash, nfm, plain_text, preview, block_tree_json, references_json, \
-               asset_refs_json, updated_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) \
-             ON CONFLICT(document_id) DO UPDATE SET \
-               generation = excluded.generation, projected_seq = excluded.projected_seq, \
-               schema_version = excluded.schema_version, title = excluded.title, \
-               title_rich_json = excluded.title_rich_json, title_rich_hash = excluded.title_rich_hash, \
-               nfm = excluded.nfm, plain_text = excluded.plain_text, preview = excluded.preview, \
-               block_tree_json = excluded.block_tree_json, references_json = excluded.references_json, \
-               asset_refs_json = excluded.asset_refs_json, updated_at = excluded.updated_at",
-            params![
-                document_id,
-                generation,
-                projected_seq,
-                materialization.schema_version,
-                materialization.title,
-                rich_title_json,
-                rich_title_hash,
-                materialization.nfm,
-                materialization.plain_text,
-                materialization.preview,
-                block_tree_json,
-                references_json,
-                asset_refs_json,
-                now,
-            ],
-        )?;
-    }
-    Ok(())
-}
-
-fn has_materialization_derivation_version_column(
-    connection: &Connection,
-) -> Result<bool, StoreError> {
-    let count = connection.query_row(
-        "SELECT count(*) FROM pragma_table_info('document_materializations') \
-         WHERE name = 'materialization_derivation_version'",
-        [],
-        |row| row.get::<_, i64>(0),
+    connection.execute(
+        "INSERT INTO document_materializations (\
+           document_id, generation, projected_seq, schema_version, \
+           materialization_derivation_version, title, title_rich_json, title_rich_hash, \
+           nfm, plain_text, preview, block_tree_json, references_json, asset_refs_json, \
+           updated_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
+         ON CONFLICT(document_id) DO UPDATE SET \
+           generation = excluded.generation, projected_seq = excluded.projected_seq, \
+           schema_version = excluded.schema_version, \
+           materialization_derivation_version = excluded.materialization_derivation_version, \
+           title = excluded.title, title_rich_json = excluded.title_rich_json, \
+           title_rich_hash = excluded.title_rich_hash, nfm = excluded.nfm, \
+           plain_text = excluded.plain_text, preview = excluded.preview, \
+           block_tree_json = excluded.block_tree_json, \
+           references_json = excluded.references_json, asset_refs_json = excluded.asset_refs_json, \
+           updated_at = excluded.updated_at",
+        params![
+            document_id,
+            generation,
+            projected_seq,
+            materialization.schema_version,
+            CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION,
+            materialization.title,
+            rich_title_json,
+            rich_title_hash,
+            materialization.nfm,
+            materialization.plain_text,
+            materialization.preview,
+            block_tree_json,
+            references_json,
+            asset_refs_json,
+            now,
+        ],
     )?;
-    Ok(count == 1)
+    Ok(())
 }
 
 fn persist_materialization(
@@ -1595,51 +1371,6 @@ fn persist_materialization(
         now,
     )?;
     replace_page_reference_projection(connection, document_id, &materialization.references, now)
-}
-
-/// Rebuilds the current derived Document projection from a reconstructed Yrs
-/// document during an owned-store migration. The Yrs stream and Document head
-/// are never rewritten; only the materialization and its normalized Page
-/// reference projection are replaced. `has_owner` is supplied by the caller
-/// because migration callers read ownership from different schema revisions.
-pub(crate) fn rebuild_document_materialization_projection_for_migration(
-    connection: &Connection,
-    document_id: &str,
-    generation: i64,
-    projected_seq: i64,
-    materialization: &DocumentMaterialization,
-    now: &str,
-    has_owner: bool,
-) -> Result<(), StoreError> {
-    let authority = if has_owner {
-        let authority = read_document_authority(connection, document_id)?
-            .ok_or_else(|| corrupt("Migrated Document has no current authority"))?;
-        if authority.head.generation != generation || authority.head.head_seq != projected_seq {
-            return Err(corrupt(
-                "Migrated Document materialization does not match its Yrs head",
-            ));
-        }
-        Some(authority)
-    } else {
-        None
-    };
-    persist_materialization_row(
-        connection,
-        document_id,
-        generation,
-        projected_seq,
-        materialization,
-        now,
-    )?;
-    if authority.is_some() {
-        replace_page_reference_projection(
-            connection,
-            document_id,
-            &materialization.references,
-            now,
-        )?;
-    }
-    Ok(())
 }
 
 pub(crate) fn replace_page_reference_projection(
@@ -1859,160 +1590,6 @@ fn update_page_document_projection(
     Ok(())
 }
 
-fn replace_legacy_secondary_projections(
-    connection: &Connection,
-    authority: &DocumentAuthorityRow,
-    materialization: &DocumentMaterialization,
-    projected_seq: i64,
-    now: &str,
-    page_projection_required: bool,
-) -> Result<(), StoreError> {
-    if authority.owner_type == "page" {
-        let updated = connection.execute(
-            "UPDATE page_read_model SET document_generation = ?1, document_projected_seq = ?2, \
-               document_schema_version = ?3, document_authority = 'ydoc_primary', title = ?4, \
-               description_preview = ?5, description_length = ?6, has_description = ?7, \
-               updated_at = ?8 WHERE page_block_id = ?9 AND document_id = ?10",
-            params![
-                authority.head.generation,
-                projected_seq,
-                authority.head.schema_version,
-                materialization.title,
-                materialization.preview,
-                i64::try_from(materialization.nfm.len())
-                    .map_err(|_| internal("Page description length overflow"))?,
-                i64::from(!materialization.nfm.trim().is_empty()),
-                now,
-                authority.owner_block_id,
-                authority.head.id,
-            ],
-        )?;
-        if page_projection_required && updated != 1 {
-            return Err(corrupt(
-                "Page Document projection does not match its authority",
-            ));
-        }
-    }
-    connection.execute(
-        "DELETE FROM block_asset_refs WHERE document_id = ?1",
-        [&authority.head.id],
-    )?;
-    connection.execute(
-        "DELETE FROM block_search_units WHERE document_id = ?1 AND source_revision IS NULL",
-        [&authority.head.id],
-    )?;
-    let marker_kind = match materialization.search_marker_kind {
-        DocumentSearchMarkerKind::DocumentTitle => "document_title",
-        DocumentSearchMarkerKind::DocumentMarker => "document_marker",
-    };
-    let marker_field = if marker_kind == "document_title" {
-        "title"
-    } else {
-        "marker"
-    };
-    insert_legacy_search_unit(
-        connection,
-        authority,
-        SearchUnitProjection {
-            block_id: &authority.owner_block_id,
-            projected_seq,
-            source_kind: marker_kind,
-            field_key: marker_field,
-            text: &materialization.title,
-            now,
-        },
-    )?;
-    for unit in &materialization.search_units {
-        insert_legacy_search_unit(
-            connection,
-            authority,
-            SearchUnitProjection {
-                block_id: &unit.block_id,
-                projected_seq,
-                source_kind: "document_block",
-                field_key: "text",
-                text: &unit.text,
-                now,
-            },
-        )?;
-    }
-    let mut next_ordinal = HashMap::<(&str, &'static str), i64>::new();
-    for asset in &materialization.asset_refs {
-        let role = match asset.kind {
-            BlockDocumentAssetKind::Image => "image",
-            BlockDocumentAssetKind::Attachment => "attachment",
-        };
-        let ordinal = next_ordinal
-            .entry((asset.source_block_id.as_str(), role))
-            .or_insert(0);
-        connection.execute(
-            "INSERT INTO block_asset_refs (\
-               document_id, block_id, owner_block_id, project_id, document_generation, \
-               projected_seq, projection_version, role, ordinal, asset_uri, asset_hash, updated_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11)",
-            params![
-                authority.head.id,
-                asset.source_block_id,
-                authority.owner_block_id,
-                authority.head.library_id,
-                authority.head.generation,
-                projected_seq,
-                PROJECTION_VERSION,
-                role,
-                *ordinal,
-                asset.source,
-                now,
-            ],
-        )?;
-        *ordinal += 1;
-    }
-    Ok(())
-}
-
-/// Rebuild only the derived rows for a validated legacy Yjs authority.
-///
-/// Startup migration calls this against an isolated candidate store. It never
-/// rewrites the Yjs snapshot/update stream or advances the Document head.
-pub(crate) fn rebuild_legacy_import_projections(
-    connection: &Connection,
-    document_id: &str,
-    materialization: &DocumentMaterialization,
-) -> Result<(), StoreError> {
-    let authority = read_legacy_project_owned_document_authority(connection, document_id)?
-        .ok_or_else(|| corrupt("Legacy import Document has no authority"))?;
-    let now = sqlite_now(connection)?;
-    validate_legacy_document_references(
-        connection,
-        &authority.head.library_id,
-        materialization,
-        true,
-    )?;
-    reconcile_legacy_document_blocks(
-        connection,
-        &authority,
-        materialization,
-        authority.head.head_seq,
-        &now,
-    )?;
-    persist_materialization_row(
-        connection,
-        document_id,
-        authority.head.generation,
-        authority.head.head_seq,
-        materialization,
-        &now,
-    )?;
-    let page_projection_required = authority.owner_lifecycle != "deleted";
-    replace_legacy_secondary_projections(
-        connection,
-        &authority,
-        materialization,
-        authority.head.head_seq,
-        &now,
-        page_projection_required,
-    )
-}
-
 struct SearchUnitProjection<'a> {
     block_id: &'a str,
     projected_seq: i64,
@@ -2072,101 +1649,6 @@ fn insert_library_search_unit(
             unit.now,
         ],
     )?;
-    Ok(())
-}
-
-fn insert_legacy_search_unit(
-    connection: &Connection,
-    authority: &DocumentAuthorityRow,
-    unit: SearchUnitProjection<'_>,
-) -> Result<(), StoreError> {
-    let unit_key = format!(
-        "document:{}",
-        sha256(
-            serde_json::to_string(&[
-                authority.head.id.as_str(),
-                unit.block_id,
-                unit.source_kind,
-                unit.field_key,
-            ])
-            .map_err(|_| internal("Search unit key"))?
-            .as_bytes()
-        )
-    );
-    connection.execute(
-        "INSERT INTO block_search_units (\
-           unit_key, project_id, block_id, owner_block_id, document_id, document_generation, \
-           projected_seq, source_revision, projection_version, source_kind, field_key, text, \
-           text_hash, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13)",
-        params![
-            unit_key,
-            authority.head.library_id,
-            unit.block_id,
-            authority.owner_block_id,
-            authority.head.id,
-            authority.head.generation,
-            unit.projected_seq,
-            PROJECTION_VERSION,
-            unit.source_kind,
-            unit.field_key,
-            unit.text,
-            sha256(unit.text.as_bytes()),
-            unit.now,
-        ],
-    )?;
-    Ok(())
-}
-
-fn validate_legacy_document_references(
-    connection: &Connection,
-    project_id: &str,
-    materialization: &DocumentMaterialization,
-    allow_legacy_diagnostics: bool,
-) -> Result<(), StoreError> {
-    for reference in &materialization.references {
-        let valid = match reference {
-            BlockDocumentReference::Page { .. } => true,
-            BlockDocumentReference::Block {
-                target_block_id, ..
-            } => legacy_block_reference_is_readable(
-                connection,
-                project_id,
-                target_block_id,
-                allow_legacy_diagnostics,
-            )?,
-            BlockDocumentReference::DatabaseView {
-                database_view_id, ..
-            } => connection
-                .query_row(
-                    "SELECT 1 FROM database_views WHERE id = ?1 AND lifecycle <> 'deleted'",
-                    [database_view_id],
-                    |_| Ok(()),
-                )
-                .optional()?
-                .is_some(),
-            BlockDocumentReference::Thread {
-                target_thread_id, ..
-            } => connection
-                .query_row(
-                    "SELECT 1 FROM codex_threads WHERE thread_id = ?1 \
-                     AND (project_id = ?2 OR project_id IS NULL)",
-                    params![target_thread_id, project_id],
-                    |_| Ok(()),
-                )
-                .optional()?
-                .is_some(),
-            BlockDocumentReference::LegacyCardProjection { .. }
-            | BlockDocumentReference::LegacyDatabaseQuery { .. } => false,
-        };
-        if valid {
-            continue;
-        }
-        return Err(invalid(format!(
-            "Document contains an {}",
-            reference_description(reference)
-        )));
-    }
     Ok(())
 }
 
@@ -2302,72 +1784,6 @@ fn block_reference_is_readable(
         return Ok(false);
     }
     Ok(target_library_id == library_id)
-}
-
-fn legacy_block_reference_is_readable(
-    connection: &Connection,
-    project_id: &str,
-    target_block_id: &str,
-    allow_legacy_diagnostics: bool,
-) -> Result<bool, StoreError> {
-    let target = connection
-        .query_row(
-            "SELECT project_id, type, lifecycle FROM blocks WHERE id = ?1",
-            [target_block_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )
-        .optional()?;
-    let Some((target_project_id, target_type, target_lifecycle)) = target else {
-        return Ok(false);
-    };
-    if target_lifecycle == "deleted" {
-        return Ok(allow_legacy_diagnostics
-            && target_project_id == project_id
-            && target_type == "unresolved_card_reference");
-    }
-    if target_type == "unresolved_card_reference" {
-        return Ok(false);
-    }
-    if target_project_id == project_id {
-        return Ok(true);
-    }
-    if target_type != "page" {
-        return Ok(false);
-    }
-    let library_id = connection
-        .query_row(
-            "SELECT library_id FROM projects WHERE id = ?1",
-            [project_id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .optional()?
-        .flatten();
-    let Some(library_id) = library_id else {
-        return Ok(false);
-    };
-    match crate::library::require_page_read_access(
-        connection,
-        &library_id,
-        project_id,
-        target_block_id,
-    ) {
-        Ok(()) => Ok(true),
-        Err(error)
-            if matches!(
-                error.code,
-                StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
-            ) =>
-        {
-            Ok(false)
-        }
-        Err(error) => Err(error),
-    }
 }
 
 pub(crate) fn derive_touched_block_ids(

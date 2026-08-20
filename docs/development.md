@@ -160,7 +160,7 @@ The test commands follow production boundaries:
   the native authority. `pnpm run core:test:pr` is the fast CI tier (nextest
   plus doctests); `pnpm run core:test:full` adds migration compatibility, and
   `pnpm run core:test:nightly` runs every explicitly named ignored scale,
-  performance, reliability, and legacy inventory gate. `pnpm run core:test`
+  performance, and reliability gate. `pnpm run core:test`
   remains the complete local/source-verification alias.
 - `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
 - `pnpm test:e2e` rebuilds the native Core plus Electron application, then
@@ -262,9 +262,10 @@ Store creation, exact-schema validation, upgrades, recovery, and profile-secret
 generation retain dedicated tests against the real startup path.
 
 Run `pnpm run core:test:nightly` when changing Canvas incremental storage,
-high-cardinality migrations, the closed legacy importer, large-data reliability,
-or relation projection boundaries. `pnpm run core:test` includes both the full
-and nightly tiers for final source verification.
+large-data reliability, or relation projection boundaries. Store preparation
+and supported-baseline migration changes belong in `core:test:migration` and
+the ordinary workspace suite. `pnpm run core:test` includes both the full and
+nightly tiers for final source verification.
 
 Use the matching runtime when running one test file:
 

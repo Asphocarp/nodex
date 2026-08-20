@@ -184,7 +184,7 @@ the current Latest release points to a stable app release.
 Every external Action is pinned to a full commit SHA. Dependabot proposes npm,
 Cargo, and GitHub Action updates; high-authority Action changes require release
 note and source review before merge. Dependency-only PRs update manifests and
-lockfiles only: CI derives the migrator, legal notices, and build-resource
+lockfiles only: CI derives third-party notices and their build-resource
 manifest in `.generated/build-resources/`, verifies two independent staging
 builds, and does not ask the bot branch to commit generated output.
 CI also classifies dependency-only changes as GitHub Actions, Rust, ordinary

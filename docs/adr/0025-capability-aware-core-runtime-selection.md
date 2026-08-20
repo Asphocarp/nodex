@@ -102,8 +102,9 @@ not semantic compatibility. Store compatibility is exact rather than inferred
 from a revision number alone. `PRAGMA user_version` is the single revision
 authority, while the published Store catalog binds every supported revision to
 the normalized physical-schema fingerprint that Core validates.
-`core_store_metadata` retains ownership and migration evidence but does not
-duplicate the current Store revision.
+`core_store_metadata` retains current ownership state and does not duplicate
+the Store revision. Completed migration evidence lives in the separate
+`core_store_migration_history` ledger described by ADR 0046.
 
 Whole-Store restore rotates the Store incarnation. During that maintenance
 transaction Core rebinds restored durable event and Module-receipt epochs to the

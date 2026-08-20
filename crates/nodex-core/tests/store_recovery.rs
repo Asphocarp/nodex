@@ -14,10 +14,11 @@ fn abrupt_writer_process() {
     let Some(database_path) = env::var_os(CRASH_WRITER_DATABASE_ENV) else {
         return;
     };
-    let connection = open_writer(&PathBuf::from(database_path)).expect("crash writer opens v84");
+    let connection = open_writer(&PathBuf::from(database_path)).expect("crash writer opens Store");
     connection
         .execute(
-            "UPDATE core_store_metadata SET migrated_at_unix_ms = migrated_at_unix_ms + 1 WHERE id = 1",
+            "UPDATE core_automation_runtime_metadata \
+             SET created_at_unix_ms = created_at_unix_ms + 1 WHERE id = 1",
             [],
         )
         .expect("crash writer commits into WAL");
@@ -25,17 +26,17 @@ fn abrupt_writer_process() {
 }
 
 #[test]
-fn fresh_v85_recovers_a_committed_wal_after_abrupt_writer_exit() {
-    let directory = tempdir().expect("disposable v85 Profile");
+fn current_store_recovers_a_committed_wal_after_abrupt_writer_exit() {
+    let directory = tempdir().expect("disposable Profile");
     let profile_home = directory.path().canonicalize().expect("absolute Profile");
     let database_path = profile_home.join("nodex.db");
-    let kernel = SqliteStoreKernel::open(&profile_home).expect("fresh v85 store");
+    let kernel = SqliteStoreKernel::open(&profile_home).expect("fresh current Store");
     let before = kernel
         .readers()
         .read_default(|connection| {
             connection
                 .query_row(
-                    "SELECT migrated_at_unix_ms FROM core_store_metadata WHERE id = 1",
+                    "SELECT created_at_unix_ms FROM core_automation_runtime_metadata WHERE id = 1",
                     [],
                     |row| row.get::<_, i64>(0),
                 )
@@ -64,12 +65,12 @@ fn fresh_v85_recovers_a_committed_wal_after_abrupt_writer_exit() {
         .read_default(|connection| {
             validate_store(connection)?;
             let after: i64 = connection.query_row(
-                "SELECT migrated_at_unix_ms FROM core_store_metadata WHERE id = 1",
+                "SELECT created_at_unix_ms FROM core_automation_runtime_metadata WHERE id = 1",
                 [],
                 |row| row.get(0),
             )?;
             assert_eq!(after, before + 1);
             Ok::<_, StoreError>(())
         })
-        .expect("recovered v84 store is valid and includes the committed WAL frame");
+        .expect("recovered Store is valid and includes the committed WAL frame");
 }

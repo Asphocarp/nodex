@@ -5,6 +5,7 @@ mod compaction;
 pub(crate) mod event_log;
 mod genesis;
 mod history;
+pub(crate) mod integrity;
 mod maintenance;
 mod materialization;
 mod module;
@@ -66,14 +67,8 @@ pub use yrs_engine::{
     has_pending_dependencies,
 };
 
-pub(crate) use canvas::{
-    clone_canvas_genesis, ensure_canvas_scene, load_canvas_scene, load_v94_canvas_scene,
-};
-pub(crate) use canvas_scene::{
-    CANVAS_OWNER_TYPE, CANVAS_SCENE_HASH_VERSION, CANVAS_SCHEMA_KEY, CANVAS_SCHEMA_VERSION,
-    CanvasHashItemKind, CanvasScene, canvas_hash_bucket, canvas_semantic_intent_fingerprint,
-    compute_canvas_scene_incremental_metadata, derive_canvas_element,
-};
+pub(crate) use canvas::{clone_canvas_genesis, ensure_canvas_scene, load_canvas_scene};
+pub(crate) use canvas_scene::{CANVAS_OWNER_TYPE, CANVAS_SCHEMA_KEY, CANVAS_SCHEMA_VERSION};
 pub(crate) use genesis::{
     PreparedYjsGenesis, prepare_page_yjs_genesis, prepare_page_yjs_genesis_with_content,
     prepare_yjs_clone_genesis,
@@ -84,9 +79,7 @@ pub(crate) use persistence::persist_yjs_genesis;
 pub(crate) use persistence::{
     DocumentAuthorityRow, DocumentPlacementEvidence, PersistYjsCommit, PersistYjsGenesis,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
-    read_document_authority, read_legacy_project_owned_document_authority, read_store_epoch,
-    rebuild_document_materialization_projection_for_migration, rebuild_legacy_import_projections,
-    sha256,
+    read_document_authority, read_store_epoch, sha256,
 };
 pub(crate) use primary_canvas::{
     PrimaryCanvasIdentity, create_primary_canvas, is_primary_canvas_block_id,

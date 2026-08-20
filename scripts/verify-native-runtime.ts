@@ -15,7 +15,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -45,7 +45,7 @@ export interface PackagedNativeRuntimeStructureOptions {
 export interface PackagedNativeRuntimeSmokeOptions
   extends PackagedNativeRuntimeStructureOptions {
   readonly launchApp: boolean;
-  readonly legacyProfileFixturePath?: string;
+  readonly previousStoreFixturePath?: string;
 }
 
 export interface PackagedNativeRuntimeIdentity {
@@ -63,10 +63,23 @@ interface CommandResult {
 const expectedFileArchitecture = (architecture: NativeRuntimeArchitecture): string =>
   architecture === "arm64" ? "arm64" : "x86_64";
 
-const DEFAULT_LEGACY_PROFILE_FIXTURE = resolve(
+const DEFAULT_PREVIOUS_STORE_FIXTURE = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../crates/nodex-core/tests/fixtures/legacy-profiles/v57-early.db",
+  "../crates/nodex-core/tests/fixtures/store-v130.db",
 );
+
+const STORE_MIGRATION_BACKUP_NAME = /^v130-to-v131-([a-f0-9]{64})\.db$/u;
+
+export const assertContentAddressedStoreMigrationBackup = (backupPath: string): void => {
+  const metadata = lstatSync(backupPath);
+  const match = STORE_MIGRATION_BACKUP_NAME.exec(basename(backupPath));
+  if (!metadata.isFile() || metadata.isSymbolicLink() || !match) {
+    throw new Error("Packaged Store migration did not retain one content-addressed backup");
+  }
+  if (sha256File(backupPath) !== match[1]) {
+    throw new Error("Packaged Store migration backup digest does not match its filename");
+  }
+};
 
 const run = (command: string, arguments_: readonly string[], label: string): CommandResult => {
   const result = spawnSync(command, arguments_, { encoding: "utf8" });
@@ -552,11 +565,11 @@ const smokeNativeRuntime = async (
   }
 };
 
-const smokeLegacyProfileMigration = async (
+const smokePreviousStoreMigration = async (
   appPath: string,
-  legacyProfileFixturePath: string,
+  previousStoreFixturePath: string,
 ): Promise<void> => {
-  const directory = mkdtempSync("/tmp/ndx-legacy-pkg-");
+  const directory = mkdtempSync("/tmp/ndx-store-migration-pkg-");
   const environment = restrictedEnvironment(directory);
   const profile = environment.NODEX_HOME!;
   const descriptor = join(profile, "run/core/core.json");
@@ -568,28 +581,35 @@ const smokeLegacyProfileMigration = async (
     mkdirSync(environment.TMPDIR!, { mode: 0o700 });
     mkdirSync(profile, { mode: 0o700 });
     mkdirSync(linkedCliDirectory, { mode: 0o700 });
-    copyFileSync(legacyProfileFixturePath, join(profile, "nodex.db"));
+    copyFileSync(previousStoreFixturePath, join(profile, "nodex.db"));
     symlinkSync(cli, linkedCli);
 
     const doctor = runWithEnvironment(
       linkedCli,
       ["--json", "doctor"],
       environment,
-      "Migrate an early v57 Profile through the packaged CLI symlink",
+      "Migrate the v130 Store baseline through the packaged CLI symlink",
     );
     if ((JSON.parse(doctor.stdout) as { ok?: unknown }).ok !== true) {
       throw new Error("Migrated packaged Core doctor did not return a successful envelope");
     }
     const backupRoot = join(profile, "backups/core-migrations");
-    const backups = readdirSync(backupRoot)
-      .filter((entry) => !entry.startsWith("."))
-      .map((entry) => join(backupRoot, entry))
-      .filter((entry) => statSync(entry).isDirectory());
-    if (
-      backups.length !== 1
-      || !statSync(join(backups[0]!, "nodex.db")).isFile()
-    ) {
-      throw new Error("Packaged legacy migration did not retain one source database backup");
+    const backups = readdirSync(backupRoot).filter((entry) => !entry.startsWith("."));
+    if (backups.length !== 1) {
+      throw new Error("Packaged Store migration did not retain one content-addressed backup");
+    }
+    assertContentAddressedStoreMigrationBackup(join(backupRoot, backups[0]!));
+    const reopened = runWithEnvironment(
+      linkedCli,
+      ["--json", "doctor"],
+      environment,
+      "Reopen the migrated packaged Store",
+    );
+    if ((JSON.parse(reopened.stdout) as { ok?: unknown }).ok !== true) {
+      throw new Error("Reopened packaged Core doctor did not return a successful envelope");
+    }
+    if (readdirSync(backupRoot).filter((entry) => !entry.startsWith(".")).length !== 1) {
+      throw new Error("Packaged Store migration repeated its backup after reopen");
     }
     await waitForRuntimeExit(descriptor);
   } finally {
@@ -798,9 +818,9 @@ export async function verifyPackagedNativeRuntimeSmoke(
     identity.coreSha256,
     identity.expectedVersion,
   );
-  await smokeLegacyProfileMigration(
+  await smokePreviousStoreMigration(
     identity.appPath,
-    resolve(options.legacyProfileFixturePath ?? DEFAULT_LEGACY_PROFILE_FIXTURE),
+    resolve(options.previousStoreFixturePath ?? DEFAULT_PREVIOUS_STORE_FIXTURE),
   );
   smokeBrowserProfileHelper(identity.appPath);
   if (options.launchApp) await launchAppSmoke(identity.appPath);
@@ -824,7 +844,7 @@ const main = async (): Promise<void> => {
     throw new Error(
       "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 "
       + "--expected-version <semver> [--expected-build-version <build>] "
-      + "[--legacy-profile-fixture <legacy.db>] [--verify-signatures] "
+      + "[--previous-store-fixture <store-v130.db>] [--verify-signatures] "
       + "[--require-developer-id] [--verify-notarization] [--launch-app] "
       + "[--expected-update-channel disabled|stable|nightly]",
     );
@@ -846,8 +866,8 @@ const main = async (): Promise<void> => {
     expectedBuildVersion,
     expectedVersion,
     launchApp: arguments_.includes("--launch-app"),
-    legacyProfileFixturePath:
-      readOption(arguments_, "--legacy-profile-fixture") ?? undefined,
+    previousStoreFixturePath:
+      readOption(arguments_, "--previous-store-fixture") ?? undefined,
     requireDeveloperId,
     targetArch,
     expectedUpdateChannel: expectedUpdateChannel ?? undefined,

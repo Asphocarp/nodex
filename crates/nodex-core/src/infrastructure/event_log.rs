@@ -1585,7 +1585,7 @@ mod tests {
         module_name: &str,
         entry: NewChangeLogEntry<'_>,
     ) -> Result<i64, StoreError> {
-        append_finalized_test_event_with_revocations(connection, module_name, entry, &[])
+        append_finalized_test_events_with_revocations(connection, module_name, vec![entry], &[])
     }
 
     fn append_finalized_test_event_with_revocations(
@@ -1594,14 +1594,48 @@ mod tests {
         entry: NewChangeLogEntry<'_>,
         revocations: &[ResourceRevocation],
     ) -> Result<i64, StoreError> {
+        append_finalized_test_events_with_revocations(
+            connection,
+            module_name,
+            vec![entry],
+            revocations,
+        )
+    }
+
+    fn append_finalized_test_events(
+        connection: &Connection,
+        module_name: &str,
+        entries: Vec<NewChangeLogEntry<'_>>,
+    ) -> Result<i64, StoreError> {
+        append_finalized_test_events_with_revocations(connection, module_name, entries, &[])
+    }
+
+    fn append_finalized_test_events_with_revocations(
+        connection: &Connection,
+        module_name: &str,
+        entries: Vec<NewChangeLogEntry<'_>>,
+        revocations: &[ResourceRevocation],
+    ) -> Result<i64, StoreError> {
         let _ = store_identity(connection)?;
-        let operation_id = entry
+        let first = entries
+            .first()
+            .ok_or_else(|| corrupt("Test LocalCommit needs at least one effect"))?;
+        let operation_id = first
             .operation_id
             .ok_or_else(|| corrupt("Test LocalCommit needs an operation identity"))?
             .to_owned();
-        let store_epoch = entry.store_epoch.to_owned();
-        let project_id = entry.project_id.to_owned();
-        let committed_at = entry.committed_at.to_owned();
+        let store_epoch = first.store_epoch.to_owned();
+        let project_id = first.project_id.to_owned();
+        let committed_at = first.committed_at.to_owned();
+        for entry in &entries {
+            if entry.operation_id != Some(operation_id.as_str())
+                || entry.project_id != project_id
+                || entry.store_epoch != store_epoch
+                || entry.committed_at != committed_at
+            {
+                return Err(corrupt("Test LocalCommit effects must share one identity"));
+            }
+        }
         let request_hash = format!(
             "{:x}",
             Sha256::digest(format!("{module_name}\0{operation_id}").as_bytes())
@@ -1613,7 +1647,12 @@ mod tests {
             &request_hash,
             &committed_at,
         )?;
-        let event_sequence = append_change_log(connection, entry, &commit)?;
+        let mut event_sequence = None;
+        for entry in entries {
+            event_sequence = Some(append_change_log(connection, entry, &commit)?);
+        }
+        let event_sequence =
+            event_sequence.ok_or_else(|| corrupt("Test LocalCommit needs at least one effect"))?;
         for revocation in revocations {
             local_commit::record_revocation(connection, &commit, revocation)?;
         }
@@ -1641,6 +1680,63 @@ mod tests {
         )?;
         local_commit::finalize(connection, &commit)?;
         Ok(event_sequence)
+    }
+
+    #[test]
+    fn test_local_commit_fixture_rejects_mixed_store_epochs_before_allocation() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                let (store_epoch, _) = store_identity(connection)?;
+                let other_store_epoch = format!("{store_epoch}:other");
+                let before: i64 =
+                    connection
+                        .query_row("SELECT count(*) FROM local_commits", [], |row| row.get(0))?;
+                let error = append_finalized_test_events(
+                    connection,
+                    "library",
+                    vec![
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: &store_epoch,
+                            kind: "library.changed",
+                            operation_id: Some("fixture:mixed-epoch"),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: "{}",
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-01-01",
+                        },
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: &other_store_epoch,
+                            kind: "library.changed",
+                            operation_id: Some("fixture:mixed-epoch"),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: "{}",
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-01-01",
+                        },
+                    ],
+                )
+                .expect_err("mixed Store epochs");
+                assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+                assert_eq!(
+                    error.message,
+                    "Test LocalCommit effects must share one identity"
+                );
+                let after: i64 =
+                    connection
+                        .query_row("SELECT count(*) FROM local_commits", [], |row| row.get(0))?;
+                assert_eq!(after, before);
+                Ok(())
+            })
+            .expect("fixture identity validation");
     }
 
     #[test]
@@ -1847,8 +1943,9 @@ mod tests {
                      VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
                     [],
                 )?;
-                for (kind, operation_id, payload) in [
+                for (module_name, kind, operation_id, payload) in [
                     (
+                        "library",
                         "library.changed",
                         "library:event",
                         serde_json::json!({
@@ -1859,6 +1956,7 @@ mod tests {
                         }),
                     ),
                     (
+                        "database",
                         "database.changed",
                         "database:event",
                         serde_json::json!({
@@ -1880,17 +1978,24 @@ mod tests {
                         }),
                     ),
                 ] {
-                    connection.execute(
-                        "INSERT INTO change_log(\
-                           project_id, store_epoch, kind, operation_id, payload_json, \
-                           projection_impact_json, committed_at\
-                         ) VALUES ('project:events', 'epoch:events', ?1, ?2, ?3, \
-                           '{\"kind\":\"none\"}', '2026-01-01')",
-                        params![kind, operation_id, payload.to_string()],
+                    let payload = payload.to_string();
+                    append_finalized_test_event(
+                        connection,
+                        module_name,
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: "epoch:events",
+                            kind,
+                            operation_id: Some(operation_id),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: &payload,
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-01-01",
+                        },
                     )?;
                 }
-                let _ = store_identity(connection)?;
-                local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
             .expect("event fixtures");
@@ -1936,30 +2041,50 @@ mod tests {
                      VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
                     [],
                 )?;
-                for (kind, page_id) in [
-                    ("library.changed", "page:source"),
-                    ("block_mutation", "page:target"),
-                ] {
-                    connection.execute(
-                        "INSERT INTO change_log(\
-                           project_id, store_epoch, kind, operation_id, payload_json, \
-                           projection_impact_json, committed_at\
-                         ) VALUES ('project:events', 'epoch:events', ?1, \
-                           'transfer:grouped', ?2, '{\"kind\":\"none\"}', '2026-01-01')",
-                        params![
-                            kind,
-                            serde_json::json!({
-                                "module": "library",
-                                "affectedPageIds": [page_id],
-                                "affectedDatabaseIds": [],
-                                "affectedParentKeys": ["library:events"]
-                            })
-                            .to_string()
-                        ],
-                    )?;
-                }
-                let _ = store_identity(connection)?;
-                local_commit::backfill(connection, &mut |_, _| {})?;
+                let source_payload = serde_json::json!({
+                    "module": "library",
+                    "affectedPageIds": ["page:source"],
+                    "affectedDatabaseIds": [],
+                    "affectedParentKeys": ["library:events"]
+                })
+                .to_string();
+                let target_payload = serde_json::json!({
+                    "module": "library",
+                    "affectedPageIds": ["page:target"],
+                    "affectedDatabaseIds": [],
+                    "affectedParentKeys": ["library:events"]
+                })
+                .to_string();
+                append_finalized_test_events(
+                    connection,
+                    "library",
+                    vec![
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: "epoch:events",
+                            kind: "library.changed",
+                            operation_id: Some("transfer:grouped"),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: &source_payload,
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-01-01",
+                        },
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: "epoch:events",
+                            kind: "block_mutation",
+                            operation_id: Some("transfer:grouped"),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: &target_payload,
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-01-01",
+                        },
+                    ],
+                )?;
                 Ok(())
             })
             .expect("grouped event fixture");
@@ -2143,22 +2268,29 @@ mod tests {
                      VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
                     [],
                 )?;
-                connection.execute(
-                    "INSERT INTO change_log(\
-                       project_id, store_epoch, kind, operation_id, payload_json, \
-                       projection_impact_json, committed_at\
-                     ) VALUES ('project:events', 'epoch:events', 'library.changed', \
-                       'transfer:epoch', ?1, '{\"kind\":\"none\"}', '2026-01-01')",
-                    [serde_json::json!({
-                        "module": "library",
-                        "affectedPageIds": ["page:one"],
-                        "affectedDatabaseIds": [],
-                        "affectedParentKeys": ["library:events"]
-                    })
-                    .to_string()],
+                let payload = serde_json::json!({
+                    "module": "library",
+                    "affectedPageIds": ["page:one"],
+                    "affectedDatabaseIds": [],
+                    "affectedParentKeys": ["library:events"]
+                })
+                .to_string();
+                append_finalized_test_event(
+                    connection,
+                    "library",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: "epoch:events",
+                        kind: "library.changed",
+                        operation_id: Some("transfer:epoch"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: &payload,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-01-01",
+                    },
                 )?;
-                let _ = store_identity(connection)?;
-                local_commit::backfill(connection, &mut |_, _| {})?;
                 connection.execute(
                     "UPDATE local_commit_effects SET store_epoch = 'epoch:other'",
                     [],
@@ -2182,26 +2314,31 @@ mod tests {
                     [],
                 )?;
                 for index in 0..3 {
-                    connection.execute(
-                        "INSERT INTO change_log(\
-                           project_id, store_epoch, kind, operation_id, payload_json, \
-                           projection_impact_json, committed_at\
-                         ) VALUES ('project:events', 'epoch:events', 'library.changed', ?1, ?2, \
-                           '{\"kind\":\"none\"}', '2026-01-01')",
-                        params![
-                            format!("library:event:{index}"),
-                            serde_json::json!({
-                                "module": "library",
-                                "affectedPageIds": [format!("page:{index}")],
-                                "affectedDatabaseIds": [],
-                                "affectedParentKeys": ["library:events"]
-                            })
-                            .to_string()
-                        ],
+                    let operation_id = format!("library:event:{index}");
+                    let payload = serde_json::json!({
+                        "module": "library",
+                        "affectedPageIds": [format!("page:{index}")],
+                        "affectedDatabaseIds": [],
+                        "affectedParentKeys": ["library:events"]
+                    })
+                    .to_string();
+                    append_finalized_test_event(
+                        connection,
+                        "library",
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: "epoch:events",
+                            kind: "library.changed",
+                            operation_id: Some(&operation_id),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: &payload,
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-01-01",
+                        },
                     )?;
                 }
-                let _ = store_identity(connection)?;
-                local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
             .expect("event fixtures");
@@ -2263,25 +2400,32 @@ mod tests {
                      VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
                     [],
                 )?;
-                connection.execute(
-                    "INSERT INTO change_log(\
-                       project_id, store_epoch, kind, operation_id, payload_json, \
-                       projection_impact_json, committed_at\
-                     ) VALUES ('project:events', 'epoch:events', 'project_workspace.changed', \
-                       'workspace:legacy-move', ?1, '{\"kind\":\"none\"}', '2026-01-01')",
-                    [serde_json::json!({
-                        "module": "project_workspace",
-                        "operationKind": "move_session",
-                        "kind": "workspace_changed",
-                        "projectCatalogChanged": false,
-                        "projectIds": ["project:events"],
-                        "sessionIds": ["session:legacy"],
-                        "threadIds": []
-                    })
-                    .to_string()],
+                let payload = serde_json::json!({
+                    "module": "project_workspace",
+                    "operationKind": "move_session",
+                    "kind": "workspace_changed",
+                    "projectCatalogChanged": false,
+                    "projectIds": ["project:events"],
+                    "sessionIds": ["session:legacy"],
+                    "threadIds": []
+                })
+                .to_string();
+                append_finalized_test_event(
+                    connection,
+                    "project_workspace",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: "epoch:events",
+                        kind: "project_workspace.changed",
+                        operation_id: Some("workspace:legacy-move"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: &payload,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-01-01",
+                    },
                 )?;
-                let _ = store_identity(connection)?;
-                local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
             .expect("legacy event fixture");

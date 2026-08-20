@@ -11,17 +11,14 @@ use nodex_core_contracts::events::{
 use nodex_core_contracts::{CORE_EVENT_VERSION, ModuleName, StoreEpoch};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::migration_progress::report_bounded_progress;
 use super::projection_impact::{canonicalize, decode, encode};
 use super::projection_scope_head;
 use super::sqlite::{StoreError, StoreErrorCode};
 
 const CANONICAL_HASH_VERSION: u32 = 7;
 const PROJECTION_SCHEMA_VERSION: u32 = 1;
-const MIGRATION_BATCH_SIZE: i64 = 512;
 const PHYSICAL_EFFECT_EVIDENCE_SQL: &str =
     "SELECT effect.effect_order, effect.change_log_seq, effect.project_id,
             change.project_id, effect.module_name, effect.effect_kind,
@@ -58,10 +55,6 @@ const CANONICAL_DELIVERY_ATOMS_SQL: &str =
      FROM local_commit_delivery_atoms
      WHERE store_epoch = ?1 AND commit_seq = ?2
      ORDER BY atom_order ASC";
-const MIGRATED_RECEIPT_SQL: &str = "SELECT module_name, operation_id, result_json, request_hash
-     FROM core_module_receipts
-     WHERE store_epoch = ?1 AND local_commit_seq = ?2
-     ORDER BY module_name LIMIT 1";
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 struct CommitCursor {
@@ -323,24 +316,6 @@ pub(crate) type PhysicalEffectEvidence = (
     String,
     ProjectionImpact,
 );
-
-type MigratedEffectRow = (
-    i64,
-    i64,
-    String,
-    String,
-    Option<String>,
-    String,
-    Option<String>,
-    String,
-    String,
-    Option<String>,
-);
-
-struct MigratedReceiptEvidence {
-    receipt: LocalCommitReceiptRef,
-    intent_hash: Option<String>,
-}
 
 pub(super) fn allocate(
     connection: &Connection,
@@ -846,13 +821,6 @@ fn validate_and_clear_relocation_obligations(
     connection: &Connection,
     context: &CommitContext,
 ) -> Result<(), StoreError> {
-    let schema_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    if schema_version < 120 {
-        // Historical migrations seal LocalCommits before the v120 relocation
-        // ledger exists. Current stores are validated to contain the ledger
-        // before they can accept ordinary writer traffic.
-        return Ok(());
-    }
     let obligations = connection
         .prepare(
             "SELECT block_id, source_document_id \
@@ -991,40 +959,22 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
         .map_err(|_| corrupt("LocalCommit projection is invalid"))?;
     let audience_json =
         serde_json::to_string(&audience).map_err(|_| corrupt("LocalCommit audience is invalid"))?;
-    let changed = if has_manifest_column(connection)? {
-        connection.execute(
-            "UPDATE local_commits
-             SET projection_impact_json = ?1, projection_json = ?2,
-                 audience_json = ?3, canonical_hash = ?4, manifest_json = ?5,
-                 finalized = 1
-             WHERE store_epoch = ?6 AND commit_seq = ?7 AND finalized = 0",
-            params![
-                encode(&impact)?,
-                projection_json,
-                audience_json,
-                manifest.identity.manifest_hash,
-                serde_json::to_string(&manifest)
-                    .map_err(|_| corrupt("CommitManifest is invalid"))?,
-                context.store_epoch,
-                context.commit_seq,
-            ],
-        )?
-    } else {
-        connection.execute(
-            "UPDATE local_commits
-             SET projection_impact_json = ?1, projection_json = ?2,
-                 audience_json = ?3, canonical_hash = ?4, finalized = 1
-             WHERE store_epoch = ?5 AND commit_seq = ?6 AND finalized = 0",
-            params![
-                encode(&impact)?,
-                projection_json,
-                audience_json,
-                manifest.identity.manifest_hash,
-                context.store_epoch,
-                context.commit_seq,
-            ],
-        )?
-    };
+    let changed = connection.execute(
+        "UPDATE local_commits
+         SET projection_impact_json = ?1, projection_json = ?2,
+             audience_json = ?3, canonical_hash = ?4, manifest_json = ?5,
+             finalized = 1
+         WHERE store_epoch = ?6 AND commit_seq = ?7 AND finalized = 0",
+        params![
+            encode(&impact)?,
+            projection_json,
+            audience_json,
+            manifest.identity.manifest_hash,
+            serde_json::to_string(&manifest).map_err(|_| corrupt("CommitManifest is invalid"))?,
+            context.store_epoch,
+            context.commit_seq,
+        ],
+    )?;
     if changed != 1 {
         return Err(corrupt("LocalCommit finalization lost its open parent"));
     }
@@ -1144,33 +1094,28 @@ pub(crate) fn read_commit(
     connection: &Connection,
     commit_seq: i64,
 ) -> Result<Option<LocalCommitRow>, StoreError> {
-    let manifest_column = has_manifest_column(connection)?;
-    let query = if manifest_column {
-        "SELECT commit_seq, store_epoch, operation_id, intent_hash, committed_at,
-                projection_json, receipt_json, audience_json, canonical_hash,
-                manifest_json
-         FROM local_commits WHERE commit_seq = ?1 AND finalized = 1"
-    } else {
-        "SELECT commit_seq, store_epoch, operation_id, intent_hash, committed_at,
-                projection_json, receipt_json, audience_json, canonical_hash,
-                NULL
-         FROM local_commits WHERE commit_seq = ?1 AND finalized = 1"
-    };
     let raw = connection
-        .query_row(query, [commit_seq], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?,
-                row.get::<_, Option<String>>(9)?,
-            ))
-        })
+        .query_row(
+            "SELECT commit_seq, store_epoch, operation_id, intent_hash, committed_at,
+                    projection_json, receipt_json, audience_json, canonical_hash,
+                    manifest_json
+             FROM local_commits WHERE commit_seq = ?1 AND finalized = 1",
+            [commit_seq],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                ))
+            },
+        )
         .optional()?;
     let Some((
         commit_seq,
@@ -1516,604 +1461,7 @@ pub(crate) fn read_manifest(
     load_verified_commit(connection, commit_seq).map(|verified| verified.manifest)
 }
 
-/// Explicit historical migration helper. Live writers must never group by an
-/// ambient operation id; this function is only called while rebuilding a
-/// pre-v105 ledger or in fixtures which model such a store.
-pub(crate) fn backfill(
-    connection: &Connection,
-    progress: &mut dyn FnMut(u64, u64),
-) -> Result<(), StoreError> {
-    let has_v105: i64 = connection.query_row(
-        "SELECT count(*) FROM pragma_table_info('local_commits') WHERE name = 'intent_hash'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_v105 == 0 {
-        return backfill_v102_rows_paged(connection, progress);
-    }
-
-    #[cfg(not(test))]
-    return Err(corrupt(
-        "Current LocalCommit schema cannot backfill unindexed physical history",
-    ));
-
-    #[cfg(test)]
-    backfill_current_test_ledger(connection)
-}
-
-#[cfg(test)]
-fn backfill_current_test_ledger(connection: &Connection) -> Result<(), StoreError> {
-    let rows = read_legacy_backfill_batch(connection, 0, i64::MAX)?;
-    if rows.is_empty() {
-        return Ok(());
-    }
-
-    let mut grouped = BTreeMap::<(String, String), Vec<_>>::new();
-    for row in rows {
-        let operation_id = row
-            .4
-            .clone()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| format!("change-log:{}", row.0));
-        grouped
-            .entry((row.2.clone(), operation_id))
-            .or_default()
-            .push(row);
-    }
-    let mut grouped = grouped.into_iter().collect::<Vec<_>>();
-    grouped.sort_by_key(|(_, rows)| rows.first().map_or(i64::MAX, |row| row.0));
-    for ((store_epoch, operation_id), rows) in grouped {
-        let committed_at = rows
-            .first()
-            .map(|row| row.10.clone())
-            .ok_or_else(|| corrupt("Historical LocalCommit group is empty"))?;
-        let intent_hash = sha256(format!("historical\0{operation_id}").as_bytes());
-        let context = allocate(
-            connection,
-            &store_epoch,
-            &operation_id,
-            &intent_hash,
-            &committed_at,
-        )?;
-        for row in &rows {
-            let resources = PhysicalEffectResources {
-                block_ids: decode_json(&row.5, "Historical Block resources")?,
-                document_ids: decode_json(
-                    row.6.as_deref().unwrap_or("[]"),
-                    "Historical Document resources",
-                )?,
-                database_ids: decode_json(&row.7, "Historical Database resources")?,
-            };
-            let impact = row
-                .9
-                .as_deref()
-                .map(decode)
-                .transpose()?
-                .unwrap_or(ProjectionImpact::None);
-            record_effect(
-                connection,
-                &context,
-                RegisteredPhysicalEffect {
-                    change_log_seq: row.0,
-                    project_id: &row.1,
-                    module: module_from_kind(&row.3)?,
-                    kind: &row.3,
-                    operation_id: row.4.as_deref(),
-                    resources: &resources,
-                    payload_hash: &sha256(row.8.as_bytes()),
-                    projection_impact: &impact,
-                },
-            )?;
-            record_historical_document_effect(connection, &context, &row.1, &row.8)?;
-        }
-        let module = module_from_kind(
-            rows.last()
-                .map(|row| row.3.as_str())
-                .ok_or_else(|| corrupt("Historical LocalCommit effect is missing"))?,
-        )?;
-        record_receipt(
-            connection,
-            &context,
-            &LocalCommitReceiptRef {
-                module,
-                operation_id: operation_id.clone(),
-                result_hash: sha256(format!("historical-receipt\0{operation_id}").as_bytes()),
-            },
-        )?;
-        seal(connection, &context)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn upgrade_v105_manifest(
-    connection: &Connection,
-    progress: &mut dyn FnMut(u64, u64),
-) -> Result<(), StoreError> {
-    let total = u64::try_from(connection.query_row(
-        "SELECT count(*) FROM local_commits",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?)
-    .map_err(|_| corrupt("LocalCommit migration count is invalid"))?;
-    let mut progress_step = 0;
-    let mut completed = 0_usize;
-    let mut after_commit_seq = 0;
-    loop {
-        let commits = connection
-            .prepare_cached(
-                "SELECT store_epoch, commit_seq, operation_id, committed_at
-                 FROM local_commits WHERE commit_seq > ?1
-                 ORDER BY commit_seq ASC LIMIT ?2",
-            )?
-            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if commits.is_empty() {
-            break;
-        }
-        for (store_epoch, commit_seq, operation_id, committed_at) in commits {
-            after_commit_seq = commit_seq;
-            connection.execute(
-                "UPDATE local_commits SET finalized = 0
-             WHERE store_epoch = ?1 AND commit_seq = ?2",
-                params![store_epoch, commit_seq],
-            )?;
-            let effects = connection
-                .prepare_cached(
-                    "SELECT effect.effect_order, effect.change_log_seq, change.project_id,
-                        change.kind, change.operation_id, change.block_ids_json,
-                        change.document_ids_json, change.database_block_ids_json,
-                        change.payload_json, change.projection_impact_json
-                 FROM local_commit_effects effect
-                 JOIN change_log change ON change.seq = effect.change_log_seq
-                 WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
-                 ORDER BY effect.effect_order",
-                )?
-                .query_map(params![store_epoch, commit_seq], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, String>(7)?,
-                        row.get::<_, String>(8)?,
-                        row.get::<_, Option<String>>(9)?,
-                    ))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            for effect in &effects {
-                let resources = PhysicalEffectResources {
-                    block_ids: decode_json(&effect.5, "Migrated Block resources")?,
-                    document_ids: decode_json(
-                        effect.6.as_deref().unwrap_or("[]"),
-                        "Migrated Document resources",
-                    )?,
-                    database_ids: decode_json(&effect.7, "Migrated Database resources")?,
-                };
-                let impact = effect
-                    .9
-                    .as_deref()
-                    .map(decode)
-                    .transpose()?
-                    .unwrap_or(ProjectionImpact::None);
-                connection.execute(
-                    "UPDATE local_commit_effects
-                 SET module_name = ?1, effect_kind = ?2, project_id = ?3,
-                     resources_json = ?4, payload_hash = ?5,
-                     projection_impact_json = ?6
-                 WHERE store_epoch = ?7 AND commit_seq = ?8 AND effect_order = ?9",
-                    params![
-                        module_name(module_from_kind(&effect.3)?),
-                        effect.3,
-                        effect.2,
-                        serde_json::to_string(&resources)
-                            .map_err(|_| corrupt("Migrated effect resources are invalid"))?,
-                        sha256(effect.8.as_bytes()),
-                        encode(&impact)?,
-                        store_epoch,
-                        commit_seq,
-                        effect.0,
-                    ],
-                )?;
-            }
-
-            let coordinate = CommitCoordinate::new(&store_epoch, commit_seq);
-            enrich_migrated_documents(connection, coordinate)?;
-            let migrated = migrated_receipt(connection, coordinate, &operation_id, &effects)?;
-            let receipt = migrated.receipt;
-            let intent_hash = migrated
-                .intent_hash
-                .unwrap_or_else(|| sha256(format!("historical\0{operation_id}").as_bytes()));
-            connection.execute(
-                "UPDATE local_commits SET intent_hash = ?1, receipt_json = ?2,
-                    projection_json = '{}', audience_json = '{}', canonical_hash = ?3
-             WHERE store_epoch = ?4 AND commit_seq = ?5",
-                params![
-                    intent_hash,
-                    serde_json::to_string(&receipt)
-                        .map_err(|_| corrupt("Migrated receipt is invalid"))?,
-                    empty_hash(),
-                    store_epoch,
-                    commit_seq,
-                ],
-            )?;
-            let context = CommitContext {
-                commit_seq,
-                store_epoch,
-                operation_id,
-                intent_hash,
-                committed_at,
-            };
-            seal(connection, &context)?;
-            report_migration_progress(progress, completed, total, &mut progress_step);
-            completed = completed.saturating_add(1);
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn upgrade_v106_manifest(
-    connection: &Connection,
-    progress: &mut dyn FnMut(u64, u64),
-) -> Result<(), StoreError> {
-    let total = u64::try_from(connection.query_row(
-        "SELECT count(*) FROM local_commits",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?)
-    .map_err(|_| corrupt("LocalCommit migration count is invalid"))?;
-    let mut progress_step = 0;
-    let mut completed = 0_usize;
-    let mut after_commit_seq = 0;
-    loop {
-        let commits = connection
-            .prepare_cached(
-                "SELECT store_epoch, commit_seq, operation_id, intent_hash, committed_at
-                 FROM local_commits WHERE commit_seq > ?1
-                 ORDER BY commit_seq ASC LIMIT ?2",
-            )?
-            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if commits.is_empty() {
-            break;
-        }
-        for (store_epoch, commit_seq, operation_id, intent_hash, committed_at) in commits {
-            after_commit_seq = commit_seq;
-            connection.execute(
-                "UPDATE local_commits
-             SET finalized = 0, manifest_json = '{}'
-             WHERE store_epoch = ?1 AND commit_seq = ?2",
-                params![store_epoch, commit_seq],
-            )?;
-            let context = CommitContext {
-                commit_seq,
-                store_epoch,
-                operation_id,
-                intent_hash,
-                committed_at,
-            };
-            let mut projection = draft_projection(connection, &context)?;
-            projection.effects.clear();
-            write_projection(connection, &context, &projection)?;
-            seal(connection, &context)?;
-            report_migration_progress(progress, completed, total, &mut progress_step);
-            completed = completed.saturating_add(1);
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn upgrade_v108_manifest(
-    connection: &Connection,
-    progress: &mut dyn FnMut(u64, u64),
-) -> Result<(), StoreError> {
-    let total = u64::try_from(connection.query_row(
-        "SELECT count(*) FROM local_commits WHERE finalized = 1",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?)
-    .map_err(|_| corrupt("LocalCommit migration count is invalid"))?;
-    let mut progress_step = 0;
-    let mut completed = 0_usize;
-    let mut after_commit_seq = 0;
-    loop {
-        let sequences = connection
-            .prepare_cached(
-                "SELECT commit_seq FROM local_commits
-                 WHERE finalized = 1 AND commit_seq > ?1
-                 ORDER BY commit_seq ASC LIMIT ?2",
-            )?
-            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
-                row.get::<_, i64>(0)
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if sequences.is_empty() {
-            break;
-        }
-        for commit_seq in sequences {
-            after_commit_seq = commit_seq;
-            let row = read_commit(connection, commit_seq)?
-                .ok_or_else(|| corrupt("Migrated LocalCommit is missing"))?;
-            let context = CommitContext {
-                commit_seq: row.commit_seq,
-                store_epoch: row.store_epoch.clone(),
-                operation_id: row.operation_id.clone(),
-                intent_hash: row.intent_hash.clone(),
-                committed_at: row.committed_at.clone(),
-            };
-            let coordinate = context.coordinate();
-            let effects = canonical_effects(connection, coordinate)?;
-            let library_effects = canonical_library_effects(connection, coordinate)?;
-            let atoms = canonical_delivery_atoms(connection, &context)?;
-            let documents = canonical_document_effects(connection, coordinate)?;
-            let revocations = canonical_revocations(connection, coordinate)?;
-            let visibility_deltas = canonical_visibility_deltas(connection, coordinate)?;
-            let manifest = compile_manifest(
-                &context,
-                ManifestEvidence {
-                    effects: &effects,
-                    library_effects: &library_effects,
-                    atoms: &atoms,
-                    documents: &documents,
-                    projection: &row.projection,
-                    visibility_deltas: &visibility_deltas,
-                    revocations: &revocations,
-                    receipt: &row.receipt,
-                    audience: &row.audience,
-                },
-            )?;
-            connection.execute(
-                "UPDATE local_commits SET canonical_hash = ?1, manifest_json = ?2
-                 WHERE store_epoch = ?3 AND commit_seq = ?4 AND finalized = 1",
-                params![
-                    manifest.identity.manifest_hash,
-                    serde_json::to_string(&manifest)
-                        .map_err(|_| corrupt("Migrated CommitManifest is invalid"))?,
-                    context.store_epoch,
-                    context.commit_seq,
-                ],
-            )?;
-            report_migration_progress(progress, completed, total, &mut progress_step);
-            completed = completed.saturating_add(1);
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn upgrade_v109_manifest(
-    connection: &Connection,
-    progress: &mut dyn FnMut(u64, u64),
-) -> Result<(), StoreError> {
-    // v108 manifests use the superseded generic SemanticEffect shape and
-    // cannot be decoded as v109. Their canonical source rows remain intact;
-    // clear only the derived manifest cache before rebuilding it.
-    connection.execute(
-        "UPDATE local_commits SET manifest_json = '{}' WHERE finalized = 1",
-        [],
-    )?;
-    let total = u64::try_from(connection.query_row(
-        "SELECT count(*) FROM local_commits WHERE finalized = 1",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?)
-    .map_err(|_| corrupt("DeliveryAtom migration count is invalid"))?;
-    let mut progress_step = 0;
-    let mut completed = 0_usize;
-    let mut after_commit_seq = 0;
-    loop {
-        let sequences = connection
-            .prepare_cached(
-                "SELECT commit_seq FROM local_commits
-                 WHERE finalized = 1 AND commit_seq > ?1
-                 ORDER BY commit_seq ASC LIMIT ?2",
-            )?
-            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
-                row.get::<_, i64>(0)
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if sequences.is_empty() {
-            break;
-        }
-        for commit_seq in sequences {
-            after_commit_seq = commit_seq;
-            let row = read_commit(connection, commit_seq)?
-                .ok_or_else(|| corrupt("Migrated LocalCommit is missing"))?;
-            let context = CommitContext {
-                commit_seq: row.commit_seq,
-                store_epoch: row.store_epoch.clone(),
-                operation_id: row.operation_id.clone(),
-                intent_hash: row.intent_hash.clone(),
-                committed_at: row.committed_at.clone(),
-            };
-            connection.execute(
-                "UPDATE local_commits SET finalized = 0, manifest_json = '{}'
-                 WHERE store_epoch = ?1 AND commit_seq = ?2 AND finalized = 1",
-                params![context.store_epoch, context.commit_seq],
-            )?;
-            connection.execute(
-                "DELETE FROM local_commit_delivery_atoms
-                 WHERE store_epoch = ?1 AND commit_seq = ?2",
-                params![context.store_epoch, context.commit_seq],
-            )?;
-            let physical = physical_effect_evidence(connection, context.coordinate())?;
-            for (_, change_log_seq, project_id, _, _, _, _, _, _) in &physical {
-                let event = super::event_log::load_committed_event_by_sequence(
-                    connection,
-                    *change_log_seq,
-                )?;
-                let drafts = super::delivery_atom::compile(
-                    connection,
-                    &row.audience.library_id,
-                    project_id,
-                    event.payload,
-                )?;
-                record_delivery_atoms(connection, &context, drafts)?;
-            }
-            let effects = canonical_effects_from_evidence(&physical)?;
-            let library_effects = canonical_library_effects(connection, context.coordinate())?;
-            let atoms = canonical_delivery_atoms(connection, &context)?;
-            let documents = canonical_document_effects(connection, context.coordinate())?;
-            let revocations = canonical_revocations(connection, context.coordinate())?;
-            let visibility_deltas = canonical_visibility_deltas(connection, context.coordinate())?;
-            let manifest = compile_manifest(
-                &context,
-                ManifestEvidence {
-                    effects: &effects,
-                    library_effects: &library_effects,
-                    atoms: &atoms,
-                    documents: &documents,
-                    projection: &row.projection,
-                    visibility_deltas: &visibility_deltas,
-                    revocations: &revocations,
-                    receipt: &row.receipt,
-                    audience: &row.audience,
-                },
-            )?;
-            let changed = connection.execute(
-                "UPDATE local_commits
-                 SET canonical_hash = ?1, manifest_json = ?2, finalized = 1
-                 WHERE store_epoch = ?3 AND commit_seq = ?4 AND finalized = 0",
-                params![
-                    manifest.identity.manifest_hash,
-                    serde_json::to_string(&manifest)
-                        .map_err(|_| corrupt("Migrated CommitManifest is invalid"))?,
-                    context.store_epoch,
-                    context.commit_seq,
-                ],
-            )?;
-            if changed != 1 {
-                return Err(corrupt(
-                    "DeliveryAtom migration lost its LocalCommit parent",
-                ));
-            }
-            report_migration_progress(progress, completed, total, &mut progress_step);
-            completed = completed.saturating_add(1);
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn upgrade_v110_manifest(
-    connection: &Connection,
-    progress: &mut dyn FnMut(u64, u64),
-) -> Result<(), StoreError> {
-    // Pre-v105 histories are resealed after the current child tables are installed,
-    // so that earlier migration stage can already have populated these derived rows.
-    // Rebuild them from the sealed projection effects while preserving the strict
-    // duplicate guard used by live commits.
-    connection.execute("DELETE FROM local_commit_sealed_projection_effects", [])?;
-    let total = u64::try_from(connection.query_row(
-        "SELECT count(*) FROM local_commits WHERE finalized = 1",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?)
-    .map_err(|_| corrupt("Visibility evidence migration count is invalid"))?;
-    let mut progress_step = 0;
-    let mut completed = 0_usize;
-    let mut after_commit_seq = 0;
-    loop {
-        let sequences = connection
-            .prepare_cached(
-                "SELECT commit_seq FROM local_commits
-                 WHERE finalized = 1 AND commit_seq > ?1
-                 ORDER BY commit_seq ASC LIMIT ?2",
-            )?
-            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
-                row.get::<_, i64>(0)
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if sequences.is_empty() {
-            break;
-        }
-        for commit_seq in sequences {
-            after_commit_seq = commit_seq;
-            let row = read_commit(connection, commit_seq)?
-                .ok_or_else(|| corrupt("Migrated LocalCommit is missing"))?;
-            let context = CommitContext {
-                commit_seq: row.commit_seq,
-                store_epoch: row.store_epoch.clone(),
-                operation_id: row.operation_id.clone(),
-                intent_hash: row.intent_hash.clone(),
-                committed_at: row.committed_at.clone(),
-            };
-            let descriptors = sealed_projection_effects(&row.projection.effects)?;
-            persist_sealed_projection_effects(connection, &context, &descriptors)?;
-            let coordinate = context.coordinate();
-            let effects = canonical_effects(connection, coordinate)?;
-            let library_effects = canonical_library_effects(connection, coordinate)?;
-            let atoms = canonical_delivery_atoms(connection, &context)?;
-            let documents = canonical_document_effects(connection, coordinate)?;
-            let revocations = canonical_revocations(connection, coordinate)?;
-            let visibility_deltas = canonical_visibility_deltas(connection, coordinate)?;
-            let manifest = compile_manifest(
-                &context,
-                ManifestEvidence {
-                    effects: &effects,
-                    library_effects: &library_effects,
-                    atoms: &atoms,
-                    documents: &documents,
-                    projection: &row.projection,
-                    visibility_deltas: &visibility_deltas,
-                    revocations: &revocations,
-                    receipt: &row.receipt,
-                    audience: &row.audience,
-                },
-            )?;
-            let changed = connection.execute(
-                "UPDATE local_commits SET canonical_hash = ?1, manifest_json = ?2
-                 WHERE store_epoch = ?3 AND commit_seq = ?4 AND finalized = 1",
-                params![
-                    manifest.identity.manifest_hash,
-                    serde_json::to_string(&manifest)
-                        .map_err(|_| corrupt("Migrated CommitManifest is invalid"))?,
-                    context.store_epoch,
-                    context.commit_seq,
-                ],
-            )?;
-            if changed != 1 {
-                return Err(corrupt(
-                    "Visibility evidence migration lost its LocalCommit parent",
-                ));
-            }
-            report_migration_progress(progress, completed, total, &mut progress_step);
-            completed = completed.saturating_add(1);
-        }
-    }
-    Ok(())
-}
-
-fn report_migration_progress(
-    progress: &mut dyn FnMut(u64, u64),
-    completed_index: usize,
-    total: u64,
-    reported_step: &mut u64,
-) {
-    if total == 0 {
-        return;
-    }
-    let completed = u64::try_from(completed_index)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    report_bounded_progress(progress, completed, total, reported_step);
-}
-
+/// Rebinds finalized commit evidence after a Store replacement rotates epoch.
 pub(crate) fn rebase_store_epoch(
     connection: &Connection,
     store_epoch: &str,
@@ -2141,8 +1489,8 @@ pub(crate) fn rebase_store_epoch(
     // physical evidence after rebasing instead of carrying stale identities
     // across the replacement boundary.
     connection.execute("DELETE FROM local_commit_delivery_atoms", [])?;
-    // Scope heads are derived chain tips. Replaying historical manifests against
-    // their final pre-rotation tip would make every non-tip effect look corrupt.
+    // Scope heads are derived chain tips. Replaying pre-rotation manifests against
+    // their final tip would make every non-tip effect look corrupt.
     // Rebuild the chain in commit order under the installed epoch instead.
     connection.execute("DELETE FROM projection_scope_heads", [])?;
     connection.execute(
@@ -2587,7 +1935,6 @@ fn derive_audience(
         .iter()
         .map(|effect| effect.project_id.clone())
         .chain(documents.iter().map(|effect| effect.project_id.clone()))
-        .filter(|project_id| project_id != "historical")
         .collect::<Vec<_>>();
     project_ids.sort();
     project_ids.dedup();
@@ -3277,418 +2624,6 @@ fn canonicalize_projection_scopes(scopes: &mut Vec<LocalProjectionScope>) {
     scopes.dedup();
 }
 
-fn enrich_migrated_documents(
-    connection: &Connection,
-    coordinate: CommitCoordinate<'_>,
-) -> Result<(), StoreError> {
-    let rows = connection
-        .prepare(
-            "SELECT document_id, generation, head_seq, update_id, update_hash
-             FROM local_commit_documents
-             WHERE store_epoch = ?1 AND commit_seq = ?2
-             ORDER BY document_id, generation, head_seq",
-        )?
-        .query_map(
-            params![coordinate.store_epoch, coordinate.commit_seq],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (order, row) in rows.into_iter().enumerate() {
-        let (document_id, generation, head_seq, update_id, update_hash) = row;
-        let Some(update_id) = update_id else {
-            connection.execute(
-                "DELETE FROM local_commit_documents
-                 WHERE store_epoch = ?1 AND commit_seq = ?2
-                   AND document_id = ?3 AND generation = ?4 AND head_seq = ?5",
-                params![
-                    coordinate.store_epoch,
-                    coordinate.commit_seq,
-                    document_id,
-                    generation,
-                    head_seq,
-                ],
-            )?;
-            continue;
-        };
-        let durable = connection
-            .query_row(
-                "SELECT receipt.update_hash, receipt.update_byte_length,
-                        receipt.base_head_seq,
-                        local_document.project_id, owner.id,
-                        CASE WHEN owner.type = 'page' THEN owner.id ELSE NULL END
-                 FROM document_update_receipts receipt
-                 JOIN local_commit_documents local_document
-                   ON local_document.store_epoch = ?5 AND local_document.commit_seq = ?6
-                  AND local_document.document_id = receipt.document_id
-                  AND local_document.generation = receipt.generation
-                  AND local_document.head_seq = receipt.seq
-                 LEFT JOIN block_documents ownership
-                   ON ownership.document_id = receipt.document_id
-                 LEFT JOIN blocks owner ON owner.id = ownership.block_id
-                 WHERE receipt.document_id = ?1 AND receipt.generation = ?2
-                   AND receipt.seq = ?3 AND receipt.update_id = ?4",
-                params![
-                    document_id,
-                    generation,
-                    head_seq,
-                    update_id,
-                    coordinate.store_epoch,
-                    coordinate.commit_seq,
-                ],
-                |query_row| {
-                    Ok((
-                        query_row.get::<_, String>(0)?,
-                        query_row.get::<_, i64>(1)?,
-                        query_row.get::<_, i64>(2)?,
-                        query_row.get::<_, String>(3)?,
-                        query_row.get::<_, Option<String>>(4)?,
-                        query_row.get::<_, Option<String>>(5)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((durable_hash, byte_length, base_head_seq, project_id, _, page_id)) = durable
-        else {
-            connection.execute(
-                "DELETE FROM local_commit_documents
-                 WHERE store_epoch = ?1 AND commit_seq = ?2
-                   AND document_id = ?3 AND generation = ?4 AND head_seq = ?5",
-                params![
-                    coordinate.store_epoch,
-                    coordinate.commit_seq,
-                    document_id,
-                    generation,
-                    head_seq,
-                ],
-            )?;
-            continue;
-        };
-        let retained_update = connection
-            .query_row(
-                "SELECT update_hash, length(update_blob), base_head_seq, update_id
-                 FROM document_updates
-                 WHERE document_id = ?1 AND generation = ?2 AND seq = ?3",
-                params![document_id, generation, head_seq],
-                |query_row| {
-                    Ok((
-                        query_row.get::<_, String>(0)?,
-                        query_row.get::<_, i64>(1)?,
-                        query_row.get::<_, i64>(2)?,
-                        query_row.get::<_, String>(3)?,
-                    ))
-                },
-            )
-            .optional()?;
-        if retained_update
-            .as_ref()
-            .is_some_and(|(hash, length, base, retained_id)| {
-                hash != &durable_hash
-                    || *length != byte_length
-                    || *base != base_head_seq
-                    || retained_id != &update_id
-            })
-        {
-            return Err(corrupt(
-                "Retained Document update diverges from its durable receipt",
-            ));
-        }
-        if update_hash
-            .as_deref()
-            .is_some_and(|hash| hash != durable_hash)
-        {
-            return Err(corrupt("Migrated LocalCommit Document hash diverges"));
-        }
-        connection.execute(
-            "UPDATE local_commit_documents
-             SET update_hash = ?1, document_order = ?2, project_id = ?3,
-                 page_id = ?4, base_head_seq = ?5, update_byte_length = ?6
-             WHERE store_epoch = ?7 AND commit_seq = ?8 AND document_id = ?9
-               AND generation = ?10 AND head_seq = ?11",
-            params![
-                durable_hash,
-                i64::try_from(order).map_err(|_| corrupt("Migrated Document order overflowed"))?,
-                project_id,
-                page_id,
-                base_head_seq,
-                byte_length,
-                coordinate.store_epoch,
-                coordinate.commit_seq,
-                document_id,
-                generation,
-                head_seq,
-            ],
-        )?;
-    }
-    Ok(())
-}
-
-fn migrated_receipt(
-    connection: &Connection,
-    coordinate: CommitCoordinate<'_>,
-    operation_id: &str,
-    effects: &[MigratedEffectRow],
-) -> Result<MigratedReceiptEvidence, StoreError> {
-    let stored = connection
-        .prepare_cached(MIGRATED_RECEIPT_SQL)?
-        .query_row(
-            params![coordinate.store_epoch, coordinate.commit_seq],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            },
-        )
-        .optional()?;
-    if let Some((module, receipt_operation_id, result_json, intent_hash)) = stored {
-        return Ok(MigratedReceiptEvidence {
-            receipt: LocalCommitReceiptRef {
-                module: parse_module(&module)?,
-                operation_id: receipt_operation_id,
-                result_hash: sha256(result_json.as_bytes()),
-            },
-            intent_hash: Some(intent_hash),
-        });
-    }
-    let module = effects
-        .last()
-        .map(|effect| module_from_kind(&effect.3))
-        .transpose()?
-        .unwrap_or(ModuleName::StoreAdministration);
-    Ok(MigratedReceiptEvidence {
-        receipt: LocalCommitReceiptRef {
-            module,
-            operation_id: operation_id.to_owned(),
-            result_hash: sha256(format!("historical-receipt\0{operation_id}").as_bytes()),
-        },
-        intent_hash: None,
-    })
-}
-
-#[cfg(test)]
-fn record_historical_document_effect(
-    connection: &Connection,
-    context: &CommitContext,
-    project_id: &str,
-    payload_json: &str,
-) -> Result<(), StoreError> {
-    let payload = serde_json::from_str::<Value>(payload_json)
-        .map_err(|_| corrupt("Historical LocalCommit payload is invalid"))?;
-    let Some(object) = payload.as_object() else {
-        return Ok(());
-    };
-    let (Some(document_id), Some(generation), Some(head_seq), Some(update_id), Some(update_hash)) = (
-        object.get("documentId").and_then(Value::as_str),
-        object.get("generation").and_then(Value::as_i64),
-        object.get("headSeq").and_then(Value::as_i64),
-        object.get("updateId").and_then(Value::as_str),
-        object.get("updateHash").and_then(Value::as_str),
-    ) else {
-        return Ok(());
-    };
-    let resource = connection
-        .query_row(
-            "SELECT base_head_seq, length(update_blob) FROM document_updates
-             WHERE document_id = ?1 AND generation = ?2 AND seq = ?3
-               AND update_id = ?4 AND update_hash = ?5",
-            params![document_id, generation, head_seq, update_id, update_hash],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .optional()?;
-    let Some((base_head_seq, update_byte_length)) = resource else {
-        return Ok(());
-    };
-    let page_id = connection
-        .query_row(
-            "SELECT block_id FROM block_documents WHERE document_id = ?1",
-            [document_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    record_document_effect(
-        connection,
-        context,
-        RegisteredDocumentEffect {
-            project_id,
-            page_id: page_id.as_deref(),
-            document_id,
-            generation,
-            base_head_seq,
-            head_seq,
-            update_id,
-            update_hash,
-            update_byte_length,
-        },
-    )?;
-    Ok(())
-}
-
-type LegacyBackfillRow = (
-    i64,
-    String,
-    String,
-    String,
-    Option<String>,
-    String,
-    Option<String>,
-    String,
-    String,
-    Option<String>,
-    String,
-);
-
-fn read_legacy_backfill_batch(
-    connection: &Connection,
-    after_change_log_seq: i64,
-    limit: i64,
-) -> Result<Vec<LegacyBackfillRow>, StoreError> {
-    connection
-        .prepare_cached(
-            "SELECT change.seq, change.project_id, change.store_epoch, change.kind,
-                    change.operation_id, change.block_ids_json, change.document_ids_json,
-                    change.database_block_ids_json, change.payload_json,
-                    change.projection_impact_json, change.committed_at
-             FROM change_log change
-             LEFT JOIN local_commit_effects effect ON effect.change_log_seq = change.seq
-             WHERE effect.change_log_seq IS NULL AND change.seq > ?1
-             ORDER BY change.seq ASC LIMIT ?2",
-        )?
-        .query_map(params![after_change_log_seq, limit], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?,
-                row.get::<_, Option<String>>(9)?,
-                row.get::<_, String>(10)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(StoreError::from)
-}
-
-fn backfill_v102_rows_paged(
-    connection: &Connection,
-    progress: &mut dyn FnMut(u64, u64),
-) -> Result<(), StoreError> {
-    let total = u64::try_from(connection.query_row(
-        "SELECT count(*)
-         FROM change_log change
-         LEFT JOIN local_commit_effects effect ON effect.change_log_seq = change.seq
-         WHERE effect.change_log_seq IS NULL",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?)
-    .map_err(|_| corrupt("Historical LocalCommit backfill count is invalid"))?;
-    if total == 0 {
-        return Ok(());
-    }
-
-    let mut after = 0;
-    let mut completed = 0_u64;
-    let mut reported_step = 0;
-    loop {
-        let rows = read_legacy_backfill_batch(connection, after, MIGRATION_BATCH_SIZE)?;
-        let Some(last) = rows.last() else {
-            break;
-        };
-        after = last.0;
-        let batch_len = rows.len();
-        backfill_v102_rows(connection, rows)?;
-        completed = completed.saturating_add(u64::try_from(batch_len).unwrap_or(u64::MAX));
-        report_bounded_progress(progress, completed, total, &mut reported_step);
-    }
-    if completed != total {
-        return Err(corrupt(
-            "Historical LocalCommit backfill did not cover its source rows",
-        ));
-    }
-    Ok(())
-}
-
-fn backfill_v102_rows(
-    connection: &Connection,
-    rows: Vec<LegacyBackfillRow>,
-) -> Result<(), StoreError> {
-    for row in rows {
-        let operation_id = row
-            .4
-            .clone()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| format!("change-log:{}", row.0));
-        connection.execute(
-            "INSERT OR IGNORE INTO local_commits(
-               store_epoch, operation_id, committed_at, projection_impact_json,
-               canonical_hash
-             ) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                row.2,
-                operation_id,
-                row.10,
-                row.9
-                    .unwrap_or_else(|| encode(&ProjectionImpact::None).unwrap_or_default()),
-                empty_hash(),
-            ],
-        )?;
-        let commit_seq: i64 = connection.query_row(
-            "SELECT commit_seq FROM local_commits
-             WHERE store_epoch = ?1 AND operation_id = ?2",
-            params![row.2, operation_id],
-            |query_row| query_row.get(0),
-        )?;
-        let effect_order: i64 = connection.query_row(
-            "SELECT COALESCE(MAX(effect_order), -1) + 1 FROM local_commit_effects
-             WHERE store_epoch = ?1 AND commit_seq = ?2",
-            params![row.2, commit_seq],
-            |query_row| query_row.get(0),
-        )?;
-        connection.execute(
-            "INSERT INTO local_commit_effects(
-               store_epoch, commit_seq, effect_order, change_log_seq
-             ) VALUES (?1, ?2, ?3, ?4)",
-            params![row.2, commit_seq, effect_order, row.0],
-        )?;
-        let payload = serde_json::from_str::<Value>(&row.8).unwrap_or(Value::Null);
-        if let (Some(document_id), Some(generation), Some(head_seq)) = (
-            payload.get("documentId").and_then(Value::as_str),
-            payload.get("generation").and_then(Value::as_i64),
-            payload.get("headSeq").and_then(Value::as_i64),
-        ) {
-            connection.execute(
-                "INSERT OR IGNORE INTO local_commit_documents(
-                   store_epoch, commit_seq, document_id, generation, head_seq,
-                   update_id, update_hash
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    row.2,
-                    commit_seq,
-                    document_id,
-                    generation,
-                    head_seq,
-                    payload.get("updateId").and_then(Value::as_str),
-                    payload.get("updateHash").and_then(Value::as_str),
-                ],
-            )?;
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn merge_projection_impact(
     left: ProjectionImpact,
     right: ProjectionImpact,
@@ -3814,17 +2749,6 @@ fn parse_module_sql(value: &str) -> rusqlite::Result<ModuleName> {
 
 fn decode_json<T: serde::de::DeserializeOwned>(raw: &str, label: &str) -> Result<T, StoreError> {
     serde_json::from_str(raw).map_err(|_| corrupt(&format!("{label} is invalid")))
-}
-
-fn has_manifest_column(connection: &Connection) -> Result<bool, StoreError> {
-    Ok(connection.query_row(
-        "SELECT EXISTS(
-           SELECT 1 FROM pragma_table_info('local_commits')
-           WHERE name = 'manifest_json'
-         )",
-        [],
-        |row| row.get::<_, i64>(0),
-    )? == 1)
 }
 
 fn validate_identity(value: &str, label: &str) -> Result<(), StoreError> {
@@ -4159,11 +3083,6 @@ mod tests {
                 );
                 assert!(!documents.contains("USE TEMP B-TREE"), "{documents}");
 
-                let receipt = query_plan(connection, MIGRATED_RECEIPT_SQL);
-                assert!(
-                    receipt.contains("idx_core_module_receipts_local_commit"),
-                    "receipt evidence lost its exact coordinate lookup:\n{receipt}",
-                );
                 Ok(())
             })
             .expect("LocalCommit query plans");
@@ -4175,98 +3094,6 @@ mod tests {
         assert!(valid_document_transition(1, 100, 101, 29));
         assert!(!valid_document_transition(1, 101, 101, 29));
         assert!(!valid_document_transition(1, 102, 101, 29));
-    }
-
-    #[test]
-    fn migrated_document_effects_use_receipts_after_update_compaction() {
-        let directory = tempdir().expect("Profile");
-        let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open_test(&home).expect("current Core store");
-
-        kernel
-            .writer()
-            .call(|connection| {
-                let store_epoch = connection
-                    .query_row(
-                        "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?
-                    .unwrap_or_else(|| "epoch:compacted".to_owned());
-                connection.execute(
-                    "INSERT OR IGNORE INTO block_store_metadata(
-                       id, store_epoch, created_at, updated_at
-                     ) VALUES (1, ?1, '2026-08-08', '2026-08-08')",
-                    [&store_epoch],
-                )?;
-                connection.execute_batch(
-                    "INSERT INTO profiles(id, created_at, updated_at)
-                     VALUES ('profile:compacted', '2026-08-08', '2026-08-08');
-                     INSERT INTO libraries(id, profile_id, created_at, updated_at)
-                     VALUES ('library:compacted', 'profile:compacted', '2026-08-08', '2026-08-08');
-                     INSERT INTO projects(id, library_id, name, created, updated)
-                     VALUES ('project:compacted', 'library:compacted', 'Compacted',
-                       '2026-08-08', '2026-08-08');",
-                )?;
-                connection.execute(
-                    "INSERT INTO documents(
-                       id, library_id, generation, head_seq, schema_key, schema_version,
-                       state_vector, readiness, authority, created_at, updated_at
-                     ) VALUES (
-                       'document:compacted', 'library:compacted', 1, 101,
-                       'nodex.page', 2, X'', 'ready', 'ydoc_primary',
-                       '2026-08-08', '2026-08-08'
-                     )",
-                    [],
-                )?;
-                let update_hash = "a".repeat(64);
-                connection.execute(
-                    "INSERT INTO document_update_receipts(
-                       document_id, generation, seq, update_id, client_session_id,
-                       base_head_seq, update_hash, update_byte_length, committed_at
-                     ) VALUES (
-                       'document:compacted', 1, 101, 'update:compacted', 'session:test',
-                       99, ?1, 29, '2026-08-08'
-                     )",
-                    [&update_hash],
-                )?;
-                connection.execute(
-                    "INSERT INTO local_commits(
-                       store_epoch, operation_id, committed_at,
-                       projection_impact_json, canonical_hash
-                     ) VALUES (?1, 'operation:compacted', '2026-08-08',
-                       '{\"kind\":\"none\"}', ?2)",
-                    params![&store_epoch, "0".repeat(64)],
-                )?;
-                let commit_seq = connection.last_insert_rowid();
-                connection.execute(
-                    "INSERT INTO local_commit_documents(
-                       store_epoch, commit_seq, document_id, generation, head_seq,
-                       update_id, update_hash
-                    ) VALUES (?1, ?2, 'document:compacted', 1, 101,
-                       'update:compacted', ?3)",
-                    params![&store_epoch, commit_seq, &update_hash],
-                )?;
-                enrich_migrated_documents(
-                    connection,
-                    CommitCoordinate {
-                        store_epoch: &store_epoch,
-                        commit_seq,
-                    },
-                )?;
-
-                let migrated = connection.query_row(
-                    "SELECT base_head_seq, update_byte_length
-                     FROM local_commit_documents
-                     WHERE store_epoch = ?1 AND commit_seq = ?2",
-                    params![&store_epoch, commit_seq],
-                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-                )?;
-                assert_eq!(migrated, (99, 29));
-                Ok(())
-            })
-            .expect("compaction-safe migration evidence");
     }
 
     #[test]

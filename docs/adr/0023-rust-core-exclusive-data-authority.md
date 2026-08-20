@@ -4,6 +4,10 @@
 
 Accepted — 2026-07-21
 
+The exclusive-authority decision remains current. The original v84/v85 Store
+acceptance and TypeScript import boundary were superseded on 2026-08-20 by
+[ADR 0046](0046-current-store-migration-baseline.md).
+
 ## Context
 
 Nodex previously carried a TypeScript `better-sqlite3`/Yjs authority alongside
@@ -13,9 +17,9 @@ Codex app-server now also provides authoritative task-history search through
 `thread/search`, so a Nodex-owned Thread transcript/FTS projection would be a
 second search authority.
 
-The final TypeScript release schema is v84. It removes the Nodex Thread search
-shadow and is the last format that Core must import. Rust needs an unambiguous
-ownership version after that boundary.
+The initial cutover used the final TypeScript v84 schema as its import boundary
+and v85 as the first Rust-owned identity. Those version-specific compatibility
+details are historical; ADR 0046 owns the current Store acceptance policy.
 
 ## Decision
 
@@ -26,13 +30,11 @@ ownership version after that boundary.
   Hono, filesystem/OS presentation, mounted-surface flush/freeze coordination,
   and Codex app-server execution, but never opens `nodex.db` or reconstructs a
   durable Document transaction.
-- Startup accepts only an empty Profile, an exact final TypeScript v84 Profile,
-  or an exact Rust-owned v85 Profile. A v84 import is physically validated and
-  durably backed up before v85 is published. v83, schema drift, ambiguous
-  ownership, future versions, and damaged v85 inventories fail closed. v85 is
-  not silently repaired at reopen.
-- The frozen `crates/nodex-core/schema/v84.sql` artifact is import/conformance
-  evidence. It is not an executable TypeScript fallback or a generator target.
+- At the original authority cutover, startup admitted a physically validated
+  final TypeScript Store and published the first Rust-owned Store only after a
+  durable backup. This established the exact-inventory, fail-closed migration
+  rule; the accepted revisions and retained artifacts are now governed by ADR
+  0046.
 - Task-history search delegates only to Codex app-server `thread/search`.
   Nodex stores Workspace metadata used to enrich results but owns no Thread
   transcript units, FTS tables, backfill queue, or search index.
@@ -50,8 +52,8 @@ ownership version after that boundary.
 
 There is no in-process authority selector or downgrade path. A failed Core
 launch is a startup failure. Rollback requires stopping the new build and
-restoring the labeled v84 pre-cutover backup with an older compatible build;
-an older build must never open v85.
+restoring a verified pre-migration backup with a compatible older build; a
+binary must never open a Store identity it does not explicitly accept.
 
 Module contracts, migration tests, the production bootstrap dependency audit,
 failure matrix, no-Electron-database-handle test, and dual-architecture package

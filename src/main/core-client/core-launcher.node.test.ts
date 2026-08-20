@@ -4,7 +4,6 @@ import {
   constants,
   existsSync,
   mkdtempSync,
-  mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -15,51 +14,12 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
-  LEGACY_PROFILE_MIGRATOR_LEGAL_PATH,
-  LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH,
-  LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT,
-  LEGACY_PROFILE_MIGRATOR_SOURCE_VERSIONS,
-  serializeLegacyProfileMigratorManifest,
-} from "../../../scripts/legacy-profile-migrator-artifacts";
-import {
   connectOrStartCore,
   parseCoreStartupEventFrame,
   resolveCoreExecutable,
-  resolveLegacyMigratorEnvironment,
 } from "./core-launcher";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
-
-const createLegacyMigratorFixture = (): string => {
-  const repositoryRoot = mkdtempSync(path.join(tmpdir(), "nodex-core-launcher-migrator-"));
-  const resourceRoot = path.join(repositoryRoot, ".generated/build-resources");
-  const bundle = Buffer.from("export const migrate = () => 84;\n", "utf8");
-  const legal = Buffer.from("test migrator notices\n", "utf8");
-  const digest = (contents: Buffer): string => createHash("sha256").update(contents).digest("hex");
-  mkdirSync(resourceRoot, { recursive: true });
-  writeFileSync(path.join(resourceRoot, path.basename(LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH)), bundle);
-  writeFileSync(path.join(resourceRoot, path.basename(LEGACY_PROFILE_MIGRATOR_LEGAL_PATH)), legal);
-  writeFileSync(
-    path.join(resourceRoot, "legacy-profile-migrator.json"),
-    serializeLegacyProfileMigratorManifest({
-      schemaVersion: 1,
-      sourceCommit: LEGACY_PROFILE_MIGRATOR_SOURCE_COMMIT,
-      supportedSourceVersions: LEGACY_PROFILE_MIGRATOR_SOURCE_VERSIONS,
-      targetSchemaVersion: 84,
-      bundle: {
-        path: LEGACY_PROFILE_MIGRATOR_OUTPUT_PATH,
-        sha256: digest(bundle),
-        size: bundle.byteLength,
-      },
-      legalNotices: {
-        path: LEGACY_PROFILE_MIGRATOR_LEGAL_PATH,
-        sha256: digest(legal),
-        size: legal.byteLength,
-      },
-    }),
-  );
-  return repositoryRoot;
-};
 
 const waitUntil = async (
   predicate: () => boolean | Promise<boolean>,
@@ -137,52 +97,6 @@ describe("native Core launcher", () => {
         isPackaged: false,
       }),
     ).toThrow("NODEX_CORE_EXECUTABLE must be absolute");
-  });
-
-  test("resolves the frozen legacy migrator for development startup", () => {
-    const repositoryRoot = createLegacyMigratorFixture();
-    try {
-      const environment = resolveLegacyMigratorEnvironment({
-        isPackaged: false,
-        repositoryRoot,
-      });
-      expect(environment).toEqual({
-        NODEX_LEGACY_MIGRATOR_EXECUTABLE: process.execPath,
-        NODEX_LEGACY_MIGRATOR_SCRIPT: path.join(
-          repositoryRoot,
-          ".generated/build-resources/legacy-profile-migrator.mjs",
-        ),
-        NODEX_LEGACY_MIGRATOR_SHA256: expect.stringMatching(/^[a-f0-9]{64}$/u),
-      });
-    } finally {
-      rmSync(repositoryRoot, { force: true, recursive: true });
-    }
-  });
-
-  test("leaves packaged migrator discovery to the closed Core runtime", () => {
-    expect(resolveLegacyMigratorEnvironment({
-      appResourcesPath: "/Applications/Nodex.app/Contents/Resources",
-      isPackaged: true,
-    })).toEqual({});
-  });
-
-  test("rejects partial or malformed legacy migrator overrides", () => {
-    expect(() =>
-      resolveLegacyMigratorEnvironment({
-        isPackaged: false,
-        environment: { NODEX_LEGACY_MIGRATOR_SCRIPT: "/opt/nodex/migrator.mjs" },
-      }),
-    ).toThrow("overrides must be configured together");
-    expect(() =>
-      resolveLegacyMigratorEnvironment({
-        isPackaged: false,
-        environment: {
-          NODEX_LEGACY_MIGRATOR_EXECUTABLE: "/opt/nodex/node",
-          NODEX_LEGACY_MIGRATOR_SCRIPT: "/opt/nodex/migrator.mjs",
-          NODEX_LEGACY_MIGRATOR_SHA256: "not-a-digest",
-        },
-      }),
-    ).toThrow("invalid bundle digest");
   });
 
   test("starts one detached Core and reuses the validated runtime", async () => {

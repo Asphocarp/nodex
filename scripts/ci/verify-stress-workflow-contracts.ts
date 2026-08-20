@@ -20,7 +20,6 @@ const duplicatedSetupCommandPattern = /\b(?:pnpm\s+install|build-resources:prepa
 const duplicatedSetupActions = [
   "pnpm/action-setup@",
   "actions/setup-node@",
-  "./.github/actions/fetch-legacy-migrator",
   "./.github/actions/setup-rust-ci",
   "./.github/actions/setup-playwright",
 ] as const;

@@ -78,10 +78,13 @@ table as their driving loop even before an existing Store has statistics.
 Health evidence includes active and queued requests, admission and execution
 duration, and deadline/cancellation/overload counts.
 
-Store migrations always protect the recognized source, migrate a staged copy,
-validate semantic authority, and atomically publish the target. Exact accepted
-source/current version inventories are executable data owned by Core migration
-code and tests, not prose.
+Store migrations accept only exact catalog identities. Core validates the
+source, creates a content-addressed SQLite Online Backup, applies the selected
+forward step in one atomic live-Store transaction, and validates exact current
+physical and semantic authority before readiness. The migration history and
+backup retain recovery evidence; current reopen is idempotent. Accepted
+source/current identities are executable data owned by the Store catalog,
+migration code, snapshot, and tests rather than prose.
 
 Read [Core Lifecycle and Store Reliability](reliability/core-lifecycle-and-store.md).
 

@@ -7,12 +7,12 @@ use rusqlite::{Connection, MAIN_DB, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::infrastructure::migration::{
-    validate_codex_thread_timestamp_invariants, validate_database_priority_invariants,
-};
 use crate::infrastructure::schema::CURRENT_STORE_REVISION;
 use crate::infrastructure::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store,
+};
+use crate::infrastructure::store_validation::{
+    validate_codex_thread_timestamp_invariants, validate_database_priority_invariants,
 };
 
 const BACKUP_MANIFEST_VERSION: u32 = 2;

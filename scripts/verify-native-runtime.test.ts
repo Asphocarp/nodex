@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -5,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import {
+  assertContentAddressedStoreMigrationBackup,
   assertLegacyPackagedRuntimePathsAbsent,
   removePrivateTemporaryDirectory,
   selectPackagedSmokeProjectId,
@@ -22,6 +24,20 @@ afterEach(() => {
 });
 
 describe("packaged native runtime verification", () => {
+  test("verifies the migration backup digest encoded in its filename", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-migration-backup-"));
+    temporaryDirectories.push(directory);
+    const bytes = Buffer.from("content-addressed Store backup");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const backupPath = path.join(directory, `v130-to-v131-${digest}.db`);
+    fs.writeFileSync(backupPath, bytes);
+
+    expect(() => assertContentAddressedStoreMigrationBackup(backupPath)).not.toThrow();
+    fs.appendFileSync(backupPath, "tampered");
+    expect(() => assertContentAddressedStoreMigrationBackup(backupPath))
+      .toThrow("digest does not match its filename");
+  });
+
   test("uses the one Project returned by fresh-Profile bootstrap", () => {
     expect(selectPackagedSmokeProjectId([{ id: "019c-generated-project" }]))
       .toBe("019c-generated-project");

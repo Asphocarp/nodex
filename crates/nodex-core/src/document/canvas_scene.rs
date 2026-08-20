@@ -223,37 +223,6 @@ impl CanvasScene {
     pub(crate) fn canonical_json(&self) -> Result<String, StoreError> {
         canonical_json(&self.canonical_value())
     }
-
-    pub(crate) fn fingerprint(&self) -> Result<String, StoreError> {
-        let elements = self
-            .elements
-            .iter()
-            .map(|element| element.value.clone())
-            .collect::<Vec<_>>();
-        let files = self
-            .files
-            .iter()
-            .map(|(id, file)| (id.clone(), file.value.clone()))
-            .collect::<Map<_, _>>();
-        let references = self
-            .page_references
-            .iter()
-            .map(|reference| {
-                remove_null_fields(json!({
-                    "sourceElementId": reference.source_element_id,
-                    "targetBlockId": reference.target_block_id,
-                    "titleHint": reference.title_hint,
-                }))
-            })
-            .collect::<Vec<_>>();
-        canonical_json(&json!({
-            "schemaVersion": 1,
-            "elements": elements,
-            "appState": self.app_state,
-            "files": files,
-            "pageReferences": references,
-        }))
-    }
 }
 
 pub(crate) fn compact_canvas_tombstones(scene: &CanvasScene) -> Result<CanvasScene, StoreError> {

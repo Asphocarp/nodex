@@ -199,8 +199,6 @@ const retainedLocalStoreFiles = new Set([
   "codex-scheduled-automation-schedule.ts",
   "config.test.ts",
   "config.ts",
-  "database-file-migration.test.ts",
-  "database-file-migration.ts",
   "notifier.test.ts",
   "notifier.ts",
   "persisted-atoms.test.ts",
@@ -212,22 +210,6 @@ for (const entry of readdirSync(path.join(repositoryRoot, "src/main/local-store"
   if (retainedLocalStoreFiles.has(entry)) continue;
   failures.push(`obsolete local-store authority remains: src/main/local-store/${entry}`);
 }
-
-for (const file of sourceFiles("crates/nodex-core/src")) {
-  if (file === "crates/nodex-core/src/infrastructure/legacy_migration.rs") {
-    continue;
-  }
-  assertAbsent(
-    file,
-    [/\bv83\b/i],
-    "Core runtime modules accept only the normalized v84 import boundary",
-  );
-}
-assertAbsent(
-  "crates/nodex-core/schema/v84.sql",
-  [/\bthread_search(?:_|\b)/],
-  "The final TypeScript import schema must not contain Thread search shadows",
-);
 
 const expectedRoutes = new Set([
   "/core/v1/admin/shutdown",

@@ -5,7 +5,6 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 
 import type { components } from "@nodex/core-protocol";
-import { resolveBuildResources } from "../../shared/build-resources";
 import { CoreClient } from "./core-client";
 import { parseCoreRuntimeDescriptor } from "./runtime-descriptor";
 
@@ -88,12 +87,6 @@ interface ChildExitState {
   exited: boolean;
   signal: NodeJS.Signals | null;
   stderr: string;
-}
-
-interface LegacyMigratorManifest {
-  readonly bundle: {
-    readonly sha256: string;
-  };
 }
 
 type CoreSelectionResult = components["schemas"]["CoreSelectionResult"];
@@ -404,63 +397,6 @@ const expectedCoreArtifactDigest = (
   return actual;
 };
 
-const legacyMigratorResourceRoot = (input: ResolveCoreExecutableInput): string => {
-  return resolveBuildResources(
-    requireAbsolutePath(
-      input.repositoryRoot ?? process.cwd(),
-      "Core repository root",
-    ),
-  ).root;
-};
-
-const requireSha256 = (value: unknown): string => {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) {
-    throw new Error("Legacy migrator manifest has an invalid bundle digest");
-  }
-  return value;
-};
-
-export function resolveLegacyMigratorEnvironment(
-  input: ResolveCoreExecutableInput,
-): NodeJS.ProcessEnv {
-  const environment = input.environment ?? process.env;
-  const configuredExecutable = environment.NODEX_LEGACY_MIGRATOR_EXECUTABLE?.trim();
-  const configuredScript = environment.NODEX_LEGACY_MIGRATOR_SCRIPT?.trim();
-  const configuredSha256 = environment.NODEX_LEGACY_MIGRATOR_SHA256?.trim();
-  if (configuredExecutable && configuredScript && configuredSha256) {
-    return {
-      NODEX_LEGACY_MIGRATOR_EXECUTABLE: requireAbsolutePath(
-        configuredExecutable,
-        "NODEX_LEGACY_MIGRATOR_EXECUTABLE",
-      ),
-      NODEX_LEGACY_MIGRATOR_SCRIPT: requireAbsolutePath(
-        configuredScript,
-        "NODEX_LEGACY_MIGRATOR_SCRIPT",
-      ),
-      NODEX_LEGACY_MIGRATOR_SHA256: requireSha256(configuredSha256),
-    };
-  }
-  if (configuredExecutable || configuredScript || configuredSha256) {
-    throw new Error("Legacy migrator overrides must be configured together");
-  }
-  if (input.isPackaged) {
-    return {};
-  }
-
-  const resourceRoot = legacyMigratorResourceRoot(input);
-  const script = path.join(resourceRoot, "legacy-profile-migrator.mjs");
-  const manifestPath = path.join(resourceRoot, "legacy-profile-migrator.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as LegacyMigratorManifest;
-  return {
-    NODEX_LEGACY_MIGRATOR_EXECUTABLE: requireAbsolutePath(
-      process.execPath,
-      "Electron executable",
-    ),
-    NODEX_LEGACY_MIGRATOR_SCRIPT: script,
-    NODEX_LEGACY_MIGRATOR_SHA256: requireSha256(manifest.bundle?.sha256),
-  };
-}
-
 const appendBoundedStderr = (current: string, chunk: string): string =>
   `${current}${chunk}`.slice(-MAX_STARTUP_STDERR_CHARS);
 
@@ -485,7 +421,6 @@ export async function connectOrStartCore(
   const artifactValidationStartedAt = performance.now();
   const expectedArtifactDigest = expectedCoreArtifactDigest(input, executablePath);
   const artifactValidationMs = performance.now() - artifactValidationStartedAt;
-  const legacyMigratorEnvironment = resolveLegacyMigratorEnvironment(input);
   throwIfAborted(input.signal);
   const child = spawn(executablePath, [
     "--home",
@@ -499,7 +434,6 @@ export async function connectOrStartCore(
     env: {
       ...process.env,
       ...input.environment,
-      ...legacyMigratorEnvironment,
       NODEX_INTERNAL_APP_PACKAGED: input.isPackaged ? "true" : "false",
       NODEX_INTERNAL_STARTUP_EVENTS_VERSION: "1",
     },
