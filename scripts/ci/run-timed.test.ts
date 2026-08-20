@@ -34,6 +34,13 @@ describe("CI timed command runner", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "nodex-ci-timed-"));
     temporaryRoots.push(root);
     const summaryPath = path.join(root, "summary.md");
+    const environmentWithoutGitHubRunIdentity = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => ![
+        "GITHUB_RUN_ATTEMPT",
+        "GITHUB_RUN_ID",
+        "GITHUB_SHA",
+      ].includes(name)),
+    );
     const success = await runTimedCommand({
       name: "successful step",
       command: process.execPath,
@@ -54,7 +61,7 @@ describe("CI timed command runner", () => {
       commandArguments: ["-e", "process.exit(7)"],
       timingDirectory: root,
       summaryPath,
-      env: { ...process.env, CI_TIMING_JOB: "test job" },
+      env: { ...environmentWithoutGitHubRunIdentity, CI_TIMING_JOB: "test job" },
     });
     expect(success.exitCode).toBe(0);
     expect(failure.exitCode).toBe(7);
