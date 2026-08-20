@@ -29,10 +29,11 @@ export const parseClassificationDocument = (value: unknown): ClassificationDocum
 
 export const githubOutputForClassification = (document: ClassificationDocument): string => {
   const serialized = JSON.stringify(document.plan);
+  const changedPaths = JSON.stringify(document.changedPaths);
   if (serialized.includes("\n") || serialized.includes("\r")) {
     throw new Error("Serialized CI gate plan must fit on one GitHub output line.");
   }
-  return `plan=${serialized}\n`;
+  return `changed_paths=${changedPaths}\nplan=${serialized}\n`;
 };
 
 const readOption = (args: readonly string[], name: string): string | undefined => {

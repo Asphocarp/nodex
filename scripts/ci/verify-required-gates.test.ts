@@ -10,7 +10,7 @@ describe("required CI gate verification", () => {
       results: {
         "app-tests": "success",
         "release-transition": "skipped",
-        "rust-pr": "skipped",
+        "rust-checks": "skipped",
       },
       selectedGates: ["app-tests"],
     })).not.toThrow();
@@ -60,9 +60,11 @@ describe("required CI gate verification", () => {
     )).toEqual([
       "static-contracts",
       "app-tests",
-      "browser-tests",
-      "electron-e2e",
     ]);
+    expect(requiredGateNames(
+      [],
+      classifyChangedPaths(["crates/nodex-core/src/lib.rs"]),
+    )).toContain("rust-checks");
     expect(requiredGateNames(["static-contracts", "rust-workspace"], undefined))
       .toEqual(["static-contracts", "rust-workspace"]);
   });

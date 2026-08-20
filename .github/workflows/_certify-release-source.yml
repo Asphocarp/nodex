@@ -1,0 +1,126 @@
+name: Certify Release Source
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact 40-character source commit to certify.
+        required: true
+        type: string
+    outputs:
+      source_tree:
+        description: Certified Git tree for the exact source commit.
+        value: ${{ jobs.certify.outputs.source_tree }}
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  static-contracts:
+    name: certify static contracts
+    uses: ./.github/workflows/_static-checks.yml
+    with:
+      groups_json: '["types","ui-contracts","ci-contracts","repository-contracts","generated","landing"]'
+      source_sha: ${{ inputs.source_sha }}
+      timing_prefix: certify-static
+
+  rust-checks:
+    name: certify rust checks
+    uses: ./.github/workflows/_rust-checks.yml
+    with:
+      full_workspace: true
+      run_fast: true
+      run_migration: true
+      run_protocol: true
+      source_sha: ${{ inputs.source_sha }}
+      timing_prefix: certify-rust
+
+  app-tests:
+    name: certify application and browser tests
+    uses: ./.github/workflows/_app-tests.yml
+    with:
+      gate_plan_json: '{"allGates":true,"appTestSuites":["unit","core-client","main","renderer","integration","browser"],"dependencyKind":"source","docsOnly":false,"landingOnly":false,"protocolContracts":true,"relatedPaths":[],"releaseTransition":false,"rustFast":true,"rustFull":true,"rustMigration":true,"staticGroups":["types","ui-contracts","ci-contracts","repository-contracts","generated","landing"],"testMode":"full"}'
+      source_sha: ${{ inputs.source_sha }}
+      suites_json: '["unit","core-client","main","renderer","integration","browser"]'
+      timing_prefix: certify-app
+
+  stress:
+    name: certify stress contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: ./.github/actions/run-stress-tests
+
+  runtime-contracts:
+    name: certify macOS runtime contracts
+    runs-on: macos-26
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-rust-ci
+      - run: pnpm run verify:runtime:mac
+      - if: always()
+        run: sccache --show-stats || true
+
+  certify:
+    name: issue exact-source certificate
+    needs:
+      - static-contracts
+      - rust-checks
+      - app-tests
+      - stress
+      - runtime-contracts
+    runs-on: ubuntu-latest
+    outputs:
+      source_tree: ${{ steps.identity.outputs.source_tree }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - name: Materialize exact-source certificate
+        id: identity
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          source_tree="$(git rev-parse 'HEAD^{tree}')"
+          echo "source_tree=${source_tree}" >> "${GITHUB_OUTPUT}"
+          # shellcheck disable=SC2016
+          SOURCE_TREE="${source_tree}" node -e '
+            const fs = require("node:fs");
+            fs.writeFileSync(process.argv[1], `${JSON.stringify({
+              schemaVersion: 1,
+              sourceSha: process.env.SOURCE_SHA,
+              sourceTree: process.env.SOURCE_TREE,
+              workflowRunId: process.env.GITHUB_RUN_ID,
+              workflowRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              repository: process.env.GITHUB_REPOSITORY,
+              issuedAt: new Date().toISOString(),
+            }, null, 2)}\n`);
+          ' "${RUNNER_TEMP}/source-certification.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-source-certification-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/source-certification.json
+          if-no-files-found: error
+          retention-days: 30

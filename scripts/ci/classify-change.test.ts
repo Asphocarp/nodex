@@ -4,22 +4,21 @@ import { APP_TEST_SUITES, STATIC_GROUPS } from "./ci-gate-plan";
 import { classifyChangedPaths } from "./classify-change";
 
 describe("CI change classification", () => {
-  test("keeps documentation out of every expensive gate", () => {
+  test("keeps documentation out of executable gates", () => {
     expect(classifyChangedPaths(["docs/release-macos.md", "docs/ARCHITECTURE.md"])).toEqual({
       allGates: false,
       appTestSuites: [],
-      browser: false,
       dependencyKind: "none",
       docsOnly: true,
-      electronE2e: false,
       landingOnly: false,
       protocolContracts: false,
+      relatedPaths: [],
       releaseTransition: false,
-      runtimeMac: false,
       rustFast: false,
+      rustFull: false,
       rustMigration: false,
       staticGroups: [],
-      stress: false,
+      testMode: "none",
     });
   });
 
@@ -28,105 +27,150 @@ describe("CI change classification", () => {
       appTestSuites: [],
       landingOnly: true,
       staticGroups: ["landing"],
+      testMode: "none",
     });
   });
 
   test("routes the exact release metadata set to the narrow transition guard", () => {
     expect(classifyChangedPaths(["Cargo.lock", "Cargo.toml", "CHANGELOG.md", "package.json"]))
-      .toMatchObject({ releaseTransition: true, rustFast: false, staticGroups: [] });
+      .toMatchObject({ releaseTransition: true, rustFast: false, staticGroups: [], testMode: "none" });
   });
 
-  test("routes ordinary renderer work to app, browser, and Electron without Rust", () => {
-    expect(classifyChangedPaths(["src/renderer/components/app.tsx"])).toMatchObject({
-      appTestSuites: APP_TEST_SUITES,
-      browser: true,
-      electronE2e: true,
-      runtimeMac: false,
+  test("uses Vitest related selection for ordinary application source", () => {
+    const paths = ["src/renderer/components/app.tsx", "docs/CI.md"];
+    expect(classifyChangedPaths(paths)).toMatchObject({
+      appTestSuites: ["unit", "renderer", "browser"],
+      relatedPaths: ["src/renderer/components/app.tsx"],
       rustFast: false,
       staticGroups: ["types", "ui-contracts"],
-      stress: false,
+      testMode: "related",
     });
   });
 
-  test("routes main, protocol, Rust, and migration ownership explicitly", () => {
-    expect(classifyChangedPaths(["src/main/window.ts"])).toMatchObject({
-      appTestSuites: APP_TEST_SUITES,
-      electronE2e: true,
-      runtimeMac: false,
-      rustFast: false,
-      staticGroups: ["types", "repository-contracts"],
-    });
-    expect(classifyChangedPaths(["src/main/core-client/core-client.ts"])).toMatchObject({
-      protocolContracts: true,
-      runtimeMac: true,
-      rustFast: true,
-      stress: true,
-    });
-    expect(classifyChangedPaths(["crates/nodex-core/src/database/relation_projection.rs"]))
-      .toMatchObject({ rustFast: true, rustMigration: false, stress: true });
-    expect(classifyChangedPaths(["crates/nodex-core/src/infrastructure/migration.rs"]))
-      .toMatchObject({ rustFast: true, rustMigration: true, stress: true });
-  });
-
-  test("keeps generated-resource ownership separate from Store migration", () => {
-    expect(classifyChangedPaths(["scripts/build-resources.ts"])).toMatchObject({
-      rustMigration: false,
-      runtimeMac: true,
-      staticGroups: ["types", "generated"],
-    });
-  });
-
-  test("selects stress when test infrastructure changes", () => {
-    for (const path of [
-      "vitest.main.config.ts",
-      "config/vitest-test-tier.ts",
-      "config/electron-test-runtime.ts",
-      "scripts/run-vitest-in-electron.mjs",
-    ]) {
-      expect(classifyChangedPaths([path]), path).toMatchObject({ stress: true });
+  test("routes changed test files directly to their related owning suite", () => {
+    for (const [path, suite] of [
+      ["src/renderer/lib/example.node.test.ts", "unit"],
+      ["src/renderer/lib/example.jsdom.test.ts", "renderer"],
+      ["src/renderer/lib/example.browser.test.tsx", "browser"],
+      ["src/main/core-client/example.node.test.ts", "core-client"],
+      ["src/main/example.test.ts", "main"],
+      ["src/main/example.integration.ts", "integration"],
+    ] as const) {
+      expect(classifyChangedPaths([path]), path).toMatchObject({
+        appTestSuites: [suite],
+        relatedPaths: [path],
+        testMode: "related",
+      });
     }
   });
 
-  test("runs ordinary gates, never exhaustive Rust, for dependency changes", () => {
-    expect(classifyChangedPaths(["package.json", "pnpm-lock.yaml"])).toMatchObject({
+  test("promotes config and deleted-path changes to deterministic full suites", () => {
+    for (const [paths, options] of [
+      [["vitest.renderer.config.ts"], {}],
+      [["src/renderer/lib/removed.ts"], { forceFullTests: true }],
+    ] as const) {
+      expect(classifyChangedPaths(paths, options)).toMatchObject({
+        appTestSuites: paths[0]?.startsWith("vitest.renderer")
+          ? ["renderer"]
+          : ["unit", "renderer", "browser"],
+        relatedPaths: [],
+        testMode: "full",
+      });
+    }
+  });
+
+  test("leaves explicit stress tests to their nightly owner", () => {
+    expect(classifyChangedPaths(["src/main/git-worker/example.stress.test.ts"]))
+      .toMatchObject({ appTestSuites: [], staticGroups: ["types", "repository-contracts"], testMode: "none" });
+  });
+
+  test("routes Rust and protocol ownership without UI, stress, or macOS gates", () => {
+    expect(classifyChangedPaths(["crates/nodex-core/src/database/relation_projection.rs"]))
+      .toMatchObject({ appTestSuites: [], rustFast: true, rustMigration: false, testMode: "none" });
+    expect(classifyChangedPaths(["crates/nodex-core/src/infrastructure/migration.rs"]))
+      .toMatchObject({ rustFast: true, rustMigration: true });
+    expect(classifyChangedPaths(["src/main/core-client/core-client.ts"])).toMatchObject({
+      appTestSuites: ["core-client", "main", "integration"],
+      protocolContracts: true,
+      rustFast: false,
+      testMode: "related",
+    });
+  });
+
+  test("runs full deterministic suites for dependency changes", () => {
+    expect(classifyChangedPaths(["package.json", "pnpm-lock.yaml", "README.md"])).toMatchObject({
       allGates: false,
+      appTestSuites: APP_TEST_SUITES,
       dependencyKind: "javascript",
       rustFast: true,
       rustMigration: true,
       staticGroups: STATIC_GROUPS,
+      testMode: "full",
     });
     expect(classifyChangedPaths(["Cargo.lock", "crates/nodex-core/Cargo.toml"]))
       .toMatchObject({
+        appTestSuites: [],
         dependencyKind: "rust",
         rustFast: true,
         rustMigration: true,
+        testMode: "none",
       });
-    expect(classifyChangedPaths([
-      "third_party/blocknote/packages/core/package.json",
-      "pnpm-lock.yaml",
-    ])).toMatchObject({ dependencyKind: "editor" });
   });
 
-  test("routes each local action to its real consumers", () => {
-    expect(classifyChangedPaths([
-      ".github/actions/run-stress-tests/action.yml",
-      ".github/actions/run-stress-tests/scripts/prepare.sh",
-    ]))
-      .toMatchObject({ browser: false, rustFast: false, stress: true });
+  test("routes local actions to their remaining consumers", () => {
+    expect(classifyChangedPaths([".github/actions/run-stress-tests/action.yml"]))
+      .toMatchObject({ appTestSuites: [], rustFast: false, staticGroups: ["ci-contracts"] });
     expect(classifyChangedPaths([".github/actions/setup-playwright/action.yml"]))
-      .toMatchObject({ browser: true, electronE2e: true, rustFast: false, stress: true });
+      .toMatchObject({ appTestSuites: ["browser"], testMode: "full" });
     expect(classifyChangedPaths([".github/actions/setup-rust-ci/action.yml"]))
-      .toMatchObject({ protocolContracts: true, runtimeMac: true, rustFast: true });
-    expect(classifyChangedPaths([
-      ".github/actions/setup-playwright/action.yml",
-      ".github/actions/setup-rust-ci/action.yml",
-    ])).toMatchObject({ allGates: true });
+      .toMatchObject({ appTestSuites: [], protocolContracts: true, rustFast: true });
   });
 
-  test("selects every ordinary gate for orchestration, unknown, empty, and explicit full inputs", () => {
+  test("routes CI orchestration to contracts and only exercises changed reusable owners", () => {
+    expect(classifyChangedPaths([".github/workflows/ci.yml", "docs/CI.md"])).toMatchObject({
+      appTestSuites: [],
+      rustFast: false,
+      staticGroups: ["ci-contracts"],
+      testMode: "none",
+    });
+    expect(classifyChangedPaths([".github/workflows/_app-tests.yml"])).toMatchObject({
+      appTestSuites: APP_TEST_SUITES,
+      rustFast: false,
+      staticGroups: ["ci-contracts"],
+      testMode: "full",
+    });
+    expect(classifyChangedPaths([".github/workflows/_rust-checks.yml"])).toMatchObject({
+      appTestSuites: [],
+      protocolContracts: true,
+      rustFast: true,
+      rustFull: true,
+      rustMigration: true,
+    });
+    expect(classifyChangedPaths([".github/workflows/_static-checks.yml"])).toMatchObject({
+      staticGroups: STATIC_GROUPS,
+    });
+    expect(classifyChangedPaths(["scripts/ci/classify-change.ts"])).toMatchObject({
+      allGates: false,
+      appTestSuites: ["unit"],
+      rustFast: false,
+      staticGroups: ["types", "ci-contracts"],
+      testMode: "full",
+    });
+  });
+
+  test("keeps opt-in Electron E2E tooling outside automated test gates", () => {
+    for (const path of ["playwright.e2e.config.ts", "tests/e2e/electron-smoke.spec.ts"]) {
+      expect(classifyChangedPaths([path]), path).toMatchObject({
+        allGates: false,
+        appTestSuites: [],
+        rustFast: false,
+        testMode: "none",
+      });
+    }
+  });
+
+  test("selects every deterministic source gate for unknown, empty, and explicit full inputs", () => {
     for (const candidate of [
-      classifyChangedPaths([".github/workflows/ci.yml"]),
-      classifyChangedPaths(["scripts/ci/classify-change.ts"]),
       classifyChangedPaths(["novel-build-input.xyz"]),
       classifyChangedPaths([]),
       classifyChangedPaths(["README.md"], { full: true }),
@@ -134,12 +178,11 @@ describe("CI change classification", () => {
       expect(candidate).toMatchObject({
         allGates: true,
         appTestSuites: APP_TEST_SUITES,
-        browser: true,
         protocolContracts: true,
         rustFast: true,
         rustMigration: true,
         staticGroups: STATIC_GROUPS,
-        stress: true,
+        testMode: "full",
       });
     }
   });

@@ -84,14 +84,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  certification:
+    name: certify exact rehearsal source
+    needs: validate
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/_certify-release-source.yml
+    with:
+      source_sha: ${{ needs.validate.outputs.source_sha }}
+
   distribution:
     name: rehearse native distributions
-    needs: validate
+    needs: [validate, certification]
     permissions:
       contents: read
     uses: ./.github/workflows/_macos-distribution.yml
     with:
       source_sha: ${{ needs.validate.outputs.source_sha }}
+      source_tree: ${{ needs.certification.outputs.source_tree }}
       version: ${{ needs.validate.outputs.version }}
       tag: ${{ needs.validate.outputs.tag }}
       retention_days: 14

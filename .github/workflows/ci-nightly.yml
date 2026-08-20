@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write
+  actions: read
   contents: read
 
 concurrency:
@@ -14,32 +14,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  rust-exhaustive:
-    name: ignored Rust scale and reliability gates
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: nightly-rust
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: ./.github/actions/setup-rust-ci
-      - name: Verify runner CLI tools
-        run: rg --version
-      - name: Run ignored and scale gates
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-nightly -- pnpm run core:test:nightly
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
+  static-contracts:
+    name: nightly static contracts
+    uses: ./.github/workflows/_static-checks.yml
+    with:
+      groups_json: '["types","ui-contracts","ci-contracts","repository-contracts","generated","landing"]'
+      timing_prefix: nightly-static
+
+  rust-checks:
+    name: nightly rust checks
+    uses: ./.github/workflows/_rust-checks.yml
+    with:
+      full_workspace: true
+      run_fast: true
+      run_migration: true
+      run_protocol: true
+      timing_prefix: nightly-rust
+
+  app-tests:
+    name: nightly application and browser tests
+    uses: ./.github/workflows/_app-tests.yml
+    with:
+      gate_plan_json: '{"allGates":true,"appTestSuites":["unit","core-client","main","renderer","integration","browser"],"dependencyKind":"source","docsOnly":false,"landingOnly":false,"protocolContracts":true,"relatedPaths":[],"releaseTransition":false,"rustFast":true,"rustFull":true,"rustMigration":true,"staticGroups":["types","ui-contracts","ci-contracts","repository-contracts","generated","landing"],"testMode":"full"}'
+      suites_json: '["unit","core-client","main","renderer","integration","browser"]'
+      timing_prefix: nightly-app
 
   stress:
     name: nightly stress suite
@@ -54,22 +52,18 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/run-stress-tests
 
-  e2e-soak:
-    name: Electron E2E soak (${{ matrix.attempt }})
-    strategy:
-      fail-fast: false
-      matrix:
-        attempt: [1, 2]
-    runs-on: ubuntu-latest
+  runtime-contracts:
+    name: nightly macOS runtime contracts
+    runs-on: macos-26
     env:
-      CI_TIMING_JOB: nightly-e2e-soak-${{ matrix.attempt }}
+      CI_TIMING_JOB: nightly-runtime
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
@@ -77,48 +71,26 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/setup-rust-ci
-      - uses: ./.github/actions/setup-playwright
-      - name: Run repeated Electron E2E suite
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name electron-e2e-soak -- xvfb-run --auto-servernum pnpm run test:e2e
-      - name: Upload soak diagnostics
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: nightly-e2e-soak-failure-${{ matrix.attempt }}-${{ github.run_attempt }}
-          path: |
-            playwright-report/
-            test-results/
-          if-no-files-found: ignore
-          retention-days: 14
-      - name: Show Rust compiler cache statistics
-        if: always()
+      - run: pnpm exec tsx scripts/ci/run-timed.ts --name runtime-contracts -- pnpm run verify:runtime:mac
+      - if: always()
         run: sccache --show-stats || true
 
   complete:
     name: nightly complete
     if: always()
     needs:
-      - rust-exhaustive
+      - static-contracts
+      - rust-checks
+      - app-tests
       - stress
-      - e2e-soak
+      - runtime-contracts
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Require every nightly gate
         env:
-          E2E_RESULT: ${{ needs.e2e-soak.result }}
-          RUST_RESULT: ${{ needs.rust-exhaustive.result }}
-          STRESS_RESULT: ${{ needs.stress.result }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for gate in \
-            "rust-exhaustive:${RUST_RESULT}" \
-            "stress:${STRESS_RESULT}" \
-            "e2e-soak:${E2E_RESULT}"; do
-            name="${gate%%:*}"
-            result="${gate#*:}"
-            if [[ "${result}" != "success" ]]; then
-              echo "${name} finished with ${result}; expected success." >&2
-              exit 1
-            fi
-          done
+          CI_CLASSIFIER_RESULT: success
+          CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node --no-warnings scripts/ci/verify-required-gates.ts

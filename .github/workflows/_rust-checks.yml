@@ -1,0 +1,152 @@
+name: Reusable Rust Checks
+
+on:
+  workflow_call:
+    inputs:
+      changed_paths_json:
+        description: JSON array of changed paths used for affected crate closure.
+        default: '[]'
+        required: false
+        type: string
+      full_workspace:
+        description: Run Clippy and tests for every workspace package.
+        default: false
+        required: false
+        type: boolean
+      run_fast:
+        description: Run formatting, lint, nextest, and Rustdoc contracts.
+        required: true
+        type: boolean
+      run_migration:
+        description: Run the Store baseline migration suite.
+        required: true
+        type: boolean
+      run_protocol:
+        description: Verify generated protocol contracts.
+        required: true
+        type: boolean
+      source_sha:
+        description: Exact source commit to check; defaults to the caller commit.
+        required: false
+        type: string
+      timing_prefix:
+        description: Stable prefix for timing artifacts and summaries.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: rust format
+    if: inputs.run_fast
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: ${{ inputs.timing_prefix }}-format
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - uses: ./.github/actions/setup-rust-ci
+      - run: node --no-warnings scripts/ci/run-timed.ts --name rust-format -- cargo fmt --all --check
+
+  clippy:
+    name: rust clippy
+    if: inputs.run_fast
+    runs-on: ubuntu-latest
+    env:
+      CI_CHANGED_PATHS_JSON: ${{ inputs.changed_paths_json }}
+      CI_TIMING_JOB: ${{ inputs.timing_prefix }}-clippy
+      CI_RUST_FULL: ${{ inputs.full_workspace }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - uses: ./.github/actions/setup-rust-ci
+      - run: node --no-warnings scripts/ci/run-timed.ts --name rust-clippy -- node --no-warnings scripts/ci/run-affected-rust.ts --kind clippy
+      - if: always()
+        run: sccache --show-stats || true
+
+  tests:
+    name: rust tests
+    if: inputs.run_fast
+    runs-on: ubuntu-latest
+    env:
+      CI_CHANGED_PATHS_JSON: ${{ inputs.changed_paths_json }}
+      CI_TIMING_JOB: ${{ inputs.timing_prefix }}-tests
+      CI_RUST_FULL: ${{ inputs.full_workspace }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          nextest: true
+      - run: node --no-warnings scripts/ci/run-timed.ts --name rust-tests -- node --no-warnings scripts/ci/run-affected-rust.ts --kind tests
+      - if: always()
+        run: sccache --show-stats || true
+
+  protocol:
+    name: protocol contracts
+    if: inputs.run_protocol
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: ${{ inputs.timing_prefix }}-protocol
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-rust-ci
+      - run: pnpm exec tsx scripts/ci/run-timed.ts --name protocol-contracts -- pnpm run core:protocol:verify
+      - if: always()
+        run: sccache --show-stats || true
+
+  migration:
+    name: store baseline migration
+    if: inputs.run_migration
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: ${{ inputs.timing_prefix }}-migration
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - uses: ./.github/actions/setup-rust-ci
+      - run: >-
+          node --no-warnings scripts/ci/run-timed.ts --name rust-migration --
+          cargo test -p nodex-core --all-features --lib infrastructure:: -- --test-threads=2
+      - if: always()
+        run: sccache --show-stats || true

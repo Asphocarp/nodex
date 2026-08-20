@@ -111,15 +111,27 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  certification:
+    name: certify exact release source
+    if: needs.detect.outputs.should_release == 'true'
+    needs: detect
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/_certify-release-source.yml
+    with:
+      source_sha: ${{ needs.detect.outputs.source_sha }}
+
   distribution:
     name: build native distributions
     if: needs.detect.outputs.should_release == 'true'
-    needs: detect
+    needs: [detect, certification]
     permissions:
       contents: read
     uses: ./.github/workflows/_macos-distribution.yml
     with:
       source_sha: ${{ needs.detect.outputs.source_sha }}
+      source_tree: ${{ needs.certification.outputs.source_tree }}
       version: ${{ needs.detect.outputs.version }}
       tag: ${{ needs.detect.outputs.tag }}
       retention_days: 30

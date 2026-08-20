@@ -7,6 +7,10 @@ on:
         description: Exact protected-main commit to build
         required: true
         type: string
+      source_tree:
+        description: Exact certified Git tree to build.
+        required: true
+        type: string
       version:
         description: Stable application version
         required: true
@@ -55,6 +59,7 @@ jobs:
       RELEASE_ARCH: arm64
       RELEASE_OUTPUT: ${{ github.workspace }}/.generated/release-architecture/arm64
       RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_SOURCE_TREE: ${{ inputs.source_tree }}
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_VERSION: ${{ inputs.version }}
     steps:
@@ -73,14 +78,27 @@ jobs:
         with:
           name: nodex-release-identity-${{ inputs.source_sha }}
           path: ${{ runner.temp }}/identity
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-source-certification-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/certification
 
       - name: Verify exact clean release source
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_SHA}"
+          test "$(git rev-parse 'HEAD^{tree}')" = "${RELEASE_SOURCE_TREE}"
           test -z "$(git status --porcelain)"
           pnpm install --frozen-lockfile
+          node -e '
+            const certificate = require(process.argv[1]);
+            if (certificate.schemaVersion !== 1
+              || certificate.sourceSha !== process.env.RELEASE_SOURCE_SHA
+              || certificate.sourceTree !== process.env.RELEASE_SOURCE_TREE) {
+              throw new Error("Release source certification does not match the exact source tree");
+            }
+          ' "${RUNNER_TEMP}/certification/source-certification.json"
           pnpm release:verify:identity -- --identity "${RUNNER_TEMP}/identity/release-identity.json" --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
           node -e '
             const source = require(process.argv[1]);
@@ -124,6 +142,8 @@ jobs:
             --arch "${RELEASE_ARCH}" \
             --identity "${RUNNER_TEMP}/identity/release-identity.json" \
             --output "${RELEASE_OUTPUT}"
+          cp "${RUNNER_TEMP}/certification/source-certification.json" \
+            "${RELEASE_OUTPUT}/source-certification.json"
 
       - name: Summarize architecture identity
         if: success()
@@ -169,6 +189,7 @@ jobs:
       RELEASE_ARCH: x64
       RELEASE_OUTPUT: ${{ github.workspace }}/.generated/release-architecture/x64
       RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_SOURCE_TREE: ${{ inputs.source_tree }}
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_VERSION: ${{ inputs.version }}
     steps:
@@ -187,14 +208,27 @@ jobs:
         with:
           name: nodex-release-identity-${{ inputs.source_sha }}
           path: ${{ runner.temp }}/identity
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-source-certification-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/certification
 
       - name: Verify exact clean release source
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_SHA}"
+          test "$(git rev-parse 'HEAD^{tree}')" = "${RELEASE_SOURCE_TREE}"
           test -z "$(git status --porcelain)"
           pnpm install --frozen-lockfile
+          node -e '
+            const certificate = require(process.argv[1]);
+            if (certificate.schemaVersion !== 1
+              || certificate.sourceSha !== process.env.RELEASE_SOURCE_SHA
+              || certificate.sourceTree !== process.env.RELEASE_SOURCE_TREE) {
+              throw new Error("Release source certification does not match the exact source tree");
+            }
+          ' "${RUNNER_TEMP}/certification/source-certification.json"
           pnpm release:verify:identity -- --identity "${RUNNER_TEMP}/identity/release-identity.json" --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
           node -e '
             const source = require(process.argv[1]);
@@ -233,6 +267,8 @@ jobs:
             --arch "${RELEASE_ARCH}" \
             --identity "${RUNNER_TEMP}/identity/release-identity.json" \
             --output "${RELEASE_OUTPUT}"
+          cp "${RUNNER_TEMP}/certification/source-certification.json" \
+            "${RELEASE_OUTPUT}/source-certification.json"
 
       - name: Summarize architecture identity
         if: success()

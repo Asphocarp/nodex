@@ -7,13 +7,20 @@ on:
         description: JSON array of canonical application test suites.
         required: true
         type: string
+      gate_plan_json:
+        description: Validated CI gate plan containing full or related test selection.
+        required: true
+        type: string
+      source_sha:
+        description: Exact source commit to test; defaults to the caller commit.
+        required: false
+        type: string
       timing_prefix:
         description: Stable prefix for timing artifacts and summaries.
         required: true
         type: string
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
@@ -30,6 +37,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -39,25 +47,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Resolve suite prerequisites
         id: suite
-        run: pnpm exec tsx scripts/ci/app-test-suite.ts --suite "${{ matrix.suite }}"
+        env:
+          APP_TEST_SUITE: ${{ matrix.suite }}
+        run: pnpm exec tsx scripts/ci/app-test-suite.ts --suite "${APP_TEST_SUITE}"
       - uses: ./.github/actions/setup-rust-ci
         if: steps.suite.outputs.needs_rust == 'true'
-      - name: Prepare build resources
-        env:
-          NEEDS_RUST: ${{ steps.suite.outputs.needs_rust }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${NEEDS_RUST}" == "true" ]]; then
-            export RUSTC_WRAPPER=sccache
-            export SCCACHE_GHA_ENABLED=true
-          fi
-          pnpm run build-resources:prepare
+      - uses: ./.github/actions/setup-playwright
+        if: steps.suite.outputs.needs_playwright == 'true'
       - name: Run application suite
         env:
+          CI_GATE_PLAN_JSON: ${{ inputs.gate_plan_json }}
+          APP_TEST_SUITE: ${{ matrix.suite }}
           NEEDS_RUST: ${{ steps.suite.outputs.needs_rust }}
           NEEDS_XVFB: ${{ steps.suite.outputs.needs_xvfb }}
-          PACKAGE_SCRIPT: ${{ steps.suite.outputs.package_script }}
         shell: bash
         run: |
           set -euo pipefail
@@ -67,13 +69,14 @@ jobs:
           fi
           if [[ "${NEEDS_XVFB}" == "true" ]]; then
             pnpm exec tsx scripts/ci/run-timed.ts \
-              --name "app-${{ matrix.suite }}" \
-              -- xvfb-run --auto-servernum pnpm run "${PACKAGE_SCRIPT}"
+              --name "app-${APP_TEST_SUITE}" \
+              -- xvfb-run --auto-servernum pnpm exec tsx scripts/ci/run-app-test-suite.ts \
+                --suite "${APP_TEST_SUITE}"
             exit 0
           fi
           pnpm exec tsx scripts/ci/run-timed.ts \
-            --name "app-${{ matrix.suite }}" \
-            -- pnpm run "${PACKAGE_SCRIPT}"
+            --name "app-${APP_TEST_SUITE}" \
+            -- pnpm exec tsx scripts/ci/run-app-test-suite.ts --suite "${APP_TEST_SUITE}"
       - name: Show renderer memory state
         if: always() && matrix.suite == 'renderer'
         run: free -h

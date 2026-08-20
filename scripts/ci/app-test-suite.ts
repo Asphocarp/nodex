@@ -4,17 +4,56 @@ import path from "node:path";
 import { APP_TEST_SUITES, type AppTestSuite } from "./ci-gate-plan";
 
 export interface AppTestSuitePlan {
+  readonly needsPlaywright: boolean;
   readonly needsRust: boolean;
   readonly needsXvfb: boolean;
   readonly packageScript: string;
+  readonly relatedPackageScript: string;
 }
 
 const SUITE_PLANS: Readonly<Record<AppTestSuite, AppTestSuitePlan>> = {
-  "core-client": { needsRust: true, needsXvfb: false, packageScript: "test:core-client" },
-  integration: { needsRust: true, needsXvfb: true, packageScript: "test:integration:ci" },
-  main: { needsRust: true, needsXvfb: true, packageScript: "test:main" },
-  renderer: { needsRust: false, needsXvfb: false, packageScript: "test:renderer" },
-  unit: { needsRust: false, needsXvfb: false, packageScript: "test:unit" },
+  browser: {
+    needsPlaywright: true,
+    needsRust: false,
+    needsXvfb: false,
+    packageScript: "test:browser",
+    relatedPackageScript: "test:browser:related",
+  },
+  "core-client": {
+    needsPlaywright: false,
+    needsRust: true,
+    needsXvfb: false,
+    packageScript: "test:core-client",
+    relatedPackageScript: "test:core-client:related",
+  },
+  integration: {
+    needsPlaywright: false,
+    needsRust: true,
+    needsXvfb: true,
+    packageScript: "test:integration:ci",
+    relatedPackageScript: "test:integration:ci:related",
+  },
+  main: {
+    needsPlaywright: false,
+    needsRust: true,
+    needsXvfb: true,
+    packageScript: "test:main",
+    relatedPackageScript: "test:main:related",
+  },
+  renderer: {
+    needsPlaywright: false,
+    needsRust: false,
+    needsXvfb: false,
+    packageScript: "test:renderer",
+    relatedPackageScript: "test:renderer:related",
+  },
+  unit: {
+    needsPlaywright: false,
+    needsRust: false,
+    needsXvfb: false,
+    packageScript: "test:unit",
+    relatedPackageScript: "test:unit:related",
+  },
 };
 
 export const planAppTestSuite = (suite: AppTestSuite): AppTestSuitePlan => SUITE_PLANS[suite];
@@ -38,9 +77,9 @@ const main = (): void => {
   if (!output) throw new Error("GITHUB_OUTPUT is required.");
   const suitePlan = planAppTestSuite(suite);
   appendFileSync(output, [
+    `needs_playwright=${suitePlan.needsPlaywright}`,
     `needs_rust=${suitePlan.needsRust}`,
     `needs_xvfb=${suitePlan.needsXvfb}`,
-    `package_script=${suitePlan.packageScript}`,
     "",
   ].join("\n"), "utf8");
 };
