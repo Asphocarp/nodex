@@ -43,7 +43,7 @@ const sanitizeSourceCss = (css: string): string =>
 const omittedWhitespace = Symbol("omitted-css-whitespace");
 
 /** Compare parsed CSS values by tokens, not formatter-owned whitespace trivia. */
-const normalizeCssValue = (value: unknown): unknown | typeof omittedWhitespace => {
+const normalizeCssValue = (value: unknown): unknown => {
   if (Array.isArray(value)) {
     return value
       .map(normalizeCssValue)
