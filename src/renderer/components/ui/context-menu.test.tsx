@@ -1,4 +1,4 @@
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import { render } from "@/test/dom";
@@ -78,10 +78,12 @@ describe("NodexContextMenuSubmenu", () => {
     await openRoot(view.getByRole("button", { name: "Target" }));
 
     await hoverItem(view.getByRole("menuitem", { name: "First" }));
-    expect(view.getByRole("menuitem", { name: "First child" })).toBeTruthy();
+    await view.findByRole("menuitem", { name: "First child" });
 
     await hoverItem(view.getByRole("menuitem", { name: "Second" }));
-    expect(view.getByRole("menuitem", { name: "Second child" })).toBeTruthy();
-    expect(view.queryByRole("menuitem", { name: "First child" })).toBeNull();
+    await view.findByRole("menuitem", { name: "Second child" });
+    await waitFor(() => {
+      expect(view.queryByRole("menuitem", { name: "First child" })).toBeNull();
+    });
   });
 });
