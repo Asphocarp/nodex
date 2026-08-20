@@ -99,6 +99,25 @@ function verifyValidFixtures(
   throw new Error(`Valid tooling fixtures failed Oxlint: ${JSON.stringify(result.report)}`);
 }
 
+function verifyWorkspaceTaskGraph(): void {
+  const result = spawnSync(vpExecutable, ["run", "--workspace-root", "version-surfaces:audit"], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (result.error) throw result.error;
+  if (result.signal) {
+    throw new Error(`Vite+ task graph probe terminated by ${result.signal}`);
+  }
+  if (result.status === 0) return;
+
+  throw new Error(
+    ["Vite+ could not construct the workspace task graph.", result.stdout, result.stderr]
+      .filter(Boolean)
+      .join("\n"),
+  );
+}
+
 verifyInvalidFixtures([
   {
     code: "react-hooks(rules-of-hooks)",
@@ -140,4 +159,6 @@ verifyValidFixtures([
   "scripts/fixtures/tooling/tailwind-valid.tsx",
 ], tailwindEnvironment);
 
-console.log("Oxlint tooling contracts verified: hooks, query, refresh, imports, and Tailwind.");
+verifyWorkspaceTaskGraph();
+
+console.log("Tooling contracts verified: Oxlint rules and the Vite+ workspace task graph.");

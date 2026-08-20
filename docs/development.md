@@ -177,6 +177,7 @@ The test commands follow production boundaries:
   remains the complete local/source-verification alias.
 - `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
 - Core protocol generation runs `openapi-typescript` inside `packages/core-protocol-codegen`, where its officially supported TypeScript 5 compiler runtime is pinned. That package is a generator implementation detail; TypeScript 7 remains the only repository source checker and semantic authority.
+- `pnpm run tooling:verify` also proves that Vite+ can load the complete workspace metadata graph while keeping third-party packages outside root task execution. Keep dependencies imported by workspace-local Vite configs resolvable even when those packages are not selected by `vp run`.
 - `pnpm run verify:effect-boundaries` keeps Effect inside the Main/script control plane, generated/shared/renderer contracts Effect-free, unstable APIs inside app-owned adapters, and runtime execution at approved composition/facade seams. Lifecycle tests use fake capabilities or `@effect/vitest` TestClock instead of real retry or escalation sleeps.
 - `pnpm test:e2e` rebuilds the native Core plus Electron application, then
   exercises the complete Electron/preload/IPC/Core chain. Do not invoke the
