@@ -41,6 +41,7 @@ import type {
 } from "@/lib/page-chat-actions";
 import { useDatabaseViewMutationHistory } from "./database-view-mutation-history";
 import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
+import type { DatabaseViewPageOpenHandler } from "./database-view-page-open";
 
 type DatabaseReadTarget =
   | { readonly databaseViewId: string }
@@ -191,7 +192,7 @@ export function WorkbenchDatabaseViewSurface({
 }: {
   readonly accessContext: ContentAccessContext;
   readonly target: DatabaseSurfaceTarget;
-  readonly onOpenPage: (pageId: string, title: string) => void;
+  readonly onOpenPage: DatabaseViewPageOpenHandler;
   readonly onPresentationChange?: (presentation: {
     readonly databaseName: string;
     readonly viewName: string;

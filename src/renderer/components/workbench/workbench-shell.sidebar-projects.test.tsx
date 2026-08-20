@@ -241,21 +241,24 @@ describe("workbench session shell / sidebar-projects", () => {
     const props = (globalThis as {
       __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
     }).__lastDatabaseViewSurfaceProps;
-    if (typeof props?.openPageStage !== "function") {
+    if (typeof props?.onOpenPage !== "function") {
       throw new Error("Expected Project Home Database Page opener");
     }
     await act(async () => {
-      await (props.openPageStage as (
-        projectId: string,
+      await (props.onOpenPage as (
         pageId: string,
         title?: string,
-      ) => Promise<void> | void)("alpha", "card-1", "Card One");
+        openMode?: "preview" | "durable",
+      ) => Promise<void> | void)("card-1", "Card One", "preview");
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const projectHomeTab = screen.getByRole("tab", { name: "Project Home" });
     const pageTab = screen.getByRole("tab", { name: "Card One" });
+    expect(
+      pageTab.closest('[data-app-shell-tab-preview="true"]'),
+    ).not.toBeNull();
     const projectHomeRow = projectHomeTab.closest("[data-panel-tab-row]");
     const pageRow = pageTab.closest("[data-panel-tab-row]");
     expect(projectHomeRow).not.toBeNull();
@@ -271,6 +274,18 @@ describe("workbench session shell / sidebar-projects", () => {
       | undefined;
     expect(presentedPageIds?.has("card-1")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+
+    await act(async () => {
+      fireEvent.doubleClick(pageTab);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("tab", { name: "Card One" })
+          .closest('[data-app-shell-tab-preview="true"]'),
+      ).toBeNull();
+    });
   });
 
   test("Project Scene tab chrome follows the live Page resource title", async () => {
@@ -283,15 +298,15 @@ describe("workbench session shell / sidebar-projects", () => {
     const hostProps = (globalThis as {
       __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
     }).__lastDatabaseViewSurfaceProps;
-    if (typeof hostProps?.openPageStage !== "function") {
+    if (typeof hostProps?.onOpenPage !== "function") {
       throw new Error("Expected Project Home Database Page opener");
     }
     await act(async () => {
-      await (hostProps.openPageStage as (
-        projectId: string,
+      await (hostProps.onOpenPage as (
         pageId: string,
         title?: string,
-      ) => Promise<void> | void)("alpha", "card-1", "Card One");
+        openMode?: "preview" | "durable",
+      ) => Promise<void> | void)("card-1", "Card One", "preview");
     });
     await settleAsyncRender();
     await settleAsyncRender();

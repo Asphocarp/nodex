@@ -51,6 +51,7 @@ export type WorkbenchPanelController =
   WorkbenchEphemeralPanelState
   & UpdateCommands
   & {
+    readonly pruneOwner: (ownerKey: string) => void;
     readonly pruneSession: (sessionId: string) => void;
     readonly durable: WorkbenchDurablePanelCommands;
     readonly sceneDurable: WorkbenchSceneDurablePanelCommands | null;
@@ -238,6 +239,7 @@ function capitalize<Value extends string>(value: Value): Capitalize<Value> {
 
 const EPHEMERAL_PANEL_FIELDS = [
   "previewTabsByPanel",
+  "previewSurfacesByPanel",
   "sideChatTabsBySession",
   "sideChatActiveTabByPanel",
   "mcpAppTabsBySession",
@@ -280,6 +282,9 @@ export function useWorkbenchPanelController({
   const pruneSession = useCallback((sessionId: string) => {
     dispatch({ type: "prune-session", sessionId });
   }, []);
+  const pruneOwner = useCallback((ownerKey: string) => {
+    dispatch({ type: "prune-owner", ownerKey });
+  }, []);
   const commands = useMemo(() => Object.fromEntries(
     EPHEMERAL_PANEL_FIELDS.map((field) => [
       `update${capitalize(field)}`,
@@ -289,7 +294,7 @@ export function useWorkbenchPanelController({
         >,
       ) => update(field, value),
     ]),
-  ) as UpdateCommands, [update]);
+  ) as unknown as UpdateCommands, [update]);
   const durable = useMemo<WorkbenchDurablePanelCommands>(() => ({
     apply: (session, mutation) => mutateScene(sessionSceneOwner(session), mutation),
     createTab: (session, input) =>
@@ -688,6 +693,7 @@ export function useWorkbenchPanelController({
   return useMemo(() => ({
     ...state,
     ...commands,
+    pruneOwner,
     pruneSession,
     durable,
     sceneDurable,
@@ -698,6 +704,7 @@ export function useWorkbenchPanelController({
     commands,
     durable,
     sceneDurable,
+    pruneOwner,
     pruneSession,
     removeEphemeralTab,
     selectRenderableTab,

@@ -116,6 +116,7 @@ import { PlusIcon } from "@/components/shared/icons";
 import type { DatabaseViewBoardPageDropIntent } from "@/lib/use-board";
 import { databaseViewGesturePresentationOverride } from "../../../shared/database-view-presentation";
 import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
+import type { DatabaseViewPageOpenHandler } from "./database-view-page-open";
 
 const DATABASE_VIEW_PAGE_DRAG_MIME =
   "application/vnd.nodex.database-view-pages.v1+json";
@@ -153,10 +154,7 @@ interface DatabaseViewSurfaceProps {
   readonly onLoadMoreGroup?: (scopeKey: string) => Promise<void> | void;
   readonly searchQuery: string;
   readonly showViewLabel?: boolean;
-  readonly onOpenPage: (
-    pageId: string,
-    titleSnapshot: string,
-  ) => void;
+  readonly onOpenPage: DatabaseViewPageOpenHandler;
   readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onCommitted?: () => void | Promise<void>;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
@@ -1122,7 +1120,7 @@ function BoardDatabaseViewSurface({
         return true;
       }
       if (commandId === "boardOpen" && activeRow) {
-        onOpenPage(activeRow.pageId, activeRow.title);
+        onOpenPage(activeRow.pageId, activeRow.title, "preview");
         return true;
       }
       if (commandId === "boardToggleSelection" && activeRow) {
@@ -1344,7 +1342,7 @@ function BoardDatabaseViewSurface({
     if (event.key === "Enter") {
       event.preventDefault();
       const active = allRows.find((candidate) => candidate.pageId === pageId);
-      if (active) onOpenPage(active.pageId, active.title);
+      if (active) onOpenPage(active.pageId, active.title, "preview");
       return;
     }
     if (event.key !== " ") return;

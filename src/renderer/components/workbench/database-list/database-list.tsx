@@ -159,6 +159,7 @@ import {
   resolveDatabaseListBlockDropPreview,
   type DatabaseListBlockDropPreview,
 } from "./database-list-block-drop";
+import type { DatabaseViewPageOpenHandler } from "../database-view-page-open";
 
 const INITIAL_OVERSCAN = 100;
 const EMPTY_DATABASE_LIST_PAGE_IDENTITY: DatabaseListPageIdentity = {
@@ -174,7 +175,7 @@ interface DatabaseListProps {
   readonly groupPagination?: ReadonlyMap<string, ColumnPaginationState>;
   readonly onLoadMoreGroup?: (scopeKey: string) => Promise<void> | void;
   readonly searchQuery: string;
-  readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
+  readonly onOpenPage: DatabaseViewPageOpenHandler;
   readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onCommitted?: () => Promise<void> | void;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
@@ -1274,7 +1275,9 @@ export function DatabaseList({
         accessContext: model.accessContext,
         property,
       }),
-    onOpenRelationPage: onOpenPage,
+    onOpenRelationPage: (pageId, title) => {
+      onOpenPage(pageId, title, "preview");
+    },
     onRelationValueStale: () => void onCommitted?.(),
   };
 
@@ -1590,7 +1593,7 @@ export function DatabaseList({
     }
     if (event.key === "Enter" && activePage) {
       event.preventDefault();
-      onOpenPage(activePage.pageId, activePage.row.title);
+      onOpenPage(activePage.pageId, activePage.row.title, "preview");
       return;
     }
     if (
@@ -1671,7 +1674,9 @@ export function DatabaseList({
             ? current
             : { ...current, activeOccurrenceKey: item.key }
         )}
-        onOpen={(titleSnapshot) => onOpenPage(item.pageId, titleSnapshot)}
+        onOpen={(titleSnapshot, openMode) => {
+          onOpenPage(item.pageId, titleSnapshot, openMode);
+        }}
         statusOptions={statusOptions}
         priorityOptions={priorityOptions}
         onSetStatus={(optionId) => setProperty(item.pageId, "status", optionId)}

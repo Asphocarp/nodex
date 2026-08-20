@@ -7,7 +7,11 @@ import {
   createWorkbenchEphemeralPanelState,
   reduceWorkbenchEphemeralPanelState,
 } from "./workbench-ephemeral-panel-state";
-import { makeWorkbenchSessionPanelSlotKey } from "./workbench-panel-slot-key";
+import { makeWorkbenchSceneKey } from "../../shared/workbench-scene";
+import {
+  makeWorkbenchPanelSlotKey,
+  makeWorkbenchSessionPanelSlotKey,
+} from "./workbench-panel-slot-key";
 
 describe("Workbench ephemeral panel state", () => {
   test("functional updates are committed through one aggregate", () => {
@@ -126,6 +130,60 @@ describe("Workbench ephemeral panel state", () => {
     });
     expect(next.panelCollapsedOverrides).toEqual({
       [twoRight]: true,
+    });
+  });
+
+  test("owner pruning removes only that Scene's surface previews", () => {
+    const projectOwnerKey = makeWorkbenchSceneKey({
+      kind: "project",
+      projectId: "project:one",
+    });
+    const pagesOwnerKey = makeWorkbenchSceneKey({ kind: "pages" });
+    const projectSlot = makeWorkbenchPanelSlotKey(
+      projectOwnerKey,
+      "right",
+      "leaf:project",
+    );
+    const pagesSlot = makeWorkbenchPanelSlotKey(
+      pagesOwnerKey,
+      "right",
+      "leaf:pages",
+    );
+    const initial = {
+      ...createWorkbenchEphemeralPanelState(),
+      previewSurfacesByPanel: {
+        [projectSlot]: {
+          id: "surface:project",
+          kind: "page_stage" as const,
+          titleSnapshot: "Project Page",
+          config: {
+            accessContext: { kind: "project" as const, projectId: "project:one" },
+            pageId: "page:project",
+          },
+          stateKey: 0,
+          state: null,
+        },
+        [pagesSlot]: {
+          id: "surface:pages",
+          kind: "page_stage" as const,
+          titleSnapshot: "Library Page",
+          config: {
+            accessContext: { kind: "library" as const },
+            pageId: "page:pages",
+          },
+          stateKey: 0,
+          state: null,
+        },
+      },
+    };
+
+    const next = reduceWorkbenchEphemeralPanelState(initial, {
+      type: "prune-owner",
+      ownerKey: projectOwnerKey,
+    });
+
+    expect(next.previewSurfacesByPanel).toEqual({
+      [pagesSlot]: initial.previewSurfacesByPanel[pagesSlot],
     });
   });
 

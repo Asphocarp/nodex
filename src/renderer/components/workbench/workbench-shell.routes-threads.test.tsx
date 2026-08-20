@@ -207,9 +207,14 @@ describe("workbench session shell / routes-threads", () => {
       throw new Error("Expected the Pages Database Page opener");
     }
     await act(async () => {
-      (props.onOpenPage as (pageId: string, title: string) => void)(
+      (props.onOpenPage as (
+        pageId: string,
+        title: string,
+        openMode: "preview" | "durable",
+      ) => void)(
         "page:visible",
         "Visible Page",
+        "preview",
       );
       await Promise.resolve();
     });
@@ -223,6 +228,11 @@ describe("workbench session shell / routes-threads", () => {
       | ReadonlySet<string>
       | undefined;
     expect(presentedPageIds?.has("page:visible")).toBe(true);
+    expect(
+      screen
+        .getByRole("tab", { name: "Visible Page" })
+        .closest('[data-app-shell-tab-preview="true"]'),
+    ).not.toBeNull();
   });
 
   test("shares one Pages tablist across standalone roots and reuses open tabs", async () => {

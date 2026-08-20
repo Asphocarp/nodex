@@ -21,6 +21,7 @@ import {
 } from "./database-list-dnd";
 import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
 import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
+import type { DatabaseViewPageOpenMode } from "../database-view-page-open";
 
 export const DATABASE_LIST_INTERACTIVE_SELECTOR = DATABASE_LIST_DND_INTERACTIVE_SELECTOR;
 
@@ -62,7 +63,10 @@ export function DatabaseListRow({
   readonly trailingCells: ReactNode;
   readonly onSelect: (mode: "replace" | "toggle" | "range") => void;
   readonly onActivate: () => void;
-  readonly onOpen: (titleSnapshot: string) => void;
+  readonly onOpen: (
+    titleSnapshot: string,
+    openMode: DatabaseViewPageOpenMode,
+  ) => void;
   readonly statusOptions: readonly { readonly id: string; readonly name: string }[];
   readonly priorityOptions: readonly { readonly id: string; readonly name: string }[];
   readonly onSetStatus: (optionId: string | null) => void;
@@ -165,7 +169,18 @@ export function DatabaseListRow({
         }
         if (dnd.active || dnd.suppressesNextClick()) return;
         onActivate();
-        onOpen(presentedTitle);
+        onOpen(presentedTitle, "preview");
+      }}
+      onDoubleClick={(event) => {
+        if (event.shiftKey) return;
+        const target = event.target as HTMLElement;
+        if (
+          target.closest(DATABASE_LIST_INTERACTIVE_SELECTOR)
+          && !target.closest("[data-database-view-page-open]")
+        ) return;
+        if (dnd.active || dnd.suppressesNextClick()) return;
+        onActivate();
+        onOpen(presentedTitle, "durable");
       }}
     >
       {dropEdge === "before" || dropEdge === "after" ? (
@@ -333,12 +348,13 @@ export function DatabaseListRow({
           <button
             ref={setPageDragHandle}
             type="button"
+            data-database-view-page-open="true"
             data-database-view-page-drag-handle="true"
             className="min-w-0 shrink truncate text-left text-sm font-medium leading-[normal] text-[var(--database-list-text-primary)] outline-none"
             aria-label={`Open Page ${presentedTitle}`}
             onClick={() => {
               onActivate();
-              onOpen(presentedTitle);
+              onOpen(presentedTitle, "preview");
             }}
           >
             {presentedTitle}

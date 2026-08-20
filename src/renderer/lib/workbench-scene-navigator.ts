@@ -180,9 +180,23 @@ export interface WorkbenchSceneNavigatorPort {
     ) => WorkbenchSceneSnapshot,
     location: WorkbenchSceneLocation,
   ) => void;
-  readonly presentPreview?: (
-    input: PresentWorkbenchPanelSurfaceInput,
-  ) => Promise<PresentWorkbenchPanelSurfaceResult>;
+  readonly preview?: {
+    readonly list: (
+      owner: WorkbenchSceneOwner,
+    ) => readonly WorkbenchScenePreviewEntry[];
+    readonly set: (
+      owner: WorkbenchSceneOwner,
+      panelId: WorkbenchPanelId,
+      leafId: string,
+      surface: WorkbenchSurfaceDescriptor | null,
+    ) => void;
+  };
+}
+
+export interface WorkbenchScenePreviewEntry {
+  readonly panelId: WorkbenchPanelId;
+  readonly leafId: string;
+  readonly surface: WorkbenchSurfaceDescriptor;
 }
 
 export interface WorkbenchSceneNavigator {
@@ -195,6 +209,18 @@ export interface WorkbenchSceneNavigator {
   readonly presentPanelSurface: (
     input: PresentWorkbenchPanelSurfaceInput,
   ) => Promise<PresentWorkbenchPanelSurfaceResult>;
+  readonly clearPreview: (input: {
+    readonly owner: WorkbenchSceneOwner;
+    readonly panelId: WorkbenchPanelId;
+    readonly leafId: string;
+    readonly surfaceId?: string;
+  }) => boolean;
+  readonly pinPreview: (input: {
+    readonly owner: WorkbenchSceneOwner;
+    readonly panelId: WorkbenchPanelId;
+    readonly leafId: string;
+    readonly surfaceId: string;
+  }) => boolean;
 }
 
 function createDefaultIdentityFactory(): WorkbenchSceneNavigatorIdentityFactory {
@@ -293,17 +319,20 @@ function makeSurfaceDescriptor(
 
 function presentDurableSurface(
   port: WorkbenchSceneNavigatorPort,
-  identities: WorkbenchSceneNavigatorIdentityFactory,
   input: Omit<PresentWorkbenchPanelSurfaceInput, "request"> & {
     readonly request: WorkbenchSurfaceOpenRequest;
   },
+  candidate: WorkbenchSurfaceDescriptor,
 ): PresentWorkbenchPanelSurfaceResult {
-  const candidate = makeSurfaceDescriptor(input.request, identities);
   let result: PresentWorkbenchPanelSurfaceResult = {
     status: "presented",
     surfaceId: candidate.id,
     reused: false,
   };
+  let presentedSlot: {
+    readonly panelId: WorkbenchPanelId;
+    readonly leafId: string;
+  } | null = null;
 
   const updateScene = (stored: WorkbenchSceneSnapshot | undefined) => {
     const scene = stored ?? materializeInitialWorkbenchScene(input.owner);
@@ -337,6 +366,7 @@ function presentDurableSurface(
           surfaceId: matching.id,
           reused: true,
         };
+        presentedSlot = { panelId, leafId: leaf.id };
         return patchWorkbenchScenePanel(
           activateWorkbenchSceneSurface(
             scene,
@@ -351,10 +381,13 @@ function presentDurableSurface(
     }
 
     const target = resolvePanelSurfaceTarget(scene, input.target);
+    const leafId = target.leafId
+      ?? target.scene.panels[target.panelId].layout.activeLeafId;
+    presentedSlot = { panelId: target.panelId, leafId };
     return patchWorkbenchScenePanel(
       createWorkbenchSceneSurface(target.scene, {
         panelId: target.panelId,
-        targetLeafId: target.leafId,
+        targetLeafId: leafId,
         surface: candidate,
       }),
       target.panelId,
@@ -368,7 +401,197 @@ function presentDurableSurface(
   } else {
     port.setScene(input.owner, updateScene);
   }
+  const settledSlot = presentedSlot as {
+    readonly panelId: WorkbenchPanelId;
+    readonly leafId: string;
+  } | null;
+  if (settledSlot) {
+    port.preview?.set(
+      input.owner,
+      settledSlot.panelId,
+      settledSlot.leafId,
+      null,
+    );
+  }
   return result;
+}
+
+function matchingPreviewEntry(
+  port: WorkbenchSceneNavigatorPort,
+  owner: WorkbenchSceneOwner,
+  candidate: WorkbenchSurfaceDescriptor,
+): WorkbenchScenePreviewEntry | null {
+  const reuseKey = getWorkbenchSurfaceReuseKey(candidate);
+  if (!reuseKey) return null;
+  return port.preview?.list(owner).find(
+    (entry) => getWorkbenchSurfaceReuseKey(entry.surface) === reuseKey,
+  ) ?? null;
+}
+
+function updateSceneForNavigation(
+  port: WorkbenchSceneNavigatorPort,
+  owner: WorkbenchSceneOwner,
+  navigation: PresentWorkbenchPanelSurfaceInput["navigation"],
+  update: (stored: WorkbenchSceneSnapshot | undefined) => WorkbenchSceneSnapshot,
+): void {
+  if (navigation === "select-owner") {
+    port.setSceneAndSelect(
+      owner,
+      update,
+      sceneLocationForOwner(owner),
+    );
+    return;
+  }
+  port.setScene(owner, update);
+}
+
+function presentPreviewSurface(
+  port: WorkbenchSceneNavigatorPort,
+  input: PresentWorkbenchPanelSurfaceInput,
+  candidate: WorkbenchSurfaceDescriptor,
+): PresentWorkbenchPanelSurfaceResult {
+  if (!port.preview) {
+    return {
+      status: "unavailable",
+      reason: "Preview presentation is unavailable for this Scene",
+    };
+  }
+
+  const matchingPreview = matchingPreviewEntry(port, input.owner, candidate);
+  let result: PresentWorkbenchPanelSurfaceResult = {
+    status: "presented",
+    surfaceId: matchingPreview?.surface.id ?? candidate.id,
+    reused: matchingPreview !== null,
+  };
+  let previewEntry: WorkbenchScenePreviewEntry | null = matchingPreview
+    ? {
+        ...matchingPreview,
+        surface: {
+          ...candidate,
+          id: matchingPreview.surface.id,
+          stateKey: matchingPreview.surface.stateKey,
+          state: matchingPreview.surface.state,
+        },
+      }
+    : null;
+  let durableSlot: {
+    readonly panelId: WorkbenchPanelId;
+    readonly leafId: string;
+  } | null = null;
+
+  updateSceneForNavigation(port, input.owner, input.navigation, (stored) => {
+    const scene = stored ?? materializeInitialWorkbenchScene(input.owner);
+    const reuseKey = getWorkbenchSurfaceReuseKey(candidate);
+    const durable = reuseKey === null
+      ? null
+      : Object.values(scene.panelSurfacesById).find(
+          (surface) => getWorkbenchSurfaceReuseKey(surface) === reuseKey,
+        ) ?? null;
+    if (durable) {
+      for (const panelId of ["right", "bottom"] as const) {
+        const leaf = findWorkbenchPanelLeafForTab(
+          scene.panels[panelId].layout,
+          durable.id,
+        );
+        if (!leaf) continue;
+        result = {
+          status: "presented",
+          surfaceId: durable.id,
+          reused: true,
+        };
+        durableSlot = { panelId, leafId: leaf.id };
+        previewEntry = null;
+        return patchWorkbenchScenePanel(
+          activateWorkbenchSceneSurface(
+            scene,
+            panelId,
+            leaf.id,
+            durable.id,
+          ),
+          panelId,
+          { collapsed: false },
+        );
+      }
+    }
+
+    if (matchingPreview && previewEntry) {
+      return patchWorkbenchScenePanel(
+        activateWorkbenchSceneSurface(
+          scene,
+          matchingPreview.panelId,
+          matchingPreview.leafId,
+        ),
+        matchingPreview.panelId,
+        { collapsed: false },
+      );
+    }
+
+    const target = resolvePanelSurfaceTarget(scene, input.target);
+    previewEntry = {
+      panelId: target.panelId,
+      leafId: target.leafId
+        ?? target.scene.panels[target.panelId].layout.activeLeafId,
+      surface: candidate,
+    };
+    return patchWorkbenchScenePanel(
+      activateWorkbenchSceneSurface(
+        target.scene,
+        previewEntry.panelId,
+        previewEntry.leafId,
+      ),
+      previewEntry.panelId,
+      { collapsed: false },
+    );
+  });
+
+  const settledDurableSlot = durableSlot as {
+    readonly panelId: WorkbenchPanelId;
+    readonly leafId: string;
+  } | null;
+  if (settledDurableSlot) {
+    port.preview.set(
+      input.owner,
+      settledDurableSlot.panelId,
+      settledDurableSlot.leafId,
+      null,
+    );
+    return result;
+  }
+  if (previewEntry) {
+    port.preview.set(
+      input.owner,
+      previewEntry.panelId,
+      previewEntry.leafId,
+      previewEntry.surface,
+    );
+  }
+  return result;
+}
+
+function validateSceneSurfaceRequest(
+  input: PresentWorkbenchPanelSurfaceInput,
+): PresentWorkbenchPanelSurfaceResult | null {
+  if (input.owner.kind === "project" && input.request.kind === "conversation") {
+    return {
+      status: "unavailable",
+      reason: "Project conversations belong to Agent Dock",
+    };
+  }
+  if (input.owner.kind !== "pages") return null;
+
+  const requestAllowed = input.request.kind === "page_stage"
+    || input.request.kind === "canvas_stage"
+    || input.request.kind === "db_view";
+  const libraryAuthorized = requestAllowed
+    && input.request.config.accessContext.kind === "library"
+    && (input.request.kind !== "db_view"
+      || input.request.config.target.kind !== "project-default");
+  return libraryAuthorized
+    ? null
+    : {
+        status: "unavailable",
+        reason: "Pages only accepts Library content surfaces",
+      };
 }
 
 export function createWorkbenchSceneNavigator(
@@ -379,37 +602,94 @@ export function createWorkbenchSceneNavigator(
   const presentPanelSurface = async (
     input: PresentWorkbenchPanelSurfaceInput,
   ): Promise<PresentWorkbenchPanelSurfaceResult> => {
+    const unavailable = validateSceneSurfaceRequest(input);
+    if (unavailable) return unavailable;
+
+    const candidate = makeSurfaceDescriptor(input.request, identities);
     if (input.mode === "preview") {
-      return port.presentPreview?.(input) ?? {
-        status: "unavailable",
-        reason: "Preview presentation is unavailable for this Scene",
-      };
+      return presentPreviewSurface(port, input, candidate);
     }
-    if (input.owner.kind === "project" && input.request.kind === "conversation") {
-      return {
-        status: "unavailable",
-        reason: "Project conversations belong to Agent Dock",
-      };
-    }
-    if (input.owner.kind === "pages") {
-      const requestAllowed = input.request.kind === "page_stage"
-        || input.request.kind === "canvas_stage"
-        || input.request.kind === "db_view";
-      const libraryAuthorized = requestAllowed
-        && input.request.config.accessContext.kind === "library"
-        && (input.request.kind !== "db_view"
-          || input.request.config.target.kind !== "project-default");
-      if (!libraryAuthorized) {
+    const matchingPreview = matchingPreviewEntry(
+      port,
+      input.owner,
+      candidate,
+    );
+    if (matchingPreview) {
+      const pinned = pinPreview({
+        owner: input.owner,
+        panelId: matchingPreview.panelId,
+        leafId: matchingPreview.leafId,
+        surfaceId: matchingPreview.surface.id,
+      }, input.navigation);
+      if (pinned) {
         return {
-          status: "unavailable",
-          reason: "Pages only accepts Library content surfaces",
+          status: "presented",
+          surfaceId: matchingPreview.surface.id,
+          reused: true,
         };
       }
     }
-    return presentDurableSurface(port, identities, {
+    return presentDurableSurface(port, {
       ...input,
       request: input.request,
+    }, candidate);
+  };
+
+  const clearPreview = (input: {
+    readonly owner: WorkbenchSceneOwner;
+    readonly panelId: WorkbenchPanelId;
+    readonly leafId: string;
+    readonly surfaceId?: string;
+  }): boolean => {
+    const entry = port.preview?.list(input.owner).find(
+      (candidate) =>
+        candidate.panelId === input.panelId
+        && candidate.leafId === input.leafId,
+    );
+    if (!entry) return false;
+    if (input.surfaceId && entry.surface.id !== input.surfaceId) return false;
+    port.preview?.set(
+      input.owner,
+      input.panelId,
+      input.leafId,
+      null,
+    );
+    return true;
+  };
+
+  const pinPreview = (input: {
+    readonly owner: WorkbenchSceneOwner;
+    readonly panelId: WorkbenchPanelId;
+    readonly leafId: string;
+    readonly surfaceId: string;
+  }, navigation: PresentWorkbenchPanelSurfaceInput["navigation"] = "background"): boolean => {
+    const entry = port.preview?.list(input.owner).find(
+      (candidate) =>
+        candidate.panelId === input.panelId
+        && candidate.leafId === input.leafId
+        && candidate.surface.id === input.surfaceId,
+    );
+    if (!entry) return false;
+
+    updateSceneForNavigation(port, input.owner, navigation, (stored) => {
+      const scene = stored ?? materializeInitialWorkbenchScene(input.owner);
+      return patchWorkbenchScenePanel(
+        createWorkbenchSceneSurface(scene, {
+          panelId: input.panelId,
+          targetLeafId: input.leafId,
+          surface: entry.surface,
+        }),
+        input.panelId,
+        { collapsed: false },
+      );
     });
+    port.preview?.set(
+      input.owner,
+      input.panelId,
+      input.leafId,
+      null,
+    );
+    return true;
   };
 
   return {
@@ -427,6 +707,8 @@ export function createWorkbenchSceneNavigator(
       port.selectLocation({ kind: "pages" });
     },
     presentPanelSurface,
+    clearPreview,
+    pinPreview,
   };
 }
 
