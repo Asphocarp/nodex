@@ -3,7 +3,10 @@ import { rendererViteResolve } from "./config/renderer-vite-shared";
 import { selectTieredTestFiles } from "./config/vitest-test-tier";
 
 const testFiles = selectTieredTestFiles({
-  defaultInclude: ["src/main/core-client/**/*.node.test.ts"],
+  defaultInclude: [
+    "src/main/core-client/**/*.node.test.ts",
+    "src/main/effect-control-plane/**/*.node.test.ts",
+  ],
   stressInclude: ["src/main/core-client/**/*.stress.node.test.ts"],
 });
 

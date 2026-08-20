@@ -333,3 +333,85 @@ test("terminates after a non-retryable reopening response", async () => {
   await expect(supervisor.done).rejects.toBe(terminal);
   expect(attempts).toBe(2);
 });
+
+test("interrupts a pending retry when the logical subscription closes", async () => {
+  let attempts = 0;
+  const supervisor = superviseCoreEventStream({
+    initialAfter: 0,
+    retryDelayMs: 60_000,
+    open: async () => {
+      attempts += 1;
+      throw new Error("temporary connection failure");
+    },
+    onEvent: () => undefined,
+    onResyncRequired: () => undefined,
+  });
+  void supervisor.ready.catch(() => undefined);
+
+  await expect.poll(() => attempts).toBe(1);
+  supervisor.close();
+
+  await expect(supervisor.done).resolves.toBeUndefined();
+  await Promise.resolve();
+  expect(attempts).toBe(1);
+});
+
+test("coalesces concurrent reconnect requests behind one fresh connection", async () => {
+  const firstDone = deferred();
+  const secondDone = deferred();
+  const secondOpen = deferred<{
+    readonly done: Promise<void>;
+    close(): void;
+  }>();
+  let attempts = 0;
+  const supervisor = superviseCoreEventStream({
+    initialAfter: 0,
+    retryDelayMs: 30_000,
+    open: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return { done: firstDone.promise, close: () => firstDone.resolve(undefined) };
+      }
+      return await secondOpen.promise;
+    },
+    onEvent: () => undefined,
+    onResyncRequired: () => undefined,
+  });
+
+  await supervisor.ready;
+  const firstReconnect = supervisor.reconnectAfterSubscriptionLoss();
+  const secondReconnect = supervisor.reconnectAfterSubscriptionLoss();
+  await expect.poll(() => attempts).toBe(2);
+
+  secondOpen.resolve({
+    done: secondDone.promise,
+    close: () => secondDone.resolve(undefined),
+  });
+  await Promise.all([firstReconnect, secondReconnect]);
+  expect(attempts).toBe(2);
+
+  supervisor.close();
+  await supervisor.done;
+});
+
+test("releases every fiber across repeated open and close lifecycles", async () => {
+  for (let iteration = 0; iteration < 20; iteration += 1) {
+    const streamDone = deferred();
+    let opens = 0;
+    const supervisor = superviseCoreEventStream({
+      initialAfter: iteration,
+      retryDelayMs: 60_000,
+      open: async () => {
+        opens += 1;
+        return { done: streamDone.promise, close: streamDone.resolve };
+      },
+      onEvent: () => undefined,
+      onResyncRequired: () => undefined,
+    });
+
+    await supervisor.ready;
+    supervisor.close();
+    await supervisor.done;
+    expect(opens).toBe(1);
+  }
+});
