@@ -4,13 +4,11 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
+use crate::document::integrity::validate_restore_documents;
 use crate::document::{DocumentAuthorityRow, load_canvas_scene, read_document_authority, sha256};
 use crate::domain::derived_records::parse_asset_source;
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadRepository, DocumentReadiness, DocumentSyncEngine,
-};
-use crate::infrastructure::migration::{
-    validate_codex_thread_timestamp_invariants, validate_v85_restore_documents,
 };
 use crate::infrastructure::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, open_writer, validate_store,
@@ -18,6 +16,7 @@ use crate::infrastructure::sqlite::{
 };
 use crate::infrastructure::store::STORE_FILE_NAME;
 use crate::infrastructure::store_replacement::{StoreReplacementJournal, validate_live_store};
+use crate::infrastructure::store_validation::validate_codex_thread_timestamp_invariants;
 
 use super::backup;
 use crate::infrastructure::store_replacement::{
@@ -360,7 +359,7 @@ fn validate_candidate(
     let connection = open_immutable_reader(database_path)?;
     validate_store(&connection)?;
     validate_codex_thread_timestamp_invariants(&connection)?;
-    validate_v85_restore_documents(&connection)?;
+    validate_restore_documents(&connection)?;
     validate_identity(&connection, profile_id, library_id)?;
     validate_document_authorities(&connection)?;
     validate_assets(&connection, assets_root)?;

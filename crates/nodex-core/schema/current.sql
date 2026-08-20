@@ -611,14 +611,31 @@ CREATE TABLE database_module_receipts (
 CREATE TABLE core_store_metadata (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   schema_owner TEXT NOT NULL CHECK (schema_owner = 'rust_core'),
-  migrated_from_version INTEGER,
-  migration_backup_name TEXT,
-  migrated_at_unix_ms INTEGER NOT NULL CHECK (migrated_at_unix_ms >= 0), projection_event_v2_floor INTEGER,
-  CHECK (
-    (migrated_from_version IS NULL AND migration_backup_name IS NULL)
-    OR (migrated_from_version = 84 AND length(migration_backup_name) > 0)
-  )
+  projection_event_v2_floor INTEGER NOT NULL
+    CHECK (projection_event_v2_floor >= 1)
 ) STRICT;
+CREATE TABLE core_store_migration_history (
+  source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
+  target_revision INTEGER NOT NULL CHECK (target_revision > source_revision),
+  source_schema_fingerprint TEXT NOT NULL
+    CHECK (
+      length(source_schema_fingerprint) = 64
+      AND source_schema_fingerprint NOT GLOB '*[^0-9a-f]*'
+    ),
+  target_schema_fingerprint TEXT NOT NULL
+    CHECK (
+      length(target_schema_fingerprint) = 64
+      AND target_schema_fingerprint NOT GLOB '*[^0-9a-f]*'
+    ),
+  backup_name TEXT NOT NULL
+    CHECK (
+      length(backup_name) BETWEEN 1 AND 512
+      AND instr(backup_name, '/') = 0
+      AND instr(backup_name, '\') = 0
+    ),
+  completed_at_unix_ms INTEGER NOT NULL CHECK (completed_at_unix_ms >= 0),
+  PRIMARY KEY (source_revision, target_revision)
+) WITHOUT ROWID, STRICT;
 CREATE TABLE document_structural_barriers (
   document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   generation INTEGER NOT NULL CHECK (generation >= 1),
@@ -632,11 +649,6 @@ CREATE TABLE document_structural_barriers (
   CHECK (length(operation_id) BETWEEN 1 AND 512),
   CHECK (json_valid(block_ids_json) AND json_type(block_ids_json) = 'array'),
   CHECK (length(committed_at) > 0)
-) WITHOUT ROWID, STRICT;
-CREATE TABLE core_legacy_imports (
-  import_key TEXT PRIMARY KEY,
-  imported_at_unix_ms INTEGER NOT NULL CHECK (imported_at_unix_ms >= 0),
-  CHECK (length(import_key) BETWEEN 1 AND 128)
 ) WITHOUT ROWID, STRICT;
 CREATE TABLE codex_thread_writable_roots (
   thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
@@ -3927,6 +3939,6 @@ WHEN NOT (
 BEGIN
   SELECT RAISE(ABORT, 'Block transfer Undo recipes are immutable');
 END;
-PRAGMA user_version = 130;
+PRAGMA user_version = 131;
 COMMIT;
 PRAGMA foreign_keys = ON;

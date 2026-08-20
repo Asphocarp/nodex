@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use crate::document::DocumentRuntimeCache;
 
 use super::event_log::validate_local_commit_index;
-use super::legacy_migration::migrate_legacy_profile_if_needed_with_observer;
 use super::migration::{
     StorePreparation, StorePreparationEvent, prepare_profile_store_with_observer,
 };
@@ -53,8 +52,6 @@ impl SqliteStoreKernel {
                 schema_version: CURRENT_STORE_REVISION,
                 created_fresh: false,
                 migrated_from_version: None,
-                migration_backup_path: None,
-                validated_yjs_documents: 0,
             },
             lock,
         )
@@ -66,8 +63,6 @@ impl SqliteStoreKernel {
     ) -> Result<Self, StoreError> {
         let lock = ProfileStoreLock::acquire(profile_home)?;
         recover_interrupted_store_replacement(profile_home)?;
-        let legacy_preparation =
-            migrate_legacy_profile_if_needed_with_observer(profile_home, &mut observer)?;
         let database_path = profile_home.join(STORE_FILE_NAME);
         if fs::symlink_metadata(&database_path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
@@ -79,14 +74,11 @@ impl SqliteStoreKernel {
             ));
         }
         let mut migration_connection = open_writer(&database_path)?;
-        let preparation = match legacy_preparation {
-            Some(preparation) => preparation,
-            None => prepare_profile_store_with_observer(
-                &mut migration_connection,
-                profile_home,
-                &mut observer,
-            )?,
-        };
+        let preparation = prepare_profile_store_with_observer(
+            &mut migration_connection,
+            profile_home,
+            &mut observer,
+        )?;
         validate_local_commit_index(&migration_connection)?;
         if let Err(error) = optimize_query_planner_on_open(&migration_connection) {
             tracing::warn!(

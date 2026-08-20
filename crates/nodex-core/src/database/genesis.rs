@@ -14,58 +14,6 @@ pub(crate) fn create_database_authority_records(
     name: &str,
     now: &str,
 ) -> Result<(), StoreError> {
-    create_database_authority_records_for_contract(
-        connection,
-        library_id,
-        database_id,
-        data_source_id,
-        view_id,
-        name,
-        now,
-        GenesisViewContract::Current,
-    )
-}
-
-#[cfg(test)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn create_legacy_v2_database_authority_records(
-    connection: &Connection,
-    library_id: &str,
-    database_id: &str,
-    data_source_id: &str,
-    view_id: &str,
-    name: &str,
-    now: &str,
-) -> Result<(), StoreError> {
-    create_database_authority_records_for_contract(
-        connection,
-        library_id,
-        database_id,
-        data_source_id,
-        view_id,
-        name,
-        now,
-        GenesisViewContract::LegacyV2,
-    )
-}
-
-enum GenesisViewContract {
-    Current,
-    #[cfg(test)]
-    LegacyV2,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn create_database_authority_records_for_contract(
-    connection: &Connection,
-    library_id: &str,
-    database_id: &str,
-    data_source_id: &str,
-    view_id: &str,
-    name: &str,
-    now: &str,
-    contract: GenesisViewContract,
-) -> Result<(), StoreError> {
     connection.execute(
         "INSERT INTO database_containers(\
            block_id, library_id, name, lifecycle, default_view_id, access_revision, \
@@ -87,8 +35,7 @@ fn create_database_authority_records_for_contract(
             now
         ],
     )?;
-    let includes_task_parent = matches!(&contract, GenesisViewContract::Current);
-    let initial_properties = initial_property_definitions(includes_task_parent);
+    let initial_properties = initial_property_definitions(true);
     let initial_property_count = initial_properties.len();
     for (index, (id, property_name, value_type, config)) in
         initial_properties.into_iter().enumerate()
@@ -109,17 +56,15 @@ fn create_database_authority_records_for_contract(
             ],
         )?;
     }
-    if includes_task_parent {
-        connection.execute(
-            "INSERT INTO data_source_relation_properties(\
-               data_source_id, property_id, target_data_source_id, cardinality\
-             ) VALUES (?1, ?2, ?1, 'one')",
-            params![
-                data_source_id,
-                super::property_semantics::TASK_PARENT_PROPERTY_ID
-            ],
-        )?;
-    }
+    connection.execute(
+        "INSERT INTO data_source_relation_properties(\
+           data_source_id, property_id, target_data_source_id, cardinality\
+         ) VALUES (?1, ?2, ?1, 'one')",
+        params![
+            data_source_id,
+            super::property_semantics::TASK_PARENT_PROPERTY_ID
+        ],
+    )?;
     let current_view_config = json!({
         "schemaKey": "nodex.database-view",
         "schemaVersion": 4,
@@ -158,41 +103,17 @@ fn create_database_authority_records_for_contract(
             }
         }
     });
-    #[cfg(test)]
-    let legacy_view_config = json!({
-        "schemaKey": "nodex.database-view",
-        "schemaVersion": 2,
-        "filter": { "kind": "group", "operator": "and", "children": [] },
-        "sort": [{
-            "field": { "kind": "manual" },
-            "direction": "asc",
-            "nulls": "last"
-        }],
-        "group": { "propertyId": "status" },
-        "display": {
-            "propertyIds": ["status", "priority", "estimate", "tags"],
-            "showTitle": true
-        }
-    });
-    let (column, layout, title, view_config) = match contract {
-        GenesisViewContract::Current => ("default_layout", "board", "Board", current_view_config),
-        #[cfg(test)]
-        GenesisViewContract::LegacyV2 => ("kind", "kanban", "Kanban", legacy_view_config),
-    };
     connection.execute(
-        &format!(
-            "INSERT INTO database_views(\
-               id, database_block_id, data_source_id, name, {column}, config_json, revision, \
-               rank_key, lifecycle, created_at, updated_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, 'active', ?8, ?8)"
-        ),
+        "INSERT INTO database_views(\
+           id, database_block_id, data_source_id, name, default_layout, config_json, revision, \
+           rank_key, lifecycle, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, 'Board', 'board', ?4, 1, ?5, 'active', ?6, ?6)",
         params![
             view_id,
             database_id,
             data_source_id,
-            title,
-            layout,
-            serde_json::to_string(&view_config).map_err(|_| internal("Initial View config"))?,
+            serde_json::to_string(&current_view_config)
+                .map_err(|_| internal("Initial View config"))?,
             fractional_rank(1, 1),
             now,
         ],

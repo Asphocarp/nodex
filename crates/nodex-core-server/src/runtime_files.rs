@@ -837,7 +837,8 @@ mod tests {
             nodex_core::infrastructure::schema::CURRENT_STORE_REVISION,
             "Core protocol and storage current Store versions must match",
         );
-        let actual = (84..=nodex_core_protocol::CURRENT_STORE_VERSION)
+        let actual = (nodex_core_protocol::MIN_SUPPORTED_STORE_REVISION
+            ..=nodex_core_protocol::CURRENT_STORE_VERSION)
             .map(|version| {
                 (
                     version,
@@ -848,7 +849,8 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        let published = (84..=nodex_core_protocol::CURRENT_STORE_VERSION)
+        let published = (nodex_core_protocol::MIN_SUPPORTED_STORE_REVISION
+            ..=nodex_core_protocol::CURRENT_STORE_VERSION)
             .map(|version| {
                 (
                     version,

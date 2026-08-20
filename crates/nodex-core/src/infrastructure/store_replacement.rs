@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
-use super::migration::{
-    validate_codex_thread_timestamp_invariants, validate_database_priority_invariants,
-};
 use super::schema::CURRENT_STORE_REVISION;
 use super::sqlite::{StoreError, StoreErrorCode, open_writer, validate_store};
 use super::store::STORE_FILE_NAME;
+use super::store_validation::{
+    validate_codex_thread_timestamp_invariants, validate_database_priority_invariants,
+};
 
 const JOURNAL_FILE_NAME: &str = ".core-store-restore-journal.json";
 const JOURNAL_VERSION: u32 = 1;

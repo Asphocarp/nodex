@@ -17,8 +17,6 @@ pub(crate) const MAX_DATA_SOURCE_PROPERTIES: usize = 200;
 pub(crate) const MAX_DATABASE_VIEWS: usize = 200;
 
 pub(crate) use genesis::create_database_authority_records;
-#[cfg(test)]
-pub(crate) use genesis::create_legacy_v2_database_authority_records;
 pub(crate) use mutation::apply_as_collaborator as apply_intents_as_collaborator;
 pub(crate) use mutation::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
