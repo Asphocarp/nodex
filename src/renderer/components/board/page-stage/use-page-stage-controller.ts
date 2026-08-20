@@ -312,7 +312,7 @@ export function usePageStageController(
     (updates: Partial<PageInput>) => {
       if (!page) return;
       const endSaving = beginSaving();
-      runUpdate(page.id, updates).finally(endSaving);
+      void runUpdate(page.id, updates).finally(endSaving);
     },
     [beginSaving, page, runUpdate],
   );

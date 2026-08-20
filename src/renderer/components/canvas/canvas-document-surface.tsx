@@ -565,7 +565,6 @@ function CanvasEditor({
   // Excalidraw renders a native link badge on elements with a `link` property.
   // Clicking that badge fires onLinkOpen — we intercept to open the page-stage.
   const handleLinkOpen = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (element: any, event: any) => {
       if (!isCardElement(element)) return;
       event.preventDefault();

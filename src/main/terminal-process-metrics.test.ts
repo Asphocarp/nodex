@@ -17,8 +17,16 @@ describe("terminal process metrics", () => {
       200 1
     `);
 
-    expect(collectDescendantPids(entries, [{ pid: 100, includeRoot: false }]).sort().join(",")).toBe("101,102,103");
-    expect(collectDescendantPids(entries, [{ pid: 100, includeRoot: true }]).sort().join(",")).toBe("100,101,102,103");
+    expect(
+      collectDescendantPids(entries, [{ pid: 100, includeRoot: false }])
+        .sort((left, right) => left - right)
+        .join(","),
+    ).toBe("101,102,103");
+    expect(
+      collectDescendantPids(entries, [{ pid: 100, includeRoot: true }])
+        .sort((left, right) => left - right)
+         .join(","),
+    ).toBe("100,101,102,103");
   });
 
   test("parses and aggregates unix process metrics", () => {

@@ -344,10 +344,7 @@ const reviewDiffPanelTestInvoke = async (...args: unknown[]) => {
       });
     }
 
-    if (
-      args[0] !== "review-summary" &&
-      args[0] !== "review-summary"
-    ) {
+    if (args[0] !== "review-summary") {
       return result;
     }
     const legacyResult = await mockInvokeImpl("review-diff", args[1]);

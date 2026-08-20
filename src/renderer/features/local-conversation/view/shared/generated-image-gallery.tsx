@@ -173,7 +173,7 @@ function GeneratedImageTile({
           onError={() => {
             if (failureCount >= MAX_IMAGE_REFETCHES) return;
             setFailure({ count: failureCount + 1, src: previewSrc });
-            previewAsset.refetch();
+            void previewAsset.refetch();
           }}
         />
       </button>

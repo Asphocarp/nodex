@@ -175,12 +175,12 @@ const collectFiles = (
     ));
 };
 
-const collectCargoManifests = (root: string, currentPath: string): string[] =>
+const collectCargoManifests = (currentPath: string): string[] =>
   readdirSync(currentPath, { withFileTypes: true })
     .sort((left, right) => left.name.localeCompare(right.name))
     .flatMap((entry): string[] => {
       const entryPath = path.join(currentPath, entry.name);
-      if (entry.isDirectory()) return collectCargoManifests(root, entryPath);
+      if (entry.isDirectory()) return collectCargoManifests(entryPath);
       if (entry.isFile() && entry.name === "Cargo.toml") return [entryPath];
       return [];
     });
@@ -318,10 +318,11 @@ const generationIdFor = (
 
 const currentPrerequisiteSourceDigest = (root: string): string => {
   const files = PREREQUISITE_SOURCE_PATHS.flatMap((relativePath) =>
-    collectFiles(root, path.join(root, relativePath), true)
+    collectFiles(root, path.join(root, relativePath), true),
   );
-  const cargoManifests = collectCargoManifests(root, path.join(root, "crates"))
-    .flatMap((manifestPath) => collectFiles(root, manifestPath));
+  const cargoManifests = collectCargoManifests(path.join(root, "crates")).flatMap((manifestPath) =>
+    collectFiles(root, manifestPath),
+  );
   return digestInventory(
     [...files, ...cargoManifests].sort((left, right) => left.path.localeCompare(right.path)),
     {},

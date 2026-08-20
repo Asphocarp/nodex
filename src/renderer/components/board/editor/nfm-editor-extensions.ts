@@ -78,7 +78,6 @@ const headingToggleAware = createExtension({
   key: "heading-toggle-aware-shortcuts",
   inputRules: HEADING_LEVELS.map((level) => ({
     find: new RegExp(`^(#{${level}})\\s$`),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     replace({ editor }: { editor: any }) {
       const isToggle = editor.getTextCursorPosition().block.type === "toggleListItem";
       return {
@@ -90,7 +89,6 @@ const headingToggleAware = createExtension({
   keyboardShortcuts: Object.fromEntries(
     HEADING_LEVELS.map((level) => [
       `Mod-Alt-${level}`,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ({ editor }: { editor: any }) => {
         const cursor = editor.getTextCursorPosition();
         if (editor.schema.blockSchema[cursor.block.type]?.content !== "inline") return false;
@@ -204,7 +202,6 @@ const structuredPlainTextCopyExt = createExtension(
  * Split parent block content at cursor and insert a new paragraph as the
  * first child with the trailing inline content.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function splitParentIntoFirstChild(editor: any, parentId: string): boolean {
   const view = editor.prosemirrorView;
   const { state } = view;
@@ -256,7 +253,6 @@ const childGroupEnterExt = createExtension({
     "numbered-list-item-shortcuts",
   ],
   keyboardShortcuts: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Enter: ({ editor }: { editor: any }) => {
       const wrapped = Object.create(editor);
       wrapped.splitParentIntoFirstChild = (parentId: string) =>
@@ -273,7 +269,6 @@ const childGroupEnterExt = createExtension({
  * block, delete source (and its empty blockGroup if it was the only child),
  * and place cursor at the join point.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mergeIntoBlock(editor: any, targetId: string, sourceId: string): void {
   const view = editor.prosemirrorView;
   const { state } = view;
@@ -325,7 +320,6 @@ function mergeIntoBlock(editor: any, targetId: string, sourceId: string): void {
 const childGroupBackspaceExt = createExtension({
   key: "child-group-backspace",
   keyboardShortcuts: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Backspace: ({ editor }: { editor: any }) => {
       const wrapped = Object.create(editor);
       wrapped.mergeIntoBlock = (targetId: string, sourceId: string) =>

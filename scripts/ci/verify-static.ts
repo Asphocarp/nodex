@@ -11,19 +11,85 @@ export interface StaticCheck {
 }
 
 export const STATIC_CHECKS: readonly StaticCheck[] = [
-  { command: ["run", "typecheck"], group: "types", id: "typecheck", name: "typecheck" },
-  { command: ["run", "lint"], group: "types", id: "lint", name: "lint" },
-  { command: ["run", "tooling:verify"], group: "repository-contracts", id: "tooling-contracts", name: "tooling contracts" },
-  { command: ["run", "verify:effect-boundaries"], group: "repository-contracts", id: "effect-boundaries", name: "Effect runtime boundaries" },
-  { command: ["run", "semantic-theme:verify"], group: "ui-contracts", id: "semantic-theme", name: "semantic theme" },
-  { command: ["run", "verify:icons"], group: "ui-contracts", id: "icon-boundaries", name: "icon boundaries" },
-  { command: ["run", "ci:workflow-contracts"], group: "ci-contracts", id: "workflow-contracts", name: "workflow contracts" },
-  { command: ["run", "ci:stress-workflow-contracts"], group: "ci-contracts", id: "stress-ownership", name: "stress workflow ownership" },
-  { command: ["run", "ci:verify-ignored-rust-tests"], group: "ci-contracts", id: "ignored-rust-tests", name: "ignored Rust test tiers" },
-  { command: ["run", "core:module-boundaries"], group: "repository-contracts", id: "module-boundaries", name: "module boundaries" },
-  { command: ["run", "version-surfaces:audit"], group: "repository-contracts", id: "version-surfaces", name: "version surfaces" },
-  { command: ["run", "build-resources:verify"], group: "generated", id: "generated-resources", name: "generated build resources and notices/legal" },
-  { command: ["run", "build:landing"], group: "landing", id: "landing-build", name: "landing build" },
+  { command: ["fmt", "--check"], group: "types", id: "format", name: "format" },
+  {
+    command: [
+      "lint",
+      "--report-unused-disable-directives-severity",
+      "error",
+      "--max-warnings",
+      "0",
+    ],
+    group: "types",
+    id: "integrated-diagnostics",
+    name: "integrated TypeScript, Effect, and lint diagnostics",
+  },
+  {
+    command: ["run", "tooling:verify"],
+    group: "repository-contracts",
+    id: "tooling-contracts",
+    name: "tooling contracts",
+  },
+  {
+    command: ["run", "verify:effect-boundaries"],
+    group: "repository-contracts",
+    id: "effect-boundaries",
+    name: "Effect runtime boundaries",
+  },
+  {
+    command: ["run", "semantic-theme:verify"],
+    group: "ui-contracts",
+    id: "semantic-theme",
+    name: "semantic theme",
+  },
+  {
+    command: ["run", "verify:icons"],
+    group: "ui-contracts",
+    id: "icon-boundaries",
+    name: "icon boundaries",
+  },
+  {
+    command: ["run", "ci:workflow-contracts"],
+    group: "ci-contracts",
+    id: "workflow-contracts",
+    name: "workflow contracts",
+  },
+  {
+    command: ["run", "ci:stress-workflow-contracts"],
+    group: "ci-contracts",
+    id: "stress-ownership",
+    name: "stress workflow ownership",
+  },
+  {
+    command: ["run", "ci:verify-ignored-rust-tests"],
+    group: "ci-contracts",
+    id: "ignored-rust-tests",
+    name: "ignored Rust test tiers",
+  },
+  {
+    command: ["run", "core:module-boundaries"],
+    group: "repository-contracts",
+    id: "module-boundaries",
+    name: "module boundaries",
+  },
+  {
+    command: ["run", "version-surfaces:audit"],
+    group: "repository-contracts",
+    id: "version-surfaces",
+    name: "version surfaces",
+  },
+  {
+    command: ["run", "build-resources:verify"],
+    group: "generated",
+    id: "generated-resources",
+    name: "generated build resources and notices/legal",
+  },
+  {
+    command: ["run", "build:landing"],
+    group: "landing",
+    id: "landing-build",
+    name: "landing build",
+  },
 ];
 
 export const PROTOCOL_CHECK = {
@@ -68,10 +134,10 @@ export const runStaticChecks = (
     execFileSync(executable, arguments_, { cwd: process.cwd(), stdio: "inherit" });
   },
 ): void => {
-  const pnpmExecutable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  const vpExecutable = process.platform === "win32" ? "vp.cmd" : "vp";
   for (const check of checks) {
     process.stdout.write(`\n[static] ${check.name}\n`);
-    execute(pnpmExecutable, check.command);
+    execute(vpExecutable, check.command);
   }
 };
 

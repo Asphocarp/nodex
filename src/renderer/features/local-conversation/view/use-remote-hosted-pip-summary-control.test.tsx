@@ -150,7 +150,7 @@ describe("useRemoteHostedPipSummaryControl", () => {
     expect(readLatest().summaryComputerUsePip?.visible).toBe(true);
 
     await act(async () => {
-      readLatest().onToggleSummaryComputerUsePip(false);
+      await readLatest().onToggleSummaryComputerUsePip(false);
       await settleAsyncRender();
     });
 

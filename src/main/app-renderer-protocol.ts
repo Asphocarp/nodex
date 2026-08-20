@@ -28,15 +28,26 @@ const response = (
   status: number,
   body: BodyInit | null = null,
   headers: HeadersInit = {},
-): Response => new Response(body, {
-  status,
-  headers: {
-    "Content-Security-Policy": buildTopLevelRendererCsp({ mode: "production" }),
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-    ...headers,
-  },
-});
+): Response => {
+  const responseHeaders = new Headers(headers);
+  if (!responseHeaders.has("Content-Security-Policy")) {
+    responseHeaders.set(
+      "Content-Security-Policy",
+      buildTopLevelRendererCsp({ mode: "production" }),
+    );
+  }
+  if (!responseHeaders.has("Referrer-Policy")) {
+    responseHeaders.set("Referrer-Policy", "no-referrer");
+  }
+  if (!responseHeaders.has("X-Content-Type-Options")) {
+    responseHeaders.set("X-Content-Type-Options", "nosniff");
+  }
+
+  return new Response(body, {
+    status,
+    headers: responseHeaders,
+  });
+};
 
 function isPathInside(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);

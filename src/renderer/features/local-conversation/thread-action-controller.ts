@@ -471,8 +471,11 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       if (result.composerIntent) {
         input.codexControl.setComposerIntent(result.threadId, result.composerIntent);
       }
-      await input.codexControl.setConversationCollaborationMode(result.threadId, input.selectedCollaborationMode);
-      input.onOpenThread(result.threadId);
+      await input.codexControl.setConversationCollaborationMode(
+        result.threadId,
+        input.selectedCollaborationMode,
+      );
+      await input.onOpenThread(result.threadId);
     },
     onCompactThread: async (threadId) => {
       await input.codexControl.compactThread(threadId);

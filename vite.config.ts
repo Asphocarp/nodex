@@ -56,7 +56,7 @@ const tanstackQueryRules = {
   "@tanstack/query/exhaustive-deps": "error",
   "@tanstack/query/infinite-query-property-order": "error",
   "@tanstack/query/mutation-property-order": "error",
-  "@tanstack/query/no-rest-destructuring": "warn",
+  "@tanstack/query/no-rest-destructuring": "error",
   "@tanstack/query/no-unstable-deps": "error",
   "@tanstack/query/no-void-query-fn": "error",
   "@tanstack/query/stable-query-client": "error",
@@ -128,6 +128,7 @@ export default defineConfig({
       ...nonProjectSources.filter((path) => !toolingFixtureMode || path !== "scripts/**/*.test.ts"),
     ],
     jsPlugins: [
+      "./oxlint-plugin-nodex/index.ts",
       { name: "@tanstack/query", specifier: "@tanstack/eslint-plugin-query" },
       ...(betterTailwindEnabled
         ? [{ name: "better-tailwindcss", specifier: "eslint-plugin-better-tailwindcss" }]
@@ -139,10 +140,54 @@ export default defineConfig({
     },
     plugins: ["effecttsgo", "eslint", "oxc", "react", "typescript", "unicorn"],
     rules: {
+      // These broad heuristics consume the diagnostic budget without expressing
+      // a stable Nodex invariant. Keep correctness rules below strict instead.
+      "eslint/no-control-regex": "off",
+      "eslint/no-empty-pattern": "off",
+      "eslint/no-useless-escape": "off",
+      "react/no-children-prop": "off",
+      "react/react-in-jsx-scope": "off",
+      "typescript/await-thenable": "off",
+      "typescript/no-base-to-string": "off",
+      "typescript/no-duplicate-type-constituents": "off",
+      "typescript/no-meaningless-void-operator": "off",
+      "typescript/no-redundant-type-constituents": "off",
+      "typescript/restrict-template-expressions": "off",
+      "typescript/unbound-method": "off",
+      "unicorn/no-new-array": "off",
+      "unicorn/no-useless-fallback-in-spread": "off",
+      "unicorn/no-useless-spread": "off",
+
+      // A clean default result makes every diagnostic actionable for humans and agents.
+      "eslint/no-extra-boolean-cast": "error",
+      "eslint/no-unreachable": "error",
+      "eslint/no-unsafe-finally": "error",
+      "eslint/no-unsafe-optional-chaining": "error",
+      "nodex/no-manual-effect-runtime-in-tests": "error",
+      "nodex/no-native-title-tooltip": "error",
+      "oxc/const-comparisons": "error",
+      "typescript/no-floating-promises": "error",
+      "typescript/no-misused-spread": "error",
+      "typescript/require-array-sort-compare": "error",
       ...tanstackQueryRules,
       ...betterTailwindRules,
     },
     overrides: [
+      {
+        files: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}"],
+        rules: {
+          // Test assertions deliberately probe nullable values and cleanup failures.
+          "eslint/no-unsafe-finally": "off",
+          "eslint/no-unsafe-optional-chaining": "off",
+        },
+      },
+      {
+        files: ["src/main/core-client/isolated-run-ownership.ts", "src/main/local-store/assets.ts"],
+        rules: {
+          // Cleanup failure is intentionally fatal on these durability boundaries.
+          "eslint/no-unsafe-finally": "off",
+        },
+      },
       {
         files: ["src/renderer/**/*.{ts,tsx}", "scripts/fixtures/tooling/renderer/**/*.{ts,tsx}"],
         rules: {
@@ -207,8 +252,9 @@ export default defineConfig({
   },
   fmt: {
     ignorePatterns: generatedOrExternalPaths,
+    sortPackageJson: {},
   },
   staged: {
-    "*.{cjs,css,html,js,json,jsx,jsonc,md,mjs,scss,ts,tsx,yaml,yml}": "vp fmt",
+    "*": "vp fmt",
   },
 });

@@ -5266,7 +5266,6 @@ export class CodexAppServerManager {
         serviceTier: followUp.serviceTier,
         summary: followUp.summary,
       });
-      return;
     }
 
     return await this.startTurnAsOwner(threadId, followUp.prompt, {

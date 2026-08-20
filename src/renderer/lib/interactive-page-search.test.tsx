@@ -101,7 +101,7 @@ describe("InteractivePageSearch", () => {
     const { container } = render(<Harness />);
     const input = container.querySelector("input")!;
 
-    act(() => fireEvent.change(input, { target: { value: "canon" } }));
+    void act(() => fireEvent.change(input, { target: { value: "canon" } }));
 
     expect(textContent(container)).toContain("Canonical canon");
     expect(textContent(container)).toContain("Loading more Pages…");
@@ -122,9 +122,9 @@ describe("InteractivePageSearch", () => {
     const { container } = render(<Harness />);
     const input = container.querySelector("input")!;
 
-    act(() => fireEvent.change(input, { target: { value: "older" } }));
+    void act(() => fireEvent.change(input, { target: { value: "older" } }));
     await act(async () => vi.advanceTimersByTimeAsync(175));
-    act(() => fireEvent.change(input, { target: { value: "current" } }));
+    void act(() => fireEvent.change(input, { target: { value: "current" } }));
     await act(async () => vi.advanceTimersByTimeAsync(175));
     expect(vi.mocked(searchPages).mock.calls[0]?.[1]?.aborted).toBe(true);
     await act(async () => older.resolve(snapshot([hit("older complete")])));
@@ -170,12 +170,14 @@ describe("InteractivePageSearch", () => {
     });
     const { container } = render(<Harness />);
 
-    act(() => fireEvent.change(container.querySelector("input")!, { target: { value: "stable" } }));
+    void act(() =>
+      fireEvent.change(container.querySelector("input")!, { target: { value: "stable" } }),
+    );
     await act(async () => vi.advanceTimersByTimeAsync(175));
     const signal = vi.mocked(searchPages).mock.calls[0]?.[1];
     expect(signal?.aborted).toBe(false);
 
-    act(() => fireEvent.click(container.querySelector("button")!));
+    void act(() => fireEvent.click(container.querySelector("button")!));
 
     expect(signal?.aborted).toBe(false);
     await act(async () => current.resolve(snapshot([hit("stable complete")])));
@@ -215,7 +217,9 @@ describe("InteractivePageSearch", () => {
     });
     const { container } = render(<Harness />);
 
-    act(() => fireEvent.change(container.querySelector("input")!, { target: { value: "local" } }));
+    void act(() =>
+      fireEvent.change(container.querySelector("input")!, { target: { value: "local" } }),
+    );
     await act(async () => vi.advanceTimersByTimeAsync(175));
 
     expect(textContent(container)).toContain("Canonical local");
@@ -246,7 +250,9 @@ describe("InteractivePageSearch", () => {
     });
     const { container } = render(<Harness />);
 
-    act(() => fireEvent.change(container.querySelector("input")!, { target: { value: "missing" } }));
+    void act(() =>
+      fireEvent.change(container.querySelector("input")!, { target: { value: "missing" } }),
+    );
     expect(textContent(container)).not.toContain("No matching Pages");
 
     await act(async () => vi.advanceTimersByTimeAsync(175));
