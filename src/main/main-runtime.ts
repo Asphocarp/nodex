@@ -42,11 +42,7 @@ import {
   startAutomationReminderScheduler,
 } from "./automation-reminder-scheduler";
 import type { ReminderNotificationPayload } from "./reminder-notification";
-import {
-  browserSidebarService,
-  codexService,
-  terminalManager,
-} from "./main-service-composition";
+import { getMainServiceComposition } from "./main-service-composition";
 import { FileBrowserPageSnapshotStore } from "./browser/browser-page-store";
 import { FileBrowserHistoryStore } from "./browser/browser-history-store";
 import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
@@ -255,6 +251,7 @@ const appIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(__dirname, "../../resources/icon.png");
 const appDockIcon = nativeImage.createFromPath(appIconPath);
+const { browserSidebarService, codexService, terminalManager } = getMainServiceComposition();
 
 const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
@@ -2144,6 +2141,7 @@ function startRuntimeScheduledAutomationScheduler(): void {
 
 export interface MainRuntimeStartupContext {
   initialArgv: string[];
+  requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
 }
 
@@ -2158,6 +2156,7 @@ let runtimeShutdownStarted = false;
 let runtimeShutdownCompleted = false;
 let runtimeShutdownPromise: Promise<void> | null = null;
 let runtimeQuitContinuationStarted = false;
+let requestRuntimeShutdown: () => Promise<void> = shutdownMainRuntime;
 const RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS = 15_000;
 
 function handleSecondInstanceArgv(argv: string[]): boolean {
@@ -2348,7 +2347,13 @@ function shutdownMainRuntime(): Promise<void> {
   return runtimeShutdownPromise;
 }
 
-function registerRuntimeLifecycleHandlers(): void {
+/** Release any Main resources acquired before startup reached its controller handoff. */
+export function shutdownFailedMainAppStartup(): Promise<void> {
+  return shutdownMainRuntime();
+}
+
+function registerRuntimeLifecycleHandlers(requestShutdown?: () => Promise<void>): void {
+  requestRuntimeShutdown = requestShutdown ?? shutdownMainRuntime;
   if (runtimeLifecycleHandlersRegistered) return;
   runtimeLifecycleHandlersRegistered = true;
 
@@ -2364,7 +2369,7 @@ function registerRuntimeLifecycleHandlers(): void {
     appQuitRequested = true;
     rendererHostReadyForWindows = false;
     void closeWindowsBeforeRuntimeShutdown(BrowserWindow.getAllWindows())
-      .then(() => shutdownMainRuntime())
+      .then(() => requestRuntimeShutdown())
       .catch((error: unknown) => {
         logger.error("Runtime quit coordination failed", {
           error: error instanceof Error ? error.message : String(error),
@@ -2417,7 +2422,7 @@ function registerRuntimeLifecycleHandlers(): void {
 export async function runMainAppStartup(
   context: MainRuntimeStartupContext,
 ): Promise<MainRuntimeController> {
-  registerRuntimeLifecycleHandlers();
+  registerRuntimeLifecycleHandlers(context.requestShutdown);
   disposeManagedAssetProtocol?.();
   disposeManagedAssetProtocol = registerManagedAssetProtocol(
     electronSession.defaultSession,

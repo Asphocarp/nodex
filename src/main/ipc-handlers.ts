@@ -26,11 +26,7 @@ import {
   prepareComposerPickedFiles,
 } from "./composer-picked-files";
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
-import {
-  browserSidebarService,
-  codexService,
-  terminalManager,
-} from "./main-service-composition";
+import { getMainServiceComposition } from "./main-service-composition";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -308,6 +304,8 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
+
+const { browserSidebarService, codexService, terminalManager } = getMainServiceComposition();
 
 const ipcPayloadLogger = getLogger({
   subsystem: "ipc",
