@@ -44,6 +44,7 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+  msgpackr-extract: false
   node-pty: true
   sharp: false
   unrs-resolver: false
@@ -75,3 +76,7 @@ minimumReleaseAgeExclude:
   - '@oxc-parser/binding-win32-x64-msvc@0.146.0'
   - '@oxc-project/types@0.146.0'
   - oxc-parser@0.146.0
+  - "@effect/platform-node-shared@4.0.0-rc.111"
+  - "@effect/platform-node@4.0.0-rc.111"
+  - effect@4.0.0-rc.111
+  - "@effect/vitest@4.0.0-rc.111"

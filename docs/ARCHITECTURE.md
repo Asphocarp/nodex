@@ -141,6 +141,8 @@ Store formats and migration sequences are implementation/recovery contracts, not
 
 Main is an Adapter, coordinator, and runtime host. It may bind Profile/Library/Project/Session identity, perform host preflight, and coordinate external effects around a Core command. It must not open SQLite, reconstruct a semantic transaction, infer authorization from renderer state, or provide a fallback data authority when Core is unavailable.
 
+Selected Main lifecycle modules use Effect 4 as an internal control plane for scoped resources, structured concurrency, cancellation, ordered queues, retry schedules, and shutdown. Compatibility facades keep their public Promise, callback, EventEmitter, and AbortSignal interfaces; Effect execution belongs only to the process composition root, tests, or the shared compatibility runtime. Renderer, preload, shared contracts, and generated wire protocols remain Effect-free, while unstable Effect APIs are localized behind app-owned adapters. [ADR 0047](docs/adr/0047-effect-control-plane-and-runtime-boundaries.md) owns this frontier.
+
 Long-lived Core adapters target the process-lifetime authority supervisor, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. The lifecycle decision is detailed in [ADR 0034](docs/adr/0034-core-generations-are-supervised-runtime-sessions.md).
 
 Main propagates renderer cancellation across IPC and the Core transport using the same request identity. Its transport timer is only a short liveness grace after Core's declared semantic deadline; it is not a competing execution deadline and cannot classify an ambiguous response loss as generation failure.
@@ -332,6 +334,8 @@ This map names stable regions and responsibilities rather than enumerating indiv
 | [`src/shared`](src/shared) | Transport-neutral contracts, schemas, pure domain and projection helpers |
 | [`src/main/core-client`](src/main/core-client) | Core selection, supervision, authenticated clients, Desktop Module Adapters |
 | [`src/main/codex`](src/main/codex) | Codex app-server host, routing, execution, Thread coordination |
+| [`src/main/effect-control-plane`](src/main/effect-control-plane) | Scoped lifecycle, retry, queue, and structured-concurrency implementations behind existing Main interfaces |
+| [`src/main/effect-adapters`](src/main/effect-adapters) | App-owned isolation boundary for unstable Effect/platform capabilities |
 | [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration |
 | [`src/main/mcp-app`](src/main/mcp-app) | Sandboxed MCP App guest attachment and MessagePort host |
 | [`src/main/git-worker`](src/main/git-worker) | Generation-bound repository read worker |
