@@ -33,6 +33,16 @@ const isStressJob = (jobName: string, job: UnknownRecord): boolean => {
 const stepLabel = (filePath: string, jobName: string): string =>
   `${relativeRepositoryPath(filePath)}:${jobName}`;
 
+export const verifyRequiredStressWorkflowFiles = (
+  workflowPaths: ReadonlySet<string>,
+): void => {
+  for (const requiredPath of Object.keys(requiredStressJobsByWorkflow)) {
+    if (!workflowPaths.has(requiredPath)) {
+      throw new Error(`Required stress workflow is missing: ${requiredPath}`);
+    }
+  }
+};
+
 export const verifyStressWorkflow = (
   filePath: string,
   workflow: UnknownRecord,
@@ -85,8 +95,11 @@ export const verifyStressWorkflow = (
 };
 
 export const verifyStressWorkflowContracts = (): number => {
+  const files = workflowFiles();
+  verifyRequiredStressWorkflowFiles(new Set(files.map(relativeRepositoryPath)));
+
   let stressJobCount = 0;
-  for (const filePath of workflowFiles()) {
+  for (const filePath of files) {
     const relativePath = relativeRepositoryPath(filePath);
     stressJobCount += verifyStressWorkflow(
       filePath,

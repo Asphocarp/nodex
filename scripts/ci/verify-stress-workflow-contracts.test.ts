@@ -2,7 +2,10 @@ import path from "node:path";
 
 import { expect, test } from "vitest";
 
-import { verifyStressWorkflow } from "./verify-stress-workflow-contracts";
+import {
+  verifyRequiredStressWorkflowFiles,
+  verifyStressWorkflow,
+} from "./verify-stress-workflow-contracts";
 
 const filePath = path.resolve(".github/workflows/test.yml");
 
@@ -42,4 +45,11 @@ test("rejects stress jobs that bypass or duplicate the shared gate", () => {
 test("rejects workflows that drop a required stress job", () => {
   expect(() => verifyStressWorkflow(filePath, { jobs: {} }, ["stress-tests"]))
     .toThrow("must define stress job stress-tests");
+});
+
+test("rejects a missing required stress workflow file", () => {
+  expect(() => verifyRequiredStressWorkflowFiles(new Set([
+    ".github/workflows/ci-nightly.yml",
+    ".github/workflows/ci.yml",
+  ]))).toThrow("Required stress workflow is missing: .github/workflows/ci-main.yml");
 });
