@@ -5,6 +5,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 
 import type { components } from "@nodex/core-protocol";
+import { NODEX_CORE_EXECUTABLE_ENV } from "../../shared/native-runtime-environment";
 import { CoreClient } from "./core-client";
 import { parseCoreRuntimeDescriptor } from "./runtime-descriptor";
 
@@ -338,8 +339,8 @@ const requireAbsolutePath = (candidate: string, label: string): string => {
 
 export function resolveCoreExecutable(input: ResolveCoreExecutableInput): string {
   const environment = input.environment ?? process.env;
-  const override = environment.NODEX_CORE_EXECUTABLE?.trim();
-  if (override) return requireAbsolutePath(override, "NODEX_CORE_EXECUTABLE");
+  const override = environment[NODEX_CORE_EXECUTABLE_ENV]?.trim();
+  if (override) return requireAbsolutePath(override, NODEX_CORE_EXECUTABLE_ENV);
 
   if (input.isPackaged) {
     if (!input.appResourcesPath) {
@@ -375,7 +376,9 @@ const expectedCoreArtifactDigest = (
   executablePath: string,
 ): string => {
   const actual = sha256File(executablePath);
-  const override = (input.environment ?? process.env).NODEX_CORE_EXECUTABLE?.trim();
+  const override = (input.environment ?? process.env)[
+    NODEX_CORE_EXECUTABLE_ENV
+  ]?.trim();
   if (override) return actual;
   if (!input.isPackaged) return actual;
   if (!input.appResourcesPath) {

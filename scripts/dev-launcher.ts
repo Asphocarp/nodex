@@ -9,6 +9,10 @@ import {
   type DevelopmentFeatureSlug,
 } from "../src/shared/development-features";
 import {
+  NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV,
+  NODEX_CORE_EXECUTABLE_ENV,
+} from "../src/shared/native-runtime-environment";
+import {
   cleanupDevelopmentEnvironmentHome,
   markDevelopmentEnvironmentInitialized,
   openDevelopmentEnvironmentHome,
@@ -50,7 +54,7 @@ const USAGE = `Usage: pnpm run dev [options]
 Options:
   --home <dir>               Environment root (default: runs.local/default)
   --seed <seed-id>           Initialize a new environment from the seed catalog
-  --build                    Build and run without HMR
+  --build                    Build optimized Rust binaries and run without HMR
   --auth-json <file>         Copy an auth.json into the environment
   --agent-config-toml <file> Copy a sanitized agent config.toml
   --enable <feature-slug>    Enable a development feature for this invocation
@@ -173,6 +177,18 @@ export const createDevLaunchPlan = (input: {
   const environment: NodeJS.ProcessEnv = {
     ...input.environment,
     ...developmentFeatureEnvironment(enabledFeatures),
+    ...(input.arguments.build
+      ? {
+          [NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV]: path.join(
+            input.home.repositoryRealpath,
+            "target/release/nodex-browser-profile-helper",
+          ),
+          [NODEX_CORE_EXECUTABLE_ENV]: path.join(
+            input.home.repositoryRealpath,
+            "target/release/nodex-core",
+          ),
+        }
+      : {}),
     NODEX_HOME: input.home.nodexHome,
     CODEX_HOME: input.home.codexHome,
     NODEX_INITIAL_PROJECTS_DIR: input.home.workspace,
@@ -187,7 +203,7 @@ export const createDevLaunchPlan = (input: {
   if (input.arguments.build) {
     return {
       preparation: [
-        pnpmScript("core:build:dev"),
+        pnpmScript("core:binaries:build:release"),
         pnpmScript("build"),
         pnpmScript("stage:codex-runtime:mac:cached"),
       ],
@@ -286,6 +302,7 @@ export const resolveDevelopmentSeedInitialization = (input: {
 
 const prepareEnvironment = async (input: {
   readonly arguments: DevLauncherArguments;
+  readonly environment: NodeJS.ProcessEnv;
   readonly home: DevelopmentEnvironmentHome;
   readonly seedRevision?: number;
 }): Promise<void> => {
@@ -314,6 +331,7 @@ const prepareEnvironment = async (input: {
     return;
   }
   const manifest = await materializeDevelopmentSeed({
+    environment: input.environment,
     scenarioId: seedInitialization.seed.id,
     nodexHome: current.nodexHome,
     workspace: current.workspace,
@@ -384,6 +402,7 @@ export const runDevLauncher = async (input: {
       try {
         await prepareEnvironment({
           arguments: arguments_,
+          environment: plan.environment,
           home,
           seedRevision: recipe?.revision,
         });

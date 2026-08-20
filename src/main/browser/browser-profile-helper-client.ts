@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { z } from "zod";
+
+import {
+  NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV,
+} from "../../shared/native-runtime-environment";
 import type { BrowserProfileSource } from "../../shared/browser-profile";
 
 const MAX_HELPER_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -92,10 +96,21 @@ export class BrowserProfileHelperError extends Error {
 }
 
 export function resolveBrowserProfileHelperExecutable(options: {
+  environment?: NodeJS.ProcessEnv;
   isPackaged: boolean;
   resourcesPath: string;
   repositoryRoot?: string;
 }): string {
+  const environment = options.environment ?? process.env;
+  const override = environment[
+    NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV
+  ]?.trim();
+  if (override) {
+    if (path.isAbsolute(override)) return path.normalize(override);
+    throw new Error(
+      `${NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV} must be absolute`,
+    );
+  }
   if (options.isPackaged) {
     return path.join(
       options.resourcesPath,

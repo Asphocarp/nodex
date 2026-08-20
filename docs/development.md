@@ -66,8 +66,11 @@ features remain owned by `config.toml`. The former Library workspace and
 Calendar presentation gates were retired with those product surfaces, so they
 are intentionally not accepted as launcher aliases.
 
-`--build` builds Core and Electron before launching the built app without HMR.
-Without it, the launcher prepares Core and generated resources, then starts
+`--build` builds an optimized release Core and Browser Profile Helper plus the
+Electron application before launching without HMR. The launcher uses those
+release artifacts throughout the application runtime and uses the release Core
+during seed initialization. Without it, the launcher prepares
+development-profile native binaries and generated resources, then starts
 electron-vite with HMR. Both modes default to an operating-system assigned
 DevTools port so different homes can run concurrently. Set
 `NODEX_REMOTE_DEBUGGING_PORT` to an integer from `0` through `65535` when a

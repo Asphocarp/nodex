@@ -94,6 +94,9 @@ describe("dev launcher", () => {
       NODEX_INITIAL_PROJECTS_DIR: HOME.workspace,
       NODEX_DEV_ENABLED_FEATURES: "runtime-metrics",
     });
+    expect(plan.environment.NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE)
+      .toBeUndefined();
+    expect(plan.environment.NODEX_CORE_EXECUTABLE).toBeUndefined();
   });
 
   test("selects a build-first built application plan", () => {
@@ -104,10 +107,20 @@ describe("dev launcher", () => {
     });
     expect(plan.mode).toBe("built");
     expect(plan.preparation.map((command) => command.args.at(-1))).toEqual([
-      "core:build:dev",
+      "core:binaries:build:release",
       "build",
       "stage:codex-runtime:mac:cached",
     ]);
+    expect(plan.environment).toMatchObject({
+      NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE: path.join(
+        HOME.repositoryRealpath,
+        "target/release/nodex-browser-profile-helper",
+      ),
+      NODEX_CORE_EXECUTABLE: path.join(
+        HOME.repositoryRealpath,
+        "target/release/nodex-core",
+      ),
+    });
     expect(plan.application.args).toContain("--remote-debugging-port=9333");
   });
 
