@@ -977,9 +977,14 @@ vi.mock("../database-view-surface", () => ({
         _projectId: string,
         pageId: string,
         titleSnapshot?: string,
-      ) => (props.onOpenPage as ((pageId: string, titleSnapshot: string) => void))(
+      ) => (props.onOpenPage as ((
+        pageId: string,
+        titleSnapshot: string,
+        openMode: "preview" | "durable",
+      ) => void))(
         pageId,
         titleSnapshot ?? "Untitled",
+        "preview",
       ),
     };
     const rows = model.columns?.flatMap((column) => column.rows ?? []) ?? [];
