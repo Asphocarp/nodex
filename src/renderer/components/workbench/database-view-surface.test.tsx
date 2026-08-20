@@ -741,7 +741,7 @@ describe("DatabaseViewSurface", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Open Page Focused Page" }));
-    expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
+    expect(opened[0]).toEqual(["page-focused", "Focused Page", "preview"]);
   });
 
   test("opens a Board Page from its description without hijacking Property controls", async () => {
@@ -767,7 +767,11 @@ describe("DatabaseViewSurface", () => {
       fireEvent.click(description);
       await Promise.resolve();
     });
-    expect(onOpenPage).toHaveBeenCalledWith("page-focused", "Focused Page");
+    expect(onOpenPage).toHaveBeenCalledWith(
+      "page-focused",
+      "Focused Page",
+      "preview",
+    );
 
     await act(async () => {
       fireEvent.click(within(card).getByRole("button", { name: /^Edit Tags:/ }));
@@ -780,6 +784,34 @@ describe("DatabaseViewSurface", () => {
     });
     expect(onOpenPage).toHaveBeenCalledTimes(1);
   });
+
+  test.each(["board", "list"] as const)(
+    "opens a %s Page durably on double-click",
+    async (presentationLayout) => {
+      const onOpenPage = vi.fn();
+      const screen = render(
+        <DatabaseViewSurface
+          model={presentationLayout === "board" ? model : listModel()}
+          presentationLayout={presentationLayout}
+          searchQuery=""
+          onOpenPage={onOpenPage}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.doubleClick(screen.getByRole("button", {
+          name: "Open Page Focused Page",
+        }));
+        await Promise.resolve();
+      });
+
+      expect(onOpenPage).toHaveBeenLastCalledWith(
+        "page-focused",
+        "Focused Page",
+        "durable",
+      );
+    },
+  );
 
   test("renders configured Created and Updated metadata in Board cards", () => {
     const screen = render(
@@ -920,7 +952,11 @@ describe("DatabaseViewSurface", () => {
     fireEvent.click(screen.getByRole("button", {
       name: "Open Page Live editor title",
     }));
-    expect(opened[0]).toEqual(["page-focused", "Live editor title"]);
+    expect(opened[0]).toEqual([
+      "page-focused",
+      "Live editor title",
+      "preview",
+    ]);
   });
 
   test("switches one durable View between Board and List without changing identity", () => {
@@ -955,7 +991,7 @@ describe("DatabaseViewSurface", () => {
       '[data-database-view-id="view-focused"]',
     )).toBeTruthy();
     fireEvent.click(fallbackScreen.getByRole("button", { name: "Open Page Focused Page" }));
-    expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
+    expect(opened[0]).toEqual(["page-focused", "Focused Page", "preview"]);
     expect(boardDefaultModel.databaseViewId).toBe(viewId);
     expect(boardDefaultModel.query.view.defaultLayout).toBe("board");
   });
@@ -1117,7 +1153,11 @@ describe("DatabaseViewSurface", () => {
       fireEvent.keyDown(second, { key: "Enter" });
       await Promise.resolve();
     });
-    expect(onOpenPage).toHaveBeenCalledWith("page-next", "Next Page");
+    expect(onOpenPage).toHaveBeenCalledWith(
+      "page-next",
+      "Next Page",
+      "preview",
+    );
   });
 
   test("keeps the named List grid valid and cells anchored when Page ID is hidden", () => {
@@ -1206,7 +1246,11 @@ describe("DatabaseViewSurface", () => {
       fireEvent.click(row);
       await Promise.resolve();
     });
-    expect(onOpenPage).toHaveBeenLastCalledWith("page-focused", "Focused Page");
+    expect(onOpenPage).toHaveBeenLastCalledWith(
+      "page-focused",
+      "Focused Page",
+      "preview",
+    );
     expect(row.getAttribute("aria-selected")).toBe("false");
 
     await act(async () => {

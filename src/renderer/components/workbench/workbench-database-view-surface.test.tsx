@@ -38,8 +38,9 @@ vi.mock("./workbench-db-view-panel", () => ({
           const open = props.onOpenPage as (
             pageId: string,
             title: string,
+            openMode: "preview" | "durable",
           ) => void;
-          open("page-from-database", "From Database");
+          open("page-from-database", "From Database", "preview");
         }}
       >
         Shared Database View
@@ -263,6 +264,7 @@ describe("WorkbenchDatabaseViewSurface", () => {
     expect(onOpenPage).toHaveBeenCalledWith(
       "page-from-database",
       "From Database",
+      "preview",
     );
   });
 

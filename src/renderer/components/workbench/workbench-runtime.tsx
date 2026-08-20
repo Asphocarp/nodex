@@ -179,6 +179,11 @@ import {
   type WorkbenchSurfaceOpenRequest,
 } from "@/lib/workbench-scene-navigator";
 import {
+  listWorkbenchScenePreviewEntries,
+  makeWorkbenchScenePreviewSlotKey,
+  projectWorkbenchScenePreviews,
+} from "@/lib/workbench-scene-preview";
+import {
   projectDetailQueryOptions,
   projectSessionDetailQueryOptions,
 } from "@/lib/query-options";
@@ -689,18 +694,6 @@ export function WorkbenchRuntime({
     ? workbenchWindow.scenesByOwnerKey[pagesSceneKey]
       ?? materializeInitialWorkbenchScene(pagesSceneOwner)
     : null;
-  const projectScenePresentedPageIds = useMemo<ReadonlySet<string>>(
-    () => activeProjectScene
-      ? collectWorkbenchScenePresentedPageIds(activeProjectScene)
-      : new Set(),
-    [activeProjectScene],
-  );
-  const pagesScenePresentedPageIds = useMemo<ReadonlySet<string>>(
-    () => activePagesScene
-      ? collectWorkbenchScenePresentedPageIds(activePagesScene)
-      : new Set(),
-    [activePagesScene],
-  );
   useEffect(() => {
     if (!pagesSceneOwner || !pagesSceneKey || !activePagesScene) {
       return;
@@ -718,7 +711,6 @@ export function WorkbenchRuntime({
   const activeOwnedScene = activeProjectScene ?? activePagesScene;
   const activeOwnedSceneOwner = projectSceneOwner ?? pagesSceneOwner;
   const activeOwnedSceneKey = projectSceneKey ?? pagesSceneKey;
-  const pagesSceneNavigation = usePagesSceneNavigation(activePagesScene);
   const projectAgentDockBoundSessionId =
     activeProjectScene?.agentDock?.binding.kind === "session"
       ? activeProjectScene.agentDock.binding.sessionId
@@ -775,8 +767,31 @@ export function WorkbenchRuntime({
   const panelController = useWorkbenchPanelController({
     mutateScene,
   });
+  const prunePanelOwner = panelController.pruneOwner;
   const panelControllerRef = useRef(panelController);
   panelControllerRef.current = panelController;
+  useEffect(() => {
+    if (
+      !selectedProjectSceneId
+      || !selectedProjectQuery.isSuccess
+      || selectedProjectQuery.data !== null
+    ) {
+      return;
+    }
+    prunePanelOwner(makeWorkbenchSceneKey({
+      kind: "project",
+      projectId: selectedProjectSceneId,
+    }));
+  }, [
+    prunePanelOwner,
+    selectedProjectQuery.data,
+    selectedProjectQuery.isSuccess,
+    selectedProjectSceneId,
+  ]);
+  const previewSurfacesByPanelRef = useRef(
+    panelController.previewSurfacesByPanel,
+  );
+  previewSurfacesByPanelRef.current = panelController.previewSurfacesByPanel;
   const workbenchWindowRef = useRef(workbenchWindow);
   workbenchWindowRef.current = workbenchWindow;
   const sessionCatalogRef = useRef(sessionCatalog);
@@ -791,9 +806,36 @@ export function WorkbenchRuntime({
     selectLocation(location) {
       workbenchWindowRef.current.navigate(location);
     },
+    preview: {
+      list(owner) {
+        const scene = workbenchWindowRef.current.scenesByOwnerKey[
+          makeWorkbenchSceneKey(owner)
+        ] ?? materializeInitialWorkbenchScene(owner);
+        return listWorkbenchScenePreviewEntries(
+          scene,
+          previewSurfacesByPanelRef.current,
+        );
+      },
+      set(owner, panelId, leafId, surface) {
+        const slotKey = makeWorkbenchScenePreviewSlotKey(
+          owner,
+          panelId,
+          leafId,
+        );
+        const next = { ...previewSurfacesByPanelRef.current };
+        if (surface) {
+          next[slotKey] = surface;
+        } else {
+          delete next[slotKey];
+        }
+        previewSurfacesByPanelRef.current = next;
+        panelControllerRef.current.updatePreviewSurfacesByPanel(next);
+      },
+    },
   }), []);
   const {
     previewTabsByPanel,
+    previewSurfacesByPanel,
     sideChatTabsBySession,
     sideChatActiveTabByPanel,
     mcpAppTabsBySession,
@@ -811,6 +853,41 @@ export function WorkbenchRuntime({
     activePlanKeyBySession,
     panelCollapsedOverrides,
   } = panelController;
+  const projectScenePresentation = useMemo(
+    () => activeProjectScene
+      ? projectWorkbenchScenePreviews(
+          activeProjectScene,
+          previewSurfacesByPanel,
+        )
+      : null,
+    [activeProjectScene, previewSurfacesByPanel],
+  );
+  const pagesScenePresentation = useMemo(
+    () => activePagesScene
+      ? projectWorkbenchScenePreviews(
+          activePagesScene,
+          previewSurfacesByPanel,
+        )
+      : null,
+    [activePagesScene, previewSurfacesByPanel],
+  );
+  const activeOwnedScenePresentation =
+    projectScenePresentation ?? pagesScenePresentation;
+  const projectScenePresentedPageIds = useMemo<ReadonlySet<string>>(
+    () => projectScenePresentation
+      ? collectWorkbenchScenePresentedPageIds(projectScenePresentation.scene)
+      : new Set(),
+    [projectScenePresentation],
+  );
+  const pagesScenePresentedPageIds = useMemo<ReadonlySet<string>>(
+    () => pagesScenePresentation
+      ? collectWorkbenchScenePresentedPageIds(pagesScenePresentation.scene)
+      : new Set(),
+    [pagesScenePresentation],
+  );
+  const pagesSceneNavigation = usePagesSceneNavigation(
+    pagesScenePresentation?.scene ?? null,
+  );
   const [pageTitleStore] = useState(createPageTitleProjectionStore);
   const [panelTabPresentationRegistry] = useState(
     () => new PanelTabPresentationRegistry(),
@@ -1765,6 +1842,7 @@ export function WorkbenchRuntime({
       readonly sourceSurfaceId?: string;
       readonly targetLeafId?: string;
       readonly targetPanelId?: PanelId;
+      readonly mode?: PresentWorkbenchPanelSurfaceInput["mode"];
     } = {},
   ): Promise<boolean> => {
     try {
@@ -1830,7 +1908,7 @@ export function WorkbenchRuntime({
               }
             : {}),
         },
-        mode: "durable",
+        mode: options.mode ?? "durable",
         navigation: "select-owner",
       });
       return presented.status === "presented";
@@ -1980,6 +2058,7 @@ export function WorkbenchRuntime({
       readonly panelId?: PanelId;
       readonly targetLeafId?: string;
       readonly placement?: PresentWorkbenchPanelSurfaceInput["target"]["placement"];
+      readonly mode?: PresentWorkbenchPanelSurfaceInput["mode"];
     } = {},
   ): Promise<boolean> => {
     const result = await sceneNavigator.presentPanelSurface({
@@ -1994,7 +2073,7 @@ export function WorkbenchRuntime({
           ? { placement: options.placement }
           : {}),
       },
-      mode: "durable",
+      mode: options.mode ?? "durable",
       navigation: "background",
     });
     return result.status === "presented";
@@ -2013,14 +2092,17 @@ export function WorkbenchRuntime({
         ...(titleSnapshot ? { titleSnapshot } : {}),
       },
       titleSnapshot,
-    }, options?.sourceTabId
-      ? {
-          placement: {
-            kind: "adjacent-right",
-            sourceSurfaceId: options.sourceTabId,
-          },
-        }
-      : {});
+    }, {
+      mode: options?.openMode ?? "durable",
+      ...(options?.sourceTabId
+        ? {
+            placement: {
+              kind: "adjacent-right" as const,
+              sourceSurfaceId: options.sourceTabId,
+            },
+          }
+        : {}),
+    });
   }, [presentProjectSceneSurface]);
   const openProjectSceneCanvas: OpenCanvasStageHandler = useCallback(async (
     projectId,
@@ -3135,6 +3217,10 @@ export function WorkbenchRuntime({
     context: { readonly active: boolean; readonly panelId: PanelId },
   ) => {
     if (!activeProjectScene || !activeProject || !projectSceneKey) return null;
+    const previewEntry = listWorkbenchScenePreviewEntries(
+      activeProjectScene,
+      previewSurfacesByPanel,
+    ).find((entry) => entry.surface.id === surface.id) ?? null;
     const leafId = findWorkbenchPanelLeafForTab(
       activeProjectScene.panels[context.panelId].layout,
       surface.id,
@@ -3151,6 +3237,23 @@ export function WorkbenchRuntime({
       createdAt: activeProjectScene.touchedAt,
       updatedAt: activeProjectScene.touchedAt,
       browserTabId: null,
+      ...(previewEntry ? { preview: true as const } : {}),
+    };
+    const closeSurface = () => {
+      if (previewEntry) {
+        sceneNavigator.clearPreview({
+          owner: activeProjectScene.owner,
+          panelId: previewEntry.panelId,
+          leafId: previewEntry.leafId,
+          surfaceId: surface.id,
+        });
+        return;
+      }
+      if (!projectSceneOwner) return;
+      panelControllerRef.current.sceneDurable?.removeSurface(
+        projectSceneOwner,
+        surface.id,
+      );
     };
 
     if (surface.kind === "db_view") {
@@ -3203,13 +3306,7 @@ export function WorkbenchRuntime({
           windowSessionId={windowSessionId}
           presentationOwnerId={projectSceneKey}
           isActivePanelTab={context.active}
-          onClose={() => {
-            if (!projectSceneOwner) return;
-            panelControllerRef.current.sceneDurable?.removeSurface(
-              projectSceneOwner,
-              surface.id,
-            );
-          }}
+          onClose={closeSurface}
           onTitleChange={(title) => {
             if (!projectSceneOwner) return;
             updateSceneSurfacePresentation(
@@ -3253,13 +3350,7 @@ export function WorkbenchRuntime({
           sessionThread={null}
           canStartThreadInSession={false}
           onLeavePage={onLeavePageStage}
-          onClose={() => {
-            if (!projectSceneOwner) return;
-            panelControllerRef.current.sceneDurable?.removeSurface(
-              projectSceneOwner,
-              surface.id,
-            );
-          }}
+          onClose={closeSurface}
           onOpenTerminal={async () => {
             await openProjectSceneManualSurface(activeProject.id, "terminal", {
               panelId: "bottom",
@@ -3470,9 +3561,11 @@ export function WorkbenchRuntime({
     projectScenePresentedPageIds,
     projectSceneOwner,
     projects,
+    previewSurfacesByPanel,
     knownSessions,
     refreshProjectSessions,
     searchByProject,
+    sceneNavigator,
     setSearchQuery,
     taskSearchOpenTick,
     togglePageStageHistoryModal,
@@ -3508,7 +3601,20 @@ export function WorkbenchRuntime({
     if (!activePagesScene || !pagesSceneOwner || !pagesSceneKey) {
       return null;
     }
+    const previewEntry = listWorkbenchScenePreviewEntries(
+      activePagesScene,
+      previewSurfacesByPanel,
+    ).find((entry) => entry.surface.id === surface.id) ?? null;
     const removeSurface = () => {
+      if (previewEntry) {
+        sceneNavigator.clearPreview({
+          owner: activePagesScene.owner,
+          panelId: previewEntry.panelId,
+          leafId: previewEntry.leafId,
+          surfaceId: surface.id,
+        });
+        return;
+      }
       void (async () => {
         await closePagesSceneSurfaceRuntime(surface, () => {
           panelControllerRef.current.sceneDurable?.removeSurface(
@@ -3555,10 +3661,14 @@ export function WorkbenchRuntime({
                 : viewName,
             );
           }}
-          onOpenPage={(pageId, titleSnapshot) => {
+          onOpenPage={(pageId, titleSnapshot, openMode) => {
             void presentLibraryTarget(
               { kind: "page", pageId },
-              { titleSnapshot, sourceSurfaceId: surface.id },
+              {
+                titleSnapshot,
+                sourceSurfaceId: surface.id,
+                mode: openMode,
+              },
             );
           }}
         />
@@ -3626,7 +3736,9 @@ export function WorkbenchRuntime({
     pagesScenePresentedPageIds,
     pagesSceneOwner,
     pageStageCloseRef,
+    previewSurfacesByPanel,
     projects,
+    sceneNavigator,
     sessionCommands.openPageInNewChat,
     sessionCommands.sendPageToChat,
     updateSceneSurfacePresentation,
@@ -3686,6 +3798,19 @@ export function WorkbenchRuntime({
     tabId: string,
   ): Promise<void> => {
     if (!activeOwnedScene || !activeOwnedSceneOwner) return;
+    const previewEntry = listWorkbenchScenePreviewEntries(
+      activeOwnedScene,
+      previewSurfacesByPanel,
+    ).find((entry) => entry.surface.id === tabId);
+    if (previewEntry) {
+      sceneNavigator.clearPreview({
+        owner: activeOwnedSceneOwner,
+        panelId: previewEntry.panelId,
+        leafId: previewEntry.leafId,
+        surfaceId: tabId,
+      });
+      return;
+    }
     const surface = resolveWorkbenchSceneSurface(activeOwnedScene, tabId);
     if (!surface) return;
     const removeDescriptor = () => {
@@ -3706,13 +3831,15 @@ export function WorkbenchRuntime({
     activeOwnedSceneOwner,
     closePagesSceneSurfaceRuntime,
     closeProjectSceneSurfaceRuntime,
+    previewSurfacesByPanel,
+    sceneNavigator,
   ]);
   const projectScenePanels = (
-    activeProjectScene
+    projectScenePresentation
     && activeProject
     && panelController.sceneDurable
   ) ? buildWorkbenchScenePanels({
-    scene: activeProjectScene,
+    scene: projectScenePresentation.scene,
     project: activeProject,
     projects,
     currentLibraryId,
@@ -3720,13 +3847,14 @@ export function WorkbenchRuntime({
     browserTabSnapshotByKey,
     pageTitleStore,
     commands: panelController.sceneDurable,
+    previewSurfaceIds: projectScenePresentation.previewSurfaceIds,
     isMac: isMacPlatform,
     commandKeymapState,
     availableActions: PANEL_NEW_TAB_ACTIONS.filter((action) =>
       action.kind !== "side_chat"
     ),
-    currentProjectDbViewExists: activeProjectScene.primary?.kind === "db_view"
-      || Object.values(activeProjectScene.panelSurfacesById).some(
+    currentProjectDbViewExists: projectScenePresentation.scene.primary?.kind === "db_view"
+      || Object.values(projectScenePresentation.scene.panelSurfacesById).some(
         (surface) => surface.kind === "db_view",
       ),
     rightPanelHeaderAfterList,
@@ -3737,6 +3865,22 @@ export function WorkbenchRuntime({
     onCloseSurface: closeProjectSceneSurfaceRuntime,
     onFocusGroup: (panelId, leafId) => {
       panelCommands.rememberFocusedPanelGroup(panelId, leafId);
+    },
+    onClearPreview: (panelId, leafId, surfaceId) => {
+      sceneNavigator.clearPreview({
+        owner: projectScenePresentation.scene.owner,
+        panelId,
+        leafId,
+        surfaceId,
+      });
+    },
+    onPinPreview: (panelId, leafId, surfaceId) => {
+      sceneNavigator.pinPreview({
+        owner: projectScenePresentation.scene.owner,
+        panelId,
+        leafId,
+        surfaceId,
+      });
     },
     onOpenAction: (panelId, leafId, action) => {
       if (action === "canvas_stage") {
@@ -3806,10 +3950,10 @@ export function WorkbenchRuntime({
     },
   }) : null;
   const pagesScenePanels = (
-    activePagesScene
+    pagesScenePresentation
     && panelController.sceneDurable
   ) ? buildWorkbenchScenePanels({
-    scene: activePagesScene,
+    scene: pagesScenePresentation.scene,
     project: null,
     projects,
     currentLibraryId,
@@ -3817,6 +3961,7 @@ export function WorkbenchRuntime({
     browserTabSnapshotByKey,
     pageTitleStore,
     commands: panelController.sceneDurable,
+    previewSurfaceIds: pagesScenePresentation.previewSurfaceIds,
     isMac: isMacPlatform,
     commandKeymapState,
     availableActions: [],
@@ -3852,17 +3997,41 @@ export function WorkbenchRuntime({
     onFocusGroup: (panelId, leafId) => {
       panelCommands.rememberFocusedPanelGroup(panelId, leafId);
     },
+    onClearPreview: (panelId, leafId, surfaceId) => {
+      sceneNavigator.clearPreview({
+        owner: pagesScenePresentation.scene.owner,
+        panelId,
+        leafId,
+        surfaceId,
+      });
+    },
+    onPinPreview: (panelId, leafId, surfaceId) => {
+      sceneNavigator.pinPreview({
+        owner: pagesScenePresentation.scene.owner,
+        panelId,
+        leafId,
+        surfaceId,
+      });
+    },
     onOpenAction: () => undefined,
     onOpenDestination: async () => undefined,
   }) : null;
   const activePanelTabShortcutState: WorkbenchPanelTabShortcutState | null = activePanelOwnerKey
-    ? activeOwnedScene && activeOwnedSceneOwner
+    ? activeOwnedScenePresentation && activeOwnedSceneOwner
       ? {
           ownerKey: activePanelOwnerKey,
           projection: buildWorkbenchScenePanelTabShortcutProjection(
-            activeOwnedScene,
+            activeOwnedScenePresentation.scene,
           ),
           selectTab: ({ panelId, tabId, leafId }) => {
+            if (activeOwnedScenePresentation.previewSurfaceIds.has(tabId)) {
+              return;
+            }
+            sceneNavigator.clearPreview({
+              owner: activeOwnedSceneOwner,
+              panelId,
+              leafId,
+            });
             panelControllerRef.current.sceneDurable?.activateSurface(
               activeOwnedSceneOwner,
               panelId,
@@ -4045,6 +4214,7 @@ export function WorkbenchRuntime({
   const pagesSceneRoute = (
     pagesSceneKey
     && activePagesScene
+    && pagesScenePresentation
   ) ? (
     <WorkbenchSessionScopePath
       thread={APP_SHELL_ROUTE_THREAD_SCOPE_DESCRIPTOR}
@@ -4054,7 +4224,7 @@ export function WorkbenchRuntime({
       }}
       selected
     >
-      <PagesSceneBreadcrumb scene={activePagesScene} />
+      <PagesSceneBreadcrumb scene={pagesScenePresentation.scene} />
       <WorkbenchSceneFrame
         ownerKey={pagesSceneKey}
         primary={null}

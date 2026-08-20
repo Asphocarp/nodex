@@ -33,6 +33,7 @@ import type {
 } from "../../../../shared/database-module-v2";
 import type { DatabaseViewPageMenuSession } from "../database-view-page-context-menu";
 import type { DatabaseViewPageActionPort } from "../database-view-page-actions";
+import type { DatabaseViewPageOpenHandler } from "../database-view-page-open";
 import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
 import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
 import {
@@ -67,7 +68,7 @@ export interface DatabaseBoardCardProps {
   readonly showDescription: boolean;
   readonly pendingMutationKeys: ReadonlyMap<string, number>;
   readonly mutationErrors: ReadonlyMap<string, string>;
-  readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
+  readonly onOpenPage: DatabaseViewPageOpenHandler;
   readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onSetValue: (
     pageId: string,
@@ -205,7 +206,11 @@ const createDatabaseBoardPropertyEditorBinding = (
       props.onSearchRelationCandidates(property, query, after),
     onLoadRelationTargetDescriptor: () =>
       props.onLoadRelationTargetDescriptor(property),
-    onOpenRelationPage: (pageId, title) => props.onOpenPage(pageId, title),
+    onOpenRelationPage: (pageId, title) => props.onOpenPage(
+      pageId,
+      title,
+      "preview",
+    ),
     onRelationValueStale: props.onRelationValueStale,
   };
 };
@@ -344,7 +349,24 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
       onToggleSelection(row.pageId);
       return;
     }
-    onOpenPage(row.pageId, title);
+    onOpenPage(row.pageId, title, "preview");
+  };
+  const handleCardDoubleClick = (
+    event: ReactMouseEvent<HTMLElement>,
+  ): void => {
+    if (event.defaultPrevented || event.shiftKey) return;
+    if (
+      typeof Node === "undefined"
+      || !(event.target instanceof Node)
+      || !event.currentTarget.contains(event.target)
+    ) return;
+    if (
+      typeof Element !== "undefined"
+      && event.target instanceof Element
+      && event.target.closest(DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR)
+      && !event.target.closest("[data-database-view-page-open]")
+    ) return;
+    onOpenPage(row.pageId, title, "durable");
   };
   const renderCard = (previewRect: DOMRect | null) => (
     <article
@@ -364,6 +386,7 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
       onPointerDown={previewRect ? undefined : () => onHighlight(row.pageId)}
       onFocus={previewRect ? undefined : () => onHighlight(row.pageId)}
       onClick={previewRect ? undefined : handleCardClick}
+      onDoubleClick={previewRect ? undefined : handleCardDoubleClick}
       onDragStart={!previewRect && draggable ? (event) => onDragStartPage(row, event) : undefined}
       onDragEnd={!previewRect && draggable ? onDragEndPage : undefined}
       className={cn(
@@ -393,10 +416,11 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
       )}>
         <button
           type="button"
+          data-database-view-page-open="true"
           data-card-context-menu-trigger="true"
           aria-label={`Open Page ${showPageKey && row.pageKey ? `${row.pageKey} ` : ""}${title}`}
           className="min-w-0 flex-1 text-left text-base/normal font-medium wrap-break-word text-(--foreground) outline-none"
-          onClick={() => onOpenPage(row.pageId, title)}
+          onClick={() => onOpenPage(row.pageId, title, "preview")}
         >
           <span>{title}</span>
         </button>

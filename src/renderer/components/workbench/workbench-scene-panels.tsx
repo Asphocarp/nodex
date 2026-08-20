@@ -44,6 +44,7 @@ export interface WorkbenchScenePanelsProps {
   >;
   readonly pageTitleStore: PageTitleProjectionStore;
   readonly commands: WorkbenchSceneDurablePanelCommands;
+  readonly previewSurfaceIds: ReadonlySet<string>;
   readonly isMac: boolean;
   readonly commandKeymapState?: CommandKeymapState | null;
   readonly availableActions: readonly PanelNewTabAction[];
@@ -69,6 +70,16 @@ export interface WorkbenchScenePanelsProps {
     destination: PanelDestination,
   ) => Promise<void>;
   readonly onFocusGroup?: (panelId: PanelId, leafId: string) => void;
+  readonly onClearPreview: (
+    panelId: PanelId,
+    leafId: string,
+    surfaceId: string,
+  ) => void;
+  readonly onPinPreview: (
+    panelId: PanelId,
+    leafId: string,
+    surfaceId: string,
+  ) => void;
   readonly onCloseSurface?: (
     surface: WorkbenchSurfaceDescriptor,
     removeDescriptor: () => void,
@@ -83,6 +94,7 @@ function makePanelItems(
   browserViewScopeId: string,
   browserTabSnapshotByKey: ReadonlyMap<string, BrowserSidebarTabSnapshot>,
   pageTitleStore: PageTitleProjectionStore,
+  previewSurfaceIds: ReadonlySet<string>,
   panelId: PanelId,
   renderSurface: WorkbenchScenePanelsProps["renderSurface"],
 ): {
@@ -97,6 +109,7 @@ function makePanelItems(
       return surface ? [surface] : [];
     });
     itemsByLeafId[leaf.id] = surfaces.map((surface) => {
+      const preview = previewSurfaceIds.has(surface.id);
       const isProjectHomeRoot = scene.owner.kind === "project"
         && surface.id === scene.primary?.id
         && surface.kind === "db_view";
@@ -147,8 +160,9 @@ function makePanelItems(
             />
           ) : undefined,
         closable: surface.id !== scene.primary?.id,
-        reorderable: surface.id !== scene.primary?.id,
-        splittable: surface.id !== scene.primary?.id,
+        preview,
+        reorderable: !preview && surface.id !== scene.primary?.id,
+        splittable: !preview && surface.id !== scene.primary?.id,
         renderPanel: (_close, context) => renderSurface(surface, {
           active: context.active,
           panelId,
@@ -163,7 +177,7 @@ function makePanelItems(
   return { itemsByLeafId, activeTabIdsByLeafId };
 }
 
-/** Durable panel chrome for any owner-scoped Scene. */
+/** Panel chrome for durable and renderer-only preview surfaces in an owner Scene. */
 export function buildWorkbenchScenePanels({
   scene,
   project,
@@ -173,6 +187,7 @@ export function buildWorkbenchScenePanels({
   browserTabSnapshotByKey,
   pageTitleStore,
   commands,
+  previewSurfaceIds,
   isMac,
   commandKeymapState,
   availableActions,
@@ -187,6 +202,8 @@ export function buildWorkbenchScenePanels({
   onOpenAction,
   onOpenDestination,
   onFocusGroup,
+  onClearPreview,
+  onPinPreview,
   onCloseSurface,
 }: WorkbenchScenePanelsProps) {
   const ownerKey = makeWorkbenchSceneKey(scene.owner);
@@ -200,6 +217,7 @@ export function buildWorkbenchScenePanels({
       browserViewScopeId,
       browserTabSnapshotByKey,
       pageTitleStore,
+      previewSurfaceIds,
       panelId,
       renderSurface,
     );
@@ -236,6 +254,13 @@ export function buildWorkbenchScenePanels({
           : undefined}
         commands={{
           selectTab: (leafId, surfaceId) => {
+            if (previewSurfaceIds.has(surfaceId)) return;
+            const activePreview = projection.itemsByLeafId[leafId]?.find(
+              (item) => item.preview,
+            );
+            if (activePreview) {
+              onClearPreview(panelId, leafId, activePreview.id);
+            }
             commands.activateSurface(
               scene.owner,
               panelId,
@@ -244,6 +269,10 @@ export function buildWorkbenchScenePanels({
             );
           },
           closeTab: (_leafId, surfaceId) => {
+            if (previewSurfaceIds.has(surfaceId)) {
+              onClearPreview(panelId, _leafId, surfaceId);
+              return;
+            }
             const surface = resolveWorkbenchSceneSurface(scene, surfaceId);
             if (!surface) return;
             const removeDescriptor = () => {
@@ -257,8 +286,12 @@ export function buildWorkbenchScenePanels({
               await onCloseSurface(surface, removeDescriptor);
             })();
           },
-          pinTab: () => undefined,
+          pinTab: (leafId, surfaceId) => {
+            if (!previewSurfaceIds.has(surfaceId)) return;
+            onPinPreview(panelId, leafId, surfaceId);
+          },
           reorderTab: (leafId, surfaceId, targetIndex) => {
+            if (previewSurfaceIds.has(surfaceId)) return;
             const leaf = listWorkbenchPanelLeaves(
               scene.panels[panelId].layout,
             ).find((candidate) => candidate.id === leafId);
@@ -281,6 +314,7 @@ export function buildWorkbenchScenePanels({
             targetIndex,
             splitTarget,
           ) => {
+            if (previewSurfaceIds.has(surfaceId)) return;
             commands.moveSurface(scene.owner, {
               surfaceId,
               targetPanelId,
@@ -290,6 +324,7 @@ export function buildWorkbenchScenePanels({
             });
           },
           splitGroup: (leafId, side, surfaceId) => {
+            if (surfaceId && previewSurfaceIds.has(surfaceId)) return;
             commands.splitLeaf(scene.owner, {
               panelId,
               leafId,

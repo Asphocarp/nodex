@@ -16,11 +16,13 @@ import {
 } from "../../shared/workbench-scene";
 import {
   createWorkbenchSceneNavigator,
+  type WorkbenchScenePreviewEntry,
   type WorkbenchSceneNavigatorPort,
 } from "./workbench-scene-navigator";
 
 function createHarness() {
   const scenes: Record<string, WorkbenchSceneSnapshot> = {};
+  const previews: Record<string, WorkbenchScenePreviewEntry> = {};
   const selectLocation = vi.fn();
   const setSceneAndSelect: WorkbenchSceneNavigatorPort["setSceneAndSelect"] = vi.fn((
     owner,
@@ -38,6 +40,22 @@ function createHarness() {
     },
     selectLocation,
     setSceneAndSelect,
+    preview: {
+      list(owner) {
+        const prefix = `${makeWorkbenchSceneKey(owner)}:`;
+        return Object.entries(previews).flatMap(([key, entry]) =>
+          key.startsWith(prefix) ? [entry] : []
+        );
+      },
+      set(owner, panelId, leafId, surface) {
+        const key = `${makeWorkbenchSceneKey(owner)}:${panelId}:${leafId}`;
+        if (!surface) {
+          delete previews[key];
+          return;
+        }
+        previews[key] = { panelId, leafId, surface };
+      },
+    },
   };
   let nextId = 0;
   const navigator = createWorkbenchSceneNavigator(port, {
@@ -48,6 +66,7 @@ function createHarness() {
   });
   return {
     navigator,
+    previews,
     scenes,
     selectLocation,
     setSceneAndSelect,
@@ -86,6 +105,96 @@ describe("WorkbenchSceneNavigator", () => {
     expect(scene.primary?.kind).toBe("db_view");
     expect(scene.panels.right.collapsed).toBe(false);
     expect(Object.values(scene.panelSurfacesById)).toHaveLength(1);
+  });
+
+  test("keeps Scene previews ephemeral, replaces them per leaf, and promotes the same identity", async () => {
+    const harness = createHarness();
+    const owner = { kind: "project" as const, projectId: "alpha" };
+    const present = (
+      pageId: string,
+      mode: "preview" | "durable" = "preview",
+    ) => harness.navigator.presentPanelSurface({
+      owner,
+      request: {
+        kind: "page_stage" as const,
+        config: {
+          accessContext: { kind: "project" as const, projectId: "alpha" },
+          pageId,
+        },
+        titleSnapshot: pageId,
+      },
+      target: { panelId: "right" as const },
+      mode,
+      navigation: "background" as const,
+    });
+
+    const first = await present("page:one");
+    const second = await present("page:two");
+    const sceneBeforePin = harness.scenes[makeWorkbenchSceneKey(owner)];
+    const previewBeforePin = Object.values(harness.previews)[0];
+
+    expect(first).toMatchObject({ status: "presented", reused: false });
+    expect(second).toMatchObject({ status: "presented", reused: false });
+    expect(Object.values(sceneBeforePin.panelSurfacesById)).toEqual([]);
+    expect(Object.values(harness.previews)).toHaveLength(1);
+    expect(previewBeforePin?.surface).toMatchObject({
+      id: second.status === "presented" ? second.surfaceId : "",
+      kind: "page_stage",
+      config: { pageId: "page:two" },
+    });
+
+    const pinned = await present("page:two", "durable");
+    const sceneAfterPin = harness.scenes[makeWorkbenchSceneKey(owner)];
+
+    expect(pinned).toMatchObject({
+      status: "presented",
+      reused: true,
+      surfaceId: previewBeforePin?.surface.id,
+    });
+    expect(harness.previews).toEqual({});
+    expect(sceneAfterPin.panelSurfacesById[previewBeforePin!.surface.id])
+      .toMatchObject({ kind: "page_stage", config: { pageId: "page:two" } });
+
+    await present("page:two", "preview");
+    expect(harness.previews).toEqual({});
+    expect(Object.values(sceneAfterPin.panelSurfacesById)).toHaveLength(1);
+  });
+
+  test("pins and closes a Scene preview through the explicit preview commands", async () => {
+    const harness = createHarness();
+    const owner = { kind: "pages" as const };
+    const result = await harness.navigator.presentPanelSurface({
+      owner,
+      request: {
+        kind: "page_stage",
+        config: {
+          accessContext: { kind: "library" },
+          pageId: "page:one",
+        },
+      },
+      target: { panelId: "right" },
+      mode: "preview",
+      navigation: "background",
+    });
+    if (result.status !== "presented") throw new Error("Expected preview");
+    const entry = Object.values(harness.previews)[0];
+    if (!entry) throw new Error("Expected preview entry");
+
+    expect(harness.navigator.clearPreview({
+      owner,
+      panelId: entry.panelId,
+      leafId: entry.leafId,
+      surfaceId: "another-surface",
+    })).toBe(false);
+    expect(harness.navigator.pinPreview({
+      owner,
+      panelId: entry.panelId,
+      leafId: entry.leafId,
+      surfaceId: result.surfaceId,
+    })).toBe(true);
+    expect(harness.previews).toEqual({});
+    expect(harness.scenes.pages?.panelSurfacesById[result.surfaceId])
+      .toMatchObject({ kind: "page_stage" });
   });
 
   test("rejects Conversation surfaces in a Project Scene", async () => {

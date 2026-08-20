@@ -38,7 +38,8 @@ describe("workbench session shell / pages-shell-navigation", () => {
       await (props?.onOpenPage as (
         pageId: string,
         titleSnapshot: string,
-      ) => Promise<void> | void)("card-1", "Card One");
+        openMode: "preview" | "durable",
+      ) => Promise<void> | void)("card-1", "Card One", "preview");
     });
     await settleAsyncRender();
     await settleAsyncRender();

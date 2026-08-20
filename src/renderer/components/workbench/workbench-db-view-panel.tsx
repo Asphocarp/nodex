@@ -70,6 +70,7 @@ import {
   type DatabaseViewMutationHistory,
 } from "./database-view-mutation-history";
 import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
+import type { DatabaseViewPageOpenHandler } from "./database-view-page-open";
 
 const DB_VIEW_TABS: Array<{
   id: "board" | "list";
@@ -151,7 +152,7 @@ export function DatabaseViewTabSurface({
   readonly onSearchQueryChange: (value: string) => void;
   readonly onOpenTaskSearch: (selectQuery?: boolean) => void;
   readonly onCloseTaskSearch: () => void;
-  readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
+  readonly onOpenPage: DatabaseViewPageOpenHandler;
   readonly pageActionPort?: DatabaseViewPageActionPort;
   readonly onCommitted?: () => void | Promise<void>;
   readonly onMoveBoardPages?: (
@@ -676,10 +677,10 @@ export function DbViewSessionTab({
       onSearchQueryChange={(value) => setSearchQuery(projectId, value)}
       onOpenTaskSearch={openTaskSearch}
       onCloseTaskSearch={() => setTaskSearchOpen(false)}
-      onOpenPage={(pageId, titleSnapshot) => {
+      onOpenPage={(pageId, titleSnapshot, openMode) => {
         void onOpenPageTab(projectId, pageId, titleSnapshot, {
           sourceTabId: tab.id,
-          openMode: "preview",
+          openMode,
         });
       }}
       pageActionPort={pageActionPort}
