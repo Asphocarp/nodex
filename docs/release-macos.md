@@ -189,12 +189,14 @@ manifest in `.generated/build-resources/`, verifies two independent staging
 builds, and does not ask the bot branch to commit generated output.
 CI also classifies dependency-only changes as GitHub Actions, Rust, ordinary
 JavaScript, or editor dependencies and maps them to explicit fail-closed gate
-plans. Broad dependency and orchestration changes select every relevant
-ordinary PR gate without promoting Rust to the exhaustive Main-only tier. The
-exact four-file stable release transition is
+plans. Dependency changes select the complete deterministic source owners;
+workflow orchestration selects its CI contracts and only the reusable owner it
+changes. Main remains a targeted canary, while Nightly and release
+certification own exhaustive source coverage. The exact four-file stable release transition is
 the deliberate exception: its PR runs only the classifier and semantic release
-transition guard; the protected-main Main CI and production Release workflow
-still provide the post-merge source and signed-distribution gates.
+transition guard; protected-main Main CI and the production Release workflow
+still provide the post-merge canary, exact-source certificate, and
+signed-distribution gates.
 
 ## Sparkle update signing and feeds
 
@@ -284,10 +286,19 @@ pnpm run verify:runtime:mac
 
 `verify:source` is the platform-independent source gate: types, lint, generated
 contracts, authority boundaries, build-resource and notices reproducibility,
-Rust, app tests, browser tests, Electron E2E, and landing build. `verify:runtime:mac`
+Rust, app tests, browser tests, stress contracts, and landing build. Electron
+E2E is an opt-in local diagnostic and is not part of source or release
+certification. `verify:runtime:mac`
 verifies Agent/Desktop Tool schemas and runtime conformance on macOS. Neither
 proves Apple signing, Sparkle finalization, or Intel behavior; the
 dual-architecture Distribution is that deeper Implementation.
+
+Every distribution first consumes an exact-source certificate produced without
+signing secrets. The certificate binds the full commit SHA and Git tree to the
+deterministic source, browser, stress, and macOS runtime gates. Distribution
+verifies both identities before materializing credentials, carries the
+certificate in each architecture bundle, and then runs the packaged
+process/runtime probes.
 
 The signed package gate must preserve the complete vendor signature closure
 under `Contents/Resources/browser-runtime`, including the signed Codex CLI,
@@ -387,13 +398,19 @@ An ordinary main commit returns `shouldRelease: false` and exits successfully.
 A valid version transition runs this sequence:
 
 1. Verify the remote stable app version and reject tag/source conflicts.
-2. Build, sign, notarize, launch, and inspect arm64 on `macos-26`.
-3. Build, sign, notarize, launch, and inspect x64 on `macos-26-intel`.
-4. On native macOS runners, fetch only compatible schema-2 release history,
+2. Certify the exact source SHA and Git tree through the full deterministic
+   static, Rust, app, browser, stress, and macOS runtime gates without signing
+   secrets.
+3. Build, sign, notarize, launch, and inspect arm64 on `macos-26`, refusing a
+   source tree that does not match the certificate.
+4. Build, sign, notarize, launch, and inspect x64 on `macos-26-intel` under the
+   same certificate.
+5. On native macOS runners, fetch only compatible schema-2 release history,
    generate and round-trip deltas, normalize their architecture-qualified
    names, and sign the final appcasts and enclosures with the protected key.
-5. Assemble and hash the exact Release Bundle on a clean Linux runner; obsolete
-   blockmaps, `latest-mac.yml`, and `app-update.yml` are rejected.
+6. Assemble and hash the exact Release Bundle with its source certificate on a
+   clean Linux runner; obsolete blockmaps, `latest-mac.yml`, and
+   `app-update.yml` are rejected.
 6. Revalidate source, version, tag, remote state, and bundle identity.
 7. Create or reuse an annotated tag targeting the exact source SHA.
 8. Create/resume the GitHub draft, upload only the manifest allowlist, publish

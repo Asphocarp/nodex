@@ -156,9 +156,9 @@ The test commands follow production boundaries:
   contracts one worker at a time, independently of the ordinary suite.
 - `pnpm run test:complete` runs both ordinary and stress tiers without the
   full Electron end-to-end suite.
-- `pnpm run test:performance` runs hardware-sensitive latency gates. Run it
-  manually on a stable machine; do not use its raw timing thresholds as a
-  shared-CI gate.
+- `pnpm run test:performance` runs Core runtime and scale gates below Electron.
+  Run it manually on a stable machine; the same lower-level contracts run in
+  weekly Performance CI.
 - `pnpm run core:fmt`, `pnpm run core:clippy`, and the Core test tiers validate
   the native authority. `pnpm run core:test:pr` is the fast CI tier (nextest
   plus doctests); `pnpm run core:test:full` adds migration compatibility, and
@@ -170,6 +170,8 @@ The test commands follow production boundaries:
   exercises the complete Electron/preload/IPC/Core chain. Do not invoke the
   Playwright config directly after changing Rust authority code; that can run
   against a stale `target/debug/nodex-core` binary.
+  Electron E2E is retained for deliberate local/agent diagnostics and is not
+  invoked by PR, Main, Nightly, Performance, or release-certification workflows.
 - Authenticated `@subscription-quota` Electron cases are a separate opt-in
   tier. The ordinary E2E command skips them. Run them only after the user has
   explicitly approved paid subscription-quota use, by setting
@@ -298,8 +300,8 @@ Electron-built native addon.
 
 During implementation, run the narrow ordinary or stress test file affected by
 the change. Run `verify:source` once after a broad final edit set is stable; it
-includes the stress tier, browser suite, and Electron E2E coverage. On macOS,
-release/runtime changes additionally run:
+includes the stress tier and browser suite, but not the opt-in Electron E2E
+diagnostic. On macOS, release/runtime changes additionally run:
 
 ```bash
 pnpm run verify:runtime:mac

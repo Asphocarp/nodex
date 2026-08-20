@@ -698,17 +698,18 @@ const launchAppSmoke = async (appPath: string): Promise<void> => {
   });
   try {
     const deadline = Date.now() + 5_000;
-    while (child.exitCode === null && Date.now() < deadline) {
+    while (child.exitCode === null && !existsSync(descriptor) && Date.now() < deadline) {
       await delay(50);
     }
     if (child.exitCode !== null) {
       throw new Error(`Packaged Nodex.app exited during startup with status ${child.exitCode}`);
     }
-    if (existsSync(descriptor)) {
-      const runtime = JSON.parse(readFileSync(descriptor, "utf8")) as { pid?: unknown };
-      if (!Number.isSafeInteger(runtime.pid)) {
-        throw new Error("Packaged Nodex.app published an invalid Core runtime descriptor");
-      }
+    if (!existsSync(descriptor)) {
+      throw new Error("Packaged Nodex.app did not publish its Core runtime descriptor during startup");
+    }
+    const runtime = JSON.parse(readFileSync(descriptor, "utf8")) as { pid?: unknown };
+    if (!Number.isSafeInteger(runtime.pid)) {
+      throw new Error("Packaged Nodex.app published an invalid Core runtime descriptor");
     }
   } finally {
     if (child.exitCode === null) child.kill("SIGTERM");

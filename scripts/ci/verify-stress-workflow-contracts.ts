@@ -10,9 +10,7 @@ import type { UnknownRecord } from "./github-workflow-files";
 
 const sharedStressAction = "./.github/actions/run-stress-tests";
 const requiredStressJobsByWorkflow: Readonly<Record<string, readonly string[]>> = {
-  ".github/workflows/ci-main.yml": ["stress-tests"],
   ".github/workflows/ci-nightly.yml": ["stress"],
-  ".github/workflows/ci.yml": ["stress-tests"],
 };
 const stressWordPattern = /(?:^|[-_\s])stress(?:$|[-_\s])/iu;
 const directStressCommandPattern = /\bpnpm(?:\s+--silent)?\s+run\s+test:stress\b/u;

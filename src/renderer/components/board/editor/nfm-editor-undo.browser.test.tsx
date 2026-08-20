@@ -80,6 +80,8 @@ describe("collaborative NFM undo in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const mountedView = left.prosemirrorView;
+      const mountedDom = mountedView.dom;
       const leftBase = left.getBlock("block-base");
       const rightBase = right.getBlock("block-base");
       if (!leftBase || !rightBase) throw new Error("Expected the shared base Block");
@@ -95,6 +97,8 @@ describe("collaborative NFM undo in Chromium", () => {
       });
       expect(left.getBlock("block-base")?.content).not.toEqual(leftBase.content);
       expect(left.getBlock("block-right")).toBeDefined();
+      expect(left.prosemirrorView).toBe(mountedView);
+      expect(left.prosemirrorView.dom).toBe(mountedDom);
 
       await act(async () => {
         expect(left.undo()).toBe(true);

@@ -4,223 +4,121 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      full:
+        description: Run every deterministic source gate
+        default: false
+        required: true
+        type: boolean
 
 permissions:
   actions: write
   contents: read
 
 jobs:
+  classify:
+    name: classify
+    runs-on: ubuntu-latest
+    outputs:
+      changed_paths: ${{ steps.outputs.outputs.changed_paths }}
+      plan: ${{ steps.outputs.outputs.plan }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify the landed change
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          FORCE_FULL: ${{ github.event_name == 'workflow_dispatch' && inputs.full || false }}
+          HEAD_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha="${BASE_SHA}"
+          if [[ -z "${base_sha}" || "${base_sha}" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse "${HEAD_SHA}^")"
+          fi
+          arguments=(--base "${base_sha}" --head "${HEAD_SHA}" --output "${RUNNER_TEMP}/classification.json")
+          if [[ "${FORCE_FULL}" == "true" ]]; then
+            arguments+=(--full)
+          fi
+          node --no-warnings scripts/ci/classify-change.ts "${arguments[@]}"
+      - name: Publish typed gate plan
+        id: outputs
+        run: node --no-warnings scripts/ci/write-github-outputs.ts --input "${RUNNER_TEMP}/classification.json"
+
+  release-transition:
+    name: release transition
+    if: ${{ fromJSON(needs.classify.outputs.plan).releaseTransition }}
+    needs: classify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify landed release metadata
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: pnpm release:detect -- --base "${BASE_SHA}" --head "${HEAD_SHA}" --output "${RUNNER_TEMP}/release-transition.json"
+
   static-contracts:
     name: main static contracts
+    if: ${{ toJSON(fromJSON(needs.classify.outputs.plan).staticGroups) != '[]' }}
+    needs: classify
     uses: ./.github/workflows/_static-checks.yml
     with:
-      groups_json: '["types","ui-contracts","ci-contracts","repository-contracts","generated","landing"]'
+      groups_json: ${{ toJSON(fromJSON(needs.classify.outputs.plan).staticGroups) }}
       timing_prefix: main-static
 
-  rust-quality:
-    name: Rust quality and protocol contracts
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: main-rust-quality
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: ./.github/actions/setup-rust-ci
-      - name: Verify runner CLI tools
-        run: rg --version
-      - name: Check Rust formatting
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-format -- pnpm run core:fmt
-      - name: Run Rust lint
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-clippy -- pnpm run core:clippy
-      - name: Verify generated protocol contracts
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name protocol-contracts -- pnpm run core:protocol:verify
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
-
-  rust-workspace:
-    name: exhaustive Rust workspace tests
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: main-rust-workspace
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: ./.github/actions/setup-rust-ci
-      - name: Run exhaustive workspace suite
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-workspace -- pnpm run core:test:workspace
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
-
-  rust-migration:
-    name: exhaustive Store migration tests
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: main-rust-migration
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: ./.github/actions/setup-rust-ci
-      - name: Run exhaustive migration suite
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-migration -- pnpm run core:test:migration
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
+  rust-checks:
+    name: main rust checks
+    if: ${{ fromJSON(needs.classify.outputs.plan).rustFast || fromJSON(needs.classify.outputs.plan).protocolContracts || fromJSON(needs.classify.outputs.plan).rustMigration }}
+    needs: classify
+    uses: ./.github/workflows/_rust-checks.yml
+    with:
+      changed_paths_json: ${{ needs.classify.outputs.changed_paths }}
+      full_workspace: ${{ fromJSON(needs.classify.outputs.plan).rustFull }}
+      run_fast: ${{ fromJSON(needs.classify.outputs.plan).rustFast }}
+      run_migration: ${{ fromJSON(needs.classify.outputs.plan).rustMigration }}
+      run_protocol: ${{ fromJSON(needs.classify.outputs.plan).protocolContracts }}
+      timing_prefix: main-rust
 
   app-tests:
-    name: full app tests
+    name: main app tests
+    if: ${{ toJSON(fromJSON(needs.classify.outputs.plan).appTestSuites) != '[]' }}
+    needs: classify
     uses: ./.github/workflows/_app-tests.yml
     with:
-      suites_json: '["unit","core-client","main","renderer","integration"]'
+      gate_plan_json: ${{ needs.classify.outputs.plan }}
+      suites_json: ${{ toJSON(fromJSON(needs.classify.outputs.plan).appTestSuites) }}
       timing_prefix: main-app
-
-  stress-tests:
-    name: full stress tests
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: main-stress-tests
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/run-stress-tests
-
-  browser-tests:
-    name: full browser tests
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: main-browser-tests
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/setup-playwright
-      - name: Run full browser suite
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name browser-tests -- pnpm run test:browser
-
-  electron-e2e:
-    name: full Electron E2E
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: main-electron-e2e
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/setup-rust-ci
-      - uses: ./.github/actions/setup-playwright
-      - name: Run functional Electron E2E suite
-        env:
-          NODEX_SKIP_PERFORMANCE_GATES: "1"
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name electron-e2e -- xvfb-run --auto-servernum pnpm run test:e2e
-      - name: Upload Electron failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: main-electron-e2e-failure-${{ github.run_attempt }}
-          path: |
-            playwright-report/
-            test-results/
-          if-no-files-found: ignore
-          retention-days: 14
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
-
-  runtime-contracts:
-    name: full runtime contracts
-    runs-on: macos-26
-    env:
-      CI_TIMING_JOB: main-runtime-contracts
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/setup-rust-ci
-      - name: Run runtime contracts
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name runtime-contracts -- pnpm run verify:runtime:mac
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
 
   complete:
     name: main complete
     if: always()
     needs:
+      - classify
+      - release-transition
       - static-contracts
-      - rust-quality
-      - rust-workspace
-      - rust-migration
+      - rust-checks
       - app-tests
-      - stress-tests
-      - browser-tests
-      - electron-e2e
-      - runtime-contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Require every main gate
+      - name: Require every selected main gate
         env:
-          CI_CLASSIFIER_RESULT: success
+          CI_GATE_PLAN_JSON: ${{ needs.classify.outputs.plan }}
           CI_NEEDS_JSON: ${{ toJSON(needs) }}
         run: node --no-warnings scripts/ci/verify-required-gates.ts

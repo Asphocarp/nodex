@@ -48,8 +48,6 @@ test("rejects workflows that drop a required stress job", () => {
 });
 
 test("rejects a missing required stress workflow file", () => {
-  expect(() => verifyRequiredStressWorkflowFiles(new Set([
-    ".github/workflows/ci-nightly.yml",
-    ".github/workflows/ci.yml",
-  ]))).toThrow("Required stress workflow is missing: .github/workflows/ci-main.yml");
+  expect(() => verifyRequiredStressWorkflowFiles(new Set([".github/workflows/ci.yml"])))
+    .toThrow("Required stress workflow is missing: .github/workflows/ci-nightly.yml");
 });

@@ -27,6 +27,17 @@ describe("Vitest test tiers", () => {
     });
   });
 
+  test("allows ordinary-suite deduplication without dropping a stress owner", () => {
+    expect(selectTieredTestFiles({
+      ...testFiles,
+      stressExclude: [],
+    }, "stress")).toEqual({
+      exclude: [],
+      include: ["**/*.stress.test.ts"],
+      isStress: true,
+    });
+  });
+
   test("rejects an unknown tier instead of silently changing the suite", () => {
     expect(() => resolveVitestTestTier("slow")).toThrow(
       'NODEX_TEST_TIER must be "default" or "stress"',

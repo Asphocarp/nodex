@@ -1,10 +1,11 @@
 import path from "node:path";
 
-import { APP_TEST_SUITES, STATIC_GROUPS } from "./ci-gate-plan";
+import { APP_TEST_SUITES, parseCiGatePlan, STATIC_GROUPS } from "./ci-gate-plan";
 import {
   readWorkflow,
   repositoryRoot,
   requireRecord,
+  workflowFiles,
   type UnknownRecord,
 } from "./github-workflow-files";
 
@@ -21,11 +22,12 @@ const requireReusableInput = (
   workflow: UnknownRecord,
   jobName: string,
   inputName: string,
+  workflowName = "Nightly CI",
 ): readonly string[] => {
-  const jobs = requireRecord(workflow.jobs, "Main CI jobs");
-  const job = requireRecord(jobs[jobName], `Main CI ${jobName} job`);
-  const inputs = requireRecord(job.with, `Main CI ${jobName} inputs`);
-  return parseStringArray(inputs[inputName], `Main CI ${jobName}.${inputName}`);
+  const jobs = requireRecord(workflow.jobs, `${workflowName} jobs`);
+  const job = requireRecord(jobs[jobName], `${workflowName} ${jobName} job`);
+  const inputs = requireRecord(job.with, `${workflowName} ${jobName} inputs`);
+  return parseStringArray(inputs[inputName], `${workflowName} ${jobName}.${inputName}`);
 };
 
 const requireExactEntries = (
@@ -41,17 +43,34 @@ const requireExactEntries = (
   );
 };
 
-export const verifyMainCiContracts = (workflow: UnknownRecord): void => {
+const requireFullGatePlan = (workflow: UnknownRecord, workflowName: string): void => {
+  const jobs = requireRecord(workflow.jobs, `${workflowName} jobs`);
+  const job = requireRecord(jobs["app-tests"], `${workflowName} app-tests job`);
+  const inputs = requireRecord(job.with, `${workflowName} app-tests inputs`);
+  if (typeof inputs.gate_plan_json !== "string") {
+    throw new Error(`${workflowName} app-tests.gate_plan_json must be a JSON string.`);
+  }
+  const plan = parseCiGatePlan(JSON.parse(inputs.gate_plan_json) as unknown);
+  if (plan.testMode !== "full" || !plan.rustFull) {
+    throw new Error(`${workflowName} must use a full deterministic gate plan.`);
+  }
+};
+
+export const verifyFullCiContracts = (
+  workflow: UnknownRecord,
+  workflowName = "Nightly CI",
+): void => {
   requireExactEntries(
-    requireReusableInput(workflow, "static-contracts", "groups_json"),
+    requireReusableInput(workflow, "static-contracts", "groups_json", workflowName),
     STATIC_GROUPS,
-    "Main CI static groups",
+    `${workflowName} static groups`,
   );
   requireExactEntries(
-    requireReusableInput(workflow, "app-tests", "suites_json"),
+    requireReusableInput(workflow, "app-tests", "suites_json", workflowName),
     APP_TEST_SUITES,
-    "Main CI app test suites",
+    `${workflowName} app test suites`,
   );
+  requireFullGatePlan(workflow, workflowName);
 };
 
 export const verifyAppTestMatrixContracts = (workflow: UnknownRecord): void => {
@@ -62,21 +81,87 @@ export const verifyAppTestMatrixContracts = (workflow: UnknownRecord): void => {
     : requireRecord(testJob.env, "Application test matrix job environment");
   const unsafeGlobalVariables = ["RUSTC_WRAPPER", "SCCACHE_GHA_ENABLED"]
     .filter((name) => Object.hasOwn(environment, name));
-  if (unsafeGlobalVariables.length === 0) return;
-  throw new Error(
-    `Application test matrix must scope Rust cache variables to Rust-bearing steps: ${unsafeGlobalVariables.join(", ")}.`,
-  );
+  if (unsafeGlobalVariables.length > 0) {
+    throw new Error(
+      `Application test matrix must scope Rust cache variables to Rust-bearing steps: ${unsafeGlobalVariables.join(", ")}.`,
+    );
+  }
+  if (!Array.isArray(testJob.steps)) return;
+  const duplicatedBuildResources = testJob.steps.some((candidate) => {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return false;
+    const run = (candidate as UnknownRecord).run;
+    return typeof run === "string" && /\bbuild-resources:prepare\b/u.test(run);
+  });
+  if (duplicatedBuildResources) {
+    throw new Error(
+      "Application test cells must not regenerate build resources owned by the generated static contract.",
+    );
+  }
+};
+
+const referencedNeeds = (value: unknown): ReadonlySet<string> => {
+  const references = new Set<string>();
+  const visit = (candidate: unknown): void => {
+    if (typeof candidate === "string") {
+      for (const match of candidate.matchAll(/\bneeds\.([A-Za-z_][A-Za-z0-9_-]*)\b/gu)) {
+        const name = match[1];
+        if (name) references.add(name);
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      for (const entry of candidate) visit(entry);
+      return;
+    }
+    if (typeof candidate !== "object" || candidate === null) return;
+    for (const entry of Object.values(candidate)) visit(entry);
+  };
+  visit(value);
+  return references;
+};
+
+const declaredNeeds = (value: unknown, label: string): ReadonlySet<string> => {
+  if (value === undefined) return new Set();
+  if (typeof value === "string") return new Set([value]);
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
+    return new Set(value);
+  }
+  throw new Error(`${label} needs must be a job id or array of job ids.`);
+};
+
+export const verifyDirectNeedsContracts = (
+  workflow: UnknownRecord,
+  workflowName: string,
+): void => {
+  const jobs = requireRecord(workflow.jobs, `${workflowName} jobs`);
+  for (const [jobName, rawJob] of Object.entries(jobs)) {
+    const job = requireRecord(rawJob, `${workflowName} ${jobName} job`);
+    const available = declaredNeeds(job.needs, `${workflowName} ${jobName}`);
+    const missing = [...referencedNeeds(job)].filter((name) => !available.has(name)).sort();
+    if (missing.length > 0) {
+      throw new Error(
+        `${workflowName} ${jobName} references undeclared direct needs: ${missing.join(", ")}.`,
+      );
+    }
+  }
 };
 
 const main = (): void => {
-  verifyMainCiContracts(readWorkflow(path.join(
+  verifyFullCiContracts(readWorkflow(path.join(
     repositoryRoot,
-    ".github/workflows/ci-main.yml",
+    ".github/workflows/ci-nightly.yml",
   )));
+  verifyFullCiContracts(readWorkflow(path.join(
+    repositoryRoot,
+    ".github/workflows/_certify-release-source.yml",
+  )), "Release certification");
   verifyAppTestMatrixContracts(readWorkflow(path.join(
     repositoryRoot,
     ".github/workflows/_app-tests.yml",
   )));
+  for (const workflowPath of workflowFiles()) {
+    verifyDirectNeedsContracts(readWorkflow(workflowPath), path.relative(repositoryRoot, workflowPath));
+  }
   process.stdout.write("Verified CI matrix coverage and prerequisite isolation.\n");
 };
 

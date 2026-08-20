@@ -4,10 +4,14 @@ import { expect, test } from "vitest";
 
 import { verifyCall, verifyDeclaredReferences } from "./verify-reusable-workflow-secrets";
 
-const reusableWorkflow = (jobs: Record<string, unknown>): Record<string, unknown> => ({
+const reusableWorkflow = (
+  jobs: Record<string, unknown>,
+  inputs: Record<string, unknown> = {},
+): Record<string, unknown> => ({
   jobs,
   on: {
     workflow_call: {
+      inputs,
       secrets: {
         DECLARED_SECRET: { required: true },
       },
@@ -54,4 +58,25 @@ test("rejects transporting a protected environment secret from a caller", () => 
       SPARKLE_ED25519_PRIVATE_KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}",
     },
   }, new Map([[calledPath, calledWorkflow]]))).toThrow("must resolve protected environment secrets in the called job");
+});
+
+test("rejects missing and undeclared reusable workflow inputs", () => {
+  const callerPath = path.resolve(".github/workflows/caller.yml");
+  const calledPath = path.resolve(".github/workflows/called.yml");
+  const calledWorkflow = reusableWorkflow(
+    { run: { steps: [] } },
+    { source_sha: { required: true, type: "string" } },
+  );
+  const workflows = new Map([[calledPath, calledWorkflow]]);
+
+  expect(() => verifyCall(callerPath, "certify", {
+    uses: "./.github/workflows/called.yml",
+    secrets: { DECLARED_SECRET: "${{ secrets.DECLARED_SECRET }}" },
+  }, workflows)).toThrow("omits required inputs: source_sha");
+
+  expect(() => verifyCall(callerPath, "certify", {
+    uses: "./.github/workflows/called.yml",
+    with: { source_sha: "abc", surprise: true },
+    secrets: { DECLARED_SECRET: "${{ secrets.DECLARED_SECRET }}" },
+  }, workflows)).toThrow("passes undeclared inputs: surprise");
 });

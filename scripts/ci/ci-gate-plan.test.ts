@@ -11,18 +11,17 @@ import {
 const fullPlan: CiGatePlan = {
   allGates: true,
   appTestSuites: APP_TEST_SUITES,
-  browser: true,
   dependencyKind: "source",
   docsOnly: false,
-  electronE2e: true,
   landingOnly: false,
   protocolContracts: true,
+  relatedPaths: [],
   releaseTransition: false,
-  runtimeMac: true,
   rustFast: true,
+  rustFull: true,
   rustMigration: true,
   staticGroups: STATIC_GROUPS,
-  stress: true,
+  testMode: "full",
 };
 
 describe("CI gate plan contract", () => {
@@ -30,18 +29,15 @@ describe("CI gate plan contract", () => {
     expect(requiredJobIdsForGatePlan(fullPlan)).toEqual([
       "static-contracts",
       "app-tests",
-      "rust-pr",
-      "rust-migration",
-      "stress-tests",
-      "browser-tests",
-      "electron-e2e",
-      "runtime-contracts",
+      "rust-checks",
     ]);
   });
 
-  test("rejects unknown fields and protocol plans without a Rust owner", () => {
+  test("rejects unknown fields and inconsistent test selections", () => {
     expect(() => assertCiGatePlan({ ...fullPlan, surprise: true })).toThrow("unknown fields");
-    expect(() => assertCiGatePlan({ ...fullPlan, rustFast: false })).toThrow("execution owner");
+    expect(() => assertCiGatePlan({ ...fullPlan, testMode: "related" })).toThrow("changed paths");
+    expect(() => assertCiGatePlan({ ...fullPlan, relatedPaths: ["../outside"] })).toThrow("safe");
+    expect(() => assertCiGatePlan({ ...fullPlan, relatedPaths: ["src/main/a\rb.ts"] })).toThrow("safe");
   });
 
   test("keeps release transition isolated from ordinary jobs", () => {

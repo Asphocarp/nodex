@@ -3,6 +3,7 @@ export type VitestTestTier = "default" | "stress";
 interface TieredTestFilesInput {
   readonly defaultExclude?: readonly string[];
   readonly defaultInclude: readonly string[];
+  readonly stressExclude?: readonly string[];
   readonly stressInclude: readonly string[];
 }
 
@@ -29,7 +30,7 @@ export function selectTieredTestFiles(
   const defaultExclude = input.defaultExclude ?? [];
   if (tier === "stress") {
     return {
-      exclude: defaultExclude,
+      exclude: input.stressExclude ?? defaultExclude,
       include: input.stressInclude,
       isStress: true,
     };

@@ -5,9 +5,16 @@ import path from "node:path";
 const require = createRequire(import.meta.url);
 const electronExecutable = require("electron");
 const vitestEntry = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
+const args = process.argv.slice(2);
+const commandIndex = args.indexOf("--command");
+const command = commandIndex < 0 ? "run" : args[commandIndex + 1];
+if (command !== "run" && command !== "related") {
+  throw new Error(`Unsupported Vitest command: ${JSON.stringify(command)}.`);
+}
+if (commandIndex >= 0) args.splice(commandIndex, 2);
 const result = spawnSync(
   electronExecutable,
-  [vitestEntry, "run", ...process.argv.slice(2)],
+  [vitestEntry, command, ...args],
   {
     cwd: process.cwd(),
     env: {

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +7,7 @@ import {
   APP_TEST_SUITES,
   assertCiGatePlan,
   STATIC_GROUPS,
+  type AppTestSuite,
   type CiGatePlan,
   type DependencyKind,
   type StaticGroup,
@@ -31,28 +32,6 @@ const isLandingPath = (path: string): boolean =>
   path.startsWith("packages/landing/")
   || path === ".github/workflows/deploy-landing-site.yml";
 
-const isRuntimePath = (path: string): boolean =>
-  path === "Cargo.lock"
-  || path === "Cargo.toml"
-  || path === "electron-builder.yml"
-  || path === "package.json"
-  || path === "pnpm-lock.yaml"
-  || path === "rust-toolchain.toml"
-  || path.startsWith("crates/")
-  || path.startsWith("packages/codex-app-server-protocol/")
-  || path.startsWith("resources/agent-runtime/")
-  || path.startsWith("resources/browser-runtime/")
-  || path.startsWith("resources/macos/")
-  || path === "scripts/build-resources.ts"
-  || path === "scripts/generate-third-party-notices.ts"
-  || path.startsWith("scripts/release/")
-  || /^(scripts\/(archive|materialize|probe|sign|stage|verify)-.*runtime)/u.test(path)
-  || path.startsWith("src/main/codex/")
-  || path.startsWith("src/main/core-client/")
-  || path === "src/shared/build-resources.ts"
-  || path.startsWith("src/shared/codex-")
-  || path.startsWith("src/shared/core-");
-
 const isRendererPath = (path: string): boolean =>
   path.startsWith("src/renderer/")
   || path.startsWith("packages/storybook/")
@@ -67,25 +46,13 @@ const isElectronMainPath = (path: string): boolean =>
   || path === "electron.vite.config.ts"
   || path === "electron-builder.yml"
   || path === "scripts/run-vitest-in-electron.mjs"
-  || path.startsWith("scripts/scenarios/")
-  || path.startsWith("tests/e2e/");
-
-const isBrowserPath = (path: string): boolean =>
-  isRendererPath(path)
-  || path.startsWith("tests/e2e/")
-  || path.startsWith("vitest.browser")
-  || path.startsWith("playwright");
+  || path.startsWith("scripts/scenarios/");
 
 const isRustPath = (path: string): boolean =>
   path === "Cargo.toml"
   || path === "Cargo.lock"
   || path === "rust-toolchain.toml"
   || path.startsWith("crates/");
-
-const isStoragePath = (path: string): boolean =>
-  path.startsWith("crates/nodex-core/src/infrastructure/")
-  || path.startsWith("crates/nodex-core/schema/")
-  || path.startsWith("crates/nodex-store-format/");
 
 const isMigrationPath = (path: string): boolean =>
   path === "crates/nodex-core/src/infrastructure/migration.rs"
@@ -100,25 +67,6 @@ const isProtocolPath = (path: string): boolean =>
   || path.startsWith("src/shared/core-")
   || path.startsWith("src/shared/codex-")
   || path.startsWith("src/main/core-client/");
-
-const isStressInfrastructurePath = (path: string): boolean =>
-  path.startsWith("vitest.")
-  || path.startsWith("config/vitest-")
-  || path === "config/electron-test-runtime.ts"
-  || path === "scripts/run-vitest-in-electron.mjs";
-
-const isStressRelevantPath = (path: string): boolean =>
-  isRustPath(path)
-  || isStoragePath(path)
-  || isStressInfrastructurePath(path)
-  || path.includes(".stress.")
-  || path.includes("performance")
-  || path.includes("concurrency")
-  || path.includes("scheduler")
-  || path.includes("lifecycle")
-  || path.includes("canvas")
-  || path.startsWith("src/main/core-client/")
-  || path.startsWith("src/main/codex/");
 
 const isGeneratedResourcePath = (path: string): boolean =>
   path === "scripts/build-resources.ts"
@@ -135,6 +83,7 @@ const isKnownAppPath = (path: string): boolean =>
   || path.startsWith("crates/")
   || path.startsWith(".config/")
   || path.startsWith("playwright")
+  || path.startsWith("tests/e2e/")
   || path.startsWith("vitest")
   || path.startsWith("tsconfig")
   || path === "electron.vite.config.ts"
@@ -152,6 +101,122 @@ const isJavaScriptDependencyPath = (path: string): boolean =>
   path === "package.json"
   || path === "pnpm-lock.yaml"
   || /^(?:packages|third_party\/blocknote\/packages)\/[^/]+\/package\.json$/u.test(path);
+
+const isStressTestPath = (path: string): boolean => path.includes(".stress.");
+
+const owningTestSuite = (path: string): AppTestSuite | undefined => {
+  if (isStressTestPath(path)) return undefined;
+  if (/\.browser\.test\.[cm]?[jt]sx?$/u.test(path)) return "browser";
+  if (/\.integration\.[cm]?[jt]s$/u.test(path)) return "integration";
+  if (path.startsWith("src/main/core-client/") && /\.node\.test\.[cm]?[jt]s$/u.test(path)) {
+    return "core-client";
+  }
+  if (path.startsWith("src/main/") && /(?:\.node)?\.test\.[cm]?[jt]s$/u.test(path)) {
+    return "main";
+  }
+  if (path.startsWith("src/renderer/")) {
+    if (/\.node\.test\.[cm]?[jt]sx?$/u.test(path)) return "unit";
+    if (/\.jsdom\.test\.[cm]?[jt]s$/u.test(path)) return "renderer";
+    if (/\.test\.[cm]?[jt]sx$/u.test(path)) return "renderer";
+    if (/\.test\.[cm]?[jt]s$/u.test(path)) return "unit";
+  }
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return "unit";
+  return undefined;
+};
+
+const requiresFullTests = (paths: readonly string[]): boolean => paths.some((path) => (
+  path === "package.json"
+  || path === "pnpm-lock.yaml"
+  || path === "pnpm-workspace.yaml"
+  || path === "electron.vite.config.ts"
+  || path.startsWith("config/")
+  || path.startsWith("scripts/ci/")
+  || path === "scripts/run-vitest-in-electron.mjs"
+  || path === "src/renderer/test/setup.ts"
+  || path === "src/renderer/test/setup-browser.ts"
+  || path.startsWith("tsconfig")
+  || path.startsWith("vitest")
+));
+
+const testSuitesForPaths = (paths: readonly string[]): readonly AppTestSuite[] => {
+  const selected = new Set<AppTestSuite>();
+  const add = (...suites: readonly AppTestSuite[]): void => {
+    for (const suite of suites) selected.add(suite);
+  };
+  for (const path of paths) {
+    if (isStressTestPath(path) || path.startsWith("tests/e2e/")) continue;
+    const testSuite = owningTestSuite(path);
+    if (testSuite) {
+      add(testSuite);
+      continue;
+    }
+    if (path === "src/renderer/test/setup-browser.ts") {
+      add("browser");
+      continue;
+    }
+    if (path === "src/renderer/test/setup.ts") {
+      add("renderer");
+      continue;
+    }
+    if (path.startsWith("src/shared/")) {
+      add(...APP_TEST_SUITES);
+      continue;
+    }
+    if (path.startsWith("src/main/core-client/")) {
+      add("core-client", "main", "integration");
+      continue;
+    }
+    if (path.startsWith("src/main/") || path.startsWith("src/preload/")) {
+      add("main", "integration");
+      continue;
+    }
+    if (path.startsWith("src/renderer/")) {
+      add("unit", "renderer", "browser");
+      continue;
+    }
+    if (path.startsWith("packages/landing/")) {
+      add("unit");
+      continue;
+    }
+    if (path.startsWith("packages/") || path.startsWith("third_party/")) {
+      add("unit", "renderer", "browser");
+      continue;
+    }
+    if (path === "electron.vite.config.ts" || path === "electron-builder.yml") {
+      add("main", "integration");
+      continue;
+    }
+    if (path.startsWith("vitest.")) {
+      if (path.startsWith("vitest.browser")) add("browser");
+      else if (path.startsWith("vitest.renderer")) add("renderer");
+      else if (path.startsWith("vitest.core-client")) add("core-client");
+      else if (path.startsWith("vitest.main")) add("main");
+      else if (path.startsWith("vitest.integration")) add("integration");
+      else add("unit");
+      continue;
+    }
+    if (path.startsWith("config/vitest-") || path === "config/electron-test-runtime.ts") {
+      add(...APP_TEST_SUITES);
+      continue;
+    }
+    if (path.startsWith("config/renderer-")) {
+      add("unit", "renderer", "browser");
+      continue;
+    }
+    if (path === "scripts/run-vitest-in-electron.mjs") {
+      add("main", "integration");
+      continue;
+    }
+    if (path.startsWith("tsconfig")) {
+      add(...APP_TEST_SUITES);
+      continue;
+    }
+    if (path.startsWith("config/") || path.startsWith("scripts/")) {
+      add("unit");
+    }
+  }
+  return APP_TEST_SUITES.filter((suite) => selected.has(suite));
+};
 
 const dependencyKindFor = (paths: readonly string[]): DependencyKind => {
   if (paths.length === 0) return "source";
@@ -173,18 +238,17 @@ const createPlan = (overrides: Partial<CiGatePlan>): CiGatePlan => {
   const candidate: CiGatePlan = {
     allGates: false,
     appTestSuites: [],
-    browser: false,
     dependencyKind: "none",
     docsOnly: false,
-    electronE2e: false,
     landingOnly: false,
     protocolContracts: false,
+    relatedPaths: [],
     releaseTransition: false,
-    runtimeMac: false,
     rustFast: false,
+    rustFull: false,
     rustMigration: false,
     staticGroups: [],
-    stress: false,
+    testMode: "none",
     ...overrides,
   };
   assertCiGatePlan(candidate);
@@ -194,81 +258,94 @@ const createPlan = (overrides: Partial<CiGatePlan>): CiGatePlan => {
 const allGatesPlan = (dependencyKind: DependencyKind, allGates = true): CiGatePlan => createPlan({
   allGates,
   appTestSuites: APP_TEST_SUITES,
-  browser: true,
   dependencyKind,
-  electronE2e: true,
   protocolContracts: true,
-  runtimeMac: true,
   rustFast: true,
+  rustFull: true,
   rustMigration: true,
   staticGroups: STATIC_GROUPS,
-  stress: true,
+  testMode: "full",
 });
 
+const githubWorkflowPlan = (paths: readonly string[]): CiGatePlan => {
+  const appTests = paths.includes(".github/workflows/_app-tests.yml");
+  const rustChecks = paths.includes(".github/workflows/_rust-checks.yml");
+  const staticGroups = paths.includes(".github/workflows/_static-checks.yml")
+    ? STATIC_GROUPS
+    : ["ci-contracts"] as const;
+  return createPlan({
+    appTestSuites: appTests ? APP_TEST_SUITES : [],
+    dependencyKind: "github-actions",
+    protocolContracts: rustChecks,
+    rustFast: rustChecks,
+    rustFull: rustChecks,
+    rustMigration: rustChecks,
+    staticGroups,
+    testMode: appTests ? "full" : "none",
+  });
+};
+
 const githubActionPlan = (paths: readonly string[]): CiGatePlan => {
-  if (paths.some((path) => path.startsWith(".github/workflows/"))) {
-    return allGatesPlan("github-actions");
+  if (paths.every((path) => path.startsWith(".github/workflows/"))) {
+    return githubWorkflowPlan(paths);
   }
   if (paths.every((path) => path.startsWith(".github/actions/run-stress-tests/"))) {
     return createPlan({
       dependencyKind: "github-actions",
       staticGroups: ["ci-contracts"],
-      stress: true,
     });
   }
   if (paths.every((path) => path.startsWith(".github/actions/setup-playwright/"))) {
     return createPlan({
-      browser: true,
+      appTestSuites: ["browser"],
       dependencyKind: "github-actions",
-      electronE2e: true,
       staticGroups: ["ci-contracts"],
-      stress: true,
+      testMode: "full",
     });
   }
   if (paths.every((path) => path.startsWith(".github/actions/setup-rust-ci/"))) {
     return createPlan({
-      appTestSuites: APP_TEST_SUITES,
       dependencyKind: "github-actions",
-      electronE2e: true,
       protocolContracts: true,
-      runtimeMac: true,
       rustFast: true,
+      rustFull: true,
       rustMigration: true,
       staticGroups: ["ci-contracts", "repository-contracts"],
-      stress: true,
     });
   }
   return allGatesPlan("github-actions");
 };
 
-const sourcePlan = (paths: readonly string[], dependencyKind: DependencyKind): CiGatePlan => {
+const sourcePlan = (
+  paths: readonly string[],
+  dependencyKind: DependencyKind,
+  fullTests: boolean,
+): CiGatePlan => {
   const renderer = paths.some(isRendererPath);
   const electronMain = paths.some(isElectronMainPath);
   const rust = paths.some(isRustPath);
   const migration = paths.some(isMigrationPath);
   const protocol = paths.some(isProtocolPath);
-  const browser = paths.some(isBrowserPath);
+  const appTestSuites = testSuitesForPaths(paths);
   const staticGroups = new Set<StaticGroup>(["types"]);
   if (renderer) staticGroups.add("ui-contracts");
   if (electronMain || rust || protocol) staticGroups.add("repository-contracts");
   if (paths.some(isGeneratedResourcePath)) staticGroups.add("generated");
   return createPlan({
-    appTestSuites: APP_TEST_SUITES,
-    browser,
+    appTestSuites,
     dependencyKind,
-    electronE2e: electronMain || browser,
     protocolContracts: protocol,
-    runtimeMac: paths.some(isRuntimePath),
-    rustFast: rust || protocol,
+    rustFast: rust,
     rustMigration: migration,
     staticGroups: [...staticGroups],
-    stress: paths.some(isStressRelevantPath),
+    testMode: appTestSuites.length === 0 ? "none" : fullTests ? "full" : "related",
+    relatedPaths: appTestSuites.length > 0 && !fullTests ? paths : [],
   });
 };
 
 export function classifyChangedPaths(
   changedPaths: readonly string[],
-  options: { readonly full?: boolean } = {},
+  options: { readonly full?: boolean; readonly forceFullTests?: boolean } = {},
 ): CiGatePlan {
   const paths = [...new Set(changedPaths.map(normalizePath))];
   if (options.full || paths.length === 0) return allGatesPlan("source");
@@ -281,36 +358,48 @@ export function classifyChangedPaths(
   const landingOnly = paths.some(isLandingPath)
     && paths.every((path) => isLandingPath(path) || isDocumentationPath(path));
   if (landingOnly) return createPlan({ landingOnly: true, staticGroups: ["landing"] });
+  const executablePaths = paths.filter((path) => !isDocumentationPath(path));
 
-  const dependencyKind = dependencyKindFor(paths);
-  if (dependencyKind === "github-actions") return githubActionPlan(paths);
+  const ciScriptsOnly = executablePaths.every((path) => path.startsWith("scripts/ci/"));
+  if (ciScriptsOnly) {
+    return createPlan({
+      appTestSuites: ["unit"],
+      dependencyKind: "source",
+      staticGroups: ["types", "ci-contracts"],
+      testMode: "full",
+    });
+  }
+
+  const dependencyKind = dependencyKindFor(executablePaths);
+  if (dependencyKind === "github-actions") return githubActionPlan(executablePaths);
   if (dependencyKind === "javascript" || dependencyKind === "editor") {
     return allGatesPlan(dependencyKind, false);
   }
   if (dependencyKind === "rust") {
     return createPlan({
-      appTestSuites: APP_TEST_SUITES,
       dependencyKind,
-      electronE2e: true,
       protocolContracts: true,
-      runtimeMac: true,
       rustFast: true,
+      rustFull: true,
       rustMigration: true,
       staticGroups: ["repository-contracts", "generated"],
-      stress: true,
     });
   }
 
-  const hasUnknownPath = paths.some((path) => (
+  const hasUnknownPath = executablePaths.some((path) => (
     !isDocumentationPath(path)
     && !isLandingPath(path)
     && !isKnownAppPath(path)
     && !RELEASE_PATHS.has(path)
   ));
-  if (hasUnknownPath || paths.some((path) => path.startsWith("scripts/ci/"))) {
+  if (hasUnknownPath) {
     return allGatesPlan(dependencyKind === "none" ? "source" : dependencyKind);
   }
-  return sourcePlan(paths, dependencyKind);
+  return sourcePlan(
+    executablePaths,
+    dependencyKind,
+    options.forceFullTests || requiresFullTests(executablePaths),
+  );
 }
 
 const readOption = (args: readonly string[], name: string): string | undefined => {
@@ -333,7 +422,13 @@ const main = (): void => {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const paths = output.split("\0").filter(Boolean);
-  const gatePlan = classifyChangedPaths(paths, { full: args.includes("--full") });
+  const forceFullTests = paths.some((path) => (
+    !isDocumentationPath(path) && !existsSync(resolve(cwd, path))
+  ));
+  const gatePlan = classifyChangedPaths(paths, {
+    forceFullTests,
+    full: args.includes("--full"),
+  });
   const serialized = `${JSON.stringify({ changedPaths: paths, plan: gatePlan }, null, 2)}\n`;
   const destination = readOption(args, "--output");
   if (!destination) {

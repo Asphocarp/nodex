@@ -7,14 +7,16 @@ import {
 } from "./write-github-outputs";
 
 describe("GitHub classification outputs", () => {
-  test("writes one compact, typed plan output", () => {
+  test("writes compact changed-path and typed-plan outputs", () => {
     const document = parseClassificationDocument({
       changedPaths: ["src/renderer/app.tsx"],
       plan: classifyChangedPaths(["src/renderer/app.tsx"]),
     });
     const output = githubOutputForClassification(document);
-    expect(output.split("\n")).toHaveLength(2);
-    expect(JSON.parse(output.slice("plan=".length))).toMatchObject({ browser: true, rustFast: false });
+    expect(output.split("\n")).toHaveLength(3);
+    const lines = output.trim().split("\n");
+    expect(JSON.parse(lines[0]!.slice("changed_paths=".length))).toEqual(["src/renderer/app.tsx"]);
+    expect(JSON.parse(lines[1]!.slice("plan=".length))).toMatchObject({ rustFast: false, testMode: "related" });
   });
 
   test("rejects unknown document and plan fields", () => {

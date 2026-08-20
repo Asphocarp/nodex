@@ -109,12 +109,23 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  distribution:
+  certification:
     if: needs.resolve.outputs.should_release == 'true'
     needs: resolve
+    permissions:
+      actions: write
+      contents: read
+    uses: ./.github/workflows/_certify-release-source.yml
+    with:
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+
+  distribution:
+    if: needs.resolve.outputs.should_release == 'true'
+    needs: [resolve, certification]
     uses: ./.github/workflows/_macos-distribution.yml
     with:
       source_sha: ${{ needs.resolve.outputs.source_sha }}
+      source_tree: ${{ needs.certification.outputs.source_tree }}
       version: ${{ needs.resolve.outputs.version }}
       tag: ${{ needs.resolve.outputs.tag }}
       retention_days: 14

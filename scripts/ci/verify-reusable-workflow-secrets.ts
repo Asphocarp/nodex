@@ -26,6 +26,14 @@ const workflowCallSecrets = (workflow: UnknownRecord): UnknownRecord => {
   return isRecord(workflowCall.secrets) ? workflowCall.secrets : {};
 };
 
+const workflowCallInputs = (workflow: UnknownRecord): UnknownRecord => {
+  const triggers = workflow.on;
+  if (!isRecord(triggers)) return {};
+  const workflowCall = triggers.workflow_call;
+  if (!isRecord(workflowCall)) return {};
+  return isRecord(workflowCall.inputs) ? workflowCall.inputs : {};
+};
+
 const isReusableWorkflow = (workflow: UnknownRecord): boolean => {
   const triggers = workflow.on;
   return isRecord(triggers) && isRecord(triggers.workflow_call);
@@ -136,6 +144,25 @@ export const verifyCall = (
   const targetPath = resolveLocalWorkflow(callerPath, uses);
   const target = workflows.get(targetPath);
   if (!target) throw new Error(`${uses} does not resolve to a repository workflow`);
+
+  const declaredInputs = workflowCallInputs(target);
+  const providedInputs = job.with === undefined
+    ? {}
+    : requireRecord(job.with, `${path.relative(repositoryRoot, callerPath)}:${jobName}.with`);
+  const unknownInputs = Object.keys(providedInputs)
+    .filter((name) => !Object.hasOwn(declaredInputs, name))
+    .sort();
+  if (unknownInputs.length > 0) {
+    throw new Error(`${path.relative(repositoryRoot, callerPath)}:${jobName} passes undeclared inputs: ${unknownInputs.join(", ")}`);
+  }
+  const missingInputs = Object.entries(declaredInputs)
+    .filter(([, definition]) => isRecord(definition) && definition.required === true && !Object.hasOwn(definition, "default"))
+    .map(([name]) => name)
+    .filter((name) => !Object.hasOwn(providedInputs, name))
+    .sort();
+  if (missingInputs.length > 0) {
+    throw new Error(`${path.relative(repositoryRoot, callerPath)}:${jobName} omits required inputs: ${missingInputs.join(", ")}`);
+  }
 
   if (job.secrets === "inherit") {
     throw new Error(`${path.relative(repositoryRoot, callerPath)}:${jobName} must map secrets explicitly`);
