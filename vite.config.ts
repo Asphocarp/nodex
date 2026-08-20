@@ -23,6 +23,7 @@ const generatedOrExternalPaths = [
   "scripts/fixtures/tooling/**",
   "scripts/scenarios/artifacts/**",
   "src/renderer/generated/**",
+  "src/renderer/**/*.generated.*",
   "**/fixtures/**",
   "**/test-fixtures/**",
   "test-results/**",

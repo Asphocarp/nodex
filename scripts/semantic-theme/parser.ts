@@ -40,6 +40,41 @@ const EMPTY_CONTEXT: CssRuleContext = {
 const sanitizeSourceCss = (css: string): string =>
   css.replace(/\/\*[\s\S]*?\*\//g, "");
 
+const omittedWhitespace = Symbol("omitted-css-whitespace");
+
+/** Compare parsed CSS values by tokens, not formatter-owned whitespace trivia. */
+const normalizeCssValue = (value: unknown): unknown | typeof omittedWhitespace => {
+  if (Array.isArray(value)) {
+    return value
+      .map(normalizeCssValue)
+      .filter(
+        (item): item is Exclude<typeof item, typeof omittedWhitespace> =>
+          item !== omittedWhitespace,
+      );
+  }
+  if (value === null || typeof value !== "object") return value;
+
+  const record = value as Readonly<Record<string, unknown>>;
+  const tokenValue = record.value;
+  if (
+    record.type === "token" &&
+    tokenValue !== null &&
+    typeof tokenValue === "object" &&
+    (tokenValue as Readonly<Record<string, unknown>>).type === "white-space"
+  ) {
+    return omittedWhitespace;
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).flatMap(([key, item]) => {
+      const normalized = normalizeCssValue(item);
+      return normalized === omittedWhitespace ? [] : [[key, normalized]];
+    }),
+  );
+};
+
+const semanticValueKey = (value: unknown): string => JSON.stringify(normalizeCssValue(value));
+
 export const parseStylesheet = (css: string): StyleSheet => {
   let stylesheet: StyleSheet | null = null;
 
@@ -462,12 +497,7 @@ const collectThemeRuleFacts = (
       scopeKind: "root",
       selectorKey: "@theme",
       targets: SEMANTIC_THEME_TARGETS,
-      valueKey: JSON.stringify(valueTokens.filter((item) => {
-        if (!item || typeof item !== "object") return true;
-        const value = item as Readonly<Record<string, unknown>>;
-        return value.type !== "token"
-          || (value.value as Readonly<Record<string, unknown>> | undefined)?.type !== "white-space";
-      })),
+      valueKey: semanticValueKey(valueTokens),
       references,
     });
     for (const reference of references) {
@@ -517,7 +547,7 @@ export const collectSemanticThemeCssFacts = (
             scopeKind: "root",
             selectorKey: "@property",
             targets: SEMANTIC_THEME_TARGETS,
-            valueKey: JSON.stringify(rule.value.initialValue),
+            valueKey: semanticValueKey(rule.value.initialValue),
             references: collectObjectVariableReferences(rule.value.initialValue),
           });
         }
@@ -543,7 +573,7 @@ export const collectSemanticThemeCssFacts = (
             scopeKind: coverage.scopeKind,
             selectorKey: coverage.selectorKey,
             targets: coverage.targets,
-            valueKey: JSON.stringify(declaration.value.value),
+            valueKey: semanticValueKey(declaration.value.value),
             references,
           });
         }
