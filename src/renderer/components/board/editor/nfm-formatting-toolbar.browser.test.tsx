@@ -150,9 +150,11 @@ describe("NFM image formatting toolbar in Chromium", () => {
 
     try {
       await act(settleEditor);
-      editor.setTextCursorPosition("paragraph-compact");
-      editor.focus();
-      await act(settleEditor);
+      await act(async () => {
+        editor.setTextCursorPosition("paragraph-compact");
+        editor.focus();
+        await settleEditor();
+      });
       expect(await view.findByText("image.png")).toBeTruthy();
       expect(await view.findByText("1 B")).toBeTruthy();
       expect(view.container.querySelector('[data-content-type="image"] img')).toBeNull();
