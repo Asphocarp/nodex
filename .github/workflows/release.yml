@@ -116,7 +116,6 @@ jobs:
     if: needs.detect.outputs.should_release == 'true'
     needs: detect
     permissions:
-      actions: write
       contents: read
     uses: ./.github/workflows/_certify-release-source.yml
     with:

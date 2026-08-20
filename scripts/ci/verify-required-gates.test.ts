@@ -61,6 +61,10 @@ describe("required CI gate verification", () => {
       "static-contracts",
       "app-tests",
     ]);
+    expect(requiredGateNames(
+      [],
+      classifyChangedPaths(["crates/nodex-core/src/lib.rs"]),
+    )).toContain("rust-checks");
     expect(requiredGateNames(["static-contracts", "rust-workspace"], undefined))
       .toEqual(["static-contracts", "rust-workspace"]);
   });

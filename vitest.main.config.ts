@@ -10,7 +10,7 @@ const testFiles = selectTieredTestFiles({
     "src/main/core-client/**/*.node.test.ts",
   ],
   defaultInclude: ["src/main/**/*.test.ts"],
-  stressExclude: [],
+  stressExclude: ["src/main/core-client/**/*.node.test.ts"],
   stressInclude: ["src/main/**/*.stress*.test.ts"],
 });
 

@@ -21,7 +21,6 @@ on:
         type: string
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
@@ -48,7 +47,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Resolve suite prerequisites
         id: suite
-        run: pnpm exec tsx scripts/ci/app-test-suite.ts --suite "${{ matrix.suite }}"
+        env:
+          APP_TEST_SUITE: ${{ matrix.suite }}
+        run: pnpm exec tsx scripts/ci/app-test-suite.ts --suite "${APP_TEST_SUITE}"
       - uses: ./.github/actions/setup-rust-ci
         if: steps.suite.outputs.needs_rust == 'true'
       - uses: ./.github/actions/setup-playwright
@@ -56,6 +57,7 @@ jobs:
       - name: Run application suite
         env:
           CI_GATE_PLAN_JSON: ${{ inputs.gate_plan_json }}
+          APP_TEST_SUITE: ${{ matrix.suite }}
           NEEDS_RUST: ${{ steps.suite.outputs.needs_rust }}
           NEEDS_XVFB: ${{ steps.suite.outputs.needs_xvfb }}
         shell: bash
@@ -67,14 +69,14 @@ jobs:
           fi
           if [[ "${NEEDS_XVFB}" == "true" ]]; then
             pnpm exec tsx scripts/ci/run-timed.ts \
-              --name "app-${{ matrix.suite }}" \
+              --name "app-${APP_TEST_SUITE}" \
               -- xvfb-run --auto-servernum pnpm exec tsx scripts/ci/run-app-test-suite.ts \
-                --suite "${{ matrix.suite }}"
+                --suite "${APP_TEST_SUITE}"
             exit 0
           fi
           pnpm exec tsx scripts/ci/run-timed.ts \
-            --name "app-${{ matrix.suite }}" \
-            -- pnpm exec tsx scripts/ci/run-app-test-suite.ts --suite "${{ matrix.suite }}"
+            --name "app-${APP_TEST_SUITE}" \
+            -- pnpm exec tsx scripts/ci/run-app-test-suite.ts --suite "${APP_TEST_SUITE}"
       - name: Show renderer memory state
         if: always() && matrix.suite == 'renderer'
         run: free -h

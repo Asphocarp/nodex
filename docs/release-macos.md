@@ -411,18 +411,18 @@ A valid version transition runs this sequence:
 6. Assemble and hash the exact Release Bundle with its source certificate on a
    clean Linux runner; obsolete blockmaps, `latest-mac.yml`, and
    `app-update.yml` are rejected.
-6. Revalidate source, version, tag, remote state, and bundle identity.
-7. Create or reuse an annotated tag targeting the exact source SHA.
-8. Create/resume the GitHub draft, upload only the manifest allowlist, publish
+7. Revalidate source, version, tag, remote state, and bundle identity.
+8. Create or reuse an annotated tag targeting the exact source SHA.
+9. Create/resume the GitHub draft, upload only the manifest allowlist, publish
    it as Latest, and verify immutability, asset digests, and tag target.
-9. Regenerate the official Agent Skills from the exact source, require their
+10. Regenerate the official Agent Skills from the exact source, require their
    manifest/tree hashes to match the Release Bundle, and atomically publish the
    same version to `NodexApp/skills` with an annotated tag.
-10. Generate the Homebrew cask from the same bundle, audit it, push it, and
+11. Generate the Homebrew cask from the same bundle, audit it, push it, and
    smoke-install the published app. The generated DSL follows Homebrew's
    canonical stanza grouping and order and expresses the Monterey minimum as
    `depends_on macos: :monterey`.
-11. Deploy the landing site from the same source SHA after release verification,
+12. Deploy the landing site from the same source SHA after release verification,
     preserving existing feeds on ordinary site deploys and atomically projecting
     the two signed snapshots on release deploys. Public feed bytes and every
     enclosure are checked after push.

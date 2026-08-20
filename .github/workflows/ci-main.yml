@@ -8,11 +8,9 @@ on:
       full:
         description: Run every deterministic source gate
         default: false
-        required: true
         type: boolean
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
@@ -20,6 +18,7 @@ jobs:
     name: classify
     runs-on: ubuntu-latest
     outputs:
+      base_sha: ${{ steps.base.outputs.base_sha }}
       changed_paths: ${{ steps.outputs.outputs.changed_paths }}
       plan: ${{ steps.outputs.outputs.plan }}
     steps:
@@ -27,19 +26,31 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Resolve comparison base
+        id: base
+        env:
+          EVENT_BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha="${EVENT_BASE_SHA}"
+          if [[ -z "${base_sha}" || "${base_sha}" =~ ^0+$ ]]; then
+            base_sha="${HEAD_SHA}"
+            if git rev-parse --verify "${HEAD_SHA}^" >/dev/null 2>&1; then
+              base_sha="$(git rev-parse "${HEAD_SHA}^")"
+            fi
+          fi
+          echo "base_sha=${base_sha}" >> "${GITHUB_OUTPUT}"
       - name: Classify the landed change
         env:
-          BASE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
           FORCE_FULL: ${{ github.event_name == 'workflow_dispatch' && inputs.full || false }}
           HEAD_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          base_sha="${BASE_SHA}"
-          if [[ -z "${base_sha}" || "${base_sha}" =~ ^0+$ ]]; then
-            base_sha="$(git rev-parse "${HEAD_SHA}^")"
-          fi
-          arguments=(--base "${base_sha}" --head "${HEAD_SHA}" --output "${RUNNER_TEMP}/classification.json")
+          arguments=(--base "${BASE_SHA}" --head "${HEAD_SHA}" --output "${RUNNER_TEMP}/classification.json")
           if [[ "${FORCE_FULL}" == "true" ]]; then
             arguments+=(--full)
           fi
@@ -67,7 +78,7 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify landed release metadata
         env:
-          BASE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ needs.classify.outputs.base_sha }}
           HEAD_SHA: ${{ github.sha }}
         run: pnpm release:detect -- --base "${BASE_SHA}" --head "${HEAD_SHA}" --output "${RUNNER_TEMP}/release-transition.json"
 

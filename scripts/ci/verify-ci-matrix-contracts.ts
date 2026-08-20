@@ -22,7 +22,7 @@ const requireReusableInput = (
   workflow: UnknownRecord,
   jobName: string,
   inputName: string,
-  workflowName = "Nightly CI",
+  workflowName: string,
 ): readonly string[] => {
   const jobs = requireRecord(workflow.jobs, `${workflowName} jobs`);
   const job = requireRecord(jobs[jobName], `${workflowName} ${jobName} job`);
@@ -50,7 +50,16 @@ const requireFullGatePlan = (workflow: UnknownRecord, workflowName: string): voi
   if (typeof inputs.gate_plan_json !== "string") {
     throw new Error(`${workflowName} app-tests.gate_plan_json must be a JSON string.`);
   }
-  const plan = parseCiGatePlan(JSON.parse(inputs.gate_plan_json) as unknown);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inputs.gate_plan_json) as unknown;
+  } catch (cause) {
+    throw new Error(
+      `${workflowName} app-tests.gate_plan_json must contain valid JSON.`,
+      { cause },
+    );
+  }
+  const plan = parseCiGatePlan(parsed);
   if (plan.testMode !== "full" || !plan.rustFull) {
     throw new Error(`${workflowName} must use a full deterministic gate plan.`);
   }

@@ -88,7 +88,6 @@ jobs:
     name: certify exact rehearsal source
     needs: validate
     permissions:
-      actions: write
       contents: read
     uses: ./.github/workflows/_certify-release-source.yml
     with:

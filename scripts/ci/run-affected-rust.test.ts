@@ -26,6 +26,11 @@ describe("affected Rust workspace selection", () => {
       .toEqual(["cli"]);
   });
 
+  test("selects no packages when the changed paths have no Rust workspace owner", () => {
+    expect(selectAffectedRustPackageNames(metadata, root, ["src/shared/core-types.ts"]))
+      .toEqual([]);
+  });
+
   test("fails closed to the workspace for root inputs and unknown crate paths", () => {
     expect(selectAffectedRustPackageNames(metadata, root, ["Cargo.lock"]))
       .toEqual(["cli", "core", "external", "server"]);

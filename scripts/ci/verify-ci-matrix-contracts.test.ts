@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { APP_TEST_SUITES, STATIC_GROUPS } from "./ci-gate-plan";
+import { APP_TEST_SUITES, STATIC_GROUPS, type CiGatePlan } from "./ci-gate-plan";
 import {
   verifyAppTestMatrixContracts,
   verifyDirectNeedsContracts,
@@ -9,33 +9,41 @@ import {
 
 const nightlyWorkflow = ({
   appTestSuites = APP_TEST_SUITES,
+  gatePlanOverrides = {},
+  rawGatePlan,
   staticGroups = STATIC_GROUPS,
 }: {
   readonly appTestSuites?: readonly string[];
+  readonly gatePlanOverrides?: Partial<CiGatePlan>;
+  readonly rawGatePlan?: unknown;
   readonly staticGroups?: readonly string[];
-} = {}): Record<string, unknown> => ({
-  jobs: {
-    "app-tests": { with: {
-      gate_plan_json: JSON.stringify({
-        allGates: true,
-        appTestSuites: APP_TEST_SUITES,
-        dependencyKind: "source",
-        docsOnly: false,
-        landingOnly: false,
-        protocolContracts: true,
-        relatedPaths: [],
-        releaseTransition: false,
-        rustFast: true,
-        rustFull: true,
-        rustMigration: true,
-        staticGroups: STATIC_GROUPS,
-        testMode: "full",
-      }),
-      suites_json: JSON.stringify(appTestSuites),
-    } },
-    "static-contracts": { with: { groups_json: JSON.stringify(staticGroups) } },
-  },
-});
+} = {}): Record<string, unknown> => {
+  const gatePlan: CiGatePlan = {
+    allGates: true,
+    appTestSuites: APP_TEST_SUITES,
+    dependencyKind: "source",
+    docsOnly: false,
+    landingOnly: false,
+    protocolContracts: true,
+    relatedPaths: [],
+    releaseTransition: false,
+    rustFast: true,
+    rustFull: true,
+    rustMigration: true,
+    staticGroups: STATIC_GROUPS,
+    testMode: "full",
+    ...gatePlanOverrides,
+  };
+  return {
+    jobs: {
+      "app-tests": { with: {
+        gate_plan_json: rawGatePlan ?? JSON.stringify(gatePlan),
+        suites_json: JSON.stringify(appTestSuites),
+      } },
+      "static-contracts": { with: { groups_json: JSON.stringify(staticGroups) } },
+    },
+  };
+};
 
 describe("CI matrix contracts", () => {
   test("accepts exhaustive canonical nightly matrices", () => {
@@ -49,6 +57,24 @@ describe("CI matrix contracts", () => {
       .toThrow("Nightly CI app test suites");
     expect(() => verifyFullCiContracts(nightlyWorkflow({ appTestSuites: [...APP_TEST_SUITES].reverse() })))
       .toThrow("Nightly CI app test suites");
+  });
+
+  test("labels malformed full-plan inputs and rejects incomplete coverage", () => {
+    expect(() => verifyFullCiContracts(nightlyWorkflow({ rawGatePlan: 7 })))
+      .toThrow("app-tests.gate_plan_json must be a JSON string");
+    expect(() => verifyFullCiContracts(nightlyWorkflow({ rawGatePlan: "{" })))
+      .toThrow("app-tests.gate_plan_json must contain valid JSON");
+    expect(() => verifyFullCiContracts(nightlyWorkflow({ rawGatePlan: "{}" })))
+      .toThrow("CI gate plan is missing fields");
+    expect(() => verifyFullCiContracts(nightlyWorkflow({
+      gatePlanOverrides: {
+        relatedPaths: ["src/shared/core-types.ts"],
+        testMode: "related",
+      },
+    }))).toThrow("full deterministic gate plan");
+    expect(() => verifyFullCiContracts(nightlyWorkflow({
+      gatePlanOverrides: { rustFull: false },
+    }))).toThrow("full deterministic gate plan");
   });
 
   test("rejects Rust cache variables inherited by non-Rust matrix cells", () => {
@@ -83,5 +109,11 @@ describe("CI matrix contracts", () => {
         },
       },
     }, "Release")).toThrow("undeclared direct needs: certify");
+  });
+
+  test("rejects malformed needs declarations", () => {
+    expect(() => verifyDirectNeedsContracts({
+      jobs: { distribute: { needs: 7 } },
+    }, "Release")).toThrow("needs must be a job id or array of job ids");
   });
 });
