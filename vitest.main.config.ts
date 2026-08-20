@@ -7,7 +7,7 @@ assertElectronTestRuntime("main");
 const testFiles = selectTieredTestFiles({
   defaultExclude: ["src/main/**/*.integration.ts"],
   defaultInclude: ["src/main/**/*.test.ts"],
-  stressInclude: ["src/main/**/*.stress.test.ts"],
+  stressInclude: ["src/main/**/*.stress*.test.ts"],
 });
 
 export default defineConfig({
