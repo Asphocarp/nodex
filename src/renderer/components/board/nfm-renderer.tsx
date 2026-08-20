@@ -29,6 +29,7 @@ import { formatCodexModelLabel } from "@/lib/codex-thread-settings";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 import { formatDateMentionPlainText } from "@/lib/nfm/date-mention";
 import { cn } from "@/lib/utils";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { streamdownCodePlugin } from "@/lib/streamdown";
 import { DateMentionInlineVisual } from "./date-mention-inline-visual";
 import { ThreadMentionInlineVisual } from "./thread-mention-inline-visual";
@@ -299,28 +300,28 @@ function BlockComponent({
 
     case "toggleListInlineView":
       return (
-        <div
-          className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)"
-          title={`Inline toggle-list view (${block.sourceProjectId})`}
-        >
-          <span aria-hidden="true">∞</span>
-          <span className="whitespace-nowrap">
-            Toggle List Inline View · {block.sourceProjectId}
-          </span>
-        </div>
+        <NodexTooltip tooltipContent={`Inline toggle-list view (${block.sourceProjectId})`}>
+          <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
+            <span aria-hidden="true">∞</span>
+            <span className="whitespace-nowrap">
+              Toggle List Inline View · {block.sourceProjectId}
+            </span>
+          </div>
+        </NodexTooltip>
       );
 
     case "cardRef":
       return (
-        <div
-          className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)"
-          title={`Legacy Page projection (${block.sourceProjectId}/${block.pageId})`}
+        <NodexTooltip
+          tooltipContent={`Legacy Page projection (${block.sourceProjectId}/${block.pageId})`}
         >
-          <span aria-hidden="true">↗</span>
-          <span className="whitespace-nowrap">
-            Legacy Page Projection · {block.sourceProjectId}/{block.pageId || "unlinked"}
-          </span>
-        </div>
+          <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
+            <span aria-hidden="true">↗</span>
+            <span className="whitespace-nowrap">
+              Legacy Page Projection · {block.sourceProjectId}/{block.pageId || "unlinked"}
+            </span>
+          </div>
+        </NodexTooltip>
       );
 
     case "pageRef": {
@@ -328,13 +329,12 @@ function BlockComponent({
         pageId: block.targetBlockId,
       });
       return (
-        <div
-          className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)"
-          title={`Page mention (${mentionUrl})`}
-        >
-          <span aria-hidden="true">↗</span>
-          <span className="whitespace-nowrap">Page Mention · {mentionUrl}</span>
-        </div>
+        <NodexTooltip tooltipContent={`Page mention (${mentionUrl})`}>
+          <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
+            <span aria-hidden="true">↗</span>
+            <span className="whitespace-nowrap">Page Mention · {mentionUrl}</span>
+          </div>
+        </NodexTooltip>
       );
     }
 
@@ -528,13 +528,14 @@ function InlineItem({
       item.name.trim() || (item.kind === "text" ? "Pasted text" : "Untitled attachment");
 
     return (
-      <span
-        className="inline-flex max-w-[18rem] items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 align-middle text-[12px] leading-5 text-[color-mix(in_srgb,var(--foreground)_84%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_10%,transparent)]"
-        title={item.mode === "link" ? item.source : item.origin || item.source}
+      <NodexTooltip
+        tooltipContent={item.mode === "link" ? item.source : item.origin || item.source}
       >
-        <Icon className="size-3 shrink-0" />
-        <span className="truncate">{label}</span>
-      </span>
+        <span className="inline-flex max-w-[18rem] items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 align-middle text-[12px] leading-5 text-[color-mix(in_srgb,var(--foreground)_84%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_10%,transparent)]">
+          <Icon className="size-3 shrink-0" />
+          <span className="truncate">{label}</span>
+        </span>
+      </NodexTooltip>
     );
   }
 

@@ -47,6 +47,7 @@ import {
   type ContentPageNavigationTarget,
 } from "../../../../shared/content-access-context";
 import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "@/components/ui/popover";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import {
   beginLocalBlockDragSession,
@@ -2510,45 +2511,51 @@ function NfmEditorInstance({
               <span className="min-w-10.5 pr-0.5 text-right text-xs whitespace-nowrap text-(--foreground-tertiary) tabular-nums">
                 {activeMatchLabel}
               </span>
-              <button
-                type="button"
-                className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                onClick={() => navigateSearch("prev", true)}
-                aria-label="Previous match"
-                title="Previous match (Shift+Enter)"
+              <NodexTooltip tooltipContent="Previous match (Shift+Enter)">
+                <button
+                  type="button"
+                  className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                  onClick={() => navigateSearch("prev", true)}
+                  aria-label="Previous match"
+                >
+                  <ChevronUp className="size-4" />
+                </button>
+              </NodexTooltip>
+              <NodexTooltip tooltipContent="Next match (Enter)">
+                <button
+                  type="button"
+                  className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                  onClick={() => navigateSearch("next", true)}
+                  aria-label="Next match"
+                >
+                  <ChevronDown className="size-4" />
+                </button>
+              </NodexTooltip>
+              <NodexTooltip
+                tooltipContent={replaceOpen ? "Hide replace controls" : "Show replace controls"}
               >
-                <ChevronUp className="size-4" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                onClick={() => navigateSearch("next", true)}
-                aria-label="Next match"
-                title="Next match (Enter)"
-              >
-                <ChevronDown className="size-4" />
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)",
-                  replaceOpen && "text-(--accent-blue)",
-                )}
-                onClick={() => setReplaceOpen((prev) => !prev)}
-                aria-label={replaceOpen ? "Hide replace controls" : "Show replace controls"}
-                title={replaceOpen ? "Hide replace controls" : "Show replace controls"}
-              >
-                <Repeat2 className="size-4" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                onClick={closeSearch}
-                aria-label="Close find"
-                title="Close (Esc)"
-              >
-                <X className="size-4" />
-              </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)",
+                    replaceOpen && "text-(--accent-blue)",
+                  )}
+                  onClick={() => setReplaceOpen((prev) => !prev)}
+                  aria-label={replaceOpen ? "Hide replace controls" : "Show replace controls"}
+                >
+                  <Repeat2 className="size-4" />
+                </button>
+              </NodexTooltip>
+              <NodexTooltip tooltipContent="Close (Esc)">
+                <button
+                  type="button"
+                  className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                  onClick={closeSearch}
+                  aria-label="Close find"
+                >
+                  <X className="size-4" />
+                </button>
+              </NodexTooltip>
             </div>
 
             {replaceOpen && (
@@ -2572,25 +2579,27 @@ function NfmEditorInstance({
                   aria-label="Replace text"
                 />
                 <div className="ml-auto flex items-center gap-1">
-                  <button
-                    type="button"
-                    className="h-6.5 cursor-pointer rounded-sm border-none bg-transparent px-2 text-xs font-medium whitespace-nowrap text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                    onClick={replaceAllMatches}
-                    aria-label="Replace all matches"
-                    title="Replace all matches"
-                  >
-                    Replace all
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex h-6.5 cursor-pointer items-center gap-1 rounded-sm border-none bg-(--accent-blue) px-2.5 text-xs font-medium whitespace-nowrap text-white transition-filter duration-swift ease-out hover:brightness-110"
-                    onClick={replaceCurrentMatch}
-                    aria-label="Replace current match"
-                    title="Replace current match"
-                  >
-                    Replace
-                    <CornerDownLeft className="size-4" />
-                  </button>
+                  <NodexTooltip tooltipContent="Replace all matches">
+                    <button
+                      type="button"
+                      className="h-6.5 cursor-pointer rounded-sm border-none bg-transparent px-2 text-xs font-medium whitespace-nowrap text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                      onClick={replaceAllMatches}
+                      aria-label="Replace all matches"
+                    >
+                      Replace all
+                    </button>
+                  </NodexTooltip>
+                  <NodexTooltip tooltipContent="Replace current match">
+                    <button
+                      type="button"
+                      className="inline-flex h-6.5 cursor-pointer items-center gap-1 rounded-sm border-none bg-(--accent-blue) px-2.5 text-xs font-medium whitespace-nowrap text-white transition-filter duration-swift ease-out hover:brightness-110"
+                      onClick={replaceCurrentMatch}
+                      aria-label="Replace current match"
+                    >
+                      Replace
+                      <CornerDownLeft className="size-4" />
+                    </button>
+                  </NodexTooltip>
                 </div>
               </div>
             )}

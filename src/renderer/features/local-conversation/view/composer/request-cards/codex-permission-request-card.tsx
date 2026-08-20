@@ -5,6 +5,7 @@ import type {
   CodexProtocolRequestId,
 } from "../../../../../lib/types";
 import type { ReactNode } from "react";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
 import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-settings";
 import {
@@ -115,12 +116,11 @@ function PermissionTitle({ titleModel }: { titleModel: CodexPermissionRequestTit
   if (titleModel.kind === "additional") return "Allow additional access?";
 
   const path = (
-    <span
-      className="font-mono wrap-anywhere text-token-description-foreground"
-      title={titleModel.path}
-    >
-      {titleModel.path}
-    </span>
+    <NodexTooltip tooltipContent={titleModel.path}>
+      <span className="font-mono wrap-anywhere text-token-description-foreground">
+        {titleModel.path}
+      </span>
+    </NodexTooltip>
   );
 
   if (titleModel.access === "read") return <>Allow read access to {path}?</>;

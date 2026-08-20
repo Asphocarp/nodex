@@ -129,11 +129,11 @@ export function EnvironmentSelectorPopover({
       side="top"
       align="start"
       disabled={isDisabled}
+      triggerTooltipContent={triggerLabel}
       triggerButton={
         <NodexDropdownButtonTrigger
           aria-label="Select worktree environment"
           data-composer-navigation-target="environment"
-          title={triggerLabel}
           disabled={isDisabled}
           size="sm"
           chrome="transparent"

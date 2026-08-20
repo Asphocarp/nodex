@@ -22,6 +22,7 @@ import {
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
 import { toast } from "@/components/ui/toast";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   buildCodexBackgroundTerminalProcessRows,
   formatBackgroundTerminalCpuPercent,
@@ -274,14 +275,14 @@ function ProcessManagerRow({
         <ProcessStatusDot status={row.status} state={actionState} />
       </td>
       <td className="max-w-0 px-2 text-token-foreground">
-        <div className="truncate font-mono text-xs" title={row.command}>
-          {row.command || "Unknown command"}
-        </div>
+        <NodexTooltip tooltipContent={row.command || "Unknown command"} side="top">
+          <div className="truncate font-mono text-xs">{row.command || "Unknown command"}</div>
+        </NodexTooltip>
       </td>
       <td className="max-w-0 px-2 text-xs text-token-description-foreground">
-        <div className="truncate" title={threadTitle}>
-          {threadTitle}
-        </div>
+        <NodexTooltip tooltipContent={threadTitle} side="top">
+          <div className="truncate">{threadTitle}</div>
+        </NodexTooltip>
       </td>
       <td className="px-2 text-right font-mono text-xs text-token-description-foreground">
         {formatBackgroundTerminalPid(row)}

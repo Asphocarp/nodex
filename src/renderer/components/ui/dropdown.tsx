@@ -339,7 +339,7 @@ export const NodexDropdownContent = forwardRef<HTMLDivElement, NodexDropdownCont
   },
 );
 
-export type NodexDropdownButtonTriggerProps = ComponentPropsWithoutRef<"button"> & {
+export type NodexDropdownButtonTriggerProps = Omit<ComponentPropsWithoutRef<"button">, "title"> & {
   size?: "xs" | "sm" | "default" | "settings";
   muted?: boolean;
   showChevron?: boolean;

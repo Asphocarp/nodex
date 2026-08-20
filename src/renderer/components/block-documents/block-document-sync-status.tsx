@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   resolveBlockDocumentSyncIndicator,
@@ -80,7 +81,9 @@ export function BlockDocumentSyncStatus({ runtime, status }: BlockDocumentSyncSt
       className={cn("flex min-h-5 items-center justify-end gap-2 text-xs", toneClassName(model))}
       data-block-document-sync-phase={model.phase}
     >
-      <span title={model.detail ?? undefined}>{model.label}</span>
+      <NodexTooltip tooltipContent={model.detail ?? undefined} side="top">
+        <span>{model.label}</span>
+      </NodexTooltip>
       {model.action ? (
         <button
           type="button"

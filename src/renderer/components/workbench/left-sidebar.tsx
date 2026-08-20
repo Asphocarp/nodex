@@ -9,6 +9,7 @@ import {
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import type {
   Project,
@@ -352,12 +353,11 @@ export function LeftSidebar({
                   {item.label}
                 </span>
                 {elapsedLabel && (
-                  <span
-                    title={elapsedTitle}
-                    className="ml-auto shrink-0 text-sm/4 text-(--sidebar-foreground-tertiary) tabular-nums"
-                  >
-                    {elapsedLabel}
-                  </span>
+                  <NodexTooltip tooltipContent={elapsedTitle} side="top">
+                    <span className="ml-auto shrink-0 text-sm/4 text-(--sidebar-foreground-tertiary) tabular-nums">
+                      {elapsedLabel}
+                    </span>
+                  </NodexTooltip>
                 )}
                 {item.closable && item.onClose && (
                   <span

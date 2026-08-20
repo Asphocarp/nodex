@@ -202,7 +202,6 @@ export function AccountRateLimitRing({
       <button
         type="button"
         aria-label={ariaLabel}
-        title={viewModel.summaryLabel ?? undefined}
         data-testid="sidebar-account-rate-limit-ring"
         className={cn(
           "inline-flex h-7 w-7 items-center justify-center rounded-lg outline-none",

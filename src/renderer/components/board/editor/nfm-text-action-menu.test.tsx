@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, test } from "vitest";
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CommandPaletteThread } from "@/lib/command-palette";
@@ -782,7 +782,8 @@ describe("nfm text action menu surface", () => {
 
     const targetPageRow = view.getByRole("option", { name: /Target card\s*Default/ });
     expect(targetPageRow.textContent).toBe("Target cardDefault");
-    expect(within(targetPageRow).getByTitle("Triage")).not.toBeNull();
+    expect(targetPageRow.querySelector("svg")).not.toBeNull();
+    expect(targetPageRow.querySelector("[title]")).toBeNull();
 
     await act(async () => {
       fireEvent.click(targetPageRow);

@@ -8,6 +8,7 @@ import {
   SlidersHorizontal,
 } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexIconButton, NodexSwitch } from "@/components/ui/button";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { databaseIntrinsicFieldsForLayout } from "@/lib/database-intrinsic-field-registry";
@@ -451,28 +452,31 @@ export function DatabaseViewDisplayOptions({
                   const forced =
                     forcedField !== null && databaseViewDisplayFieldKey(forcedField) === key;
                   return (
-                    <NodexButton
+                    <NodexTooltip
                       key={key}
-                      size="xs"
-                      variant="secondary"
-                      aria-pressed={durableVisible}
-                      data-forced-visible={forced || undefined}
-                      disabled={busy}
-                      title={
+                      tooltipContent={
                         forced && !durableVisible
                           ? "Visible while this field controls ordering"
                           : undefined
                       }
-                      onClick={() => dispatch({ kind: "toggle_field", field })}
-                      className={cn(
-                        "h-6 rounded-full border px-2 text-xs font-normal",
-                        durableVisible || forced
-                          ? "border-transparent bg-token-foreground/9 text-token-text-primary"
-                          : "border-token-border/70 bg-transparent text-token-description-foreground hover:bg-token-foreground/5",
-                      )}
                     >
-                      {label}
-                    </NodexButton>
+                      <NodexButton
+                        size="xs"
+                        variant="secondary"
+                        aria-pressed={durableVisible}
+                        data-forced-visible={forced || undefined}
+                        disabled={busy}
+                        onClick={() => dispatch({ kind: "toggle_field", field })}
+                        className={cn(
+                          "h-6 rounded-full border px-2 text-xs font-normal",
+                          durableVisible || forced
+                            ? "border-transparent bg-token-foreground/9 text-token-text-primary"
+                            : "border-token-border/70 bg-transparent text-token-description-foreground hover:bg-token-foreground/5",
+                        )}
+                      >
+                        {label}
+                      </NodexButton>
+                    </NodexTooltip>
                   );
                 })}
                 {groupIndex === 0 && layout === "board" ? (

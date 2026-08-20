@@ -2,6 +2,7 @@ import { BranchSelectorPopover } from "@/features/local-conversation/view/shared
 import { EnvironmentSelectorPopover } from "@/features/local-conversation/view/shared/environment-selector-popover";
 import { ThreadsIcon } from "@/components/workbench/threads-icon";
 import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { SchedulePopover } from "@/components/board/schedule-popover";
 import { dataSourcePropertyIcon } from "@/components/database/data-source-property-presentation";
 import { ChevronDownIcon } from "@/components/shared/icons";
@@ -90,14 +91,18 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
 
           {runInTarget === "localProject" ? (
             <>
-              <button
-                type="button"
-                onClick={() => void handlePickRunInLocalPath()}
-                className="inline-flex h-5 max-w-full items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary)"
-                title={runInLocalPathDisplay || "Use project workspace path"}
+              <NodexTooltip
+                tooltipContent={runInLocalPathDisplay || "Use project workspace path"}
+                side="top"
               >
-                <span className="truncate">{runInLocalPathDisplay || "Project cwd"}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePickRunInLocalPath()}
+                  className="inline-flex h-5 max-w-full items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary)"
+                >
+                  <span className="truncate">{runInLocalPathDisplay || "Project cwd"}</span>
+                </button>
+              </NodexTooltip>
               {runInLocalPathDisplay ? (
                 <button
                   type="button"
@@ -136,14 +141,15 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
           ) : null}
 
           {runInTarget === "newWorktree" && runInWorktreePathDisplay ? (
-            <button
-              type="button"
-              onClick={handleResetRunInWorktreePath}
-              className="inline-flex h-5 items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary)"
-              title={runInWorktreePathDisplay}
-            >
-              Reset worktree
-            </button>
+            <NodexTooltip tooltipContent={runInWorktreePathDisplay} side="top">
+              <button
+                type="button"
+                onClick={handleResetRunInWorktreePath}
+                className="inline-flex h-5 items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary)"
+              >
+                Reset worktree
+              </button>
+            </NodexTooltip>
           ) : null}
 
           {linkedCodexThreads.length > 0 ? (

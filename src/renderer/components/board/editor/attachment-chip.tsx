@@ -324,7 +324,6 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
                 "inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! px-1.5 font-normal align-baseline",
                 "blend cursor-interaction bg-token-charts-purple/10 text-token-charts-purple hover:bg-token-charts-purple/20",
               )}
-              title={inlineContent.props.name}
               onMouseDown={(event) => {
                 event.preventDefault();
               }}

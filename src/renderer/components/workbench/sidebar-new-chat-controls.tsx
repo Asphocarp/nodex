@@ -247,7 +247,6 @@ export function SidebarCompactNewChatButton({
       <button
         type="button"
         className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
-        title={label}
         aria-label={label}
         disabled={disabled}
         onClick={onClick}

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { ListFilter } from "@/components/shared/icons/generic-icons";
 import { DatabaseIcon, SidePanelSideChatIcon, SidebarVisibleIcon } from "@/components/shared/icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   areCommandPalettePageFiltersEqual,
   cloneCommandPalettePageFilters,
@@ -374,12 +375,11 @@ function CommandRow({
               : item.title}
           </div>
           {isMock ? (
-            <span
-              title={item.mockReason}
-              className="inline-flex h-4 shrink-0 items-center rounded-sm bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-none text-token-description-foreground"
-            >
-              Mock
-            </span>
+            <NodexTooltip tooltipContent={item.mockReason}>
+              <span className="inline-flex h-4 shrink-0 items-center rounded-sm bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-none text-token-description-foreground">
+                Mock
+              </span>
+            </NodexTooltip>
           ) : null}
         </div>
         {displaySubtitle ? (
@@ -1077,7 +1077,6 @@ export function CommandPaletteSurface({
     <div
       cmdk-root=""
       data-cmdk-root
-      title="Command menu"
       className="flex min-w-full select-none flex-col gap-1.25 overflow-hidden rounded-2xl border border-transparent bg-token-dropdown-background px-1.25 py-[calc(var(--spacing)*1.15)] text-sm text-token-foreground shadow-2xl"
     >
       <label

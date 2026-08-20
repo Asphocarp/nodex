@@ -213,7 +213,6 @@ export function ToolbarIconButton({
           pressed ? TOOLBAR_BUTTON_SECONDARY_CLASS : TOOLBAR_BUTTON_GHOST_CLASS,
           className,
         )}
-        title={label}
         aria-label={label}
         aria-pressed={pressed}
         onClick={onClick}
@@ -242,7 +241,6 @@ export function WindowNavigationToolbarButton({
       <button
         type="button"
         className={`${TOOLBAR_BUTTON_BASE_CLASS} ${TOOLBAR_BUTTON_GHOST_CLASS}`}
-        title={label}
         aria-label={label}
         disabled={disabled}
         onClick={onClick}

@@ -21,6 +21,7 @@ import type {
 } from "../../../shared/database-module-v2";
 import { createCustomOptionId } from "../../../shared/database-identities";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   NodexDialog,
   NodexDialogContent,
@@ -596,23 +597,24 @@ export function DatabaseManagementSurface({
                           onClick={() => submitView(moveDownBeforeId)}
                         />
                         {stale ? (
-                          <NodexButton
-                            type="button"
-                            size="xs"
-                            variant="ghost"
-                            disabled={busy}
-                            aria-label={`Reload View ${view.name}`}
-                            title="This View changed in another window"
-                            onClick={() =>
-                              setViewDrafts((current) => {
-                                const next = { ...current };
-                                delete next[view.viewId];
-                                return next;
-                              })
-                            }
-                          >
-                            Reload
-                          </NodexButton>
+                          <NodexTooltip tooltipContent="This View changed in another window">
+                            <NodexButton
+                              type="button"
+                              size="xs"
+                              variant="ghost"
+                              disabled={busy}
+                              aria-label={`Reload View ${view.name}`}
+                              onClick={() =>
+                                setViewDrafts((current) => {
+                                  const next = { ...current };
+                                  delete next[view.viewId];
+                                  return next;
+                                })
+                              }
+                            >
+                              Reload
+                            </NodexButton>
+                          </NodexTooltip>
                         ) : (
                           <NodexButton
                             type="button"

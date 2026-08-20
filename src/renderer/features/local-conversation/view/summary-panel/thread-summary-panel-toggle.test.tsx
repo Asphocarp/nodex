@@ -22,7 +22,7 @@ describe("ThreadSummaryPanelToggle", () => {
     const svg = button.querySelector("svg");
     const path = svg?.querySelector("path");
 
-    expect(button.getAttribute("title")).toBe("Toggle pinned summary");
+    expect(button.hasAttribute("title")).toBe(false);
     expect(button.getAttribute("aria-pressed")).toBe("true");
     expect(svg?.getAttribute("width")).toBe("20");
     expect(svg?.getAttribute("height")).toBe("20");
@@ -49,7 +49,7 @@ describe("ThreadSummaryPanelToggle", () => {
     const svg = button.querySelector("svg");
     const path = svg?.querySelector("path");
 
-    expect(button.getAttribute("title")).toBe("Toggle summary");
+    expect(button.hasAttribute("title")).toBe(false);
     expect(button.getAttribute("aria-pressed")).toBe("false");
     expect(svg?.getAttribute("viewBox")).toBe("0 0 20 20");
     expect(path?.getAttribute("d")?.startsWith("M5.693 11.056")).toBe(true);

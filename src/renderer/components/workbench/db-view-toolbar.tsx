@@ -3,6 +3,7 @@ import { type ComponentType, type ReactNode, type RefObject } from "react";
 import { XCircle } from "@/components/shared/icons/generic-icons";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { NodexIconButton } from "@/components/ui/button";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export const DB_VIEW_TOOLBAR_TEST_ID = "db-view-toolbar";
@@ -140,23 +141,23 @@ export function DbViewToolbar({
           {destinationItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button
-                key={item.id}
-                type="button"
-                aria-label={item.label}
-                title={item.label}
-                className={cn(
-                  "group/view mx-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full",
-                  "text-(--foreground-secondary) outline-none",
-                  "hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground)",
-                  "focus-visible:ring-2 focus-visible:ring-(--ring)/35",
-                )}
-                onClick={item.onSelect}
-              >
-                {Icon ? (
-                  <Icon className="size-4 text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] group-hover/view:text-current" />
-                ) : null}
-              </button>
+              <NodexTooltip key={item.id} tooltipContent={item.label}>
+                <button
+                  type="button"
+                  aria-label={item.label}
+                  className={cn(
+                    "group/view mx-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full",
+                    "text-(--foreground-secondary) outline-none",
+                    "hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground)",
+                    "focus-visible:ring-2 focus-visible:ring-(--ring)/35",
+                  )}
+                  onClick={item.onSelect}
+                >
+                  {Icon ? (
+                    <Icon className="size-4 text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] group-hover/view:text-current" />
+                  ) : null}
+                </button>
+              </NodexTooltip>
             );
           })}
 

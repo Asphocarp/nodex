@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { useConversation } from "@/features/local-conversation";
 import { McpCapabilityViewFrame } from "@/features/local-conversation/view/shared/tools/mcp-capability-view-frame";
 import { terminalSessionStore } from "@/lib/terminal-session-store";
@@ -89,13 +90,13 @@ export function ProcessOutputPanelTabView({ tab }: { tab: ProcessOutputPanelTab 
       data-item-id={tab.itemId}
     >
       <div className="flex min-h-14 shrink-0 flex-col justify-center border-b border-token-border px-3 py-2">
-        <div className="truncate font-mono text-xs text-token-foreground" title={displayCommand}>
-          {displayCommand}
-        </div>
+        <NodexTooltip tooltipContent={displayCommand} side="top">
+          <div className="truncate font-mono text-xs text-token-foreground">{displayCommand}</div>
+        </NodexTooltip>
         {cwd ? (
-          <div className="mt-1 truncate text-xs text-token-description-foreground" title={cwd}>
-            {cwd}
-          </div>
+          <NodexTooltip tooltipContent={cwd} side="top">
+            <div className="mt-1 truncate text-xs text-token-description-foreground">{cwd}</div>
+          </NodexTooltip>
         ) : null}
       </div>
       {displayOutput ? (

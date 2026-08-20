@@ -62,6 +62,7 @@ import {
 } from "@/components/shared/icons";
 import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   hasNestedTypedOwnerBlock,
@@ -790,12 +791,11 @@ function NfmSideMenuRow({
       </span>
       <span className="min-w-0 flex-1 truncate text-left">{row.label}</span>
       {row.mockReason ? (
-        <span
-          title={row.mockReason}
-          className="shrink-0 rounded-[4px] bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-4 text-token-description-foreground"
-        >
-          Mock
-        </span>
+        <NodexTooltip tooltipContent={row.mockReason}>
+          <span className="shrink-0 rounded-[4px] bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-4 text-token-description-foreground">
+            Mock
+          </span>
+        </NodexTooltip>
       ) : null}
       {row.badge ? (
         <span className="shrink-0 rounded-[4px] bg-token-foreground/5 px-1 text-[11px] leading-4 text-token-description-foreground">

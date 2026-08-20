@@ -12,6 +12,7 @@ import {
 } from "react";
 import { Monitor, Moon, RotateCcw, Sun, Trash2 } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownItem,
@@ -1697,16 +1698,17 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
                       >
                         {confirmRestoreId === backup.id ? "Confirm restore" : "Restore"}
                       </NodexButton>
-                      <NodexButton
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => void handleDeleteBackup(backup.id)}
-                        disabled={busyAction !== null}
-                        aria-label={`Delete snapshot ${backup.label?.trim() || backup.id}`}
-                        title="Delete snapshot"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </NodexButton>
+                      <NodexTooltip tooltipContent="Delete snapshot">
+                        <NodexButton
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => void handleDeleteBackup(backup.id)}
+                          disabled={busyAction !== null}
+                          aria-label={`Delete snapshot ${backup.label?.trim() || backup.id}`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </NodexButton>
+                      </NodexTooltip>
                     </>
                   )}
                 </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Settings } from "@/components/shared/icons/generic-icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { AccountRateLimitRing } from "@/features/local-conversation/view/shared/account-rate-limit-ring";
 import { AuthPopover } from "@/features/local-conversation/view/shared/auth-controls";
 import type {
@@ -90,15 +91,16 @@ export function LeftSidebarFooter({
 
   return (
     <div className="flex items-center justify-between border-t border-(--sidebar-border) px-(--sidebar-shell-padding-x) py-(--sidebar-row-padding-y)">
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-(--sidebar-foreground-secondary) hover:bg-(--sidebar-accent) hover:text-(--sidebar-foreground)"
-        title="Settings"
-        aria-label="Settings"
-      >
-        <Settings className="size-3.5" />
-      </button>
+      <NodexTooltip tooltipContent="Settings" side="top">
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-(--sidebar-foreground-secondary) hover:bg-(--sidebar-accent) hover:text-(--sidebar-foreground)"
+          aria-label="Settings"
+        >
+          <Settings className="size-3.5" />
+        </button>
+      </NodexTooltip>
       {showQuotaRing && connection && onRefreshAccount && onLogout ? (
         <AccountRateLimitRing
           account={account ?? null}

@@ -1,5 +1,6 @@
 import { ActivitySpinnerIcon, PlusIcon } from "@/components/shared/icons";
 import { X } from "@/components/shared/icons/generic-icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "../../lib/utils";
 
 export interface StageTabItem {
@@ -38,65 +39,69 @@ export function StageTabStrip({
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           return (
-            <button
-              key={tab.id}
-              data-running-indicator={tab.running ? "true" : undefined}
-              onClick={() => onSelect(tab.id)}
-              title={tab.title ?? tab.label}
-              className={cn(
-                "group relative h-6 max-w-55 shrink-0 px-2.5 text-sm font-medium",
-                "inline-flex items-center gap-1.5 rounded-md transition-all duration-150",
-                isActive
-                  ? "bg-(--background-secondary) text-(--foreground)"
-                  : "text-(--foreground-tertiary) hover:bg-(--background-tertiary)/50 hover:text-(--foreground-secondary)",
-              )}
-            >
-              {tab.running && (
-                <ActivitySpinnerIcon
-                  className="size-2.5 text-(--accent-blue)"
-                  containerClassName="shrink-0"
-                />
-              )}
-              <span className={cn("truncate", tab.muted && "opacity-60")}>{tab.label}</span>
-              {tab.closable && onCloseTab && (
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  className={cn(
-                    "inline-flex size-3.5 shrink-0 items-center justify-center rounded-sm",
-                    "opacity-0 group-hover:opacity-100",
-                    "text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground)",
-                  )}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onCloseTab(tab.id);
-                  }}
-                >
-                  <X className="size-2.5" />
-                </span>
-              )}
-              {isActive && showActiveUnderline && (
-                <span
-                  aria-hidden
-                  className="absolute inset-x-1.5 bottom-0 h-0.5 rounded-full bg-(--accent-blue)"
-                />
-              )}
-            </button>
+            <NodexTooltip key={tab.id} tooltipContent={tab.title ?? tab.label} side="top">
+              <button
+                type="button"
+                data-running-indicator={tab.running ? "true" : undefined}
+                onClick={() => onSelect(tab.id)}
+                className={cn(
+                  "group relative h-6 max-w-55 shrink-0 px-2.5 text-sm font-medium",
+                  "inline-flex items-center gap-1.5 rounded-md transition-all duration-150",
+                  isActive
+                    ? "bg-(--background-secondary) text-(--foreground)"
+                    : "text-(--foreground-tertiary) hover:bg-(--background-tertiary)/50 hover:text-(--foreground-secondary)",
+                )}
+              >
+                {tab.running && (
+                  <ActivitySpinnerIcon
+                    className="size-2.5 text-(--accent-blue)"
+                    containerClassName="shrink-0"
+                  />
+                )}
+                <span className={cn("truncate", tab.muted && "opacity-60")}>{tab.label}</span>
+                {tab.closable && onCloseTab && (
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    className={cn(
+                      "inline-flex size-3.5 shrink-0 items-center justify-center rounded-sm",
+                      "opacity-0 group-hover:opacity-100",
+                      "text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground)",
+                    )}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCloseTab(tab.id);
+                    }}
+                  >
+                    <X className="size-2.5" />
+                  </span>
+                )}
+                {isActive && showActiveUnderline && (
+                  <span
+                    aria-hidden
+                    className="absolute inset-x-1.5 bottom-0 h-0.5 rounded-full bg-(--accent-blue)"
+                  />
+                )}
+              </button>
+            </NodexTooltip>
           );
         })}
       </div>
 
       {onAddTab && (
-        <button
-          onClick={onAddTab}
-          title={addLabel}
-          className={cn(
-            "ml-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
-            "text-(--foreground-tertiary) hover:bg-(--background-tertiary)/50 hover:text-(--foreground-secondary)",
-          )}
-        >
-          <PlusIcon className="size-3.5" />
-        </button>
+        <NodexTooltip tooltipContent={addLabel} side="top">
+          <button
+            type="button"
+            onClick={onAddTab}
+            aria-label={addLabel}
+            className={cn(
+              "ml-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+              "text-(--foreground-tertiary) hover:bg-(--background-tertiary)/50 hover:text-(--foreground-secondary)",
+            )}
+          >
+            <PlusIcon className="size-3.5" />
+          </button>
+        </NodexTooltip>
       )}
     </div>
   );

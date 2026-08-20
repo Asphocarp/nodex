@@ -105,12 +105,14 @@ describe("PanelDestinationPickerSurface", () => {
 
     const currentRow = within(currentSection).getByRole("option", { name: "Current result" });
     expect(currentRow.textContent).toBe("Current result");
-    expect(within(currentRow).getByTitle("Triage")).not.toBeNull();
+    expect(currentRow.querySelector("svg")).not.toBeNull();
+    expect(currentRow.querySelector("[title]")).toBeNull();
 
     const otherRow = within(otherSection).getByRole("option", {
       name: "Other resultOther Project",
     });
     expect(otherRow.textContent).toBe("Other resultOther Project");
-    expect(within(otherRow).getByTitle("Build")).not.toBeNull();
+    expect(otherRow.querySelector("svg")).not.toBeNull();
+    expect(otherRow.querySelector("[title]")).toBeNull();
   });
 });

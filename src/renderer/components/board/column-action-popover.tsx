@@ -7,6 +7,7 @@ import {
 } from "@/components/shared/icons/generic-icons";
 import { NodexDropdownSeparator } from "@/components/ui/dropdown";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   BOARD_COLUMN_WIDTH_PRESETS,
   BOARD_COLUMN_WIDTH_STEP,
@@ -177,27 +178,28 @@ export function ColumnActionPopover({
 
   return (
     <NodexPopover open={open} onOpenChange={setOpen}>
-      <NodexPopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={`More options for ${columnName}`}
-          title={`More options for ${columnName}`}
-          className={cn(
-            "inline-flex h-6 w-6 items-center justify-center rounded-md outline-none",
-            "text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground",
-            "focus-visible:ring-2 focus-visible:ring-(--ring)/35",
-            alwaysVisible
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",
-          )}
-          style={{ color: accentColor }}
-          onClick={(event) => {
-            event.stopPropagation();
-          }}
-        >
-          <ProjectActionsIcon className="size-3.5" />
-        </button>
-      </NodexPopoverTrigger>
+      <NodexTooltip tooltipContent={`More options for ${columnName}`} side="bottom">
+        <NodexPopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={`More options for ${columnName}`}
+            className={cn(
+              "inline-flex h-6 w-6 items-center justify-center rounded-md outline-none",
+              "text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground",
+              "focus-visible:ring-2 focus-visible:ring-(--ring)/35",
+              alwaysVisible
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",
+            )}
+            style={{ color: accentColor }}
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <ProjectActionsIcon className="size-3.5" />
+          </button>
+        </NodexPopoverTrigger>
+      </NodexTooltip>
 
       <NodexPopoverContent
         side="bottom"

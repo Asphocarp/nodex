@@ -196,6 +196,23 @@ async function clickAndAct(target: Element): Promise<void> {
   });
 }
 
+async function expectTooltipContent(trigger: HTMLElement, expected: string): Promise<void> {
+  expect(trigger.hasAttribute("title")).toBe(false);
+  await act(async () => {
+    fireEvent.focus(trigger);
+    await Promise.resolve();
+  });
+  await waitFor(() => {
+    const visibleCopy = Array.from(document.body.querySelectorAll('[role="tooltip"]')).some(
+      (tooltip) => textContent(tooltip).includes(expected),
+    );
+    if (!visibleCopy) throw new Error(`Expected tooltip copy: ${expected}`);
+  });
+  await act(async () => {
+    fireEvent.blur(trigger);
+  });
+}
+
 function makeSnapshot(
   source: GitReviewSource,
   additions: number,
@@ -509,9 +526,10 @@ describe("ThreadFloatingSummaryPanel", () => {
     const branchCount = panelContent.split("feature/summary-panel").length - 1;
     expect(branchCount).toBe(1);
 
+    const branchTrigger = view.getByText("feature/summary-panel").closest("[role='button']");
+    if (!(branchTrigger instanceof HTMLElement)) throw new Error("Expected branch trigger");
+    await expectTooltipContent(branchTrigger, "Switch branch");
     await act(async () => {
-      const branchTrigger = view.getByTitle("Switch branch");
-      expect(branchTrigger.getAttribute("title")).toBe("Switch branch");
       fireEvent.pointerDown(branchTrigger, { button: 0, ctrlKey: false });
       fireEvent.click(branchTrigger);
     });
@@ -1045,13 +1063,13 @@ describe("ThreadFloatingSummaryPanel", () => {
       }
     });
 
+    const commitRow = Array.from(
+      view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"),
+    ).find((row) => textContent(row).includes("Commit or push"));
+    if (!(commitRow instanceof HTMLElement)) throw new Error("Expected commit row");
+    await expectTooltipContent(commitRow, "Create branch");
     await act(async () => {
-      const commitRow = Array.from(
-        view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"),
-      ).find((row) => textContent(row).includes("Commit or push"));
-      expect(Boolean(commitRow)).toBe(true);
-      expect(commitRow?.getAttribute("title")).toBe("Create branch");
-      fireEvent.click(commitRow as HTMLElement);
+      fireEvent.click(commitRow);
     });
 
     const branchNameInput = await waitFor(() => getBranchSetupInput("default-worktree"));
@@ -1136,15 +1154,15 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    await waitFor(() => {
+    const noChangesRow = await waitFor(() => {
       const commitRow = Array.from(
         view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      if (commitRow?.getAttribute("title") !== "No changes to commit") {
-        throw new Error("Expected the no-changes blocker title.");
-      }
+      if (!commitRow) throw new Error("Expected the no-changes blocker row.");
       expect(commitRow.getAttribute("aria-disabled")).toBe("true");
+      return commitRow;
     });
+    await expectTooltipContent(noChangesRow, "No changes to commit");
   });
 
   test("shows the reference nothing-to-push blocker on the Environment git action row", async () => {
@@ -1197,15 +1215,15 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    await waitFor(() => {
+    const nothingToPushRow = await waitFor(() => {
       const commitRow = Array.from(
         view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"),
       ).find((row) => textContent(row).includes("Commit or push"));
-      if (commitRow?.getAttribute("title") !== "No new commits to push") {
-        throw new Error("Expected the push blocker title.");
-      }
+      if (!commitRow) throw new Error("Expected the push blocker row.");
       expect(commitRow.getAttribute("aria-disabled")).toBe("true");
+      return commitRow;
     });
+    await expectTooltipContent(nothingToPushRow, "No new commits to push");
   });
 
   test("allows blank commit messages so the native workflow can generate one", async () => {
@@ -1939,12 +1957,14 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    await waitFor(() => {
+    const createPullRequestRow = await waitFor(() => {
       const createPullRequestRow = view.getByText("Create pull request").closest("[role='button']");
-      if (createPullRequestRow?.getAttribute("title") !== "Create branch") {
+      if (!(createPullRequestRow instanceof HTMLElement)) {
         throw new Error("Expected create pull request to require branch setup.");
       }
+      return createPullRequestRow;
     });
+    await expectTooltipContent(createPullRequestRow, "Create branch");
 
     await act(async () => {
       fireEvent.click(view.getByText("Create pull request"));
@@ -2192,7 +2212,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     const row = view.getByRole("button", { name: "Open scheduled task" });
-    expect(row.getAttribute("title")).toBe("Next run: tomorrow at 9:00 AM");
+    await expectTooltipContent(row, "Next run: tomorrow at 9:00 AM");
     expect(textContent(row).includes("Review release notes")).toBe(true);
     expect(textContent(row).includes("Every weekday")).toBe(true);
 
@@ -2407,7 +2427,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(computerUseIndex < browserIndex).toBe(true);
 
     const row = view.getByRole("button", { name: "Show PiP" });
-    expect(row.getAttribute("title")).toBe("Show PiP");
+    await expectTooltipContent(row, "Show PiP");
     expect(textContent(row).includes("Computer Use")).toBe(true);
 
     await clickAndAct(row);
@@ -2471,7 +2491,8 @@ describe("ThreadFloatingSummaryPanel", () => {
     const browserButton = view.getByRole("button", {
       name: "Release notes example.com",
     });
-    expect(browserButton.getAttribute("title") ?? "").toBe(
+    await expectTooltipContent(
+      browserButton,
       "Release notes\nhttps://www.example.com/release-notes",
     );
     expect(
@@ -2562,11 +2583,15 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const trigger = await view.findByTitle("Select where to run the task");
+    const trigger = await waitFor(() => {
+      const row = view.getByText("Local").closest("[role='button']");
+      if (!(row instanceof HTMLElement)) throw new Error("Expected start-in trigger");
+      return row;
+    });
     expect(trigger.getAttribute("role")).toBe("button");
     expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(trigger.getAttribute("title")).toBe("Select where to run the task");
+    await expectTooltipContent(trigger, "Select where to run the task");
     expect(textContent(trigger).includes("Local")).toBe(true);
 
     await act(async () => {

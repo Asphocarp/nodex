@@ -152,6 +152,7 @@ import {
   NodexDropdownMenu,
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { BrowserProfileImportDialog } from "./browser-profile-import-dialog";
 import type { BrowserSettingsDestination } from "./browser-settings-pages";
 
@@ -1543,20 +1544,21 @@ function BrowserToolbarButton({
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      className={cn(
-        BROWSER_TOOL_BUTTON_CLASS,
-        active && "bg-token-list-hover-background text-token-text-primary",
-        className,
-      )}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-    >
-      {children}
-    </button>
+    <NodexTooltip tooltipContent={label}>
+      <button
+        type="button"
+        className={cn(
+          BROWSER_TOOL_BUTTON_CLASS,
+          active && "bg-token-list-hover-background text-token-text-primary",
+          className,
+        )}
+        disabled={disabled}
+        aria-label={label}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </NodexTooltip>
   );
 }
 
@@ -2236,15 +2238,16 @@ function BrowserDownloadActionButton({
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      className="inline-flex size-7 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-    >
-      {children}
-    </button>
+    <NodexTooltip tooltipContent={label}>
+      <button
+        type="button"
+        className="inline-flex size-7 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
+        aria-label={label}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </NodexTooltip>
   );
 }
 
@@ -2695,24 +2698,25 @@ export function BrowserNewTabState({
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-token-text-primary">Local</h2>
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="inline-flex size-6 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
-              onClick={onRefresh}
-              aria-label="Refresh local servers"
-              title="Refresh local servers"
-            >
-              <BrowserReloadIcon className="icon-xs" />
-            </button>
+            <NodexTooltip tooltipContent="Refresh local servers">
+              <button
+                type="button"
+                className="inline-flex size-6 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
+                onClick={onRefresh}
+                aria-label="Refresh local servers"
+              >
+                <BrowserReloadIcon className="icon-xs" />
+              </button>
+            </NodexTooltip>
             <NodexDropdownMenu
               align="end"
               contentWidth="menuWide"
+              triggerTooltipContent="Local server options"
               triggerButton={
                 <button
                   type="button"
                   className="inline-flex size-6 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
                   aria-label="Local server options"
-                  title="Local server options"
                 >
                   <BrowserLocalServerFilterIcon className="icon-xs" />
                 </button>
@@ -3064,22 +3068,22 @@ export function BrowserAnnotationComposer({
       </div>
       <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
         {anchors.map((anchor, index) => (
-          <button
-            key={anchor.id}
-            type="button"
-            className="inline-flex max-w-full items-center gap-1 rounded-md bg-token-foreground/5 px-2 py-1 text-xs text-token-text-secondary hover:bg-token-list-hover-background"
-            title={anchor.selector ?? anchor.textExcerpt}
-            onClick={() => onRemoveAnchor(anchor.id)}
-          >
-            <span className="truncate">
-              {anchor.kind === "text"
-                ? anchor.textExcerpt || `Text ${index + 1}`
-                : anchor.kind === "region"
-                  ? `Region ${index + 1}`
-                  : anchor.selector || `Element ${index + 1}`}
-            </span>
-            <X className="icon-xs shrink-0" />
-          </button>
+          <NodexTooltip key={anchor.id} tooltipContent={anchor.selector ?? anchor.textExcerpt}>
+            <button
+              type="button"
+              className="inline-flex max-w-full items-center gap-1 rounded-md bg-token-foreground/5 px-2 py-1 text-xs text-token-text-secondary hover:bg-token-list-hover-background"
+              onClick={() => onRemoveAnchor(anchor.id)}
+            >
+              <span className="truncate">
+                {anchor.kind === "text"
+                  ? anchor.textExcerpt || `Text ${index + 1}`
+                  : anchor.kind === "region"
+                    ? `Region ${index + 1}`
+                    : anchor.selector || `Element ${index + 1}`}
+              </span>
+              <X className="icon-xs shrink-0" />
+            </button>
+          </NodexTooltip>
         ))}
       </div>
       {intent === "designChange" ? (
@@ -3148,9 +3152,9 @@ export function BrowserAnnotationComposer({
             />
           </label>
           <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 text-[11px] text-token-text-tertiary">
-            <span className="truncate" title={designBefore}>
-              Before: {designBefore || "Unavailable"}
-            </span>
+            <NodexTooltip tooltipContent={designBefore}>
+              <span className="truncate">Before: {designBefore || "Unavailable"}</span>
+            </NodexTooltip>
             <button
               type="button"
               className={cn(

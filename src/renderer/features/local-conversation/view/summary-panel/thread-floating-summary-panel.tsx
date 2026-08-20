@@ -1323,7 +1323,6 @@ export function ThreadSummaryPanelSurface({
         type="button"
         aria-label="View all processes"
         className="ms-auto inline-flex size-6 cursor-interaction items-center justify-center rounded-sm border-0 bg-transparent text-token-text-tertiary hover:text-token-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
-        title="View all processes"
         onClick={() => {
           void actions.onOpenProcessManager?.();
         }}
@@ -1500,18 +1499,19 @@ export function ThreadSummaryPanelSurface({
                       }
                       trailing={
                         commitOrPushWorkflow ? (
-                          <button
-                            type="button"
-                            aria-label="Cancel git action"
-                            title="Cancel git action"
-                            className="cursor-interaction flex size-4 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-token-text-tertiary hover:text-token-foreground focus:outline-none"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleCancelGitAction(commitOrPushWorkflow.operationId);
-                            }}
-                          >
-                            <X className="icon-xs" aria-hidden="true" />
-                          </button>
+                          <NodexTooltip tooltipContent="Cancel git action">
+                            <button
+                              type="button"
+                              aria-label="Cancel git action"
+                              className="cursor-interaction flex size-4 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-token-text-tertiary hover:text-token-foreground focus:outline-none"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleCancelGitAction(commitOrPushWorkflow.operationId);
+                              }}
+                            >
+                              <X className="icon-xs" aria-hidden="true" />
+                            </button>
+                          </NodexTooltip>
                         ) : undefined
                       }
                       trailingVisible={Boolean(commitOrPushWorkflow)}
@@ -1550,18 +1550,19 @@ export function ThreadSummaryPanelSurface({
                       }
                       trailing={
                         createPullRequestWorkflow ? (
-                          <button
-                            type="button"
-                            aria-label="Cancel git action"
-                            title="Cancel git action"
-                            className="cursor-interaction flex size-4 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-token-text-tertiary hover:text-token-foreground focus:outline-none"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleCancelGitAction(createPullRequestWorkflow.operationId);
-                            }}
-                          >
-                            <X className="icon-xs" aria-hidden="true" />
-                          </button>
+                          <NodexTooltip tooltipContent="Cancel git action">
+                            <button
+                              type="button"
+                              aria-label="Cancel git action"
+                              className="cursor-interaction flex size-4 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-token-text-tertiary hover:text-token-foreground focus:outline-none"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleCancelGitAction(createPullRequestWorkflow.operationId);
+                              }}
+                            >
+                              <X className="icon-xs" aria-hidden="true" />
+                            </button>
+                          </NodexTooltip>
                         ) : undefined
                       }
                       trailingVisible={Boolean(createPullRequestWorkflow)}
@@ -1880,9 +1881,11 @@ export function ThreadSummaryPanelPopover({
 
   return (
     <NodexPopover open={open} onOpenChange={handleOpenChange}>
-      <NodexPopoverTrigger asChild>
-        <ThreadSummaryPanelToggleButton label="Toggle summary" pressed={open} />
-      </NodexPopoverTrigger>
+      <NodexTooltip tooltipContent="Toggle summary" side="bottom">
+        <NodexPopoverTrigger asChild>
+          <ThreadSummaryPanelToggleButton label="Toggle summary" pressed={open} />
+        </NodexPopoverTrigger>
+      </NodexTooltip>
       <NodexPopoverContent
         align="end"
         side="bottom"

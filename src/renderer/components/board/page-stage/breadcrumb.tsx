@@ -1,6 +1,7 @@
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { Ellipsis } from "@/components/shared/icons/generic-icons";
 import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export interface PageStageBreadcrumbItem {
@@ -53,20 +54,21 @@ function PageStageBreadcrumbAncestor({
   return (
     <li className="flex min-w-0 shrink items-center gap-1">
       {showSeparator ? <PageStageBreadcrumbSeparator /> : null}
-      <button
-        type="button"
-        title={label}
-        disabled={itemDisabled}
-        onClick={() => onOpenAncestor(entry.item, entry.index)}
-        className={cn(
-          "min-w-0 max-w-36 truncate rounded-md px-1 py-0.5 text-token-text-secondary outline-hidden",
-          "hover:bg-token-foreground/5 hover:text-token-text-primary focus-visible:ring-token-focus focus-visible:ring-2",
-          itemDisabled &&
-            "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-token-text-secondary",
-        )}
-      >
-        {label}
-      </button>
+      <NodexTooltip tooltipContent={label} side="bottom">
+        <button
+          type="button"
+          disabled={itemDisabled}
+          onClick={() => onOpenAncestor(entry.item, entry.index)}
+          className={cn(
+            "min-w-0 max-w-36 truncate rounded-md px-1 py-0.5 text-token-text-secondary outline-hidden",
+            "hover:bg-token-foreground/5 hover:text-token-text-primary focus-visible:ring-token-focus focus-visible:ring-2",
+            itemDisabled &&
+              "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-token-text-secondary",
+          )}
+        >
+          {label}
+        </button>
+      </NodexTooltip>
     </li>
   );
 }
@@ -111,11 +113,11 @@ export function PageStageBreadcrumb({
               side="bottom"
               align="start"
               contentWidth="menuBounded"
+              triggerTooltipContent="More ancestor pages"
               triggerButton={
                 <button
                   type="button"
                   aria-label="More ancestor pages"
-                  title="More ancestor pages"
                   className={cn(
                     "inline-flex size-6 items-center justify-center rounded-md text-token-description-foreground outline-hidden",
                     "hover:bg-token-foreground/5 hover:text-token-text-primary focus-visible:ring-token-focus focus-visible:ring-2",
@@ -156,13 +158,14 @@ export function PageStageBreadcrumb({
 
         <li className="flex min-w-0 flex-1 items-center gap-1">
           <PageStageBreadcrumbSeparator />
-          <span
-            aria-current="page"
-            title={currentLabel}
-            className="min-w-0 truncate px-1 py-0.5 text-token-text-primary"
-          >
-            {currentLabel}
-          </span>
+          <NodexTooltip tooltipContent={currentLabel} side="bottom">
+            <span
+              aria-current="page"
+              className="min-w-0 truncate px-1 py-0.5 text-token-text-primary"
+            >
+              {currentLabel}
+            </span>
+          </NodexTooltip>
         </li>
       </ol>
     </nav>

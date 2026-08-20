@@ -164,11 +164,11 @@ export function PageStageToolbar({
           sideOffset={6}
           contentWidth="xs"
           disabled={disabled}
+          triggerTooltipContent="Page actions"
           triggerButton={
             <button
               type="button"
               aria-label="Page actions"
-              title="Page actions"
               data-tab-preview-pin-exempt="true"
               disabled={disabled}
               className={cn(

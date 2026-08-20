@@ -29,6 +29,7 @@ import {
 } from "@/components/shared/icons";
 import { invoke } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ProjectMarker } from "@/components/workbench/project-marker";
 import {
@@ -1459,21 +1460,22 @@ export function ComposerAddContextTrigger({
   const label = imagesOnly ? "Add photos and more" : "Add files and more";
 
   return (
-    <button
-      type="button"
-      data-add-context-trigger="true"
-      data-state={open ? "open" : "closed"}
-      className={COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME}
-      aria-label={label}
-      aria-expanded={open}
-      title={label}
-      disabled={disabled}
-      onMouseDown={(event) => {
-        event.preventDefault();
-      }}
-      onClick={onToggle}
-    >
-      <PlusIcon className="icon-sm" />
-    </button>
+    <NodexTooltip tooltipContent={label}>
+      <button
+        type="button"
+        data-add-context-trigger="true"
+        data-state={open ? "open" : "closed"}
+        className={COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME}
+        aria-label={label}
+        aria-expanded={open}
+        disabled={disabled}
+        onMouseDown={(event) => {
+          event.preventDefault();
+        }}
+        onClick={onToggle}
+      >
+        <PlusIcon className="icon-sm" />
+      </button>
+    </NodexTooltip>
   );
 }

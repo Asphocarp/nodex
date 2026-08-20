@@ -39,6 +39,7 @@ import type {
 import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import { LayoutGrid } from "@/components/shared/icons/generic-icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { CanvasDocumentState } from "../board/canvas-document-state";
 import {
   createCanvasPresenceController,
@@ -623,27 +624,28 @@ function CanvasEditor({
   // Render top-right UI: card sidebar toggle button
   const renderTopRightUI = useCallback(() => {
     return (
-      <button
-        type="button"
-        onClick={() =>
-          excalidrawApiRef.current?.toggleSidebar({
-            name: "cards",
-            tab: "browse",
-          })
-        }
-        className="excalidraw-button"
-        title="Pages"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          padding: "6px 10px",
-          fontSize: 13,
-        }}
-      >
-        <LayoutGrid size={16} />
-        Pages
-      </button>
+      <NodexTooltip tooltipContent="Pages">
+        <button
+          type="button"
+          onClick={() =>
+            excalidrawApiRef.current?.toggleSidebar({
+              name: "cards",
+              tab: "browse",
+            })
+          }
+          className="excalidraw-button"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "6px 10px",
+            fontSize: 13,
+          }}
+        >
+          <LayoutGrid size={16} />
+          Pages
+        </button>
+      </NodexTooltip>
     );
   }, []);
 

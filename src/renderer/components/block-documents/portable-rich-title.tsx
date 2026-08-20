@@ -7,6 +7,7 @@ import {
   portableRichTitleAtomLabel,
   portableRichTitleStyleClass,
 } from "@/lib/portable-rich-title-presentation";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export interface PortableRichTitleProps extends Omit<ComponentPropsWithoutRef<"span">, "children"> {
@@ -20,35 +21,39 @@ const renderItem = (item: PortableRichTextItem, index: number): ReactNode => {
   }
   if (item.type === "threadMention" || item.type === "pageMention" || item.type === "dateMention") {
     const label = portableRichTitleAtomLabel(item);
+    const tooltip =
+      item.type === "threadMention"
+        ? item.uuid
+        : item.type === "pageMention"
+          ? item.targetPageId
+          : label;
     return (
-      <span
-        key={`${item.type}:${index}`}
-        data-portable-rich-title-atom={item.type}
-        className="mx-0.5 inline-flex max-w-[18rem] rounded-md bg-token-foreground/5 px-1.5 align-baseline text-[0.82em] font-medium text-token-text-secondary"
-        title={
-          item.type === "threadMention"
-            ? item.uuid
-            : item.type === "pageMention"
-              ? item.targetPageId
-              : label
-        }
-      >
-        {label}
-      </span>
+      <NodexTooltip key={`${item.type}:${index}`} tooltipContent={tooltip} side="top">
+        <span
+          data-portable-rich-title-atom={item.type}
+          className="mx-0.5 inline-flex max-w-[18rem] rounded-md bg-token-foreground/5 px-1.5 align-baseline text-[0.82em] font-medium text-token-text-secondary"
+        >
+          {label}
+        </span>
+      </NodexTooltip>
     );
   }
   return (
-    <span
+    <NodexTooltip
       key={`${item.type}:${index}`}
-      data-portable-rich-title-link={item.type === "link" ? item.href : undefined}
-      title={item.type === "link" ? item.href : undefined}
-      className={cn(
-        item.type === "link" && "underline decoration-current/40 underline-offset-2",
-        portableRichTitleStyleClass(item.styles),
-      )}
+      tooltipContent={item.type === "link" ? item.href : undefined}
+      side="top"
     >
-      {item.text}
-    </span>
+      <span
+        data-portable-rich-title-link={item.type === "link" ? item.href : undefined}
+        className={cn(
+          item.type === "link" && "underline decoration-current/40 underline-offset-2",
+          portableRichTitleStyleClass(item.styles),
+        )}
+      >
+        {item.text}
+      </span>
+    </NodexTooltip>
   );
 };
 

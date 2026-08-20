@@ -1402,7 +1402,6 @@ function BoardDatabaseViewSurface({
                             <div
                               data-database-board-column-header="true"
                               data-database-board-collapsed-header="true"
-                              title={`${column.name} — collapsed`}
                               className="relative flex flex-col items-center rounded-t-lg px-1 pt-3 pb-2"
                               onDragOver={
                                 collapsedTargetScopeKey

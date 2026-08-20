@@ -34,7 +34,7 @@ describe("branch selector popover", () => {
 
     await act(async () => {
       const trigger = view.getByLabelText("Switch branch");
-      expect(trigger.getAttribute("title")).toBe("Switch branch");
+      expect(trigger.hasAttribute("title")).toBe(false);
       fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
       fireEvent.click(trigger);
       await settleAsyncRender();

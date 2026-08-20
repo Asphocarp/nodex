@@ -1,5 +1,6 @@
 import { ChevronRightIcon, PlusIcon } from "@/components/shared/icons";
 import { ChevronLeft } from "@/components/shared/icons/generic-icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { formatCalendarToolbarMonthYear } from "@/lib/calendar-view-state";
 import { cn } from "@/lib/utils";
@@ -37,15 +38,16 @@ export function CalendarToolbarControls({
 
   return (
     <div className="flex shrink-0 items-center gap-2">
-      <button
-        type="button"
-        onClick={onCreate}
-        className={iconButton}
-        aria-label="Create calendar task"
-        title="Create calendar task"
-      >
-        <PlusIcon className="size-4" />
-      </button>
+      <NodexTooltip tooltipContent="Create calendar task" side="bottom">
+        <button
+          type="button"
+          onClick={onCreate}
+          className={iconButton}
+          aria-label="Create calendar task"
+        >
+          <PlusIcon className="size-4" />
+        </button>
+      </NodexTooltip>
 
       <CalendarRangeDropdown range={range} onRangeChange={onRangeChange} />
 

@@ -2830,7 +2830,6 @@ export function WorkbenchRuntime({
           setSidebarHoverSuppressed(false);
           setSidebarClickInFlight(false);
         }}
-        title="Toggle sidebar"
         aria-label={sidebarCollapseControlLabel}
         className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
         style={{ viewTransitionName: "sidebar-trigger" }}
@@ -3026,7 +3025,6 @@ export function WorkbenchRuntime({
         <button
           type="button"
           onClick={showRealSidebarFromFloatingPanel}
-          title="Toggle sidebar"
           aria-label="Show sidebar"
           className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
           style={{ viewTransitionName: "sidebar-trigger" }}

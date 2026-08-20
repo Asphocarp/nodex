@@ -83,13 +83,14 @@ export function NfmCompactLinkToolbar({
       tabIndex={0}
       className={NFM_LINK_TOOLBAR_CLASS}
     >
-      <span
-        className="max-w-[220px] truncate px-2 text-xs text-token-text-secondary"
-        data-testid="nfm-link-toolbar-preview"
-        title={href}
-      >
-        {href}
-      </span>
+      <NodexTooltip tooltipContent={href} side="top" delayDuration={0}>
+        <span
+          className="max-w-[220px] truncate px-2 text-xs text-token-text-secondary"
+          data-testid="nfm-link-toolbar-preview"
+        >
+          {href}
+        </span>
+      </NodexTooltip>
 
       <NodexTooltip tooltipContent={editTooltip} side="top" delayDuration={0}>
         <button
@@ -157,23 +158,24 @@ export function NfmCompactLinkToolbar({
       </NodexTooltip>
 
       <NodexTooltip tooltipContent={openActionTooltip} side="top" delayDuration={0}>
-        <button
-          type="button"
-          contentEditable={false}
-          aria-label={openLabel}
-          title={typeof disabledReason === "string" ? disabledReason : undefined}
-          disabled={!canOpen}
-          onPointerDown={handleActionPointerDown}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!canOpen) return;
-            onOpenLink();
-          }}
-          className={cn(NFM_LINK_TOOLBAR_BUTTON_CLASS, "text-token-text-primary")}
-        >
-          <NfmLinkToolbarOpenIcon className="size-4 text-token-text-primary" />
-        </button>
+        <span className="inline-flex h-full" tabIndex={canOpen ? undefined : 0}>
+          <button
+            type="button"
+            contentEditable={false}
+            aria-label={openLabel}
+            disabled={!canOpen}
+            onPointerDown={handleActionPointerDown}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!canOpen) return;
+              onOpenLink();
+            }}
+            className={cn(NFM_LINK_TOOLBAR_BUTTON_CLASS, "text-token-text-primary")}
+          >
+            <NfmLinkToolbarOpenIcon className="size-4 text-token-text-primary" />
+          </button>
+        </span>
       </NodexTooltip>
     </div>
   );

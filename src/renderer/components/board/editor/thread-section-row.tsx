@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Play, SendHorizontal } from "@/components/shared/icons/generic-icons";
 import { ActivitySpinnerIcon } from "@/components/shared/icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import { cn } from "@/lib/utils";
 import type { ThreadSectionLinkedThreadState } from "./thread-section-runtime";
@@ -146,13 +147,14 @@ export function ThreadSectionRow({
           )}
         >
           <StatusIcon thread={thread} pending={pending} />
-          <span
-            className={cn(label && "cursor-text")}
-            onDoubleClick={() => setIsEditingLabel(true)}
-            title={label ? `Double-click to rename "${label}"` : undefined}
-          >
-            {pillText}
-          </span>
+          <NodexTooltip tooltipContent={label ? `Double-click to rename "${label}"` : undefined}>
+            <span
+              className={cn(label && "cursor-text")}
+              onDoubleClick={() => setIsEditingLabel(true)}
+            >
+              {pillText}
+            </span>
+          </NodexTooltip>
 
           <div
             className={cn(
@@ -164,9 +166,9 @@ export function ThreadSectionRow({
             {threadName && (
               <>
                 <span>·</span>
-                <span className="max-w-32 truncate" title={threadName}>
-                  {threadName}
-                </span>
+                <NodexTooltip tooltipContent={threadName}>
+                  <span className="max-w-32 truncate">{threadName}</span>
+                </NodexTooltip>
               </>
             )}
 

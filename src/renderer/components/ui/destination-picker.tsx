@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { ActivitySpinnerIcon, SearchIcon } from "@/components/shared/icons";
 import { StatusIcon } from "@/lib/status-presentation";
 import { cn } from "@/lib/utils";
+import { NodexTooltip } from "./tooltip";
 
 interface NodexDestinationPickerProps {
   readonly ariaLabel: string;
@@ -111,12 +112,11 @@ export function NodexDestinationPickerPageRowContent({
 }) {
   return (
     <>
-      <span
-        className="flex h-[18px] w-[22px] shrink-0 items-center justify-center"
-        title={statusLabel}
-      >
-        <StatusIcon statusId={statusId} label={statusLabel} className="size-4" />
-      </span>
+      <NodexTooltip tooltipContent={statusLabel}>
+        <span className="flex h-[18px] w-[22px] shrink-0 items-center justify-center">
+          <StatusIcon statusId={statusId} label={statusLabel} className="size-4" />
+        </span>
+      </NodexTooltip>
       <span className="min-w-0 flex-1 truncate">{title}</span>
       {projectName ? (
         <span className="ml-1 max-w-[112px] shrink truncate text-[12px] leading-4 text-token-description-foreground">
