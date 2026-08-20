@@ -227,6 +227,22 @@ signed and notarized. Keep version-specific runner, Icon Composer, signing, and
 packaging constraints in [the macOS release runbook](release-macos.md), where
 they can carry current versions and recovery steps.
 
+### 13. Static-analysis output is an agent Interface
+
+Lint, formatting, and type checks are a feedback API for both people and coding
+agents. Optimize that API for one semantic authority, broad and predictable
+coverage, short feedback loops, actionable remediation, and a near-zero accepted
+warning baseline. Hundreds of non-blocking diagnostics are not extra safety: they
+consume context, hide new regressions, and teach callers to ignore the tool.
+
+Use generic rules where they reliably detect correctness problems. Encode stable
+project boundaries and repeated agent mistakes as focused, tested rules or
+structural checks whose messages name the approved replacement. Promote only
+high-confidence invariants to errors; scope, baseline, repair, or disable noisy
+heuristics deliberately instead of relying on `--quiet`. When two tools can emit
+the same semantic diagnostics, choose and document one authoritative path, then
+test that dependency upgrades preserve it.
+
 ## High-risk implementation caveats
 
 These details remain here because they cross several modules and have produced
