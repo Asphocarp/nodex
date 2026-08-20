@@ -48,6 +48,9 @@ The architecture frontier is enforced as follows:
 6. The Core event-stream supervisor and isolated-run supervisor are independent adoption
    gates. Broader transport and Main composition work proceeds only after both preserve
    behavior while reducing explicit lifecycle state.
+7. Electron's platform-required synchronous bootstrap remains ordinary TypeScript. One
+   process Scope acquires services only after `app.whenReady()` and is the common shutdown
+   boundary for normal quit, startup rollback, and authority-driven relaunch.
 
 The dependency generation is exact and coordinated across `effect`,
 `@effect/platform-node`, and `@effect/vitest`. `@effect/tsgo`'s recommended Oxlint preset is
