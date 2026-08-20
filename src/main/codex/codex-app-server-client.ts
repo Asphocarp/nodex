@@ -10,6 +10,17 @@ import type {
   ServerNotification,
 } from "@nodex/codex-app-server-protocol";
 import type { CodexConnectionState } from "../../shared/types";
+import { codexReconnectJitter } from "../effect-adapters/codex-app-server-live";
+import {
+  createCodexReconnectSupervisor,
+  runCodexPromiseWithTimeout,
+  waitForCodexPromiseOrTimeout,
+  type CodexReconnectSupervisor,
+} from "../effect-control-plane/codex-app-server-supervisor";
+import {
+  createCodexAppServerSessionRuntime,
+  type CodexAppServerSessionRuntime,
+} from "../effect-control-plane/codex-app-server-session";
 import { getLogger } from "../logging/logger";
 import {
   parseCodexAppServerMessage,
@@ -28,7 +39,6 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 20_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 const CHILD_TERMINATION_TIMEOUT_MS = 2_000;
 const CHILD_FORCE_TERMINATION_TIMEOUT_MS = 1_000;
-const MAX_RECONNECT_DELAY_MS = 30_000;
 const PATH_DELIMITER = process.platform === "win32" ? ";" : ":";
 
 const DEFAULT_EXTRA_BINARY_SEARCH_PATHS =
@@ -66,20 +76,6 @@ function createDeferred<T>(): Deferred<T> {
     reject = rej;
   });
   return { promise, resolve, reject };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-interface PendingRequest {
-  method: string;
-  startedAt: number;
-  timeout: NodeJS.Timeout;
-  resolve: (value: unknown) => void;
-  reject: (reason?: unknown) => void;
 }
 
 export type CodexServerNotification = ServerNotification;
@@ -326,10 +322,9 @@ export class CodexAppServerClient extends EventEmitter {
   private readonly clientInfo: { name: string; title: string; version: string };
 
   private child: ChildProcessWithoutNullStreams | null = null;
+  private session: CodexAppServerSessionRuntime | null = null;
   private stdoutBuffer = "";
   private stderrBuffer = "";
-  private requestIdCounter = 1;
-  private pendingRequests = new Map<string, PendingRequest>();
   private readyDeferred!: Deferred<void>;
   private isDisposed = false;
   private initialized = false;
@@ -337,7 +332,7 @@ export class CodexAppServerClient extends EventEmitter {
   private lifecycleGeneration = 0;
   private startInFlight: Promise<void> | null = null;
   private retirementInFlight: Promise<void> | null = null;
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  private readonly reconnectSupervisor: CodexReconnectSupervisor;
   private reconnectAttempts = 0;
   private initializeResponse: InitializeResponse | null = null;
   private connectionState: CodexConnectionState = {
@@ -365,6 +360,7 @@ export class CodexAppServerClient extends EventEmitter {
       title: "Nodex",
       version: "0.0.0",
     };
+    this.reconnectSupervisor = createCodexReconnectSupervisor({ jitter: codexReconnectJitter });
     this.resetReadyDeferred();
   }
 
@@ -413,22 +409,21 @@ export class CodexAppServerClient extends EventEmitter {
     this.clearReconnectTimer();
     logger.info("Stopping Codex app-server client", {
       hadChild: Boolean(this.child),
-      pendingRequests: this.pendingRequests.size,
+      pendingRequests: this.session?.pendingCount() ?? 0,
     });
 
-    const current = this.child;
+    const currentSession = this.session;
 
     this.child = null;
+    this.session = null;
     this.initialized = false;
     this.initializeResponse = null;
-    this.rejectAllPending(stoppedError);
+    if (currentSession) await this.closeSession(currentSession, stoppedError);
+    else if (this.retirementInFlight) await this.retirementInFlight;
     this.readyDeferred.reject(stoppedError);
     this.resetReadyDeferred();
     this.reconnectAttempts = 0;
     this.setConnectionState({ status: "disconnected", retries: 0 });
-
-    if (current) await this.retireChild(current);
-    else if (this.retirementInFlight) await this.retirementInFlight;
   }
 
   /** Permanently closes this client; unlike stop(), a disposed client cannot restart. */
@@ -508,6 +503,7 @@ export class CodexAppServerClient extends EventEmitter {
     });
 
     this.child = child;
+    this.session = this.createSessionRuntime(child);
     logger.info("Spawned Codex app-server process", {
       pid: child.pid ?? null,
       binaryPath: this.binaryPath,
@@ -600,11 +596,11 @@ export class CodexAppServerClient extends EventEmitter {
       true,
     );
 
-    const timeoutPromise = sleep(this.initializeTimeoutMs).then(() => {
-      throw new Error(`Codex app-server initialize timed out after ${this.initializeTimeoutMs}ms`);
-    });
-
-    this.initializeResponse = await Promise.race([initializePromise, timeoutPromise]);
+    this.initializeResponse = await runCodexPromiseWithTimeout(
+      initializePromise,
+      this.initializeTimeoutMs,
+      () => new Error(`Codex app-server initialize timed out after ${this.initializeTimeoutMs}ms`),
+    );
     if (this.expectedCodexHome) {
       const actualHome = realpathSync(this.initializeResponse.codexHome);
       const expectedHome = realpathSync(this.expectedCodexHome);
@@ -614,6 +610,39 @@ export class CodexAppServerClient extends EventEmitter {
     }
     this.writeMessage({ method: "initialized" } satisfies JsonRpcNotificationEnvelope);
     this.initialized = true;
+  }
+
+  private createSessionRuntime(
+    child: ChildProcessWithoutNullStreams,
+  ): CodexAppServerSessionRuntime {
+    return createCodexAppServerSessionRuntime({
+      requestTimeoutMs: this.requestTimeoutMs,
+      onClose: () => this.terminateChild(child),
+      createRpcError: (error) => new CodexRpcError(error.message, error.code, error.data),
+      onRequestTimedOut: ({ id, method, timeoutMs }) => {
+        logger.error("Codex RPC request timed out", {
+          rpcId: id,
+          method,
+          timeoutMs,
+        });
+      },
+      onRequestFailed: ({ id, method, durationMs, errorCode, errorMessage }) => {
+        logger.error("Codex RPC request failed", {
+          rpcId: id,
+          method,
+          durationMs,
+          errorCode,
+          errorMessage: truncatePreview(errorMessage, 600),
+        });
+      },
+      onRequestCompleted: ({ id, method, durationMs }) => {
+        logger.debug("Codex RPC request completed", {
+          rpcId: id,
+          method,
+          durationMs,
+        });
+      },
+    });
   }
 
   private async requestRaw<TMethod extends ClientRequestMethod, TResult>(
@@ -635,38 +664,20 @@ export class CodexAppServerClient extends EventEmitter {
       throw new Error("Codex app-server is not initialized");
     }
 
-    const id = this.requestIdCounter;
-    this.requestIdCounter += 1;
-
-    const message: JsonRpcRequestEnvelope = { id, method, params };
     logger.debug("Sending Codex RPC request", {
-      rpcId: id,
       method,
       params: summarizeRpcParams(method, params),
     });
-
-    const promise = new Promise<unknown>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(String(id));
-        logger.error("Codex RPC request timed out", {
-          rpcId: id,
-          method,
-          timeoutMs: this.requestTimeoutMs,
-        });
-        reject(new Error(`Codex request timed out: ${method}`));
-      }, this.requestTimeoutMs);
-
-      this.pendingRequests.set(String(id), {
-        method,
-        startedAt: Date.now(),
-        timeout,
-        resolve,
-        reject,
-      });
-    });
-
-    this.writeMessage(message);
-    return promise;
+    const session = this.session;
+    if (session === null) throw new Error("Codex app-server session is not available");
+    return session.request(
+      method,
+      (id) => {
+        logger.debug("Assigned Codex RPC request id", { rpcId: id, method });
+        this.writeMessage({ id, method, params } satisfies JsonRpcRequestEnvelope);
+      },
+      skipInitialization ? this.initializeTimeoutMs : undefined,
+    );
   }
 
   private writeMessage(
@@ -755,33 +766,7 @@ export class CodexAppServerClient extends EventEmitter {
   }
 
   private handleResponse(response: JsonRpcResponseEnvelope): void {
-    const pending = this.pendingRequests.get(String(response.id));
-    if (!pending) return;
-
-    clearTimeout(pending.timeout);
-    this.pendingRequests.delete(String(response.id));
-    const durationMs = Date.now() - pending.startedAt;
-
-    if ("error" in response) {
-      logger.error("Codex RPC request failed", {
-        rpcId: response.id,
-        method: pending.method,
-        durationMs,
-        errorCode: response.error.code,
-        errorMessage: truncatePreview(response.error.message, 600),
-      });
-      pending.reject(
-        new CodexRpcError(response.error.message, response.error.code, response.error.data),
-      );
-      return;
-    }
-
-    logger.debug("Codex RPC request completed", {
-      rpcId: response.id,
-      method: pending.method,
-      durationMs,
-    });
-    pending.resolve(response.result);
+    this.session?.handleResponse(response);
   }
 
   private async handleServerRequest(request: CodexServerRequest): Promise<void> {
@@ -889,10 +874,7 @@ export class CodexAppServerClient extends EventEmitter {
       child.once("error", () => resolve());
     });
     child.kill();
-    const exitedGracefully = await Promise.race([
-      exit.then(() => true),
-      sleep(CHILD_TERMINATION_TIMEOUT_MS).then(() => false),
-    ]);
+    const exitedGracefully = await waitForCodexPromiseOrTimeout(exit, CHILD_TERMINATION_TIMEOUT_MS);
     if (exitedGracefully || child.exitCode !== null || child.signalCode !== null) return;
 
     logger.warn("Codex app-server did not exit after termination request; forcing shutdown", {
@@ -900,16 +882,12 @@ export class CodexAppServerClient extends EventEmitter {
       timeoutMs: CHILD_TERMINATION_TIMEOUT_MS,
     });
     child.kill("SIGKILL");
-    await Promise.race([
-      exit,
-      sleep(CHILD_FORCE_TERMINATION_TIMEOUT_MS),
-    ]);
+    await waitForCodexPromiseOrTimeout(exit, CHILD_FORCE_TERMINATION_TIMEOUT_MS);
   }
 
-  private async retireChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+  private async closeSession(session: CodexAppServerSessionRuntime, error: Error): Promise<void> {
     if (this.retirementInFlight) return await this.retirementInFlight;
-
-    const retirement = this.terminateChild(child).finally(() => {
+    const retirement = session.close(error).finally(() => {
       if (this.retirementInFlight === retirement) this.retirementInFlight = null;
     });
     this.retirementInFlight = retirement;
@@ -919,10 +897,11 @@ export class CodexAppServerClient extends EventEmitter {
   private async abandonCurrentChild(child: ChildProcessWithoutNullStreams, error: Error): Promise<void> {
     if (this.child !== child) return;
     this.child = null;
+    const session = this.session;
+    this.session = null;
     this.initialized = false;
     this.initializeResponse = null;
-    this.rejectAllPending(error);
-    await this.retireChild(child);
+    if (session) await this.closeSession(session, error);
   }
 
   private async handleChildError(
@@ -969,9 +948,11 @@ export class CodexAppServerClient extends EventEmitter {
 
     const error = new Error(`Codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`);
     this.child = null;
+    const session = this.session;
+    this.session = null;
     this.initialized = false;
     this.initializeResponse = null;
-    this.rejectAllPending(error);
+    const retired = session ? this.closeSession(session, error) : Promise.resolve();
     this.readyDeferred.reject(error);
     logger.warn("Codex app-server process exited", {
       code,
@@ -992,29 +973,36 @@ export class CodexAppServerClient extends EventEmitter {
       message: `Codex app-server exited (code=${code ?? "null"})`,
     });
 
-    void this.scheduleReconnect();
+    void retired.then(
+      () => this.scheduleReconnect(),
+      (retirementError: unknown) => {
+        logger.error("Codex app-server session retirement failed", {
+          error: retirementError,
+          generation,
+        });
+        return this.scheduleReconnect();
+      },
+    );
   }
 
   private async scheduleReconnect(): Promise<void> {
     if (this.isStopping) return;
     if (this.connectionState.status === "missingBinary") return;
-    if (this.reconnectTimer) return;
+    if (this.reconnectSupervisor.isScheduled()) return;
 
     this.reconnectAttempts += 1;
-    const expDelay = Math.min(MAX_RECONNECT_DELAY_MS, 500 * (2 ** (this.reconnectAttempts - 1)));
-    const jitter = Math.floor(Math.random() * 250);
-    const delayMs = expDelay + jitter;
+    const delayMs = this.reconnectSupervisor.schedule(this.reconnectAttempts, async () => {
+      try {
+        await this.start();
+      } catch {
+        // Errors already reflected in connection state; a failed start schedules the next attempt.
+      }
+    });
+    if (delayMs === null) return;
     logger.warn("Scheduling Codex app-server reconnect", {
       reconnectAttempts: this.reconnectAttempts,
       delayMs,
     });
-
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      void this.start().catch(() => {
-        // Errors already reflected in connection state; keep retrying.
-      });
-    }, delayMs);
 
     this.setConnectionState({
       status: "starting",
@@ -1024,9 +1012,7 @@ export class CodexAppServerClient extends EventEmitter {
   }
 
   private clearReconnectTimer(): void {
-    if (!this.reconnectTimer) return;
-    clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
+    this.reconnectSupervisor.cancel();
   }
 
   private resetReadyDeferred(): void {
@@ -1034,14 +1020,6 @@ export class CodexAppServerClient extends EventEmitter {
     void this.readyDeferred.promise.catch(() => {
       // Prevent unhandled-rejection warnings when startup fails before consumers await readiness.
     });
-  }
-
-  private rejectAllPending(error: Error): void {
-    for (const pending of this.pendingRequests.values()) {
-      clearTimeout(pending.timeout);
-      pending.reject(error);
-    }
-    this.pendingRequests.clear();
   }
 
   private setConnectionState(next: CodexConnectionState): void {
