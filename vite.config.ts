@@ -198,6 +198,7 @@ export default defineConfig({
         rules: {
           ...effectRecommended.rules,
           // These app-owned adapters are the intentional Node/platform frontier.
+          "effecttsgo/global-random": "off",
           "effecttsgo/node-builtin-import": "off",
         },
       },

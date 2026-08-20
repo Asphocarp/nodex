@@ -208,6 +208,48 @@ describe("codex-app-server-client", () => {
     }
   });
 
+  test("times out an unanswered request without retaining it in the session", async () => {
+    const mock = makeMockServerScript();
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+      requestTimeoutMs: 100,
+    });
+
+    try {
+      await client.start();
+      await expect(client.request("echo", { value: "too-late", delay: 300 })).rejects.toThrow(
+        "Codex request timed out: echo",
+      );
+      expect(
+        (client as unknown as { session: { pendingCount(): number } }).session.pendingCount(),
+      ).toBe(0);
+    } finally {
+      await client.stop();
+      mock.cleanup();
+    }
+  });
+
+  test("rejects every pending session request during explicit stop", async () => {
+    const mock = makeMockServerScript();
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+    });
+
+    try {
+      await client.start();
+      const pending = client.request("echo", { value: "pending", delay: 1_000 });
+      const rejection = pending.catch((error: unknown) => error);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await client.stop();
+      await expect(rejection).resolves.toEqual(new Error("Codex app-server client stopped"));
+    } finally {
+      await client.stop();
+      mock.cleanup();
+    }
+  });
+
   test("does not spawn a superseded startup after stop", async () => {
     const mock = makeMockServerScript();
     const startLogPath = path.join(path.dirname(mock.scriptPath), "starts.log");
