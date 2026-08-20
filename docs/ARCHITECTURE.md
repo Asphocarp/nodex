@@ -141,7 +141,9 @@ Store formats and migration sequences are implementation/recovery contracts, not
 
 Main is an Adapter, coordinator, and runtime host. It may bind Profile/Library/Project/Session identity, perform host preflight, and coordinate external effects around a Core command. It must not open SQLite, reconstruct a semantic transaction, infer authorization from renderer state, or provide a fallback data authority when Core is unavailable.
 
-Selected Main lifecycle modules use Effect 4 as an internal control plane for scoped resources, structured concurrency, cancellation, ordered queues, retry schedules, and shutdown. Compatibility facades keep their public Promise, callback, EventEmitter, and AbortSignal interfaces; Effect execution belongs only to the process composition root, tests, or the shared compatibility runtime. Renderer, preload, shared contracts, and generated wire protocols remain Effect-free, while unstable Effect APIs are localized behind app-owned adapters. [ADR 0047](docs/adr/0047-effect-control-plane-and-runtime-boundaries.md) owns this frontier.
+Selected Main lifecycle modules use Effect 4 as an internal control plane for scoped resources, structured concurrency, cancellation, ordered queues, retry schedules, and shutdown. One process-lifetime composition root acquires the explicitly constructed Browser, Terminal, Codex, and legacy Main runtime after Electron readiness. Application quit, startup rollback, and external runtime shutdown all close that same idempotent scope; individual physical Core streams and Codex app-server sessions remain subordinate resources rather than parallel process owners.
+
+Compatibility facades keep their public Promise, callback, EventEmitter, and AbortSignal interfaces; Effect execution belongs only to the process composition root, tests, or the shared compatibility runtime. Renderer, preload, shared contracts, and generated wire protocols remain Effect-free, while unstable Effect APIs are localized behind app-owned adapters. [ADR 0047](docs/adr/0047-effect-control-plane-and-runtime-boundaries.md) owns this frontier.
 
 Long-lived Core adapters target the process-lifetime authority supervisor, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. The lifecycle decision is detailed in [ADR 0034](docs/adr/0034-core-generations-are-supervised-runtime-sessions.md).
 
@@ -284,6 +286,8 @@ Surface descriptors contain stable resource or runtime references, not live Quer
 See [the Workbench shell specification](docs/product-specs/workbench-shell.md), [ADR 0032](docs/adr/0032-workbench-window-state-and-routing.md), and [ADR 0034](docs/adr/0034-owner-scoped-workbench-scenes.md).
 
 ### Startup, recovery, and restore
+
+Electron's synchronous bootstrap configures the Profile paths, diagnostics, privileged schemes, isolated-run ownership, and single-instance lock before readiness. It does not construct process services. After `app.whenReady()`, the Main composition root constructs and activates those services before dynamically acquiring the legacy Main runtime, whose module evaluation binds process observers. Failed acquisition releases everything already owned; normal and authority-driven quit use the same process scope.
 
 The launcher selects a single Core candidate while holding the Profile lifetime lock, then proves authority with an authenticated handshake. Existing descriptors and PIDs are hints, not process identity. Core compatibility is evaluated across transport, event, Module contracts, artifact policy, and exact Store identity.
 

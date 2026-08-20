@@ -143,6 +143,14 @@ and collection releases that writer between bounded candidate slices.
 
 Read [Backup, Restore, and Maintenance](reliability/backup-restore-and-maintenance.md).
 
+## Desktop process lifecycle
+
+Electron performs platform-required synchronous bootstrap before readiness, but no process service is created by importing a composition module. After readiness, one Main process scope acquires the Browser/Terminal/Codex service composition before the runtime that binds IPC and process observers. A required acquisition failure is fatal and rolls back every earlier acquisition.
+
+Every normal quit, authority-driven relaunch, external controller shutdown, and startup rollback closes that same scope. Close is idempotent under concurrent requests. Runtime finalizers preserve their subsystem ordering; a failed finalizer is reported while later finalizers still run, so one stuck runtime cannot silently skip composition release. The existing bounded per-subsystem shutdown deadlines remain the operational backstop.
+
+Logical control planes keep their own narrower lifetimes. A Core event stream advances its replay checkpoint only after ordered delivery succeeds and reconnects from that checkpoint. A Codex app-server session stops accepting work, rejects pending requests, interrupts request deadlines, and retires its child before a supervisor may install another generation. Development isolated runs release their environment lease only after exact child/Core cleanup is proven; uncertain cleanup preserves the environment.
+
 ## Runtime-specific recovery
 
 ### Codex conversations
@@ -225,6 +233,8 @@ and [Desktop Notification Behavior](product-specs/desktop-notification-behavior.
 | Exact resource authorization lost | Revoke/evict before post-state presentation; later operations reauthorize |
 | Core transport generation lost | Single-flight reconnect to the same Profile/Library/Store epoch |
 | Repeated Core losses | Open bounded circuit and show one app-wide Retry/Restart state |
+| Codex app-server session lost | Reject that session's pending requests, retire its child, then reconnect with one bounded supervisor; never carry pending RPC state into the replacement generation |
+| Main shutdown requested repeatedly | Close the one process scope idempotently; report finalizer failures and continue later cleanup |
 | Document/Canvas stream gap | New exact live barrier plus canonical engine sync |
 | Files external edit during local draft | Preserve local and external versions in explicit conflict state |
 | Browser/Terminal surface unmount | Preserve Main-owned runtime unless explicit lifecycle closes it |
