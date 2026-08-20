@@ -16,36 +16,16 @@ concurrency:
 jobs:
   static-contracts:
     name: main static contracts
-    runs-on: ubuntu-latest
-    env:
-      CI_TIMING_JOB: main-static-contracts
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/setup-rust-ci
-      - name: Verify runner CLI tools
-        run: rg --version
-      - name: Run static contracts
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name static-contracts -- pnpm run verify:static
-      - name: Show Rust compiler cache statistics
-        if: always()
-        run: sccache --show-stats || true
+    uses: ./.github/workflows/_static-checks.yml
+    with:
+      groups_json: '["types","ui-contracts","ci-contracts","repository-contracts","generated","landing"]'
+      timing_prefix: main-static
 
-  rust-full:
-    name: full Rust verification
+  rust-quality:
+    name: Rust quality and protocol contracts
     runs-on: ubuntu-latest
     env:
-      CI_TIMING_JOB: main-rust-full
+      CI_TIMING_JOB: main-rust-quality
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
     steps:
@@ -66,17 +46,17 @@ jobs:
         run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-format -- pnpm run core:fmt
       - name: Run Rust lint
         run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-clippy -- pnpm run core:clippy
-      - name: Run full Rust suite
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-full -- pnpm run core:test:full
+      - name: Verify generated protocol contracts
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name protocol-contracts -- pnpm run core:protocol:verify
       - name: Show Rust compiler cache statistics
         if: always()
         run: sccache --show-stats || true
 
-  app-tests:
-    name: full app tests
+  rust-workspace:
+    name: exhaustive Rust workspace tests
     runs-on: ubuntu-latest
     env:
-      CI_TIMING_JOB: main-app-tests
+      CI_TIMING_JOB: main-rust-workspace
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
     steps:
@@ -89,14 +69,45 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: ./.github/actions/setup-rust-ci
-      - run: pnpm run build-resources:prepare
-      - name: Run full application suites
-        run: pnpm exec tsx scripts/ci/run-timed.ts --name app-tests -- xvfb-run --auto-servernum pnpm test
+      - name: Run exhaustive workspace suite
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-workspace -- pnpm run core:test:workspace
       - name: Show Rust compiler cache statistics
         if: always()
         run: sccache --show-stats || true
+
+  rust-migration:
+    name: exhaustive Store migration tests
+    runs-on: ubuntu-latest
+    env:
+      CI_TIMING_JOB: main-rust-migration
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-rust-ci
+      - name: Run exhaustive migration suite
+        run: pnpm exec tsx scripts/ci/run-timed.ts --name rust-migration -- pnpm run core:test:migration
+      - name: Show Rust compiler cache statistics
+        if: always()
+        run: sccache --show-stats || true
+
+  app-tests:
+    name: full app tests
+    uses: ./.github/workflows/_app-tests.yml
+    with:
+      suites_json: '["unit","core-client","main","renderer","integration"]'
+      timing_prefix: main-app
 
   stress-tests:
     name: full stress tests
@@ -199,7 +210,9 @@ jobs:
     if: always()
     needs:
       - static-contracts
-      - rust-full
+      - rust-quality
+      - rust-workspace
+      - rust-migration
       - app-tests
       - stress-tests
       - browser-tests
@@ -207,30 +220,12 @@ jobs:
       - runtime-contracts
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Require every main gate
         env:
-          APP_RESULT: ${{ needs.app-tests.result }}
-          BROWSER_RESULT: ${{ needs.browser-tests.result }}
-          E2E_RESULT: ${{ needs.electron-e2e.result }}
-          RUNTIME_RESULT: ${{ needs.runtime-contracts.result }}
-          RUST_RESULT: ${{ needs.rust-full.result }}
-          STATIC_RESULT: ${{ needs.static-contracts.result }}
-          STRESS_RESULT: ${{ needs.stress-tests.result }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for gate in \
-            "static-contracts:${STATIC_RESULT}" \
-            "rust-full:${RUST_RESULT}" \
-            "app-tests:${APP_RESULT}" \
-            "stress-tests:${STRESS_RESULT}" \
-            "browser-tests:${BROWSER_RESULT}" \
-            "electron-e2e:${E2E_RESULT}" \
-            "runtime-contracts:${RUNTIME_RESULT}"; do
-            name="${gate%%:*}"
-            result="${gate#*:}"
-            if [[ "${result}" != "success" ]]; then
-              echo "${name} finished with ${result}; expected success." >&2
-              exit 1
-            fi
-          done
+          CI_CLASSIFIER_RESULT: success
+          CI_NEEDS_JSON: ${{ toJSON(needs) }}
+          CI_SELECTED_GATES_JSON: '["static-contracts","rust-quality","rust-workspace","rust-migration","app-tests","stress-tests","browser-tests","electron-e2e","runtime-contracts"]'
+        run: node --no-warnings scripts/ci/verify-required-gates.ts
