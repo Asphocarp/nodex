@@ -858,9 +858,11 @@ function AutomationEnvironmentDropdown({
         {canShowChoices && defaultEnvironment ? (
           <NodexDropdownItem
             leftSlot={
-              <span title="Default environment">
-                <AutomationTemplateColorIcon iconName="star-app" className="icon-xxs shrink-0" />
-              </span>
+              <NodexTooltip tooltipContent="Default environment">
+                <span>
+                  <AutomationTemplateColorIcon iconName="star-app" className="icon-xxs shrink-0" />
+                </span>
+              </NodexTooltip>
             }
             rightSlot={
               normalizedSelectedPath.length > 0 &&
@@ -1350,20 +1352,21 @@ function AutomationRowAction({
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex cursor-interaction items-center justify-center text-token-description-foreground outline-none disabled:cursor-default disabled:opacity-50",
-        "focus-visible:ring-token-focus focus-visible:ring-2",
-        danger ? "hover:text-token-error-foreground" : "hover:text-token-foreground",
-      )}
-    >
-      {children}
-    </button>
+    <NodexTooltip tooltipContent={label}>
+      <button
+        type="button"
+        aria-label={label}
+        disabled={disabled}
+        onClick={onClick}
+        className={cn(
+          "flex cursor-interaction items-center justify-center text-token-description-foreground outline-none disabled:cursor-default disabled:opacity-50",
+          "focus-visible:ring-token-focus focus-visible:ring-2",
+          danger ? "hover:text-token-error-foreground" : "hover:text-token-foreground",
+        )}
+      >
+        {children}
+      </button>
+    </NodexTooltip>
   );
 }
 

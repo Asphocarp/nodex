@@ -64,11 +64,11 @@ export function WorkbenchPanelNewTabButton({
       align="start"
       sideOffset={6}
       contentWidth="menuWide"
+      triggerTooltipContent={title}
       triggerButton={
         <button
           type="button"
           className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
-          title={title}
           aria-label={title}
         >
           <SidePanelPlusIcon className="icon-xs" />

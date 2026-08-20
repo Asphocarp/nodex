@@ -2030,7 +2030,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       expect(leftSlot.getAttribute("style")?.includes("width: 0px")).toBe(true);
       expect(leftSlot.getAttribute("style")?.includes("min-width: 208px")).toBe(true);
       expect(collapseButton.parentElement?.className.includes("fixed")).toBe(false);
-      expect(collapseButton.getAttribute("title")).toBe("Toggle sidebar");
+      expect(collapseButton.hasAttribute("title")).toBe(false);
       expect(backButton.hasAttribute("disabled")).toBe(true);
       expect(forwardButton.hasAttribute("disabled")).toBe(true);
       expect(

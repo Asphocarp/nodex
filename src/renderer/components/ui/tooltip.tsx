@@ -1,6 +1,8 @@
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import {
+  createContext,
   useEffect,
+  useContext,
   useRef,
   useState,
   type ComponentPropsWithoutRef,
@@ -30,6 +32,8 @@ export function dismissNodexTooltips() {
 
 export type NodexTooltipProviderProps = ComponentPropsWithoutRef<typeof RadixTooltip.Provider>;
 
+const NodexTooltipProviderPresence = createContext(false);
+
 export function NodexTooltipProvider({
   children,
   delayDuration = 0,
@@ -38,9 +42,11 @@ export function NodexTooltipProvider({
   useNodexFloatingSurfaceGlobalDismissal();
 
   return (
-    <RadixTooltip.Provider delayDuration={delayDuration} {...props}>
-      {children}
-    </RadixTooltip.Provider>
+    <NodexTooltipProviderPresence value>
+      <RadixTooltip.Provider delayDuration={delayDuration} {...props}>
+        {children}
+      </RadixTooltip.Provider>
+    </NodexTooltipProviderPresence>
   );
 }
 
@@ -86,6 +92,7 @@ export function NodexTooltip({
   style,
   ...props
 }: NodexTooltipProps) {
+  const hasSharedProvider = useContext(NodexTooltipProviderPresence);
   const contentRef = useRef<HTMLDivElement>(null);
   const isControlled = open !== undefined;
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen ?? false);
@@ -117,7 +124,7 @@ export function NodexTooltip({
     <ShortcutKeycaps keys={[shortcutLabel]} density="compact" />
   ) : null;
 
-  return (
+  const tooltip = (
     <RadixTooltip.Root
       open={resolvedOpen}
       defaultOpen={defaultOpen}
@@ -182,4 +189,7 @@ export function NodexTooltip({
       </RadixTooltip.Portal>
     </RadixTooltip.Root>
   );
+
+  if (hasSharedProvider) return tooltip;
+  return <RadixTooltip.Provider delayDuration={0}>{tooltip}</RadixTooltip.Provider>;
 }

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from "vitest";
-import { act } from "@testing-library/react";
+import { afterEach, describe, expect, test } from "vite-plus/test";
+import { act, fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   createDateMentionClockStore,
@@ -108,7 +108,11 @@ describe("NfmRenderer", () => {
     const link = container.querySelector("a[href='folder/abc/file']");
     expect(Boolean(link)).toBe(true);
     expect(link?.getAttribute("aria-disabled")).toBe("true");
-    expect(link?.getAttribute("title")).toBe(
+    expect(link?.hasAttribute("title")).toBe(false);
+
+    fireEvent.focus(link as Element);
+    await settleAsyncRender();
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain(
       "Cannot resolve relative file link without project workspace.",
     );
   });

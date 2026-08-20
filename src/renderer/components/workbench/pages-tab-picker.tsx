@@ -15,6 +15,7 @@ import {
   SidePanelPlusIcon,
 } from "@/components/shared/icons";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { useInfiniteLibraryCatalog } from "@/lib/use-library-navigation";
 import { MAX_LIBRARY_QUERY_LENGTH, type LibraryRouteTarget } from "../../../shared/library-module";
 import { useLibraryCreateCommands } from "../library/library-new-menu";
@@ -164,18 +165,19 @@ export function PagesTabPicker({
         setActiveIndex(0);
       }}
     >
-      <NodexPopoverTrigger asChild>
-        {triggerButton ?? (
-          <button
-            type="button"
-            className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
-            title="Open Page, Database, or Canvas"
-            aria-label="Open Page, Database, or Canvas"
-          >
-            <SidePanelPlusIcon className="icon-xs" />
-          </button>
-        )}
-      </NodexPopoverTrigger>
+      <NodexTooltip tooltipContent="Open Page, Database, or Canvas" side="bottom">
+        <NodexPopoverTrigger asChild>
+          {triggerButton ?? (
+            <button
+              type="button"
+              className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
+              aria-label="Open Page, Database, or Canvas"
+            >
+              <SidePanelPlusIcon className="icon-xs" />
+            </button>
+          )}
+        </NodexPopoverTrigger>
+      </NodexTooltip>
       <NodexPopoverContent
         role="dialog"
         aria-label="Open Page, Database, or Canvas"

@@ -2,6 +2,7 @@ import * as React from "react";
 import * as Slot from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import { NodexTooltip } from "./tooltip";
 
 const nodexButtonVariants = cva(
   [
@@ -45,7 +46,7 @@ const nodexButtonVariants = cva(
 );
 
 export interface NodexButtonProps
-  extends React.ComponentProps<"button">, VariantProps<typeof nodexButtonVariants> {
+  extends Omit<React.ComponentProps<"button">, "title">, VariantProps<typeof nodexButtonVariants> {
   asChild?: boolean;
 }
 
@@ -89,32 +90,34 @@ export function NodexIconButton({
   title,
   ...props
 }: NodexIconButtonProps) {
+  const tooltipContent = title ?? ariaLabel;
   return (
-    <button
-      {...props}
-      type={type}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      title={title ?? ariaLabel}
-      className={cn(
-        "inline-flex items-center justify-center rounded-md outline-hidden transition-colors",
-        "focus-visible:ring-token-focus focus-visible:ring-2",
-        size === "xs" && "size-6",
-        size === "sm" && "size-7",
-        size === "default" && "size-8",
-        tone === "danger"
-          ? active
-            ? "text-token-error-foreground"
-            : "text-token-error-foreground/70 hover:bg-token-error-background/10 hover:text-token-error-foreground"
-          : active
-            ? "text-(--accent-blue)"
-            : "text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground)",
-        disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
-        className,
-      )}
-    >
-      <Icon className="size-4" />
-    </button>
+    <NodexTooltip tooltipContent={tooltipContent} side="top">
+      <button
+        {...props}
+        type={type}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={cn(
+          "inline-flex items-center justify-center rounded-md outline-hidden transition-colors",
+          "focus-visible:ring-token-focus focus-visible:ring-2",
+          size === "xs" && "size-6",
+          size === "sm" && "size-7",
+          size === "default" && "size-8",
+          tone === "danger"
+            ? active
+              ? "text-token-error-foreground"
+              : "text-token-error-foreground/70 hover:bg-token-error-background/10 hover:text-token-error-foreground"
+            : active
+              ? "text-(--accent-blue)"
+              : "text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground)",
+          disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
+          className,
+        )}
+      >
+        <Icon className="size-4" />
+      </button>
+    </NodexTooltip>
   );
 }
 

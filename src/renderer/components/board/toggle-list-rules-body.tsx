@@ -10,6 +10,7 @@ import {
 } from "@/components/shared/icons/generic-icons";
 import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
 import { NodexSwitch } from "@/components/ui/button";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   formatRulesV2AsJsonLogic,
   parseRulesV2FromJsonLogic,
@@ -525,33 +526,36 @@ function SortSection({
             ) : null}
 
             <div className="ml-auto flex items-center gap-0.5">
-              <button
-                type="button"
-                className={ICON_BTN}
-                onClick={() => moveSort(index, -1)}
-                disabled={index === 0}
-                title="Move up"
-              >
-                <ArrowUp className="size-3" />
-              </button>
-              <button
-                type="button"
-                className={ICON_BTN}
-                onClick={() => moveSort(index, 1)}
-                disabled={index === settings.rulesV2.sort.length - 1}
-                title="Move down"
-              >
-                <ArrowDown className="size-3" />
-              </button>
-              <button
-                type="button"
-                className={ICON_BTN}
-                onClick={() => removeSort(index)}
-                disabled={settings.rulesV2.sort.length <= 1}
-                title="Remove sort"
-              >
-                <X className="size-3" />
-              </button>
+              <NodexTooltip tooltipContent="Move up">
+                <button
+                  type="button"
+                  className={ICON_BTN}
+                  onClick={() => moveSort(index, -1)}
+                  disabled={index === 0}
+                >
+                  <ArrowUp className="size-3" />
+                </button>
+              </NodexTooltip>
+              <NodexTooltip tooltipContent="Move down">
+                <button
+                  type="button"
+                  className={ICON_BTN}
+                  onClick={() => moveSort(index, 1)}
+                  disabled={index === settings.rulesV2.sort.length - 1}
+                >
+                  <ArrowDown className="size-3" />
+                </button>
+              </NodexTooltip>
+              <NodexTooltip tooltipContent="Remove sort">
+                <button
+                  type="button"
+                  className={ICON_BTN}
+                  onClick={() => removeSort(index)}
+                  disabled={settings.rulesV2.sort.length <= 1}
+                >
+                  <X className="size-3" />
+                </button>
+              </NodexTooltip>
             </div>
           </div>
         ))}
@@ -608,54 +612,60 @@ function PropertiesSection({
                 >
                   {formatPropertyName(property)}
                 </span>
-                <button
-                  type="button"
-                  className={cn(ICON_BTN, hidden && "text-(--foreground-tertiary)/40")}
-                  onClick={() =>
-                    updateSettings((prev) => toggleToggleListHiddenProperty(prev, property))
-                  }
-                  title={hidden ? "Show" : "Hide"}
-                >
-                  {hidden ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-                </button>
-                <button
-                  type="button"
-                  className={cn(ICON_BTN, "opacity-0 group-hover:opacity-100")}
-                  onClick={() =>
-                    updateSettings((prev) => moveToggleListProperty(prev, property, -1))
-                  }
-                  disabled={index === 0}
-                  title="Move up"
-                >
-                  <ArrowUp className="size-3" />
-                </button>
-                <button
-                  type="button"
-                  className={cn(ICON_BTN, "opacity-0 group-hover:opacity-100")}
-                  onClick={() =>
-                    updateSettings((prev) => moveToggleListProperty(prev, property, 1))
-                  }
-                  disabled={index === settings.propertyOrder.length - 1}
-                  title="Move down"
-                >
-                  <ArrowDown className="size-3" />
-                </button>
-                {showEmpty !== null && onToggleShowEmpty && (
+                <NodexTooltip tooltipContent={hidden ? "Show" : "Hide"}>
                   <button
                     type="button"
-                    className={cn(
-                      "ml-0.5 inline-flex h-5 items-center rounded-md px-1 font-mono text-[10px] leading-none",
-                      showEmpty
-                        ? "bg-(--foreground-secondary)/8 text-(--foreground-secondary)"
-                        : "text-(--foreground-tertiary) hover:bg-(--foreground-secondary)/5 hover:text-(--foreground-secondary)",
-                    )}
-                    onClick={onToggleShowEmpty}
-                    title={
+                    className={cn(ICON_BTN, hidden && "text-(--foreground-tertiary)/40")}
+                    onClick={() =>
+                      updateSettings((prev) => toggleToggleListHiddenProperty(prev, property))
+                    }
+                  >
+                    {hidden ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                  </button>
+                </NodexTooltip>
+                <NodexTooltip tooltipContent="Move up">
+                  <button
+                    type="button"
+                    className={cn(ICON_BTN, "opacity-0 group-hover:opacity-100")}
+                    onClick={() =>
+                      updateSettings((prev) => moveToggleListProperty(prev, property, -1))
+                    }
+                    disabled={index === 0}
+                  >
+                    <ArrowUp className="size-3" />
+                  </button>
+                </NodexTooltip>
+                <NodexTooltip tooltipContent="Move down">
+                  <button
+                    type="button"
+                    className={cn(ICON_BTN, "opacity-0 group-hover:opacity-100")}
+                    onClick={() =>
+                      updateSettings((prev) => moveToggleListProperty(prev, property, 1))
+                    }
+                    disabled={index === settings.propertyOrder.length - 1}
+                  >
+                    <ArrowDown className="size-3" />
+                  </button>
+                </NodexTooltip>
+                {showEmpty !== null && onToggleShowEmpty && (
+                  <NodexTooltip
+                    tooltipContent={
                       showEmpty ? "Hide placeholder when empty" : "Show placeholder when empty"
                     }
                   >
-                    [-]
-                  </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "ml-0.5 inline-flex h-5 items-center rounded-md px-1 font-mono text-[10px] leading-none",
+                        showEmpty
+                          ? "bg-(--foreground-secondary)/8 text-(--foreground-secondary)"
+                          : "text-(--foreground-tertiary) hover:bg-(--foreground-secondary)/5 hover:text-(--foreground-secondary)",
+                      )}
+                      onClick={onToggleShowEmpty}
+                    >
+                      [-]
+                    </button>
+                  </NodexTooltip>
                 )}
               </div>
             );
@@ -774,14 +784,15 @@ function GroupEditor({
   return (
     <div className={cn("relative flex flex-col", rowGap)}>
       {removable && (
-        <button
-          type="button"
-          className={cn(ICON_BTN, "absolute -top-0.5 -right-0.5")}
-          onClick={onRemove}
-          title="Remove group"
-        >
-          <X className="size-3" />
-        </button>
+        <NodexTooltip tooltipContent="Remove group">
+          <button
+            type="button"
+            className={cn(ICON_BTN, "absolute -top-0.5 -right-0.5")}
+            onClick={onRemove}
+          >
+            <X className="size-3" />
+          </button>
+        </NodexTooltip>
       )}
 
       {/* Status row */}
@@ -815,16 +826,16 @@ function GroupEditor({
               {TOGGLE_LIST_PRIORITY_CHIP_LABELS[priority]}
             </button>
           ))}
-          <button
-            key={`p-${groupIndex}-empty`}
-            type="button"
-            onClick={toggleEmptyPriority}
-            className={cn(CHIP_BASE, priorityIncludesEmpty && CHIP_ACTIVE)}
-            title="Empty priority"
-            aria-label="Empty priority"
-          >
-            {TOGGLE_LIST_EMPTY_PRIORITY_LABEL}
-          </button>
+          <NodexTooltip key={`p-${groupIndex}-empty`} tooltipContent="Empty priority">
+            <button
+              type="button"
+              onClick={toggleEmptyPriority}
+              className={cn(CHIP_BASE, priorityIncludesEmpty && CHIP_ACTIVE)}
+              aria-label="Empty priority"
+            >
+              {TOGGLE_LIST_EMPTY_PRIORITY_LABEL}
+            </button>
+          </NodexTooltip>
         </div>
       </div>
 

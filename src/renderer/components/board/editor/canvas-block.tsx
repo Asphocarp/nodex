@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { ExternalLink, Pencil } from "@/components/shared/icons/generic-icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 
 import { CanvasDocumentState } from "@/components/board/canvas-document-state";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
@@ -145,26 +146,28 @@ export function CanvasBlockFrame({
           <span className="text-xs text-token-description-foreground">Loading…</span>
         ) : null}
         {onRename ? (
-          <button
-            type="button"
-            className="flex size-6 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 hover:bg-token-foreground/8 hover:text-token-text-primary focus-visible:opacity-100 group-hover/canvas:opacity-100"
-            aria-label={`Rename ${title}`}
-            title="Rename Canvas"
-            onClick={() => setRenaming(true)}
-          >
-            <Pencil className="size-3.5" aria-hidden="true" />
-          </button>
+          <NodexTooltip tooltipContent="Rename Canvas" side="top">
+            <button
+              type="button"
+              className="flex size-6 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 hover:bg-token-foreground/8 hover:text-token-text-primary focus-visible:opacity-100 group-hover/canvas:opacity-100"
+              aria-label={`Rename ${title}`}
+              onClick={() => setRenaming(true)}
+            >
+              <Pencil className="size-3.5" aria-hidden="true" />
+            </button>
+          </NodexTooltip>
         ) : null}
         {onOpen ? (
-          <button
-            type="button"
-            className="flex size-6 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 hover:bg-token-foreground/8 hover:text-token-text-primary focus-visible:opacity-100 group-hover/canvas:opacity-100"
-            aria-label={`Open ${title}`}
-            title="Open Canvas in tab"
-            onClick={onOpen}
-          >
-            <ExternalLink className="size-3.5" aria-hidden="true" />
-          </button>
+          <NodexTooltip tooltipContent="Open Canvas in tab" side="top">
+            <button
+              type="button"
+              className="flex size-6 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 hover:bg-token-foreground/8 hover:text-token-text-primary focus-visible:opacity-100 group-hover/canvas:opacity-100"
+              aria-label={`Open ${title}`}
+              onClick={onOpen}
+            >
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+            </button>
+          </NodexTooltip>
         ) : null}
       </div>
       <div

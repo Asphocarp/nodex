@@ -1,4 +1,5 @@
 import type { CodexCollaborationModeKind, CodexCollaborationModePreset } from "@/lib/types";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { ToolbarDropdownMenu } from "./toolbar-dropdown-menu";
 
 function fallbackModeLabel(mode: CodexCollaborationModeKind): string {
@@ -16,15 +17,18 @@ export function StageThreadsCollaborationModeDropdown({
 }) {
   if (collaborationModes.length === 0) {
     return (
-      <button
-        type="button"
-        className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-2 text-sm/4.5 text-(--foreground-secondary) opacity-50"
-        disabled
-        title="Collaboration modes unavailable"
-        aria-label="Collaboration modes unavailable"
-      >
-        <span>{fallbackModeLabel(selectedMode)}</span>
-      </button>
+      <NodexTooltip tooltipContent="Collaboration modes unavailable">
+        <span className="inline-flex">
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-2 text-sm/4.5 text-(--foreground-secondary) opacity-50"
+            disabled
+            aria-label="Collaboration modes unavailable"
+          >
+            <span>{fallbackModeLabel(selectedMode)}</span>
+          </button>
+        </span>
+      </NodexTooltip>
     );
   }
 

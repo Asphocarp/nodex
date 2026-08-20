@@ -33,6 +33,7 @@ import {
 } from "@/components/shared/icons/generic-icons";
 
 import { cn } from "@/lib/utils";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
 import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
@@ -213,14 +214,17 @@ const createReadonlyAttachmentInlineContentSpec = () =>
     render: ({ inlineContent }) => {
       const props = inlineContent.props as PreviewAttachmentProps;
       return (
-        <span
-          contentEditable={false}
-          title={props.source}
-          className="inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! bg-token-charts-purple/10 px-1.5 font-normal text-token-charts-purple"
-        >
-          <Paperclip className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-          <span className="truncate leading-[inherit]">{formatPreviewAttachmentLabel(props)}</span>
-        </span>
+        <NodexTooltip tooltipContent={props.source}>
+          <span
+            contentEditable={false}
+            className="inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! bg-token-charts-purple/10 px-1.5 font-normal text-token-charts-purple"
+          >
+            <Paperclip className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
+            <span className="truncate leading-[inherit]">
+              {formatPreviewAttachmentLabel(props)}
+            </span>
+          </span>
+        </NodexTooltip>
       );
     },
   });
@@ -231,22 +235,23 @@ const createReadonlyAgentConfigInlineContentSpec = () =>
       const chip = resolveAgentConfigChip(inlineContent.props as Partial<AgentConfigProps>);
       const Icon = chip.invalid ? Settings2 : chip.detail ? Bot : Settings2;
       return (
-        <span
-          contentEditable={false}
-          title={[chip.label, chip.detail].filter(Boolean).join(" - ")}
-          className={cn(
-            "inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! px-1.5 font-normal",
-            chip.invalid
-              ? "bg-token-foreground/8 text-token-description-foreground"
-              : "bg-token-charts-blue/10 text-token-charts-blue",
-          )}
-        >
-          <Icon className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-          <span className="truncate leading-[inherit]">{chip.label}</span>
-          {chip.detail ? (
-            <span className="ml-1 truncate leading-[inherit] opacity-70">{chip.detail}</span>
-          ) : null}
-        </span>
+        <NodexTooltip tooltipContent={[chip.label, chip.detail].filter(Boolean).join(" - ")}>
+          <span
+            contentEditable={false}
+            className={cn(
+              "inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! px-1.5 font-normal",
+              chip.invalid
+                ? "bg-token-foreground/8 text-token-description-foreground"
+                : "bg-token-charts-blue/10 text-token-charts-blue",
+            )}
+          >
+            <Icon className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
+            <span className="truncate leading-[inherit]">{chip.label}</span>
+            {chip.detail ? (
+              <span className="ml-1 truncate leading-[inherit] opacity-70">{chip.detail}</span>
+            ) : null}
+          </span>
+        </NodexTooltip>
       );
     },
   });

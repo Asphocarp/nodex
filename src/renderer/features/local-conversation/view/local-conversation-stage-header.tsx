@@ -83,6 +83,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
               sideOffset={1}
               contentWidth="menu"
               motion="none"
+              triggerTooltipContent="Task actions"
               triggerButton={
                 <button
                   type="button"
@@ -92,7 +93,6 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
                     menuOpen && "bg-token-list-hover-background text-token-text-primary",
                   )}
                   aria-label="Task actions"
-                  title="Task actions"
                 >
                   <ProjectActionsIcon className="icon-sm" />
                 </button>

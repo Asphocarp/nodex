@@ -69,13 +69,14 @@ describe("nfm compact link toolbar", () => {
     const button = view.getByRole("button", { name: "Open" });
 
     await act(async () => {
-      fireEvent.mouseEnter(button);
+      fireEvent.focus(button.parentElement ?? button);
       fireEvent.click(button);
       await settleAsyncRender();
     });
 
     expect(openCount).toBe(0);
-    expect(button.getAttribute("title")).toBe(disabledReason);
+    expect(button.hasAttribute("title")).toBe(false);
+    expect(view.getByRole("tooltip").textContent).toContain(disabledReason);
   });
 
   test("copies the exact stored href through the copy action callback", async () => {

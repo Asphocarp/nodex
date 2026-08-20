@@ -210,7 +210,6 @@ export function BranchSelectorPopover({
   ) : (
     <NodexDropdownButtonTrigger
       aria-label="Switch branch"
-      title={triggerTitle}
       disabled={isDisabled}
       size="sm"
       chrome="transparent"
@@ -235,6 +234,7 @@ export function BranchSelectorPopover({
         align={align}
         sideOffset={sideOffset}
         triggerButton={triggerButton}
+        triggerTooltipContent={renderTrigger ? undefined : triggerTitle}
         contentWidth={contentWidth}
         contentClassName={contentClassName}
       >

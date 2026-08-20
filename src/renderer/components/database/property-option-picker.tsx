@@ -9,6 +9,7 @@ import {
 } from "react";
 import { CheckmarkIcon, CloseIcon, PlusIcon, SearchIcon } from "@/components/shared/icons";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "@/components/ui/control-chrome";
 import {
   canCreateDataSourcePropertyOption,
@@ -198,6 +199,7 @@ function PropertyOptionPickerFrame({
   open,
   disabled,
   trigger,
+  triggerTooltipContent,
   contentClassName,
   onOpenChange,
   children,
@@ -206,6 +208,7 @@ function PropertyOptionPickerFrame({
   readonly open: boolean;
   readonly disabled: boolean;
   readonly trigger: ReactElement;
+  readonly triggerTooltipContent?: ReactNode;
   readonly contentClassName?: string;
   readonly onOpenChange: (open: boolean) => void;
   readonly children: ReactNode;
@@ -214,9 +217,11 @@ function PropertyOptionPickerFrame({
 
   return (
     <NodexPopover open={open} onOpenChange={onOpenChange}>
-      <NodexPopoverTrigger asChild disabled={disabled}>
-        {trigger}
-      </NodexPopoverTrigger>
+      <NodexTooltip tooltipContent={triggerTooltipContent}>
+        <NodexPopoverTrigger asChild disabled={disabled}>
+          {trigger}
+        </NodexPopoverTrigger>
+      </NodexTooltip>
       <NodexPopoverContent
         align="start"
         className={cn("w-[min(320px,calc(100vw-16px))] overflow-hidden p-0", contentClassName)}
@@ -434,7 +439,6 @@ export function PropertyOptionPicker({
     <button
       type="button"
       aria-label={closedTriggerLabel}
-      title={presentation === "board" ? closedTriggerLabel : undefined}
       className={cn(
         "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
         "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
@@ -478,6 +482,7 @@ export function PropertyOptionPicker({
       open={open}
       disabled={triggerDisabled}
       trigger={triggerButton ?? defaultTrigger}
+      triggerTooltipContent={presentation === "board" ? closedTriggerLabel : undefined}
       contentClassName={contentClassName}
       onOpenChange={changeHostOpen}
     >

@@ -469,7 +469,6 @@ function UserInputQuestionSection({
                             >
                               <span
                                 aria-label={`About ${option.label}`}
-                                title={option.description}
                                 className="inline-flex shrink-0 items-center text-(--foreground-tertiary) transition-colors duration-100 hover:text-(--foreground-secondary)"
                                 onClick={(event) => {
                                   event.stopPropagation();

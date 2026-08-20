@@ -3,6 +3,7 @@ import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
 import { NodexButton } from "@/components/ui/button";
 import { NodexCheckbox } from "@/components/ui/settings";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { StatusIcon } from "@/lib/status-presentation";
 import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
 import { cn } from "@/lib/utils";
@@ -264,18 +265,19 @@ export function DatabaseListRow({
         </div>
       ) : null}
       {identity.label.length > 0 ? (
-        <div
-          role="gridcell"
-          data-list-grid-column="identifier"
-          className="relative z-[1] min-w-0 truncate text-[13px] font-[450] leading-[normal] tracking-[-0.02em] tabular-nums text-[var(--database-list-text-muted)]"
-          style={{
-            gridColumn: "identifier",
-            transform: `translateX(${depthOffset}px)`,
-          }}
-          title={identity.title}
-        >
-          {identity.label}
-        </div>
+        <NodexTooltip tooltipContent={identity.title}>
+          <div
+            role="gridcell"
+            data-list-grid-column="identifier"
+            className="relative z-[1] min-w-0 truncate text-[13px] font-[450] leading-[normal] tracking-[-0.02em] tabular-nums text-[var(--database-list-text-muted)]"
+            style={{
+              gridColumn: "identifier",
+              transform: `translateX(${depthOffset}px)`,
+            }}
+          >
+            {identity.label}
+          </div>
+        </NodexTooltip>
       ) : null}
       {showStatus ? (
         <div

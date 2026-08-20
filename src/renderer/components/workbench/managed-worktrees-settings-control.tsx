@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { NodexSettingsRow, NodexSettingsSection } from "@/components/ui/settings";
 import { toast } from "@/components/ui/toast";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import type {
   ManagedWorktreeRecord,
@@ -89,17 +90,19 @@ function RefreshWorktreesButton({
   readonly onRefresh: () => void;
 }) {
   return (
-    <NodexButton
-      aria-label="Refresh worktrees"
-      className="shrink-0"
-      disabled={loading}
-      size="icon-sm"
-      title="Refresh worktrees"
-      variant="ghost"
-      onClick={onRefresh}
-    >
-      <RefreshIcon className="icon-xs" />
-    </NodexButton>
+    <NodexTooltip tooltipContent="Refresh worktrees" side="top">
+      <span className="inline-flex shrink-0">
+        <NodexButton
+          aria-label="Refresh worktrees"
+          disabled={loading}
+          size="icon-sm"
+          variant="ghost"
+          onClick={onRefresh}
+        >
+          <RefreshIcon className="icon-xs" />
+        </NodexButton>
+      </span>
+    </NodexTooltip>
   );
 }
 
@@ -112,9 +115,9 @@ function WorktreeCardHeader({
 }) {
   return (
     <div className="flex min-h-11 items-center justify-between gap-3 px-3 py-2">
-      <h2 className="min-w-0 truncate text-sm font-medium text-token-text-primary" title={title}>
-        {title}
-      </h2>
+      <NodexTooltip tooltipContent={title} side="top">
+        <h2 className="min-w-0 truncate text-sm font-medium text-token-text-primary">{title}</h2>
+      </NodexTooltip>
       {action}
     </div>
   );
@@ -136,9 +139,9 @@ function WorktreeInventoryRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium text-token-text-primary">Worktree</div>
-          <div className="mt-1 truncate text-xs text-token-text-secondary" title={record.path}>
-            {record.path}
-          </div>
+          <NodexTooltip tooltipContent={record.path} side="top">
+            <div className="mt-1 truncate text-xs text-token-text-secondary">{record.path}</div>
+          </NodexTooltip>
         </div>
         <NodexButton
           aria-label={`Delete worktree ${record.path}`}
@@ -386,12 +389,11 @@ export function ManagedWorktreesSettingControl({
             <div className="flex min-h-toolbar items-center justify-between gap-4 pb-1.5">
               <div className="font-medium text-token-text-primary text-base">
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <h2
-                    className="min-w-0 truncate text-sm text-token-text-primary"
-                    title={group.repositoryPath}
-                  >
-                    {group.repositoryPath}
-                  </h2>
+                  <NodexTooltip tooltipContent={group.repositoryPath} side="top">
+                    <h2 className="min-w-0 truncate text-sm text-token-text-primary">
+                      {group.repositoryPath}
+                    </h2>
+                  </NodexTooltip>
                 </div>
               </div>
               {groupIndex === 0 ? (

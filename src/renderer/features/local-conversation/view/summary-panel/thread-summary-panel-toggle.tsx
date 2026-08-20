@@ -13,7 +13,10 @@ function appendClassName(baseClassName: string, className: string | undefined): 
   return `${baseClassName} ${trimmedClassName}`;
 }
 
-type ThreadSummaryPanelToggleButtonProps = Omit<ComponentPropsWithoutRef<"button">, "children"> & {
+type ThreadSummaryPanelToggleButtonProps = Omit<
+  ComponentPropsWithoutRef<"button">,
+  "children" | "title"
+> & {
   pressed: boolean;
   label?: string;
 };
@@ -26,8 +29,6 @@ export const ThreadSummaryPanelToggleButton = forwardRef<
   ref,
 ) {
   const ariaLabel = buttonProps["aria-label"] ?? label;
-  const title = buttonProps.title ?? label;
-
   return (
     <button
       {...buttonProps}
@@ -35,7 +36,6 @@ export const ThreadSummaryPanelToggleButton = forwardRef<
       type={type}
       aria-label={ariaLabel}
       aria-pressed={pressed}
-      title={title}
       className={appendClassName(
         pressed ? SUMMARY_TOGGLE_PRESSED_CLASS : SUMMARY_TOGGLE_IDLE_CLASS,
         className,

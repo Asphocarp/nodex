@@ -922,12 +922,11 @@ function TextActionDisabledButton({
 
 function TextActionMockBadge({ reason }: { reason?: string }) {
   return (
-    <span
-      title={reason}
-      className="shrink-0 rounded-[4px] bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-4 text-token-description-foreground"
-    >
-      Mock
-    </span>
+    <NodexTooltip tooltipContent={reason}>
+      <span className="shrink-0 rounded-[4px] bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-4 text-token-description-foreground">
+        Mock
+      </span>
+    </NodexTooltip>
   );
 }
 

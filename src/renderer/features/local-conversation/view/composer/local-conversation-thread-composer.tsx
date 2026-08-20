@@ -1350,25 +1350,25 @@ function LegacyModelSelectorDropdown({
                 <span className="text-xs text-token-text-secondary">Speed</span>
                 <div className="flex items-center gap-0.5" aria-label="Speed">
                   {SERVICE_TIER_OPTIONS.map((option) => (
-                    <button
-                      key={option.label}
-                      type="button"
-                      aria-pressed={selection.serviceTier === option.value}
-                      aria-description={option.description}
-                      title={option.description}
-                      className={cn(
-                        "rounded-md px-1.5 py-1 text-xs text-token-description-foreground",
-                        selection.serviceTier === option.value &&
-                          "bg-token-dropdown-background text-token-foreground shadow-sm",
-                      )}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        controller.select({ ...selection, serviceTier: option.value });
-                      }}
-                    >
-                      {option.label}
-                    </button>
+                    <NodexTooltip key={option.label} tooltipContent={option.description}>
+                      <button
+                        type="button"
+                        aria-pressed={selection.serviceTier === option.value}
+                        aria-description={option.description}
+                        className={cn(
+                          "rounded-md px-1.5 py-1 text-xs text-token-description-foreground",
+                          selection.serviceTier === option.value &&
+                            "bg-token-dropdown-background text-token-foreground shadow-sm",
+                        )}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          controller.select({ ...selection, serviceTier: option.value });
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    </NodexTooltip>
                   ))}
                 </div>
               </div>
@@ -4305,15 +4305,20 @@ function HydratedThreadComposer({
   );
   const dictationRowContent = (
     <>
-      <button
-        type="button"
-        className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) opacity-50"
-        aria-label={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
-        title={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
-        disabled
+      <NodexTooltip
+        tooltipContent={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
       >
-        <PlusIcon className="size-4" />
-      </button>
+        <span className="inline-flex">
+          <button
+            type="button"
+            className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) opacity-50"
+            aria-label={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
+            disabled
+          >
+            <PlusIcon className="size-4" />
+          </button>
+        </span>
+      </NodexTooltip>
       <div className="flex h-token-button-composer min-w-0 flex-1 items-center">
         <canvas
           ref={waveformCanvasRef}
@@ -4445,14 +4450,15 @@ function HydratedThreadComposer({
           onBack={backFromNestedSlashMenu}
         />
         {dictationToastMessage ? (
-          <button
-            type="button"
-            onClick={() => setDictationToastMessage(null)}
-            className="absolute inset-x-0 -top-10 z-20 mx-auto inline-flex w-fit max-w-[min(24rem,100%)] items-center rounded-full border border-(--destructive)/30 bg-(--destructive)/10 px-3 py-1 text-xs font-medium text-(--destructive)"
-            title={dictationToastMessage}
-          >
-            {dictationToastMessage}
-          </button>
+          <NodexTooltip tooltipContent={dictationToastMessage}>
+            <button
+              type="button"
+              onClick={() => setDictationToastMessage(null)}
+              className="absolute inset-x-0 -top-10 z-20 mx-auto inline-flex w-fit max-w-[min(24rem,100%)] items-center rounded-full border border-(--destructive)/30 bg-(--destructive)/10 px-3 py-1 text-xs font-medium text-(--destructive)"
+            >
+              {dictationToastMessage}
+            </button>
+          </NodexTooltip>
         ) : null}
         {showPlanKeywordSuggestion ? (
           <PlanKeywordSuggestion
@@ -4488,139 +4494,152 @@ function HydratedThreadComposer({
                     hasVisibleNonImageAttachments={hasVisibleNonImageAttachments}
                   >
                     {appshotContexts.map((context) => (
-                      <div
+                      <NodexTooltip
                         key={context.id}
-                        className="group relative h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-token-border bg-token-main-surface-secondary"
-                        data-composer-appshot="true"
-                        title={
+                        tooltipContent={
                           context.windowTitle
                             ? `${context.appName} — ${context.windowTitle}`
                             : context.appName
                         }
                       >
-                        <img
-                          src={context.imageDataUrl}
-                          alt={`${context.appName} Appshot`}
-                          draggable={false}
-                          className="size-full object-cover"
-                        />
-                        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-linear-to-t from-black/75 to-transparent px-2 pt-5 pb-1.5 text-[11px] text-white">
-                          {context.appIconDataUrl ? (
-                            <img
-                              src={context.appIconDataUrl}
-                              alt=""
-                              aria-hidden="true"
-                              draggable={false}
-                              className="size-3.5 shrink-0 object-contain"
-                            />
-                          ) : null}
-                          <span className="min-w-0 truncate">{context.appName}</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-80 backdrop-blur-sm transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-token-focus-border"
-                          onClick={() => handleRemoveAppshotContext(context.id)}
-                          aria-label={`Remove ${context.appName} Appshot`}
+                        <div
+                          className="group relative h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-token-border bg-token-main-surface-secondary"
+                          data-composer-appshot="true"
                         >
-                          <CloseIcon className="size-3" />
-                        </button>
-                      </div>
+                          <img
+                            src={context.imageDataUrl}
+                            alt={`${context.appName} Appshot`}
+                            draggable={false}
+                            className="size-full object-cover"
+                          />
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-linear-to-t from-black/75 to-transparent px-2 pt-5 pb-1.5 text-[11px] text-white">
+                            {context.appIconDataUrl ? (
+                              <img
+                                src={context.appIconDataUrl}
+                                alt=""
+                                aria-hidden="true"
+                                draggable={false}
+                                className="size-3.5 shrink-0 object-contain"
+                              />
+                            ) : null}
+                            <span className="min-w-0 truncate">{context.appName}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-80 backdrop-blur-sm transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-token-focus-border"
+                            onClick={() => handleRemoveAppshotContext(context.id)}
+                            aria-label={`Remove ${context.appName} Appshot`}
+                          >
+                            <CloseIcon className="size-3" />
+                          </button>
+                        </div>
+                      </NodexTooltip>
                     ))}
                     {pastedTextAttachments.map((attachment, index) => (
-                      <div
+                      <NodexTooltip
                         key={attachment.id}
-                        className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 py-1 pr-1 pl-2 text-xs text-token-foreground"
-                        title={
+                        tooltipContent={
                           attachment.status === "failed" ? attachment.error : attachment.preview
                         }
                       >
-                        {attachment.status === "pending" ? (
-                          <ActivitySpinnerIcon className="size-3 text-token-description-foreground" />
-                        ) : (
-                          <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                        )}
-                        <span className="min-w-0 truncate">
-                          {attachment.status === "pending"
-                            ? "Adding pasted text…"
-                            : attachment.status === "failed"
-                              ? "Pasted text failed"
-                              : "Pasted text.txt"}
-                        </span>
-                        <span className="shrink-0 text-token-description-foreground">
-                          {attachment.characterCount.toLocaleString()} chars
-                        </span>
-                        {attachment.status === "failed" ? (
+                        <div className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 py-1 pr-1 pl-2 text-xs text-token-foreground">
+                          {attachment.status === "pending" ? (
+                            <ActivitySpinnerIcon className="size-3 text-token-description-foreground" />
+                          ) : (
+                            <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                          )}
+                          <span className="min-w-0 truncate">
+                            {attachment.status === "pending"
+                              ? "Adding pasted text…"
+                              : attachment.status === "failed"
+                                ? "Pasted text failed"
+                                : "Pasted text.txt"}
+                          </span>
+                          <span className="shrink-0 text-token-description-foreground">
+                            {attachment.characterCount.toLocaleString()} chars
+                          </span>
+                          {attachment.status === "failed" ? (
+                            <button
+                              type="button"
+                              className="rounded px-1 hover:bg-token-foreground/10"
+                              onClick={() => handleRetryPastedTextAttachment(attachment.id)}
+                            >
+                              Retry
+                            </button>
+                          ) : null}
+                          {attachment.status === "ready" ? (
+                            <button
+                              type="button"
+                              className="rounded px-1 hover:bg-token-foreground/10"
+                              onClick={() => handleShowPastedTextInField(attachment.id)}
+                            >
+                              Show in text field
+                            </button>
+                          ) : null}
                           <button
                             type="button"
-                            className="rounded px-1 hover:bg-token-foreground/10"
-                            onClick={() => handleRetryPastedTextAttachment(attachment.id)}
+                            className="rounded px-1 text-token-description-foreground hover:bg-token-foreground/10"
+                            onClick={() => handleRemovePastedTextAttachment(attachment.id)}
+                            aria-label={`Remove pasted text ${index + 1}`}
                           >
-                            Retry
+                            x
                           </button>
-                        ) : null}
-                        {attachment.status === "ready" ? (
-                          <button
-                            type="button"
-                            className="rounded px-1 hover:bg-token-foreground/10"
-                            onClick={() => handleShowPastedTextInField(attachment.id)}
-                          >
-                            Show in text field
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="rounded px-1 text-token-description-foreground hover:bg-token-foreground/10"
-                          onClick={() => handleRemovePastedTextAttachment(attachment.id)}
-                          aria-label={`Remove pasted text ${index + 1}`}
-                        >
-                          x
-                        </button>
-                      </div>
+                        </div>
+                      </NodexTooltip>
                     ))}
                     {fileAttachments.map((attachment) => (
-                      <button
+                      <NodexTooltip
                         key={attachment.uiId}
-                        type="button"
-                        className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                        onClick={() => handleRemoveFileAttachment(attachment.uiId)}
-                        title={`Remove ${attachment.attachment.label}`}
+                        tooltipContent={`Remove ${attachment.attachment.label}`}
                       >
-                        <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                        <span className="min-w-0 truncate">{attachment.attachment.label}</span>
-                        <span className="text-token-description-foreground">x</span>
-                      </button>
+                        <button
+                          type="button"
+                          className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                          onClick={() => handleRemoveFileAttachment(attachment.uiId)}
+                        >
+                          <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                          <span className="min-w-0 truncate">{attachment.attachment.label}</span>
+                          <span className="text-token-description-foreground">x</span>
+                        </button>
+                      </NodexTooltip>
                     ))}
                     {addedFiles.map((attachment) => (
-                      <button
+                      <NodexTooltip
                         key={attachment.uiId}
-                        type="button"
-                        className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                        onClick={() => handleRemoveAddedFile(attachment.uiId)}
-                        title={`Remove ${attachment.attachment.label}`}
+                        tooltipContent={`Remove ${attachment.attachment.label}`}
                       >
-                        <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                        <span className="min-w-0 truncate">{attachment.attachment.label}</span>
-                        <span className="text-token-description-foreground">x</span>
-                      </button>
+                        <button
+                          type="button"
+                          className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                          onClick={() => handleRemoveAddedFile(attachment.uiId)}
+                        >
+                          <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                          <span className="min-w-0 truncate">{attachment.attachment.label}</span>
+                          <span className="text-token-description-foreground">x</span>
+                        </button>
+                      </NodexTooltip>
                     ))}
                     {browserAnnotationAttachments.map((attachment) => (
-                      <button
+                      <NodexTooltip
                         key={attachment.id}
-                        type="button"
-                        className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                        onClick={() => handleRemoveBrowserAnnotationAttachment(attachment.id)}
-                        title={`Remove browser annotation on ${attachment.pageTitle || attachment.pageUrl}`}
+                        tooltipContent={`Remove browser annotation on ${attachment.pageTitle || attachment.pageUrl}`}
                       >
-                        <FileIcon className="size-3 text-token-description-foreground" />
-                        <span className="min-w-0 truncate">
-                          {attachment.pageTitle || "Browser annotation"}
-                        </span>
-                        <span className="shrink-0 text-token-description-foreground">
-                          {attachment.anchors.length}{" "}
-                          {attachment.anchors.length === 1 ? "anchor" : "anchors"}
-                        </span>
-                        <span className="text-token-description-foreground">x</span>
-                      </button>
+                        <button
+                          type="button"
+                          className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                          onClick={() => handleRemoveBrowserAnnotationAttachment(attachment.id)}
+                        >
+                          <FileIcon className="size-3 text-token-description-foreground" />
+                          <span className="min-w-0 truncate">
+                            {attachment.pageTitle || "Browser annotation"}
+                          </span>
+                          <span className="shrink-0 text-token-description-foreground">
+                            {attachment.anchors.length}{" "}
+                            {attachment.anchors.length === 1 ? "anchor" : "anchors"}
+                          </span>
+                          <span className="text-token-description-foreground">x</span>
+                        </button>
+                      </NodexTooltip>
                     ))}
                     {commentAttachments.map((attachment) => {
                       const lineLabel = formatReviewDiffCommentLineLabel({
@@ -4639,20 +4658,23 @@ function HydratedThreadComposer({
                       );
                       const commentText = getReviewDiffCommentText(attachment);
                       return (
-                        <button
+                        <NodexTooltip
                           key={attachment.id}
-                          type="button"
-                          className="inline-flex max-w-64 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                          onClick={() => handleRemoveCommentAttachment(attachment.id)}
-                          title={`Remove ${lineLabel}: ${commentText}`}
+                          tooltipContent={`Remove ${lineLabel}: ${commentText}`}
                         >
-                          <FileIcon className="size-3 text-token-description-foreground" />
-                          <span className="min-w-0 truncate">{fileLabel}</span>
-                          <span className="shrink-0 text-token-description-foreground">
-                            {lineLabel.replace("Comment on ", "")}
-                          </span>
-                          <span className="text-token-description-foreground">x</span>
-                        </button>
+                          <button
+                            type="button"
+                            className="inline-flex max-w-64 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                            onClick={() => handleRemoveCommentAttachment(attachment.id)}
+                          >
+                            <FileIcon className="size-3 text-token-description-foreground" />
+                            <span className="min-w-0 truncate">{fileLabel}</span>
+                            <span className="shrink-0 text-token-description-foreground">
+                              {lineLabel.replace("Comment on ", "")}
+                            </span>
+                            <span className="text-token-description-foreground">x</span>
+                          </button>
+                        </NodexTooltip>
                       );
                     })}
                   </ComposerImageAttachmentRow>
@@ -4726,17 +4748,18 @@ function HydratedThreadComposer({
         onConfirm={handleConfirmGoalReplacement}
       />
       {desktopPetVisible ? (
-        <button
-          type="button"
-          className="fixed right-5 bottom-5 z-50 flex size-14 items-center justify-center rounded-full bg-token-dropdown-background/95 text-token-foreground shadow-xl-spread ring-[0.5px] ring-token-border/50 backdrop-blur-sm hover:bg-token-list-hover-background"
-          aria-label="Hide desktop pet"
-          title="Hide desktop pet"
-          onClick={() => setDesktopPetVisible(false)}
-        >
-          <span className="text-lg" aria-hidden="true">
-            Nodex
-          </span>
-        </button>
+        <NodexTooltip tooltipContent="Hide desktop pet">
+          <button
+            type="button"
+            className="fixed right-5 bottom-5 z-50 flex size-14 items-center justify-center rounded-full bg-token-dropdown-background/95 text-token-foreground shadow-xl-spread ring-[0.5px] ring-token-border/50 backdrop-blur-sm hover:bg-token-list-hover-background"
+            aria-label="Hide desktop pet"
+            onClick={() => setDesktopPetVisible(false)}
+          >
+            <span className="text-lg" aria-hidden="true">
+              Nodex
+            </span>
+          </button>
+        </NodexTooltip>
       ) : null}
     </>
   );

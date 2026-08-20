@@ -1,6 +1,7 @@
 import { ArchiveIcon, ChevronRightIcon } from "@/components/shared/icons";
 import { useId, type ReactNode } from "react";
 import { ExternalLink, Rows3, TriangleAlert } from "@/components/shared/icons/generic-icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import { isInlineCardCycle } from "./block-reference-runtime-context";
 import type { DatabasePageSummary } from "@/lib/types";
@@ -74,16 +75,15 @@ function CardRowMetadata({
         </span>
       ) : null}
       {card.estimate ? <span className={META_CHIP}>{card.estimate.toUpperCase()}</span> : null}
-      <span
-        className="inline-flex min-w-0 items-center gap-1 text-xs text-token-description-foreground"
-        title={archived ? "Archived" : card.status}
-      >
-        {archived ? (
-          <ArchiveIcon aria-hidden="true" className="size-3.5 shrink-0" />
-        ) : (
-          <StatusIcon statusId={card.status} className="size-3.5!" />
-        )}
-      </span>
+      <NodexTooltip tooltipContent={archived ? "Archived" : card.status} side="top">
+        <span className="inline-flex min-w-0 items-center gap-1 text-xs text-token-description-foreground">
+          {archived ? (
+            <ArchiveIcon aria-hidden="true" className="size-3.5 shrink-0" />
+          ) : (
+            <StatusIcon statusId={card.status} className="size-3.5!" />
+          )}
+        </span>
+      </NodexTooltip>
     </span>
   );
 }
@@ -171,21 +171,22 @@ export function ReferencedCardRow({
         ) : null}
         {metadata ?? <CardRowMetadata card={card} archived={archived} />}
         {onOpenPage ? (
-          <button
-            type="button"
-            aria-label={`Open ${title}`}
-            title="Open Page"
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 group-hover/reference-row:opacity-100 hover:bg-token-foreground/10 hover:text-token-text-primary focus-visible:opacity-100"
-            onClick={() =>
-              void onOpenPage({
-                accessContext,
-                pageId: card.id,
-                titleSnapshot: title,
-              })
-            }
-          >
-            <ExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
-          </button>
+          <NodexTooltip tooltipContent="Open Page" side="top">
+            <button
+              type="button"
+              aria-label={`Open ${title}`}
+              className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 group-hover/reference-row:opacity-100 hover:bg-token-foreground/10 hover:text-token-text-primary focus-visible:opacity-100"
+              onClick={() =>
+                void onOpenPage({
+                  accessContext,
+                  pageId: card.id,
+                  titleSnapshot: title,
+                })
+              }
+            >
+              <ExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
+            </button>
+          </NodexTooltip>
         ) : null}
       </div>
 

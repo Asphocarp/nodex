@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useReducedMotionConfig } from "motion/react";
 import { FastModeIcon, ChevronDownIcon } from "@/components/shared/icons";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME } from "../shared/composer-footer-controls";
@@ -263,56 +264,57 @@ export const IntelligenceSelectorTrigger = forwardRef<
   } satisfies CSSProperties;
 
   return (
-    <button
-      {...buttonProps}
-      ref={setTriggerRef}
-      type="button"
-      aria-label="Select model"
-      title={title}
-      className={cn(COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME, "relative min-w-0", className)}
-      data-intelligence-selector-trigger="true"
-    >
-      <span
-        ref={geometry.measurementRef}
-        aria-hidden="true"
-        className="pointer-events-none absolute start-0 top-0 invisible grid w-max whitespace-nowrap text-sm [&>*]:col-start-1 [&>*]:row-start-1"
-        data-intelligence-selector-label-measurement="true"
-      >
-        {labelCandidates.map((candidate) => (
-          <IntelligenceSelectorLabel
-            key={candidate.id}
-            modelLabel={candidate.modelLabel}
-            reasoningLabel={candidate.reasoningLabel}
-            reserveModelLabelWidth={candidate.reserveModelLabelWidth}
-          />
-        ))}
-      </span>
-
-      <span
-        ref={geometry.wrapperRef}
-        className="flex min-w-0 items-center"
-        data-intelligence-selector-trigger-wrapper="true"
+    <NodexTooltip tooltipContent={title}>
+      <button
+        {...buttonProps}
+        ref={setTriggerRef}
+        type="button"
+        aria-label="Select model"
+        className={cn(COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME, "relative min-w-0", className)}
+        data-intelligence-selector-trigger="true"
       >
         <span
+          ref={geometry.measurementRef}
           aria-hidden="true"
-          className="flex shrink-0 items-center overflow-hidden"
-          data-fast-mode-slot="true"
-          data-reserved={reserveFastSlot ? "true" : undefined}
-          style={fastSlotStyle}
-        />
-        <span
-          className="block min-w-0 text-center"
-          data-intelligence-selector-trigger-content="true"
-          style={contentStyle}
+          className="pointer-events-none absolute start-0 top-0 invisible grid w-max whitespace-nowrap text-sm [&>*]:col-start-1 [&>*]:row-start-1"
+          data-intelligence-selector-label-measurement="true"
         >
-          <IntelligenceSelectorLabel
-            modelLabel={modelLabel}
-            reasoningLabel={reasoningLabel}
-            showFastIndicator={showFastIndicator}
-          />
+          {labelCandidates.map((candidate) => (
+            <IntelligenceSelectorLabel
+              key={candidate.id}
+              modelLabel={candidate.modelLabel}
+              reasoningLabel={candidate.reasoningLabel}
+              reserveModelLabelWidth={candidate.reserveModelLabelWidth}
+            />
+          ))}
         </span>
-      </span>
-      <ChevronDownIcon className="icon-2xs text-token-input-placeholder-foreground" />
-    </button>
+
+        <span
+          ref={geometry.wrapperRef}
+          className="flex min-w-0 items-center"
+          data-intelligence-selector-trigger-wrapper="true"
+        >
+          <span
+            aria-hidden="true"
+            className="flex shrink-0 items-center overflow-hidden"
+            data-fast-mode-slot="true"
+            data-reserved={reserveFastSlot ? "true" : undefined}
+            style={fastSlotStyle}
+          />
+          <span
+            className="block min-w-0 text-center"
+            data-intelligence-selector-trigger-content="true"
+            style={contentStyle}
+          >
+            <IntelligenceSelectorLabel
+              modelLabel={modelLabel}
+              reasoningLabel={reasoningLabel}
+              showFastIndicator={showFastIndicator}
+            />
+          </span>
+        </span>
+        <ChevronDownIcon className="icon-2xs text-token-input-placeholder-foreground" />
+      </button>
+    </NodexTooltip>
   );
 });

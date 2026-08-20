@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { NodexCheckbox } from "@/components/ui/settings";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { dataSourcePropertyIcon } from "./data-source-property-presentation";
 import { DueDateValueIcon } from "./due-date-value-icon";
@@ -257,19 +258,20 @@ export function DataSourcePropertyValueEditor({
     if (presentation === "board") {
       const checked = value === true;
       return (
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={checked}
-          aria-label={`${property.name} value: ${checked ? "Yes" : "No"}`}
-          title={`${property.name}: ${checked ? "Yes" : "No"}`}
-          disabled={disabled || pending}
-          onClick={() => onChange(!checked)}
-          className={DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME}
-        >
-          {boardIcon}
-          <span>{checked ? "Yes" : "No"}</span>
-        </button>
+        <NodexTooltip tooltipContent={`${property.name}: ${checked ? "Yes" : "No"}`}>
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={checked}
+            aria-label={`${property.name} value: ${checked ? "Yes" : "No"}`}
+            disabled={disabled || pending}
+            onClick={() => onChange(!checked)}
+            className={DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME}
+          >
+            {boardIcon}
+            <span>{checked ? "Yes" : "No"}</span>
+          </button>
+        </NodexTooltip>
       );
     }
     return (

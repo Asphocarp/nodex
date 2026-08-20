@@ -25,6 +25,21 @@ describe("codex tooltip", () => {
     return view;
   }
 
+  test("supports isolated product surfaces without a provider wrapper", async () => {
+    let view!: ReturnType<typeof render>;
+
+    await act(async () => {
+      view = render(
+        <NodexTooltip tooltipContent="Standalone tooltip" defaultOpen>
+          <button type="button">Standalone trigger</button>
+        </NodexTooltip>,
+      );
+    });
+
+    expect(view.getByText("Standalone trigger").tagName).toBe("BUTTON");
+    expect(view.getByRole("tooltip").textContent).toContain("Standalone tooltip");
+  });
+
   test("returns the child directly when disabled", async () => {
     let view!: ReturnType<typeof render>;
 

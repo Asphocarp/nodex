@@ -1739,7 +1739,6 @@ export const CodexSidebarActionButton = forwardRef<
         ref={ref}
         type="button"
         className={cn(CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS, className)}
-        title={title}
         aria-label={label}
         onPointerDown={(event) => {
           stopCodexSidebarRowActionPropagation(event);

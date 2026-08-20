@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import { BoardPageKey } from "@/components/board/board-page-key";
 import { PagePresenceRail } from "@/components/board/page-presence-rail";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { DataSourcePropertyValueEditor } from "@/components/database/data-source-property-value-editor";
 import type {
   DataSourcePropertyEditorBinding,
@@ -457,17 +458,20 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
               data-database-board-metadata-row="true"
             >
               {metadataSlots.map((slot) => (
-                <span
+                <NodexTooltip
                   key={`intrinsic:${slot.field}`}
-                  data-database-board-metadata={slot.field}
-                  title={new Intl.DateTimeFormat(undefined, {
+                  tooltipContent={new Intl.DateTimeFormat(undefined, {
                     dateStyle: "medium",
                     timeStyle: "short",
                   }).format(new Date(slot.value))}
-                  className="inline-flex h-6 min-h-6 items-center px-0.5 text-xs/4 [font-weight:450] text-(--color-token-text-secondary)"
                 >
-                  {formatDatabaseBoardMetadataTimestamp(slot.field, slot.value)}
-                </span>
+                  <span
+                    data-database-board-metadata={slot.field}
+                    className="inline-flex h-6 min-h-6 items-center px-0.5 text-xs/4 [font-weight:450] text-(--color-token-text-secondary)"
+                  >
+                    {formatDatabaseBoardMetadataTimestamp(slot.field, slot.value)}
+                  </span>
+                </NodexTooltip>
               ))}
             </div>
           ) : null}

@@ -74,7 +74,7 @@ describe("workbench session shell / routes-threads", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const settingsButton = screen.container.querySelector('button[title="Settings"]');
+    const settingsButton = screen.getByRole("button", { name: "Settings" });
     if (!(settingsButton instanceof HTMLElement)) {
       throw new Error("Expected a sidebar settings button");
     }
@@ -308,7 +308,7 @@ describe("workbench session shell / routes-threads", () => {
       });
       const fullWidthBeforeSettings = rightPanel.style.width;
 
-      const settingsButton = screen.container.querySelector('button[title="Settings"]');
+      const settingsButton = screen.getByRole("button", { name: "Settings" });
       if (!(settingsButton instanceof HTMLElement)) {
         throw new Error("Expected a sidebar settings button");
       }

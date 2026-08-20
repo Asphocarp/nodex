@@ -194,7 +194,7 @@ export function FileLinkAnchor({
       }
     };
 
-    return (
+    const link = (
       <a
         href={href}
         data-agent-activity-file-link
@@ -211,12 +211,23 @@ export function FileLinkAnchor({
         )}
         target={action?.kind === "literal-anchor" ? undefined : "_blank"}
         rel={action?.kind === "literal-anchor" ? undefined : "noopener noreferrer"}
-        title={tooltipLabel ?? undefined}
       >
         <span className="break-words whitespace-normal" data-state="closed">
           {children}
         </span>
       </a>
+    );
+
+    if (!tooltipLabel) return link;
+    return (
+      <NodexTooltip
+        tooltipContent={tooltipLabel}
+        side="top"
+        delayDuration={0}
+        tooltipBodyClassName="font-mono text-xs leading-4"
+      >
+        {link}
+      </NodexTooltip>
     );
   }
 
@@ -297,7 +308,6 @@ export function FileLinkAnchor({
             }),
         }).catch(() => undefined);
       }}
-      title={tooltipLabel ?? undefined}
     >
       <span className="break-words whitespace-normal" data-state="closed">
         {children}

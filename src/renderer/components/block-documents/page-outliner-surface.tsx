@@ -11,6 +11,7 @@ import {
 } from "react";
 import { ExternalLink } from "@/components/shared/icons/generic-icons";
 import { LoadingResultsShimmer } from "@/components/ui/loading-results-shimmer";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   BlockDisclosureStateStore,
   blockDisclosureStateStore,
@@ -216,15 +217,16 @@ export function PageOutlinerRowSlots({
         ) : null}
         {metadata}
         {onOpenPage ? (
-          <button
-            type="button"
-            aria-label={`Open ${plainTitle}`}
-            title="Open Page"
-            className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 group-hover/page-outliner:opacity-100 hover:bg-token-foreground/8 hover:text-token-text-primary focus-visible:opacity-100"
-            onClick={() => void onOpenPage()}
-          >
-            <ExternalLink aria-hidden="true" className="size-3.5" />
-          </button>
+          <NodexTooltip tooltipContent="Open Page" side="top">
+            <button
+              type="button"
+              aria-label={`Open ${plainTitle}`}
+              className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 group-hover/page-outliner:opacity-100 hover:bg-token-foreground/8 hover:text-token-text-primary focus-visible:opacity-100"
+              onClick={() => void onOpenPage()}
+            >
+              <ExternalLink aria-hidden="true" className="size-3.5" />
+            </button>
+          </NodexTooltip>
         ) : null}
       </div>
 

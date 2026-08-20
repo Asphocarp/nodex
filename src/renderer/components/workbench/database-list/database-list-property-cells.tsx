@@ -8,6 +8,7 @@ import type {
   DataSourcePropertyOptionRegistryState,
 } from "@/components/database/data-source-property-editor-binding";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
 import type { RelationTargetWindow } from "@/lib/data-source-relation-value";
 import type {
@@ -188,16 +189,17 @@ function DatabaseListAssigneeEditor({
         setOpen(next);
       }}
     >
-      <NodexPopoverTrigger asChild disabled={disabled || pending}>
-        <button
-          type="button"
-          aria-label={`Edit ${label}: ${value}`}
-          title={value}
-          className="grid size-[18px] shrink-0 place-items-center overflow-hidden rounded-full text-[var(--database-list-icon-muted)] outline-none hover:bg-[var(--database-list-row-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)] disabled:opacity-50"
-        >
-          <DatabaseListAssigneeIcon />
-        </button>
-      </NodexPopoverTrigger>
+      <NodexTooltip tooltipContent={value}>
+        <NodexPopoverTrigger asChild disabled={disabled || pending}>
+          <button
+            type="button"
+            aria-label={`Edit ${label}: ${value}`}
+            className="grid size-[18px] shrink-0 place-items-center overflow-hidden rounded-full text-[var(--database-list-icon-muted)] outline-none hover:bg-[var(--database-list-row-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)] disabled:opacity-50"
+          >
+            <DatabaseListAssigneeIcon />
+          </button>
+        </NodexPopoverTrigger>
+      </NodexTooltip>
       <NodexPopoverContent align="end" className="w-64 p-2">
         <input
           autoFocus
@@ -254,23 +256,24 @@ function PropertyEditor({
     );
   }
   return (
-    <span
-      className="inline-flex min-w-0 shrink-0 items-center"
-      data-list-property={property.propertyId}
-      title={error ?? property.name}
-    >
-      <DataSourcePropertyValueEditor
-        {...binding}
-        showLabel={false}
-        presentation="list"
-        triggerIcon={propertyIcon(property, current?.value)}
-      />
-      {error ? (
-        <span role="alert" className="sr-only">
-          {error}
-        </span>
-      ) : null}
-    </span>
+    <NodexTooltip tooltipContent={error ?? property.name}>
+      <span
+        className="inline-flex min-w-0 shrink-0 items-center"
+        data-list-property={property.propertyId}
+      >
+        <DataSourcePropertyValueEditor
+          {...binding}
+          showLabel={false}
+          presentation="list"
+          triggerIcon={propertyIcon(property, current?.value)}
+        />
+        {error ? (
+          <span role="alert" className="sr-only">
+            {error}
+          </span>
+        ) : null}
+      </span>
+    </NodexTooltip>
   );
 }
 

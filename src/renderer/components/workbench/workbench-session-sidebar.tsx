@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, type MotionValue } from "motion/react";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { codexSidebarProjectThreadContainerId } from "../../../shared/codex-sidebar-thread-move";
 import type { LibraryResourceTarget } from "../../../shared/library-module";
 import type { LibraryResourceTarget as ActionableLibraryResourceTarget } from "../library/library-resource-actions";
@@ -162,15 +163,16 @@ function SidebarSessionCollectionFallback({
   if (state.kind === "error") {
     return (
       <div className={rowClassName} role="listitem">
-        <button
-          type="button"
-          className="text-token-description-foreground hover:text-token-foreground"
-          title={state.message}
-          aria-label={`Retry chats: ${state.message}`}
-          onClick={() => void onRetry()}
-        >
-          Retry chats
-        </button>
+        <NodexTooltip tooltipContent={state.message} side="top">
+          <button
+            type="button"
+            className="text-token-description-foreground hover:text-token-foreground"
+            aria-label={`Retry chats: ${state.message}`}
+            onClick={() => void onRetry()}
+          >
+            Retry chats
+          </button>
+        </NodexTooltip>
       </div>
     );
   }

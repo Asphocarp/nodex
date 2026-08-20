@@ -13,6 +13,7 @@ import {
 } from "@/components/shared/icons/generic-icons";
 import { ActivitySpinnerIcon, FileIcon, HooksIcon } from "@/components/shared/icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   NodexDialog,
   NodexDialogBody,
@@ -354,19 +355,22 @@ function HookRow({
             <span className="shrink-0 text-token-text-primary">Hook {index + 1}</span>
           </button>
           {!managed ? (
-            <button
-              type="button"
-              aria-label="Open config file"
-              title="Open config file"
-              className="absolute top-1/2 right-6 inline-flex size-5 -translate-y-1/2 cursor-interaction items-center justify-center rounded-md text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
-              onClick={() => {
-                void invoke("shell:open-file-link", { path: hook.sourcePath }, "fileManager").catch(
-                  () => toast.danger("Could not open config file"),
-                );
-              }}
-            >
-              <FileIcon className="icon-xxs" aria-hidden="true" />
-            </button>
+            <NodexTooltip tooltipContent="Open config file">
+              <button
+                type="button"
+                aria-label="Open config file"
+                className="absolute top-1/2 right-6 inline-flex size-5 -translate-y-1/2 cursor-interaction items-center justify-center rounded-md text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
+                onClick={() => {
+                  void invoke(
+                    "shell:open-file-link",
+                    { path: hook.sourcePath },
+                    "fileManager",
+                  ).catch(() => toast.danger("Could not open config file"));
+                }}
+              >
+                <FileIcon className="icon-xxs" aria-hidden="true" />
+              </button>
+            </NodexTooltip>
           ) : null}
           <ChevronDown
             aria-hidden="true"
@@ -378,22 +382,19 @@ function HookRow({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {needsReview ? (
-            <NodexButton
-              variant="outline"
-              size="xs"
-              title={
+            <NodexTooltip
+              tooltipContent={
                 hook.trustStatus === "modified" ? "Hook changed since last trusted" : "New hook"
               }
-              onClick={() => onTrust(hook)}
             >
-              <ShieldCheck className="icon-2xs" />
-              Trust
-            </NodexButton>
+              <NodexButton variant="outline" size="xs" onClick={() => onTrust(hook)}>
+                <ShieldCheck className="icon-2xs" />
+                Trust
+              </NodexButton>
+            </NodexTooltip>
           ) : null}
-          <span
-            className={cn((managed || needsReview) && "inline-flex cursor-not-allowed")}
-            tabIndex={managed || needsReview ? 0 : undefined}
-            title={
+          <NodexTooltip
+            tooltipContent={
               managed
                 ? "Managed hooks are always on"
                 : needsReview
@@ -401,14 +402,19 @@ function HookRow({
                   : undefined
             }
           >
-            <NodexSwitch
-              ariaLabel={`Hook ${index + 1}`}
-              checked={managed || (hook.enabled && !needsReview)}
-              className={managed || needsReview ? "pointer-events-none" : undefined}
-              disabled={managed || needsReview}
-              onCheckedChange={(enabled) => onToggle(hook, enabled)}
-            />
-          </span>
+            <span
+              className={cn((managed || needsReview) && "inline-flex cursor-not-allowed")}
+              tabIndex={managed || needsReview ? 0 : undefined}
+            >
+              <NodexSwitch
+                ariaLabel={`Hook ${index + 1}`}
+                checked={managed || (hook.enabled && !needsReview)}
+                className={managed || needsReview ? "pointer-events-none" : undefined}
+                disabled={managed || needsReview}
+                onCheckedChange={(enabled) => onToggle(hook, enabled)}
+              />
+            </span>
+          </NodexTooltip>
         </div>
       </div>
       {expanded ? (
@@ -640,20 +646,21 @@ export function CodexHooksSettingsView({
         </span>
       }
       action={
-        <NodexButton
-          variant="ghost"
-          size="icon"
-          aria-label="Reload hooks"
-          title="Reload hooks"
-          disabled={noRoots || loading || refreshing}
-          onClick={onRefresh}
-        >
-          {refreshing ? (
-            <ActivitySpinnerIcon className="icon-xs" icon={RefreshCw} />
-          ) : (
-            <RefreshCw className="icon-xs" />
-          )}
-        </NodexButton>
+        <NodexTooltip tooltipContent="Reload hooks">
+          <NodexButton
+            variant="ghost"
+            size="icon"
+            aria-label="Reload hooks"
+            disabled={noRoots || loading || refreshing}
+            onClick={onRefresh}
+          >
+            {refreshing ? (
+              <ActivitySpinnerIcon className="icon-xs" icon={RefreshCw} />
+            ) : (
+              <RefreshCw className="icon-xs" />
+            )}
+          </NodexButton>
+        </NodexTooltip>
       }
     >
       {noRoots || isEmpty ? (

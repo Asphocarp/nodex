@@ -1212,7 +1212,7 @@ describe("ConnectedThreadStage new-chat home", () => {
     });
     const branchTrigger = view.getByLabelText("Switch branch");
     expect(branchTrigger !== null).toBe(true);
-    expect(branchTrigger.getAttribute("title")).toBe("Switch branch");
+    expect(branchTrigger.hasAttribute("title")).toBe(false);
     expect(lowerStatusRow !== null).toBe(true);
     expect(externalFooterSlot?.contains(lowerStatusRow)).toBe(true);
     expect(renderedText.includes("Work locally")).toBe(true);

@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "../../../../lib/utils";
+import { NodexTooltip } from "@/components/ui/tooltip";
 
 interface ThreadSummaryPanelRowProps extends Omit<
   ComponentPropsWithoutRef<"div">,
@@ -139,20 +140,21 @@ export const ThreadSummaryPanelRow = forwardRef<HTMLDivElement, ThreadSummaryPan
     );
 
     return (
-      <div
-        {...props}
-        ref={ref}
-        role={hasInteractionHandler ? "button" : undefined}
-        tabIndex={isActionable ? 0 : undefined}
-        title={title}
-        aria-disabled={disabled || undefined}
-        className={rowClassName}
-        onClick={isActionable && onClick ? onClick : undefined}
-        onKeyDown={handleKeyDown}
-        onPointerDown={isActionable ? onPointerDown : undefined}
-      >
-        {rowContent}
-      </div>
+      <NodexTooltip tooltipContent={title}>
+        <div
+          {...props}
+          ref={ref}
+          role={hasInteractionHandler ? "button" : undefined}
+          tabIndex={isActionable ? 0 : undefined}
+          aria-disabled={disabled || undefined}
+          className={rowClassName}
+          onClick={isActionable && onClick ? onClick : undefined}
+          onKeyDown={handleKeyDown}
+          onPointerDown={isActionable ? onPointerDown : undefined}
+        >
+          {rowContent}
+        </div>
+      </NodexTooltip>
     );
   },
 );

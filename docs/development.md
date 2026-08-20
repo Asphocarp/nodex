@@ -151,8 +151,9 @@ High-volume heuristic rules that do not encode a stable Nodex invariant are
 explicitly disabled in `vite.config.ts`. High-confidence correctness rules are
 errors, and `oxlint-plugin-nodex` adds project-native remediation messages. Its
 Effect test-runtime rule directs tests to `@effect/vitest`; its native tooltip
-rule ratchets existing per-file debt while requiring new UI to use
-`NodexTooltip`.
+rule rejects every intrinsic JSX `title` tooltip and requires product UI to use
+`NodexTooltip`. Shared button primitives consume tooltip copy without leaking a
+native `title` attribute.
 
 `vp run test` invokes Nodex's standard multi-runtime test aggregate. The
 aggregate delegates ordinary Node, CoreClient, Renderer, and Browser suites to
