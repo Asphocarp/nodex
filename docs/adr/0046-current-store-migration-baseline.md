@@ -30,9 +30,10 @@ recovery.
   non-empty revision-zero databases, schema drift, and corrupt Stores fail
   before backup or mutation.
 - `crates/nodex-core/schema/current.sql` is the complete physical schema
-  authority for fresh Stores. Fresh creation installs that snapshot directly,
-  seeds Profile-specific secrets, validates the current Store, and records no
-  migration history.
+  authority for fresh Stores. Fresh creation installs that snapshot and seeds
+  Profile-specific secrets in one transaction, validates the current Store,
+  and records no migration history. A failed first-open transaction leaves an
+  empty database that can be retried.
 - The Store format catalog publishes exact lineage, revision, and normalized
   schema fingerprint identities. It contains v130 as the minimum migratable
   baseline and v131 as readable/current. `PRAGMA user_version` remains the only
@@ -42,10 +43,11 @@ recovery.
   general migration-history table, and converges on the exact same inventory
   as a fresh v131 Store.
 - A supported migration validates the source identity and semantic preconditions,
-  creates and verifies a content-addressed SQLite Online Backup, then applies
-  its complete change in one `BEGIN IMMEDIATE` transaction. Core validates the
-  exact current physical and semantic invariants before readiness. SQLite
-  rollback leaves the source revision intact when the step fails.
+  including exact Document reconstruction, before it reports migration or
+  publishes a content-addressed SQLite Online Backup. It then applies its
+  complete change and validates exact current physical and semantic invariants
+  in one `BEGIN IMMEDIATE` transaction. SQLite rollback leaves the source
+  revision intact when the step or target validation fails.
 - `core_store_migration_history` records the source and target revisions and
   fingerprints, backup basename, and completion time in the migration
   transaction. It is diagnostic/recovery evidence, not a second revision

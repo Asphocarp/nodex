@@ -93,11 +93,14 @@ file. `core_store_metadata` records current Rust Core ownership state;
 duplicating the current revision.
 
 `prepare_profile_store_with_observer` is the only live Store-open preparation
-entry point. An empty Store installs the complete `current.sql` snapshot. A
-current Store must match the catalog's exact current fingerprint. A supported
-predecessor must match its catalog fingerprint and semantic preconditions
-before the small forward-only registry can select a migration step. Every path
-applies the complete current validation set before a Store becomes ready.
+entry point. An empty Store installs the complete `current.sql` snapshot and
+mints its Profile-specific singleton rows in the same transaction, so an
+interrupted first open remains an empty, retryable database. A current Store
+must match the catalog's exact current fingerprint. A supported predecessor
+must match its catalog fingerprint, complete revision-independent semantics,
+and reconstructible Yrs Documents before migration is reported or a backup is
+published. Every path applies the complete current validation set before a
+Store becomes ready.
 
 A migration follows one durable pattern:
 
@@ -106,7 +109,7 @@ A migration follows one durable pattern:
 3. create and verify a regular content-addressed SQLite Online Backup;
 4. apply the ordered forward step in one `BEGIN IMMEDIATE` transaction;
 5. rebuild affected projections and validate exact current physical and
-   semantic authority;
+   semantic authority inside that transaction;
 6. commit the target revision and one migration-history row together.
 
 The verified backup exists before the write transaction and remains available

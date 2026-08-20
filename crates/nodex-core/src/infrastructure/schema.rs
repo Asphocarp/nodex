@@ -6,6 +6,8 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+use super::sqlite::with_immediate_transaction;
 use super::sqlite::{StoreError, StoreErrorCode};
 
 pub const CURRENT_STORE_REVISION: i64 = nodex_store_format::CURRENT_STORE_VERSION as i64;
@@ -21,7 +23,16 @@ pub struct SchemaObjectKey {
 
 pub type SchemaInventory = BTreeMap<SchemaObjectKey, String>;
 
-pub fn install_current_schema(connection: &Connection) -> Result<(), StoreError> {
+#[cfg(test)]
+pub(crate) fn install_current_schema(connection: &mut Connection) -> Result<(), StoreError> {
+    with_immediate_transaction(connection, |transaction| {
+        install_current_schema_in_transaction(transaction)
+    })
+}
+
+pub(crate) fn install_current_schema_in_transaction(
+    connection: &Connection,
+) -> Result<(), StoreError> {
     let current: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let object_count: i64 = connection.query_row(
         "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
@@ -148,8 +159,8 @@ mod tests {
     #[test]
     fn schema_inventory_ignores_fts_shadow_implementation_objects() {
         let directory = tempdir().expect("schema store");
-        let connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
-        install_current_schema(&connection).expect("current schema");
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        install_current_schema(&mut connection).expect("current schema");
         let inventory = read_schema_inventory(&connection).expect("inventory");
         assert!(
             inventory
@@ -166,8 +177,8 @@ mod tests {
     #[test]
     fn current_schema_artifact_matches_catalog() {
         assert_eq!(CURRENT_STORE_REVISION, 131);
-        let artifact = Connection::open_in_memory().expect("artifact Store");
-        install_current_schema(&artifact).expect("current schema artifact");
+        let mut artifact = Connection::open_in_memory().expect("artifact Store");
+        install_current_schema(&mut artifact).expect("current schema artifact");
         let artifact_inventory = read_schema_inventory(&artifact).expect("artifact inventory");
         assert_eq!(
             schema_inventory_fingerprint(&artifact_inventory),

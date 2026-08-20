@@ -20,6 +20,12 @@ pub(crate) fn validate_current_store(connection: &Connection) -> Result<(), Stor
     validate_store(connection)?;
     validate_schema_identity(connection, CURRENT_STORE_REVISION)?;
     validate_core_metadata(connection)?;
+    validate_store_semantics(connection)
+}
+
+/// Validates revision-independent semantic authority shared by the current
+/// Store and an exact migration source.
+pub(crate) fn validate_store_semantics(connection: &Connection) -> Result<(), StoreError> {
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
     validate_thread_execution_hosts(connection)?;

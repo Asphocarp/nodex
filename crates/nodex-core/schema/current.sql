@@ -1,7 +1,7 @@
 -- Generated current Nodex Store schema baseline.
 -- Regenerate only when publishing a new Store revision.
-PRAGMA foreign_keys = OFF;
-BEGIN IMMEDIATE;
+-- The installer owns the transaction so fresh Profile rows can commit atomically
+-- with this physical schema.
 CREATE TABLE projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -3940,5 +3940,3 @@ BEGIN
   SELECT RAISE(ABORT, 'Block transfer Undo recipes are immutable');
 END;
 PRAGMA user_version = 131;
-COMMIT;
-PRAGMA foreign_keys = ON;

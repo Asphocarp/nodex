@@ -16,14 +16,15 @@ use sha2::{Digest, Sha256};
 use crate::document::integrity::validate_restore_documents;
 
 use super::migration_progress::report_bounded_progress;
-use super::schema::{CURRENT_STORE_REVISION, install_current_schema, validate_schema_identity};
+#[cfg(test)]
+use super::schema::install_current_schema;
+use super::schema::{
+    CURRENT_STORE_REVISION, install_current_schema_in_transaction, validate_schema_identity,
+};
 use super::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store, with_immediate_transaction,
 };
-use super::store_validation::{
-    validate_codex_thread_timestamp_invariants, validate_current_store,
-    validate_database_priority_invariants,
-};
+use super::store_validation::{validate_current_store, validate_store_semantics};
 
 const BASELINE_STORE_REVISION: i64 = 130;
 const CORE_SCHEMA_OWNER: &str = "rust_core";
@@ -83,8 +84,7 @@ pub fn prepare_profile_store_with_observer(
         |row| row.get(0),
     )?;
     if version == 0 && object_count == 0 {
-        install_current_schema(connection)?;
-        initialize_fresh_profile(connection, unix_time_millis()?)?;
+        install_fresh_profile(connection, unix_time_millis()?)?;
         validate_current_store(connection)?;
         return Ok(StorePreparation {
             schema_version: CURRENT_STORE_REVISION,
@@ -134,8 +134,6 @@ fn migrate_baseline_store(
         step.from_revision,
         step.to_revision,
     )?;
-    validate_restore_documents(connection)?;
-
     let source = published_format(step.from_revision)?;
     let target = published_format(step.to_revision)?;
     let backup_name = backup_path
@@ -154,7 +152,8 @@ fn migrate_baseline_store(
     };
 
     with_schema_rebuild_transaction(connection, |transaction| {
-        (step.apply)(transaction, &context)
+        (step.apply)(transaction, &context)?;
+        validate_current_store(transaction)
     })?;
     let mut reported_step = 0;
     report_bounded_progress(
@@ -165,7 +164,6 @@ fn migrate_baseline_store(
         1,
         &mut reported_step,
     );
-    validate_current_store(connection)?;
     Ok(StorePreparation {
         schema_version: step.to_revision,
         created_fresh: false,
@@ -196,8 +194,9 @@ fn validate_baseline_source(connection: &Connection) -> Result<(), StoreError> {
     {
         return Err(corrupt("v130 Store has invalid Core metadata"));
     }
-    validate_codex_thread_timestamp_invariants(connection)?;
-    validate_database_priority_invariants(connection)
+    validate_store_semantics(connection)?;
+    validate_restore_documents(connection)?;
+    Ok(())
 }
 
 fn migrate_v130_to_v131(
@@ -258,28 +257,42 @@ fn migrate_v130_to_v131(
     Ok(())
 }
 
-fn initialize_fresh_profile(connection: &mut Connection, now: u64) -> Result<(), StoreError> {
+fn install_fresh_profile(connection: &mut Connection, now: u64) -> Result<(), StoreError> {
+    install_fresh_profile_with(connection, |transaction| {
+        initialize_fresh_profile(transaction, now)
+    })
+}
+
+fn install_fresh_profile_with<T>(
+    connection: &mut Connection,
+    initialize: impl FnOnce(&Connection) -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
+    with_immediate_transaction(connection, |transaction| {
+        install_current_schema_in_transaction(transaction)?;
+        initialize(transaction)
+    })
+}
+
+fn initialize_fresh_profile(connection: &Connection, now: u64) -> Result<(), StoreError> {
     let now = i64::try_from(now)
         .map_err(|_| internal("Profile initialization time exceeds SQLite integer range"))?;
-    with_immediate_transaction(connection, |transaction| {
-        transaction.execute(
-            "INSERT INTO core_store_metadata( \
+    connection.execute(
+        "INSERT INTO core_store_metadata( \
                id, schema_owner, projection_event_v2_floor \
              ) VALUES (1, ?1, 1)",
-            [CORE_SCHEMA_OWNER],
-        )?;
-        transaction.execute(
-            "INSERT INTO nodex_agent_token_keys(id, key_material) VALUES (1, randomblob(32))",
-            [],
-        )?;
-        transaction.execute(
-            "INSERT INTO core_automation_runtime_metadata( \
+        [CORE_SCHEMA_OWNER],
+    )?;
+    connection.execute(
+        "INSERT INTO nodex_agent_token_keys(id, key_material) VALUES (1, randomblob(32))",
+        [],
+    )?;
+    connection.execute(
+        "INSERT INTO core_automation_runtime_metadata( \
                id, jitter_salt, created_at_unix_ms \
              ) VALUES (1, lower(hex(randomblob(16))), ?1)",
-            [now],
-        )?;
-        Ok(())
-    })
+        [now],
+    )?;
+    Ok(())
 }
 
 fn create_migration_backup(
@@ -469,7 +482,9 @@ pub(crate) fn prepare_test_current_store(
     let backup = Backup::new(&template, connection)?;
     backup.run_to_completion(1_024, Duration::ZERO, None)?;
     drop(backup);
-    initialize_fresh_profile(connection, unix_time_millis()?)?;
+    with_immediate_transaction(connection, |transaction| {
+        initialize_fresh_profile(transaction, unix_time_millis()?)
+    })?;
     crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(connection)
 }
 
@@ -478,9 +493,9 @@ fn test_current_store_template() -> Result<&'static Mutex<Connection>, StoreErro
     if let Some(template) = TEST_CURRENT_STORE_TEMPLATE.get() {
         return Ok(template);
     }
-    let connection = Connection::open_in_memory()?;
+    let mut connection = Connection::open_in_memory()?;
     connection.pragma_update(None, "foreign_keys", true)?;
-    install_current_schema(&connection)?;
+    install_current_schema(&mut connection)?;
     let _ = TEST_CURRENT_STORE_TEMPLATE.set(Mutex::new(connection));
     TEST_CURRENT_STORE_TEMPLATE
         .get()
@@ -558,6 +573,38 @@ mod tests {
         assert_ne!(first_secrets.0, second_secrets.0);
         assert_ne!(first_secrets.1, second_secrets.1);
         validate_current_store(&connection).expect("current Store");
+    }
+
+    #[test]
+    fn fresh_store_creation_rolls_back_schema_when_profile_initialization_fails() {
+        let directory = tempdir().expect("Profile");
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        let error = install_fresh_profile_with(&mut connection, |transaction| {
+            initialize_fresh_profile(transaction, 1)?;
+            Err::<(), _>(corrupt("injected Profile initialization failure"))
+        })
+        .expect_err("fresh creation failure");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        assert_eq!(
+            connection
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("version"),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("schema objects"),
+            0
+        );
+
+        prepare_profile_store(&mut connection, directory.path())
+            .expect("fresh creation remains retryable");
+        validate_current_store(&connection).expect("retried current Store");
     }
 
     #[test]
@@ -713,6 +760,119 @@ mod tests {
         let error = prepare_profile_store(&mut connection, current_drift.path())
             .expect_err("drifted current Store must be rejected");
         assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+    }
+
+    #[test]
+    fn semantically_invalid_baseline_fails_before_backup_or_migration_event() {
+        let directory = tempdir().expect("Profile");
+        install_baseline_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        connection
+            .execute("UPDATE profiles SET created_at = 'not-a-timestamp'", [])
+            .expect("corrupt timestamp semantics");
+        let mut events = Vec::new();
+        let error =
+            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
+                events.push(event)
+            })
+            .expect_err("invalid baseline semantics");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        assert!(events.is_empty());
+        assert!(!directory.path().join("backups").exists());
+        assert_eq!(
+            connection
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("source version"),
+            BASELINE_STORE_REVISION
+        );
+    }
+
+    #[test]
+    fn invalid_baseline_document_fails_before_backup() {
+        const NOW: &str = "2026-08-20T00:00:00.000Z";
+
+        let directory = tempdir().expect("Profile");
+        install_baseline_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+            &connection,
+        )
+        .expect("maintenance context");
+        let library_id = connection
+            .query_row("SELECT id FROM libraries LIMIT 1", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("baseline Library");
+        connection
+            .execute(
+                "INSERT INTO documents(\
+                   id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
+                   state_hash, readiness, authority, created_at, updated_at, sync_engine\
+                 ) VALUES ('document:incomplete', ?1, 1, 0, 'nodex.page', 2, X'', '', \
+                   'ready', 'ydoc_primary', ?2, ?2, 'yjs')",
+                params![library_id, NOW],
+            )
+            .expect("incomplete Document");
+
+        let error = prepare_profile_store(&mut connection, directory.path())
+            .expect_err("Document without materialization");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        assert!(!directory.path().join("backups").exists());
+        assert_eq!(
+            connection
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("source version"),
+            BASELINE_STORE_REVISION
+        );
+    }
+
+    #[test]
+    fn migrated_store_is_validated_before_transaction_commit() {
+        let directory = tempdir().expect("Profile");
+        install_baseline_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        let error = migrate_baseline_store(
+            &mut connection,
+            directory.path(),
+            &mut |_| {},
+            MigrationStep {
+                from_revision: BASELINE_STORE_REVISION,
+                to_revision: CURRENT_STORE_REVISION,
+                apply: |connection, context| {
+                    migrate_v130_to_v131(connection, context)?;
+                    connection.execute(
+                        "UPDATE core_store_metadata SET projection_event_v2_floor = 999",
+                        [],
+                    )?;
+                    Ok(())
+                },
+            },
+        )
+        .expect_err("invalid migrated Store");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        assert_eq!(
+            connection
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("rolled-back version"),
+            BASELINE_STORE_REVISION
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM sqlite_schema \
+                     WHERE name = 'core_store_migration_history'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("rolled-back history table"),
+            0
+        );
+        assert_eq!(
+            fs::read_dir(directory.path().join("backups/core-migrations"))
+                .expect("preserved backup")
+                .count(),
+            1
+        );
     }
 
     #[test]
