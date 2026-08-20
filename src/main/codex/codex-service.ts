@@ -680,7 +680,7 @@ import {
   setCodexClientThreadIdentity,
 } from "./codex-client-thread-identity";
 import { requestChatGptDesktop } from "./chatgpt-desktop-request";
-import { terminalManager } from "../terminal-manager";
+import { TerminalManager } from "../terminal-manager";
 import { makeCodexBackgroundProcessRecordId } from "../../shared/codex-background-processes";
 import {
   CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
@@ -1537,6 +1537,10 @@ type CodexServiceOptions = {
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
   userInputAutoResolutionTimer?: CodexUserInputAutoResolutionTimerOptions;
+  terminalRuntime?: Pick<
+    TerminalManager,
+    "getSessionSnapshot" | "getThreadSnapshot" | "refreshSessionProcessMetrics"
+  >;
 };
 
 export interface CodexBrowserUseTurnLifecyclePort {
@@ -3094,6 +3098,7 @@ export class CodexService extends EventEmitter {
     CodexServiceOptions["browserTransferStateReader"];
   private forkSidePanelTransferLifecycle:
     CodexServiceOptions["forkSidePanelTransferLifecycle"];
+  private readonly terminalRuntime: NonNullable<CodexServiceOptions["terminalRuntime"]>;
   private nodexAgentAuthorizationBroker: NodexAgentAuthorizationBroker | null = null;
   private automationModule: DesktopAutomationModulePort =
     unconfiguredAuthority("Automation authority");
@@ -3275,6 +3280,7 @@ export class CodexService extends EventEmitter {
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.browserRuntime = runtime.browserRuntime;
+    this.terminalRuntime = options?.terminalRuntime ?? new TerminalManager();
     this.runtimeStateHome = path.resolve(
       options?.runtimeStateHome
         ?? path.join(getNodexHome(), "agent"),
@@ -21882,7 +21888,7 @@ export class CodexService extends EventEmitter {
     const terminalSessionIds = records
       .map((record) => record.terminalSessionId)
       .filter((sessionId): sessionId is string => sessionId !== null);
-    await terminalManager.refreshSessionProcessMetrics(terminalSessionIds);
+    await this.terminalRuntime.refreshSessionProcessMetrics(terminalSessionIds);
   }
 
   private getBackgroundProcessTerminalSession(sessionId: string | null): TerminalSessionSnapshot | null {
@@ -21890,7 +21896,7 @@ export class CodexService extends EventEmitter {
       return null;
     }
 
-    const snapshot = terminalManager.getSessionSnapshot(sessionId);
+    const snapshot = this.terminalRuntime.getSessionSnapshot(sessionId);
     if (!snapshot || snapshot.exited) {
       return null;
     }
@@ -23237,7 +23243,7 @@ export class CodexService extends EventEmitter {
   }
 
   private buildDynamicReadThreadTerminalResponse(threadId: string): string {
-    const snapshot = terminalManager.getThreadSnapshot(threadId);
+    const snapshot = this.terminalRuntime.getThreadSnapshot(threadId);
     if (!snapshot) {
       return "No app terminal session is attached to this thread yet.";
     }

@@ -3584,5 +3584,3 @@ function resolveBrowserSidebarIpcEventName(eventName: keyof BrowserSidebarServic
   if (eventName === "destroyWebview") return "browser-sidebar-destroy-webview";
   return "browser-sidebar-state";
 }
-
-export const browserSidebarService = new BrowserSidebarService();

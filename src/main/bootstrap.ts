@@ -14,7 +14,7 @@ import {
   runMacApplicationsInstallerGate,
   type MacApplicationsInstallerEnvironment,
 } from "./macos-applications-installer";
-import type { MainRuntimeController } from "./main-runtime";
+import type { MainProgramController } from "./main-program";
 import { assertRustDataAuthorityEnvironment } from "./data-authority";
 import { registerNodexPrivilegedSchemes } from "./privileged-schemes";
 import {
@@ -209,8 +209,8 @@ async function startRuntime(): Promise<void> {
   }
 
   const startupEvents = runtimeQueue.takePendingEvents();
-  const { runMainAppStartup } = await import("./main-runtime");
-  const controller: MainRuntimeController = await runMainAppStartup({
+  const { runMainProgram } = await import("./main-program");
+  const controller: MainProgramController = await runMainProgram({
     initialArgv: process.argv,
     startupEvents,
   });
