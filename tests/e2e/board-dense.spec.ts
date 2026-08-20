@@ -78,6 +78,36 @@ const readOpaqueSurfaceStyle = async (surface: Locator) => {
   });
 };
 
+interface LocatorGeometry {
+  readonly height: number;
+  readonly width: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+const requireLocatorGeometry = async (
+  locator: Locator,
+  label: string,
+): Promise<LocatorGeometry> => {
+  let geometry: LocatorGeometry | null = null;
+  await expect(async () => {
+    geometry = await locator.boundingBox();
+    expect(geometry, `${label} geometry is unavailable`).not.toBeNull();
+  }).toPass({ timeout: 10_000 });
+  if (!geometry) throw new Error(`${label} geometry is unavailable`);
+  return geometry;
+};
+
+const revealWithHover = async (
+  target: Locator,
+  revealed: Locator,
+): Promise<void> => {
+  await expect(async () => {
+    await target.hover({ timeout: 2_000 });
+    await expect(revealed).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
+};
+
 const setBoardCardPriority = async ({
   page,
   pageId,
@@ -139,9 +169,8 @@ const dragBoardCardWithMouse = async ({
   readonly target: Locator;
   readonly expectPropertyChangeIndicator?: boolean;
 }): Promise<void> => {
-  const sourceBox = await source.boundingBox();
-  const targetBox = await target.boundingBox();
-  if (!sourceBox || !targetBox) throw new Error("Board drag geometry is unavailable");
+  const sourceBox = await requireLocatorGeometry(source, "Board drag source");
+  const targetBox = await requireLocatorGeometry(target, "Board drag target");
   const sourcePoint = {
     x: sourceBox.x + 3,
     y: sourceBox.y + sourceBox.height / 2,
@@ -272,11 +301,8 @@ const dragDatabasePageToEditorWithMouse = async ({
   await source.scrollIntoViewIfNeeded();
   const editorSurface = editor.locator('.ProseMirror[contenteditable="true"]').first();
   await editorSurface.scrollIntoViewIfNeeded();
-  const sourceBox = await source.boundingBox();
-  const editorBox = await editorSurface.boundingBox();
-  if (!sourceBox || !editorBox) {
-    throw new Error("Database Page to editor drag geometry is unavailable");
-  }
+  const sourceBox = await requireLocatorGeometry(source, "Database Page drag source");
+  const editorBox = await requireLocatorGeometry(editorSurface, "Database Page drag target");
   const sourcePoint = {
     x: sourceBox.x + Math.min(12, sourceBox.width / 2),
     y: sourceBox.y + sourceBox.height / 2,
@@ -601,15 +627,14 @@ test("materializes and opens the authoritative board/dense environment", async (
       name: "More options for Build",
     });
     await expect(moreOptions).toHaveCSS("opacity", "1");
-    const labelBox = await buildHeader.locator(
-      '[data-database-board-column-label="true"]',
-    ).boundingBox();
-    const countBox = await buildHeader.locator(
-      '[data-database-board-column-count="true"]',
-    ).boundingBox();
-    if (!labelBox || !countBox) {
-      throw new Error("Board Column label geometry is unavailable");
-    }
+    const labelBox = await requireLocatorGeometry(
+      buildHeader.locator('[data-database-board-column-label="true"]'),
+      "Board Column label",
+    );
+    const countBox = await requireLocatorGeometry(
+      buildHeader.locator('[data-database-board-column-count="true"]'),
+      "Board Column count",
+    );
     expect(countBox.x - (labelBox.x + labelBox.width)).toBeLessThanOrEqual(8);
     await moreOptions.click();
     await page.getByRole("button", { name: "Collapse", exact: true }).click();
@@ -630,24 +655,23 @@ test("materializes and opens the authoritative board/dense environment", async (
         .match(/[\d.]+/gu)?.map(Number) ?? [];
       return background.length < 4 || background[3] === 1;
     })).toBe(true);
-    const collapsedIconBox = await buildHeader.locator("svg").first().boundingBox();
-    const collapsedLabelBox = await buildHeader.locator(
-      '[data-database-board-collapsed-label="true"]',
-    ).boundingBox();
-    if (!collapsedIconBox || !collapsedLabelBox) {
-      throw new Error("Collapsed Board Column geometry is unavailable");
-    }
+    const collapsedIconBox = await requireLocatorGeometry(
+      buildHeader.locator("svg").first(),
+      "Collapsed Board Column icon",
+    );
+    const collapsedLabelBox = await requireLocatorGeometry(
+      buildHeader.locator('[data-database-board-collapsed-label="true"]'),
+      "Collapsed Board Column label",
+    );
     expect(collapsedLabelBox.y - (collapsedIconBox.y + collapsedIconBox.height))
       .toBeLessThanOrEqual(10);
     await buildColumn.getByRole("button", { name: "Expand Build" }).click();
     await expect(buildColumn).toHaveAttribute("data-board-column-collapsed", "false");
-    const headerBox = await buildHeader.boundingBox();
-    const buildBodyBox = await page.locator(
-      '[data-board-column-root][data-board-column-id="build"]',
-    ).boundingBox();
-    if (!headerBox || !buildBodyBox) {
-      throw new Error("Board Column geometry is unavailable");
-    }
+    const headerBox = await requireLocatorGeometry(buildHeader, "Board Column header");
+    const buildBodyBox = await requireLocatorGeometry(
+      page.locator('[data-board-column-root][data-board-column-id="build"]'),
+      "Board Column body",
+    );
     expect(Math.abs(headerBox.y + headerBox.height - buildBodyBox.y)).toBeLessThanOrEqual(1);
     const boardScreenshot = testInfo.outputPath("board-project-home.png");
     await page.screenshot({ path: boardScreenshot, fullPage: true });
@@ -793,9 +817,8 @@ test("materializes and opens the authoritative board/dense environment", async (
     expect(editorPageLinkStyle.paddingLeft).toBe("0px");
     expect(editorPageLinkStyle.paddingRight).toBe("0px");
     expect(editorPageLinkStyle.textDecorationLine).toBe("none");
-    await editorPageLink.hover();
     const linkToolbar = page.getByRole("toolbar", { name: "Link actions" });
-    await expect(linkToolbar).toBeVisible();
+    await revealWithHover(editorPageLink, linkToolbar);
     await expect(linkToolbar.getByRole("button", { name: "Edit" })).toBeVisible();
     await expect(linkToolbar.getByRole("button", { name: "Clear" })).toBeVisible();
     await expect(linkToolbar.getByRole("button", { name: "Copy" })).toBeVisible();
@@ -805,12 +828,8 @@ test("materializes and opens the authoritative board/dense environment", async (
     const compactToolbarSurface = await readOpaqueSurfaceStyle(linkToolbar);
     expect(compactToolbarSurface.backgroundImage).toBe("none");
     expect(compactToolbarSurface.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
-    const compactToolbarBox = await linkToolbar.boundingBox();
-    expect(compactToolbarBox).not.toBeNull();
-    if (!compactToolbarBox) throw new Error("Link toolbar geometry is unavailable");
-    const editorPageLinkBox = await editorPageLink.boundingBox();
-    expect(editorPageLinkBox).not.toBeNull();
-    if (!editorPageLinkBox) throw new Error("Editor link geometry is unavailable");
+    const compactToolbarBox = await requireLocatorGeometry(linkToolbar, "Link toolbar");
+    const editorPageLinkBox = await requireLocatorGeometry(editorPageLink, "Editor link");
     expect(compactToolbarBox.y).toBeGreaterThanOrEqual(editorPageLinkBox.y + editorPageLinkBox.height);
     await linkToolbar.getByRole("button", { name: "Edit" }).click();
     const editToolbar = page.getByRole("toolbar", { name: "Edit link" });
@@ -833,18 +852,16 @@ test("materializes and opens the authoritative board/dense environment", async (
     expect(applyButtonStyle.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
     expect(applyButtonStyle.borderRadius).not.toBe("0px");
     expect(applyButtonStyle.padding).toBe("0px");
-    const editApplyIconBox = await applyButton.locator("svg").boundingBox();
-    expect(editApplyIconBox).not.toBeNull();
-    if (!editApplyIconBox) throw new Error("Link apply icon geometry is unavailable");
+    const editApplyIconBox = await requireLocatorGeometry(
+      applyButton.locator("svg"),
+      "Link apply icon",
+    );
     expect(editApplyIconBox.width).toBeCloseTo(12, 0);
     expect(editApplyIconBox.height).toBeCloseTo(12, 0);
-    const editToolbarBox = await editToolbar.boundingBox();
-    expect(editToolbarBox).not.toBeNull();
-    if (!editToolbarBox) throw new Error("Link edit toolbar geometry is unavailable");
+    const editToolbarBox = await requireLocatorGeometry(editToolbar, "Link edit toolbar");
     expect(editToolbarBox.height).toBeCloseTo(compactToolbarBox.height, 0);
     await page.keyboard.press("Escape");
-    await editorPageLink.hover();
-    await expect(linkToolbar).toBeVisible();
+    await revealWithHover(editorPageLink, linkToolbar);
     const editorPageLinkHoverStyle = await editorPageLink.evaluate((element) => {
       const style = globalThis.getComputedStyle(element);
       return {
@@ -875,13 +892,8 @@ test("materializes and opens the authoritative board/dense environment", async (
     const pageSection = mentionMenu.getByText("Mention a page", { exact: true });
     await expect(dateSection).toBeVisible();
     await expect(pageSection).toBeVisible();
-    const dateSectionBox = await dateSection.boundingBox();
-    const pageSectionBox = await pageSection.boundingBox();
-    expect(dateSectionBox).not.toBeNull();
-    expect(pageSectionBox).not.toBeNull();
-    if (!dateSectionBox || !pageSectionBox) {
-      throw new Error("Mention section geometry is unavailable");
-    }
+    const dateSectionBox = await requireLocatorGeometry(dateSection, "Date mention section");
+    const pageSectionBox = await requireLocatorGeometry(pageSection, "Page mention section");
     expect(dateSectionBox.y).toBeLessThan(pageSectionBox.y);
     const pageRows = mentionMenu.locator('[role="option"][data-mention-kind="page"]');
     const pageMoreRow = mentionMenu.locator(
@@ -1036,13 +1048,11 @@ test("materializes and opens the authoritative board/dense environment", async (
     );
     await expect(mentionFocusAffordance).toBeVisible();
     await expect(mentionFocusAffordance).toHaveText("Open page↵");
-    const mentionBounds = await insertedMention.boundingBox();
-    const affordanceBounds = await mentionFocusAffordance.boundingBox();
-    expect(mentionBounds).not.toBeNull();
-    expect(affordanceBounds).not.toBeNull();
-    if (!mentionBounds || !affordanceBounds) {
-      throw new Error("Mention focus affordance geometry is unavailable");
-    }
+    const mentionBounds = await requireLocatorGeometry(insertedMention, "Page mention");
+    const affordanceBounds = await requireLocatorGeometry(
+      mentionFocusAffordance,
+      "Mention focus affordance",
+    );
     expect(affordanceBounds.y).toBeGreaterThanOrEqual(
       mentionBounds.y + mentionBounds.height - 1,
     );
