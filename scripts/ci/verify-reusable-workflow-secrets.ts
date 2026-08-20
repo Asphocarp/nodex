@@ -17,6 +17,52 @@ const environmentSecretContracts = new Map<string, ReadonlySet<string>>([
 const environmentSecretNames = new Set(
   [...environmentSecretContracts.values()].flatMap((names) => [...names]),
 );
+const permissionLevels = new Map([
+  ["none", 0],
+  ["read", 1],
+  ["write", 2],
+] as const);
+
+const explicitPermissions = (
+  value: unknown,
+  label: string,
+): ReadonlyMap<string, number> => {
+  if (value === undefined) return new Map();
+  if (value === "read-all" || value === "write-all") {
+    return new Map([["*", value === "read-all" ? 1 : 2]]);
+  }
+  const permissions = requireRecord(value, label);
+  return new Map(Object.entries(permissions).map(([name, rawLevel]) => {
+    if (typeof rawLevel !== "string" || !permissionLevels.has(rawLevel as "none" | "read" | "write")) {
+      throw new Error(`${label}.${name} must be none, read, or write`);
+    }
+    return [name, permissionLevels.get(rawLevel as "none" | "read" | "write") ?? 0];
+  }));
+};
+
+const verifyPermissionCeiling = (
+  callerPath: string,
+  jobName: string,
+  job: UnknownRecord,
+  caller: UnknownRecord,
+  target: UnknownRecord,
+): void => {
+  const callerLabel = `${path.relative(repositoryRoot, callerPath)}:${jobName}.permissions`;
+  const callerPermissions = explicitPermissions(
+    job.permissions ?? caller.permissions,
+    callerLabel,
+  );
+  const requested = explicitPermissions(target.permissions, "called workflow permissions");
+  const callerDefault = callerPermissions.get("*") ?? 0;
+  const insufficient = [...requested.entries()]
+    .filter(([name, level]) => level > (callerPermissions.get(name) ?? callerDefault))
+    .map(([name]) => name)
+    .sort();
+  if (insufficient.length === 0) return;
+  throw new Error(
+    `${path.relative(repositoryRoot, callerPath)}:${jobName} does not grant permissions required by the called workflow: ${insufficient.join(", ")}`,
+  );
+};
 
 const workflowCallSecrets = (workflow: UnknownRecord): UnknownRecord => {
   const triggers = workflow.on;
@@ -144,6 +190,8 @@ export const verifyCall = (
   const targetPath = resolveLocalWorkflow(callerPath, uses);
   const target = workflows.get(targetPath);
   if (!target) throw new Error(`${uses} does not resolve to a repository workflow`);
+  const caller = workflows.get(callerPath);
+  if (caller) verifyPermissionCeiling(callerPath, jobName, job, caller, target);
 
   const declaredInputs = workflowCallInputs(target);
   const providedInputs = job.with === undefined

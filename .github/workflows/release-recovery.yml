@@ -114,6 +114,7 @@ jobs:
     name: certify exact recovery source
     needs: validate
     permissions:
+      actions: read
       contents: read
     uses: ./.github/workflows/_certify-release-source.yml
     with:

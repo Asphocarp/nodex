@@ -13,6 +13,7 @@ on:
         value: ${{ jobs.certify.outputs.source_tree }}
 
 permissions:
+  actions: read
   contents: read
 
 jobs:

@@ -11,6 +11,7 @@ on:
         type: boolean
 
 permissions:
+  actions: read
   contents: read
 
 jobs:

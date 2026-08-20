@@ -80,3 +80,42 @@ test("rejects missing and undeclared reusable workflow inputs", () => {
     secrets: { DECLARED_SECRET: "${{ secrets.DECLARED_SECRET }}" },
   }, workflows)).toThrow("passes undeclared inputs: surprise");
 });
+
+test("rejects reusable workflow permission escalation before GitHub startup", () => {
+  const callerPath = path.resolve(".github/workflows/caller.yml");
+  const calledPath = path.resolve(".github/workflows/called.yml");
+  const calledWorkflow = {
+    ...reusableWorkflow({ run: { steps: [] } }),
+    permissions: { actions: "read", contents: "read" },
+  };
+  const callerJob = {
+    uses: "./.github/workflows/called.yml",
+    secrets: { DECLARED_SECRET: "${{ secrets.DECLARED_SECRET }}" },
+  };
+  const callerWorkflow = {
+    jobs: { call: callerJob },
+    on: { workflow_dispatch: {} },
+    permissions: { contents: "read" },
+  };
+  const workflows = new Map([
+    [callerPath, callerWorkflow],
+    [calledPath, calledWorkflow],
+  ]);
+
+  expect(() => verifyCall(callerPath, "call", callerJob, workflows))
+    .toThrow("does not grant permissions required by the called workflow: actions");
+
+  const permittedCaller = {
+    ...callerWorkflow,
+    permissions: { actions: "read", contents: "read" },
+  };
+  expect(() => verifyCall(
+    callerPath,
+    "call",
+    callerJob,
+    new Map([
+      [callerPath, permittedCaller],
+      [calledPath, calledWorkflow],
+    ]),
+  )).not.toThrow();
+});
