@@ -20,6 +20,7 @@ const waitForCoreRemoval = async (nodexHome: string): Promise<void> => {
 };
 
 export const materializeDevelopmentSeed = async (input: {
+  readonly environment?: NodeJS.ProcessEnv;
   readonly scenarioId: string;
   readonly nodexHome: string;
   readonly workspace: string;
@@ -30,6 +31,7 @@ export const materializeDevelopmentSeed = async (input: {
   try {
     runtime = await initializeDesktopDataAuthority({
       buildId: `dev-seed:${input.scenarioId}`,
+      environment: input.environment,
       isPackaged: false,
       nodexHome: input.nodexHome,
     });
