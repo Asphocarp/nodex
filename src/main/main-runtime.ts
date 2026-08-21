@@ -160,7 +160,6 @@ let windowRuntime: WindowRuntimeService | null = null;
 let appInitializationStep: AppInitializationStep = { phase: "opening" };
 let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
-const rendererInitializationReports = new Set<number>();
 let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
@@ -289,7 +288,7 @@ function requestNewWindowFromActiveWindow(): void {
   }
   const sourceWebContentsId = sourceWindow.webContents.id;
   if (
-    rendererInitializationReports.has(sourceWebContentsId) &&
+    windowRuntime?.isRendererInitialized(sourceWebContentsId) &&
     safeSendToWindow(sourceWindow, REQUEST_NEW_WINDOW_HOST_CHANNEL)
   ) {
     return;
@@ -626,8 +625,7 @@ export function reportRendererInitialization(
   webContentsId: number,
   report: { readonly durationMs: number; readonly outcome: "ready" | "failed" },
 ): void {
-  if (rendererInitializationReports.has(webContentsId)) return;
-  rendererInitializationReports.add(webContentsId);
+  if (!windowRuntime?.markRendererInitialized(webContentsId)) return;
   logger.info("Renderer initialization finished", {
     durationMs: Math.round(report.durationMs),
     outcome: report.outcome,
@@ -1094,19 +1092,16 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
   }
 
   window.on("focus", () => {
-    windows.markFocused(webContentsId);
     applyElectronWindowBackdrop(window);
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: true }]);
     codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, true);
   });
   window.on("resize", () => {
     if (window.isDestroyed()) return;
-    windows.updateBounds(webContentsId, captureWindowSessionBounds(window));
     applyElectronWindowBackdrop(window);
   });
   window.on("move", () => {
     if (window.isDestroyed()) return;
-    windows.updateBounds(webContentsId, captureWindowSessionBounds(window));
     applyElectronWindowBackdrop(window);
   });
   window.on("blur", () => {
@@ -1154,7 +1149,6 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     rendererClientRegistration = null;
     nativeTheme.off("updated", refreshWindowBackdropForTheme);
     electronWindowOpaqueSurfaceModes.delete(window.id);
-    rendererInitializationReports.delete(webContentsId);
   });
 
   try {

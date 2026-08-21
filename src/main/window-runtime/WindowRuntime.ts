@@ -29,6 +29,9 @@ interface ManagedWindowClose {
   disposition: WindowSessionCloseDisposition;
   finalBounds: WindowSessionBounds | undefined;
   finish: () => void;
+  focusHandler: () => void;
+  moveHandler: () => void;
+  resizeHandler: () => void;
   timeout: ReturnType<typeof setTimeout> | null;
   window: BrowserWindow;
 }
@@ -60,6 +63,8 @@ export interface WindowRuntimeService {
   readonly getLastFocused: () => BrowserWindow | null;
   readonly has: (webContentsId: number) => boolean;
   readonly hasClosedSessionAvailable: () => boolean;
+  readonly isRendererInitialized: (webContentsId: number) => boolean;
+  readonly markRendererInitialized: (webContentsId: number) => boolean;
   readonly markFocused: (webContentsId: number) => void;
   readonly release: (
     webContentsId: number,
@@ -96,6 +101,7 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
       Effect.sync(() => {
         const windows = new Map<number, BrowserWindow>();
         const managedCloses = new Map<number, ManagedWindowClose>();
+        const initializedRenderers = new Set<number>();
         let lastFocusedWebContentsId: number | null = null;
         let applicationQuitRequested = false;
 
@@ -106,6 +112,9 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
           if (managed.timeout) clearTimeout(managed.timeout);
           managed.window.removeListener("close", managed.closeHandler);
           managed.window.removeListener("closed", managed.closedHandler);
+          managed.window.removeListener("focus", managed.focusHandler);
+          managed.window.removeListener("move", managed.moveHandler);
+          managed.window.removeListener("resize", managed.resizeHandler);
         };
 
         const release: WindowRuntimeService["release"] = (webContentsId, input) => {
@@ -113,6 +122,7 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
             return sessions.detachWindow(webContentsId, input);
           } finally {
             cleanupClose(webContentsId);
+            initializedRenderers.delete(webContentsId);
             windows.delete(webContentsId);
             if (lastFocusedWebContentsId === webContentsId) {
               lastFocusedWebContentsId = null;
@@ -166,9 +176,22 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
               windows.delete(webContentsId);
             }
           };
+          managed.focusHandler = () => {
+            lastFocusedWebContentsId = webContentsId;
+            sessions.markFocused(webContentsId);
+          };
+          const updateBounds = (): void => {
+            if (window.isDestroyed()) return;
+            sessions.updateBounds(webContentsId, captureWindowSessionBounds(window));
+          };
+          managed.moveHandler = updateBounds;
+          managed.resizeHandler = updateBounds;
           managedCloses.set(webContentsId, managed);
           window.on("close", managed.closeHandler);
           window.on("closed", managed.closedHandler);
+          window.on("focus", managed.focusHandler);
+          window.on("move", managed.moveHandler);
+          window.on("resize", managed.resizeHandler);
         };
 
         return WindowRuntime.of({
@@ -201,6 +224,13 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
           },
           has: (webContentsId) => windows.has(webContentsId),
           hasClosedSessionAvailable: () => sessions.hasClosedSessionAvailable(),
+          isRendererInitialized: (webContentsId) => initializedRenderers.has(webContentsId),
+          markRendererInitialized: (webContentsId) => {
+            if (!windows.has(webContentsId) || initializedRenderers.has(webContentsId))
+              return false;
+            initializedRenderers.add(webContentsId);
+            return true;
+          },
           markFocused: (webContentsId) => {
             if (!windows.has(webContentsId)) return;
             lastFocusedWebContentsId = webContentsId;
