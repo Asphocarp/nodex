@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import { APP_TEST_SUITES, STATIC_GROUPS } from "./ci-gate-plan";
-import { classifyChangedPaths } from "./classify-change";
+import {
+  buildChangeClassificationDocument,
+  classifyChangedPaths,
+} from "./classify-change";
 
 describe("CI change classification", () => {
   test("keeps documentation out of executable gates", () => {
@@ -185,6 +188,20 @@ describe("CI change classification", () => {
         testMode: "full",
       });
     }
+  });
+
+  test("does not publish an affected-path closure for explicit full gates", () => {
+    const document = buildChangeClassificationDocument([
+      "crates/nodex-core/src/lib.rs",
+      "src/renderer/app.tsx",
+    ], { full: true });
+
+    expect(document.changedPaths).toEqual([]);
+    expect(document.plan).toMatchObject({
+      allGates: true,
+      rustFull: true,
+      testMode: "full",
+    });
   });
 
   test("rejects paths that escape the repository", () => {
