@@ -1,11 +1,13 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { MainRuntimeController, MainRuntimeStartupContext } from "../main-runtime";
+import { performance } from "node:perf_hooks";
+import { NodexAgentAuthorizationBroker } from "../agent-tools/authorization-broker";
 import {
   CoreAuthority,
   CoreSessionAccess,
@@ -36,8 +38,12 @@ import {
   createDesktopProjectWorkspaceBridge,
   createDesktopStoreAdministrationBridge,
 } from "../core-client";
+import { createDesktopNodexAgentAuthorityPort } from "../core-client/desktop-nodex-agent-authority";
+import { createDesktopNodexAgentV3DynamicService } from "../core-client/desktop-nodex-agent-dynamic-service";
+import { createDesktopNodexAgentResourceAuthorityPort } from "../core-client/desktop-nodex-agent-resource-authority";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { CodexService } from "../codex/codex-service";
+import { configureNodexAgentV3DynamicService } from "../codex/nodex-agent-dynamic-tool-runtime";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import {
@@ -102,6 +108,7 @@ import * as PageSearchIpc from "../ipc/handlers/PageSearchIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
+import { registerIpcHandlers } from "../ipc-handlers";
 import {
   ComputerUseRuntime,
   live as computerUseRuntimeLive,
@@ -177,7 +184,9 @@ import {
   getCommandKeymapState,
   getHistorySettings,
   getThreadNotificationSettings,
+  getWindowRestoreSettings,
 } from "../local-store/config";
+import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
 import { getLogger } from "../logging/logger";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
@@ -211,6 +220,9 @@ const deliveryError = (operation: string, cause: unknown) =>
   coreRuntimeError({ operation, reason: "delivery", retryable: false, cause });
 
 const notificationLogger = getLogger({ component: "codex-thread-notification-runtime" });
+const applicationLogger = getLogger({ subsystem: "app" });
+
+type MainDesktopController = Omit<MainRuntime["Service"], "start">;
 
 /** Production Main runtime owner while feature Layers replace the remaining application Modules. */
 export const live: Layer.Layer<
@@ -242,13 +254,13 @@ export const live: Layer.Layer<
     const runtimeScope = yield* Scope.Scope;
     const locale = yield* electron.locale;
     const userDataPath = yield* electron.userDataPath;
-    let controller: MainRuntimeController | null = null;
+    let controller: MainDesktopController | null = null;
     let isPrivacySettingsTerminationRequest: (() => boolean) | null = null;
     let started = false;
 
     const requireController = (
       operation: string,
-    ): Effect.Effect<MainRuntimeController, MainRuntimeError> =>
+    ): Effect.Effect<MainDesktopController, MainRuntimeError> =>
       Effect.suspend(() =>
         controller === null
           ? Effect.fail(runtimeError(operation, new Error("Main runtime has not started")))
@@ -1116,133 +1128,222 @@ export const live: Layer.Layer<
           runtimeScope,
         );
 
-        let coreEventsStarted = false;
-        const startCoreEvents: MainRuntimeStartupContext["startCoreEvents"] = (input) => {
-          if (coreEventsStarted) {
-            return Promise.reject(new Error("Native Core events have already started"));
-          }
-          coreEventsStarted = true;
-          return callbacks.runPromise(
-            Effect.gen(function* () {
-              const delivery = coreDeliveryFrom({
-                event: (event) =>
-                  Effect.tryPromise({
-                    try: () => input.onEvent(event),
-                    catch: (cause) => deliveryError("events.deliver", cause),
-                  }),
-                checkpoint: (checkpoint) =>
-                  Effect.try({
-                    try: () => input.onCheckpoint(checkpoint),
-                    catch: (cause) => deliveryError("events.checkpoint", cause),
-                  }),
-                resync: (boundary) =>
-                  Effect.tryPromise({
-                    try: () => input.onResyncRequired(boundary),
-                    catch: (cause) => deliveryError("events.resync", cause),
-                  }),
-              });
-              const eventContext = yield* Layer.buildWithScope(
-                coreEventHubLive({ initialAfter: input.initialAfter }).pipe(
-                  Layer.provide(Layer.merge(Layer.succeed(CoreSessionAccess, access), delivery)),
-                ),
-                runtimeScope,
-              );
-              const hub = Context.get(eventContext, CoreEventHub);
-              yield* SubscriptionRef.changes(hub.connection).pipe(
-                Stream.runForEach((connection) => {
-                  if (connection.kind === "ready") {
-                    return Effect.sync(() => input.onConnectionStateChanged("connected"));
-                  }
-                  if (connection.kind === "backing-off") {
-                    return Effect.sync(() =>
-                      input.onConnectionStateChanged("interrupted", connection.error),
-                    );
-                  }
-                  if (connection.kind === "failed") {
-                    return Effect.sync(() =>
-                      input.onConnectionStateChanged("failed", connection.error),
-                    );
-                  }
-                  return Effect.void;
-                }),
-                Effect.forkIn(runtimeScope),
-                Effect.asVoid,
-              );
-            }),
-          );
-        };
-
-        const module = yield* Effect.tryPromise({
-          try: () => import("../main-runtime"),
-          catch: (cause) => runtimeError("load-runtime", cause),
+        yield* deepLinks.extractFromArgv(config.argv);
+        const dataAuthorityPromise = Promise.resolve(dataAuthority);
+        const nodexAgentResourceAuthority = createDesktopNodexAgentResourceAuthorityPort({
+          authority: dataAuthorityPromise,
         });
-        const startup = yield* Effect.result(
-          Effect.tryPromise({
-            try: () =>
-              module.runMainAppStartup({
-                applicationWindows,
-                applicationSchedulers,
-                automationModule,
-                browserSidebarService,
-                codexService,
-                coreApplicationProjection,
-                dataAuthority,
-                databaseModule,
-                deepLinks: {
-                  extractFromArgv: (argv) => callbacks.runPromise(deepLinks.extractFromArgv(argv)),
-                  flush: () => callbacks.runPromise(deepLinks.flush),
-                  handle: (value) => callbacks.runPromise(deepLinks.handle(value)),
-                  markReady: () => callbacks.runPromise(deepLinks.markReady),
-                },
-                documentSync,
-                gitWorkerHost: hostWorkers.git,
-                initialProjectBootstrap,
-                initialArgv: [...config.argv],
-                rendererClientRouter: rendererClients.router,
-                libraryModule,
-                markApplicationReady: () => callbacks.runPromise(appUpdates.markApplicationReady),
-                markInitializationDone: () => callbacks.runPromise(initialization.markDone),
-                onStoreRestored: () => {
-                  callbacks.fork(
-                    Effect.sleep("250 millis").pipe(
-                      Effect.andThen(electron.relaunch),
-                      Effect.andThen(electron.exit(0)),
-                    ),
-                  );
-                },
-                projectWorkspace,
-                projectionDelivery: {
-                  deliverTail: (envelope) =>
-                    callbacks.runPromise(projectionDelivery.deliverTail(envelope)),
-                  observeCheckpoint: projectionDelivery.observeCheckpoint,
-                  resetStream: projectionDelivery.resetStream,
-                },
-                startupEvents: [],
-                storeAdministration,
-                startCoreEvents,
-                terminalRuntime: {
-                  listLiveSessionsForOwners: (input) =>
-                    callbacks.runPromise(terminals.listLiveSessionsForOwners(input)),
-                  discardExitedSessionsForOwners: (input) =>
-                    callbacks.runPromise(terminals.discardExitedSessionsForOwners(input)),
-                  runAction: (input) =>
-                    callbacks.runPromise(
-                      terminals.runAction(
-                        {
-                          webContentsId: input.webContentsId,
-                          windowSessionId: input.windowSessionId,
-                        },
-                        input.request,
-                      ),
-                    ),
-                },
-              }),
-            catch: (cause) => runtimeError("startup", cause),
+        codexService.setNodexAgentAuthorityPort(
+          createDesktopNodexAgentAuthorityPort({ authority: dataAuthorityPromise }),
+        );
+        codexService.setNodexAgentResourceAuthorityPort(nodexAgentResourceAuthority);
+        codexService.setAutomationModule(automationModule);
+        codexService.setProjectWorkspacePort(projectWorkspace);
+        browserSidebarService.setProjectSessionResolver((sessionId) =>
+          projectWorkspace
+            .getProjectSession(sessionId)
+            .then((session) => session?.projectId ?? null),
+        );
+        configureNodexAgentV3DynamicService(
+          createDesktopNodexAgentV3DynamicService({
+            authority: dataAuthorityPromise,
+            projectWorkspace,
+            databaseModule,
+            documentSync,
           }),
         );
-        if (startup._tag === "Failure") {
-          return yield* startup.failure;
-        }
+        codexService.setNodexAgentAuthorizationBroker(
+          new NodexAgentAuthorizationBroker({
+            rendererClientRouter: rendererClients.router,
+            readStoreEpoch: () => dataAuthority.identity.storeEpoch,
+            persistProjectGrants: (input) =>
+              nodexAgentResourceAuthority.persistProjectGrants(input),
+          }),
+        );
+
+        const initializationStartedAt = performance.now();
+        const initialize = Effect.gen(function* () {
+          applicationLogger.info("Native Core authority ready", {
+            ...dataAuthority.launch.timings,
+            artifactValidationMs: Math.round(dataAuthority.launch.timings.artifactValidationMs),
+            connectMs: Math.round(dataAuthority.launch.timings.connectMs),
+            selectionMs: Math.round(dataAuthority.launch.timings.selectionMs),
+            totalMs: Math.round(dataAuthority.launch.timings.totalMs),
+          });
+          let coreStreamInterruptionPublished = false;
+          const delivery = coreDeliveryFrom({
+            event: (event) =>
+              projectionDelivery
+                .deliverTail(event)
+                .pipe(Effect.mapError((cause) => deliveryError("events.deliver", cause))),
+            checkpoint: (checkpoint) =>
+              Effect.sync(() => projectionDelivery.observeCheckpoint(checkpoint)),
+            resync: (boundary) =>
+              Effect.sync(() => {
+                projectionDelivery.resetStream("event_gap");
+                coreApplicationProjection.publishResync({
+                  commitSeq: boundary.commit_head,
+                  libraryId: dataAuthority.identity.libraryId,
+                  storeEpoch: dataAuthority.identity.storeEpoch,
+                });
+              }),
+          });
+          const eventContext = yield* Layer.buildWithScope(
+            coreEventHubLive({ initialAfter: dataAuthority.rootClient.handshake.commit_head }).pipe(
+              Layer.provide(Layer.merge(Layer.succeed(CoreSessionAccess, access), delivery)),
+            ),
+            runtimeScope,
+          );
+          const hub = Context.get(eventContext, CoreEventHub);
+          yield* SubscriptionRef.changes(hub.connection).pipe(
+            Stream.runForEach((connection) => {
+              if (connection.kind === "ready") {
+                coreStreamInterruptionPublished = false;
+                return Effect.void;
+              }
+              if (connection.kind === "backing-off") {
+                if (coreStreamInterruptionPublished) return Effect.void;
+                coreStreamInterruptionPublished = true;
+                return Effect.sync(() => {
+                  projectionDelivery.resetStream("reconnect");
+                  applicationLogger.warn("Native Core event stream interrupted; reconnecting", {
+                    error: connection.error,
+                  });
+                });
+              }
+              if (connection.kind === "failed") {
+                return Effect.sync(() =>
+                  applicationLogger.error("Native Core event supervisor terminated unexpectedly", {
+                    error: connection.error,
+                  }),
+                );
+              }
+              return Effect.void;
+            }),
+            Effect.forkIn(runtimeScope),
+            Effect.asVoid,
+          );
+          yield* Effect.tryPromise({
+            try: () =>
+              initialProjectBootstrap.ensureInitialProject({
+                onProvisioned: (presentation) => {
+                  applicationWindows.seedInitialProjectPresentation(presentation);
+                  return Promise.resolve();
+                },
+              }),
+            catch: (cause) => runtimeError("initial-project-bootstrap", cause),
+          });
+          yield* deepLinks.markReady;
+          yield* Effect.tryPromise({
+            try: () => codexService.synchronizeAutomationRuntime(),
+            catch: (cause) => runtimeError("synchronize-automations", cause),
+          });
+          codexService.requestManagedWorktreeRetentionSweep();
+          applicationSchedulers.activate({ openReminder: applicationWindows.sendReminderOpen });
+          yield* initialization.markDone;
+          applicationLogger.info("Desktop app initialization finished", {
+            durationMs: Math.round(performance.now() - initializationStartedAt),
+          });
+          yield* appUpdates.markApplicationReady;
+        });
+        const initializationFiber = yield* initialize.pipe(Effect.forkIn(runtimeScope));
+
+        yield* Effect.tryPromise({
+          try: () => codexService.reconcileCodexExecutionHosts(),
+          catch: (cause) => runtimeError("reconcile-execution-hosts", cause),
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() =>
+              applicationLogger.warn("Some configured SSH execution hosts are unavailable", {
+                error,
+              }),
+            ),
+          ),
+        );
+        yield* Effect.try({
+          try: () =>
+            registerIpcHandlers({
+              automationModule,
+              browserSidebarService,
+              codexService,
+              gitWorkerHost: hostWorkers.git,
+              storeAdministration,
+              onStoreRestored: () => {
+                callbacks.fork(
+                  Effect.sleep("250 millis").pipe(
+                    Effect.andThen(electron.relaunch),
+                    Effect.andThen(electron.exit(0)),
+                  ),
+                );
+              },
+              documentSync,
+              projectWorkspace,
+              libraryModule,
+              databaseModule,
+              rendererClientRouter: rendererClients.router,
+              onHeartbeatAutomationsEnabledChanged: (input) => {
+                applicationSchedulers.setHeartbeatAutomationsEnabled(input.enabled);
+              },
+              onHeartbeatAutomationThreadStateChanged: (input, rendererClientId) => {
+                if (!rendererClientId) return;
+                applicationSchedulers.setHeartbeatThreadRendererState({
+                  ...input,
+                  rendererClientId,
+                });
+              },
+              resolveWindowSessionId: applicationWindows.resolveSessionId,
+              terminalRuntime: {
+                listLiveSessionsForOwners: (input) =>
+                  callbacks.runPromise(terminals.listLiveSessionsForOwners(input)),
+                discardExitedSessionsForOwners: (input) =>
+                  callbacks.runPromise(terminals.discardExitedSessionsForOwners(input)),
+                runAction: (input) =>
+                  callbacks.runPromise(
+                    terminals.runAction(
+                      {
+                        webContentsId: input.webContentsId,
+                        windowSessionId: input.windowSessionId,
+                      },
+                      input.request,
+                    ),
+                  ),
+              },
+            }),
+          catch: (cause) => runtimeError("register-legacy-ipc", cause),
+        });
+        applicationWindows.openStartup(getWindowRestoreSettings().policy);
+        yield* Fiber.join(initializationFiber);
+
+        controller = {
+          activate: Effect.sync(applicationWindows.focusLast),
+          prepareQuit: Effect.tryPromise({
+            try: applicationWindows.prepareQuit,
+            catch: (cause) => runtimeError("prepare-quit", cause),
+          }).pipe(Effect.as("continue" as const)),
+          handleBootstrapEvent: (event) => {
+            if (event.type === "open-url") {
+              return deepLinks.handle(event.url).pipe(
+                Effect.mapError((cause) => runtimeError("handle-open-url", cause)),
+                Effect.asVoid,
+              );
+            }
+            return deepLinks.extractFromArgv(event.argv).pipe(
+              Effect.tap((handled) =>
+                handled
+                  ? Effect.void
+                  : Effect.sync(() => {
+                      if (requestsExplicitNewWindow([...event.argv])) {
+                        applicationWindows.requestNew();
+                        return;
+                      }
+                      applicationWindows.focusLast();
+                    }),
+              ),
+              Effect.mapError((cause) => runtimeError("handle-second-instance", cause)),
+              Effect.asVoid,
+            );
+          },
+        };
         yield* Layer.buildWithScope(
           codexThreadNotificationRuntimeLive({
             source: codexService,
@@ -1290,13 +1391,12 @@ export const live: Layer.Layer<
           }),
           runtimeScope,
         );
-        controller = startup.success;
         yield* Scope.addFinalizer(
           runtimeScope,
-          Effect.tryPromise({
-            try: () => controller!.shutdown(),
-            catch: (cause) => runtimeError("shutdown", cause),
-          }).pipe(Effect.orDie),
+          Effect.sync(() => {
+            applicationWindows.beginApplicationQuit();
+            applicationLogger.info("Nodex Main Scope closing");
+          }),
         );
       }),
     ).pipe(
@@ -1306,32 +1406,18 @@ export const live: Layer.Layer<
     );
 
     return MainRuntime.of({
-      activate: requireController("activate").pipe(
-        Effect.andThen((runtime) => Effect.sync(() => runtime.activate())),
-      ),
+      activate: requireController("activate").pipe(Effect.flatMap((runtime) => runtime.activate)),
       start,
       prepareQuit: requireController("prepare-quit").pipe(
         Effect.flatMap((runtime) =>
           isPrivacySettingsTerminationRequest?.() === true
             ? Effect.succeed("defer" as const)
-            : Effect.tryPromise({
-                try: () => runtime.prepareQuit(),
-                catch: (cause) => runtimeError("prepare-quit", cause),
-              }).pipe(Effect.as("continue" as const)),
+            : runtime.prepareQuit,
         ),
       ),
       handleBootstrapEvent: (event) =>
         requireController("bootstrap-event").pipe(
-          Effect.andThen((runtime) =>
-            Effect.tryPromise({
-              try: () =>
-                event.type === "open-url"
-                  ? runtime.handleOpenUrl(event.url)
-                  : runtime.handleSecondInstance([...event.argv]),
-              catch: (cause) => runtimeError("bootstrap-event", cause),
-            }),
-          ),
-          Effect.asVoid,
+          Effect.flatMap((runtime) => runtime.handleBootstrapEvent(event)),
         ),
     });
   }),
