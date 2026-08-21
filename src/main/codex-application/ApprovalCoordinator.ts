@@ -2,6 +2,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import type { ServerRequestMethod } from "@nodex/effect-codex-app-server/rpc";
 import {
   CodexAppServerRequestError,
@@ -131,6 +132,52 @@ export const serverRequestLayer: Layer.Layer<
   ApprovalCoordinator.use((coordinator) =>
     Effect.succeed(CodexServerRequestRuntime.of({ handle: coordinator.handle })),
   ),
+);
+
+/**
+ * Runs application request handling outside the endpoint reader. Each thread remains independent:
+ * an approval waiting on UI never blocks requests for other conversations.
+ */
+export const applicationRequestDispatcherLive: Layer.Layer<
+  never,
+  never,
+  ConversationRuntimeMap | CodexGlobalServerRequestRuntime
+> = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const conversations = yield* ConversationRuntimeMap;
+    const application = yield* CodexGlobalServerRequestRuntime;
+    yield* conversations.requests.pipe(
+      Stream.mapEffect(
+        (envelope) => {
+          const request = envelope.event.value;
+          return conversations.runtime(envelope.threadId).pipe(
+            Effect.flatMap((runtime) =>
+              application
+                .handle(
+                  request.hostId,
+                  request.generation,
+                  request.requestId,
+                  request.method,
+                  request.params,
+                )
+                .pipe(
+                  Effect.matchEffect({
+                    onFailure: (error) =>
+                      runtime.reject(request.generation, request.requestId, error),
+                    onSuccess: (response) =>
+                      runtime.respond(request.generation, request.requestId, response),
+                  }),
+                  Effect.asVoid,
+                ),
+            ),
+          );
+        },
+        { concurrency: "unbounded", unordered: true },
+      ),
+      Stream.runDrain,
+      Effect.forkScoped,
+    );
+  }),
 );
 
 export const unhandledGlobal: Layer.Layer<CodexGlobalServerRequestRuntime> = Layer.succeed(

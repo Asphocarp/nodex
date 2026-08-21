@@ -43,8 +43,12 @@ import {
 } from "../codex-application/ConversationCommands";
 import {
   ConversationRuntimeMap,
-  live as conversationRuntimeMapLive,
 } from "../codex-application/ConversationRuntimeMap";
+import {
+  CodexGlobalServerRequestRuntime,
+  applicationRequestDispatcherLive,
+} from "../codex-application/ApprovalCoordinator";
+import { requestHandlingLive } from "../codex-application/CodexApplicationLayers";
 import {
   CodexPreferences,
   live as codexPreferencesLive,
@@ -154,9 +158,28 @@ export const live: Layer.Layer<
         });
         const runtimeStateHome = `${config.nodexHome}/agent`;
         const codexBridge = new CodexGatewayBridge(callbacks);
+        const applicationServerRequests = CodexGlobalServerRequestRuntime.of(
+          codexBridge.serverRequests(),
+        );
+        const requestHandlingContext = yield* Layer.buildWithScope(
+          requestHandlingLive.pipe(
+            Layer.provide(
+              Layer.succeed(CodexGlobalServerRequestRuntime, applicationServerRequests),
+            ),
+          ),
+          runtimeScope,
+        );
+        const conversationRuntimes = Context.get(
+          requestHandlingContext,
+          ConversationRuntimeMap,
+        );
+        const serverRequests = Context.get(
+          requestHandlingContext,
+          CodexServerRequestRuntime,
+        );
         const codexDependencies = Layer.mergeAll(
           CodexSessionTransport.nodeLive,
-          Layer.succeed(CodexServerRequestRuntime, codexBridge.serverRequests()),
+          Layer.succeed(CodexServerRequestRuntime, serverRequests),
           Layer.succeed(
             CodexThreadHostResolver,
             CodexThreadHostResolver.of({
@@ -196,14 +219,6 @@ export const live: Layer.Layer<
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
-        const conversationRuntimeContext = yield* Layer.buildWithScope(
-          conversationRuntimeMapLive,
-          runtimeScope,
-        );
-        const conversationRuntimes = Context.get(
-          conversationRuntimeContext,
-          ConversationRuntimeMap,
-        );
         const conversationCommandsContext = yield* Layer.buildWithScope(
           conversationCommandsLive.pipe(
             Layer.provide(
@@ -397,6 +412,17 @@ export const live: Layer.Layer<
           catch: (cause) => runtimeError("activate-services", cause),
         });
         yield* Scope.addFinalizer(runtimeScope, Effect.sync(activation.release));
+        yield* Layer.buildWithScope(
+          applicationRequestDispatcherLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
+                Layer.succeed(CodexGlobalServerRequestRuntime, applicationServerRequests),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         yield* terminals.events.pipe(
           Stream.runForEach((event) =>
             event.channel === "terminal-data"

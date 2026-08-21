@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as LayerMap from "effect/LayerMap";
 import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -33,6 +34,13 @@ export interface ConversationRuntimeEventEnvelope {
   readonly sequence: number;
   readonly event: ConversationRuntimeEvent;
 }
+
+export type ConversationServerRequestEnvelope = Omit<
+  ConversationRuntimeEventEnvelope,
+  "event"
+> & {
+  readonly event: Extract<ConversationRuntimeEvent, { readonly kind: "server-request" }>;
+};
 
 export type ConversationRuntimeState =
   | { readonly kind: "active"; readonly sequence: number; readonly pendingRequests: number }
@@ -69,6 +77,8 @@ export class ConversationRuntime extends Context.Service<
 export class ConversationRuntimeMap extends Context.Service<
   ConversationRuntimeMap,
   {
+    /** Lossless process ingress for the single application request dispatcher. */
+    readonly requests: Stream.Stream<ConversationServerRequestEnvelope>;
     readonly runtime: (threadId: string) => Effect.Effect<ConversationRuntime["Service"]>;
     readonly close: (threadId: string) => Effect.Effect<void>;
   }
@@ -77,7 +87,10 @@ export class ConversationRuntimeMap extends Context.Service<
 const requestKey = (generation: number, requestId: string | number): string =>
   `${generation}:${typeof requestId}:${requestId}`;
 
-const runtimeLayer = (threadId: string): Layer.Layer<ConversationRuntime> =>
+const runtimeLayer = (
+  threadId: string,
+  ingress: Queue.Enqueue<ConversationServerRequestEnvelope>,
+): Layer.Layer<ConversationRuntime> =>
   Layer.effect(
     ConversationRuntime,
     Effect.gen(function* () {
@@ -133,7 +146,13 @@ const runtimeLayer = (threadId: string): Layer.Layer<ConversationRuntime> =>
           ];
         }).pipe(
           Effect.flatMap((sequence) =>
-            PubSub.publish(events, { threadId, sequence, event }).pipe(Effect.asVoid),
+            Effect.gen(function* () {
+              const envelope = { threadId, sequence, event } as const;
+              yield* PubSub.publish(events, envelope);
+              if (event.kind === "server-request") {
+                yield* Queue.offer(ingress, { threadId, sequence, event });
+              }
+            }),
           ),
           publishLock.withPermits(1),
         ),
@@ -210,8 +229,14 @@ const runtimeLayer = (threadId: string): Layer.Layer<ConversationRuntime> =>
 export const live: Layer.Layer<ConversationRuntimeMap> = Layer.effect(
   ConversationRuntimeMap,
   Effect.gen(function* () {
-    const runtimes = yield* LayerMap.make(runtimeLayer, { idleTimeToLive: Duration.infinity });
+    const ingress = yield* Queue.unbounded<ConversationServerRequestEnvelope>();
+    yield* Effect.addFinalizer(() => Queue.shutdown(ingress));
+    const runtimes = yield* LayerMap.make(
+      (threadId: string) => runtimeLayer(threadId, ingress),
+      { idleTimeToLive: Duration.infinity },
+    );
     return ConversationRuntimeMap.of({
+      requests: Stream.fromQueue(ingress),
       runtime: (threadId) =>
         Effect.scoped(runtimes.contextEffect(threadId)).pipe(
           Effect.map((context) => Context.get(context, ConversationRuntime)),

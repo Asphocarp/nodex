@@ -15,6 +15,8 @@ import {
 } from "../codex-runtime/CodexServerRequestRuntime";
 import {
   ApprovalCoordinator,
+  CodexGlobalServerRequestRuntime,
+  applicationRequestDispatcherLive,
   live as approvalLive,
   serverRequestLayer,
   unhandledGlobal,
@@ -121,5 +123,70 @@ it.effect("keeps each thread on an independent ordered event worker", () =>
     assert.isTrue(Option.isSome(observed));
     if (Option.isSome(observed)) assert.strictEqual(observed.value.threadId, "thread-b");
     yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("buffers application ingress and dispatches waiting threads concurrently", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const runtimeContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(runtimeContext, ConversationRuntimeMap);
+    const application = CodexGlobalServerRequestRuntime.of({
+      handle: (_hostId, _generation, requestId) =>
+        requestId === "blocked" ? Effect.never : Effect.succeed({ answers: {} }),
+    });
+    const approvalsContext = yield* Layer.buildWithScope(
+      approvalLive.pipe(
+        Layer.provide(
+          Layer.merge(
+            Layer.succeed(ConversationRuntimeMap, conversations),
+            Layer.succeed(CodexGlobalServerRequestRuntime, application),
+          ),
+        ),
+      ),
+      scope,
+    );
+    const approvals = Context.get(approvalsContext, ApprovalCoordinator);
+    const requestContext = yield* Layer.buildWithScope(
+      serverRequestLayer.pipe(Layer.provide(Layer.succeed(ApprovalCoordinator, approvals))),
+      scope,
+    );
+    const requests = Context.get(requestContext, CodexServerRequestRuntime);
+    const invoke = (threadId: string, requestId: string) =>
+      requests.handle("local", 1, requestId, "item/tool/requestUserInput", {
+        isBlocking: true,
+        itemId: `item-${threadId}`,
+        questions: [],
+        threadId,
+        turnId: `turn-${threadId}`,
+      });
+    const blocked = yield* invoke("thread-a", "blocked").pipe(Effect.forkScoped);
+    const ready = yield* invoke("thread-b", "ready").pipe(Effect.forkScoped);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const first = yield* conversations.runtime("thread-a");
+      const second = yield* conversations.runtime("thread-b");
+      if (
+        (yield* SubscriptionRef.get(first.state)).pendingRequests === 1 &&
+        (yield* SubscriptionRef.get(second.state)).pendingRequests === 1
+      ) {
+        break;
+      }
+      yield* Effect.yieldNow;
+    }
+
+    yield* Layer.buildWithScope(
+      applicationRequestDispatcherLive.pipe(
+        Layer.provide(
+          Layer.merge(
+            Layer.succeed(ConversationRuntimeMap, conversations),
+            Layer.succeed(CodexGlobalServerRequestRuntime, application),
+          ),
+        ),
+      ),
+      scope,
+    );
+    assert.deepEqual(yield* Fiber.join(ready), { answers: {} });
+    yield* Scope.close(scope, Exit.void);
+    yield* Fiber.await(blocked);
   }),
 );
