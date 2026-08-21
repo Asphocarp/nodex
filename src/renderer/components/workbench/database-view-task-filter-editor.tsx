@@ -11,6 +11,7 @@ import type {
   DatabaseTaskTagMode,
 } from "@/lib/database-view-task-filter";
 import { createDefaultDatabaseTaskFilterGroup } from "@/lib/database-view-task-filter";
+import { useObjectIdentityKey } from "@/lib/use-object-identity-keys";
 import { DatabaseViewSelect } from "./database-view-select";
 
 interface DatabaseViewTaskFilterEditorProps {
@@ -54,6 +55,7 @@ export function DatabaseViewTaskFilterEditor({
   disabled = false,
   onChange,
 }: DatabaseViewTaskFilterEditorProps) {
+  const objectIdentityKey = useObjectIdentityKey();
   const updateGroup = (
     groupIndex: number,
     update: (group: DatabaseTaskFilterGroup) => DatabaseTaskFilterGroup,
@@ -92,7 +94,7 @@ export function DatabaseViewTaskFilterEditor({
       <div className="max-h-[420px] space-y-3 overflow-y-auto px-3 pb-3">
         {state.groups.map((group, groupIndex) => (
           <div
-            key={`task-filter-group:${groupIndex}`}
+            key={objectIdentityKey(group)}
             className={cn(
               "relative space-y-1.5",
               groupIndex > 0 && "border-t-[0.5px] border-token-border/70 pt-3",

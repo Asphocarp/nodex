@@ -30,6 +30,8 @@ import {
 import { BrowserProfileImportDialog } from "./browser-profile-import-dialog";
 import { BrowserUseCursorOverlay } from "./browser-use-cursor-portal";
 
+const EMPTY_BROWSER_SNAPSHOT_OVERRIDES: Partial<BrowserSidebarTabSnapshot> = {};
+
 const meta = {
   title: "Browser/Platform matrix",
   parameters: {
@@ -470,7 +472,7 @@ function BrowserPanelStory({
   isVisible = true,
   panelKind = "right",
   showAgentCursor = false,
-  snapshotOverrides = {},
+  snapshotOverrides = EMPTY_BROWSER_SNAPSHOT_OVERRIDES,
   theme = "light",
   width = 520,
 }: {

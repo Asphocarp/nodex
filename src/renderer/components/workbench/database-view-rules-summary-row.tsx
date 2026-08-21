@@ -26,6 +26,8 @@ interface DatabaseViewRulesSummaryRowProps {
   readonly onOpenSort: () => void;
 }
 
+const EMPTY_OPTION_REGISTRIES: Readonly<Record<string, readonly DatabasePropertyOption[]>> = {};
+
 const SUMMARY_BUTTON = cn(
   "inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-medium",
   "bg-[color-mix(in_srgb,var(--accent-blue)_14%,transparent)] text-(--accent-blue)",
@@ -37,7 +39,7 @@ export function DatabaseViewRulesSummaryRow({
   filter,
   effective,
   properties,
-  optionRegistries = {},
+  optionRegistries = EMPTY_OPTION_REGISTRIES,
   onOpenFilter,
   onOpenSort,
 }: DatabaseViewRulesSummaryRowProps) {

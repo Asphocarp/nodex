@@ -304,7 +304,7 @@ export class RendererClientRouter {
     conversationId: string,
     options: RendererClientRequestOptions = {},
   ): Promise<CodexRendererThreadRole> {
-    const result = await this.sendRequest<unknown>(
+    const result = await this.sendRequest(
       targetClientId,
       THREAD_ROLE_RENDERER_CLIENT_REQUEST_METHOD,
       { conversationId } satisfies CodexRendererThreadRoleRequest,

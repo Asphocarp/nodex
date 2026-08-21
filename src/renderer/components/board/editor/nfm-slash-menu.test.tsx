@@ -925,8 +925,9 @@ describe("NfmSlashMenu", () => {
         5 more results
       </button>
     );
+    const contextValue = { editor, setContentEditableProps: () => undefined };
     const view = render(
-      <BlockNoteContext.Provider value={{ editor, setContentEditableProps: () => undefined }}>
+      <BlockNoteContext.Provider value={contextValue}>
         <SuggestionMenuWrapper
           triggerCharacter="@"
           query="weekly"
@@ -981,8 +982,9 @@ describe("NfmSlashMenu", () => {
       getExtension: () => suggestionMenu,
     } as unknown as BlockNoteEditor;
     const EmptyMentionMenu = () => <div>No matching mentions</div>;
+    const contextValue = { editor, setContentEditableProps: () => undefined };
     const view = render(
-      <BlockNoteContext.Provider value={{ editor, setContentEditableProps: () => undefined }}>
+      <BlockNoteContext.Provider value={contextValue}>
         <SuggestionMenuWrapper
           triggerCharacter="@"
           query="zzzz"

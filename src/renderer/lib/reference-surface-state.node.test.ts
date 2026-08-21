@@ -24,13 +24,9 @@ describe("ReferenceSurfaceActivationBudget", () => {
   });
 
   test("rejects invalid provider limits", () => {
-    let message = "";
-    try {
-      new ReferenceSurfaceActivationBudget(0);
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
-    }
-    expect(message).toBe("Reference surface capacity must be a positive integer");
+    expect(() => new ReferenceSurfaceActivationBudget(0)).toThrow(
+      "Reference surface capacity must be a positive integer",
+    );
   });
 
   test("keeps editing-priority surfaces ahead of visibility-only recency", () => {

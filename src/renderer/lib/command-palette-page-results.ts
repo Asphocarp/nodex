@@ -318,7 +318,7 @@ export function selectCommandPalettePageResults({
   projects?: readonly Project[];
   activeProjectId?: string | null;
   recentPageIds?: readonly string[];
-  pages?: CommandPalettePage[];
+  pages?: readonly CommandPalettePage[];
   pageSearchBatch?: CommandPalettePageSearchBatch | null;
   pageSearchScopeKey?: string | null;
   mergedPageLimit?: number;

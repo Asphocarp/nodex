@@ -2464,6 +2464,10 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
   const staleRequestGate = new Promise<void>((resolve) => {
     releaseStaleRequest = resolve;
   });
+  let markFreshRequestStarted!: () => void;
+  const freshRequestStarted = new Promise<void>((resolve) => {
+    markFreshRequestStarted = resolve;
+  });
   client.start = async () => undefined;
   client.request = async (method) => {
     if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
@@ -2473,6 +2477,7 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
       markStaleRequestStarted();
       await staleRequestGate;
     }
+    if (requestNumber === 2) markFreshRequestStarted();
     const recencyAt = requestNumber === 1 ? 1 : 20;
     return {
       data: [
@@ -2518,9 +2523,7 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
 
     releaseStaleRequest();
     await staleSync;
-    for (let attempt = 0; attempt < 10 && threadListRequests < 2; attempt += 1) {
-      await Promise.resolve();
-    }
+    await freshRequestStarted;
     const syncInFlight = Reflect.get(service as object, "sidebarSyncInFlight") as Promise<
       import("../../shared/types").CodexSidebarSyncResult
     > | null;

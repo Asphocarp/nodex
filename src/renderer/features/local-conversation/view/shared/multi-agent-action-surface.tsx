@@ -433,8 +433,10 @@ function renderRows(
   return rows;
 }
 
+const EMPTY_CHILD_MEMBERSHIPS: readonly CodexConversationChildMembership[] = [];
+
 export function MultiAgentActionSurface({
-  childMemberships = [],
+  childMemberships = EMPTY_CHILD_MEMBERSHIPS,
   items,
   onOpenThread,
 }: {

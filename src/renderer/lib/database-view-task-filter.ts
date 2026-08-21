@@ -224,15 +224,19 @@ const decodeGroup = (
 ): DatabaseTaskFilterGroup | null => {
   const defaultGroup = createDefaultDatabaseTaskFilterGroup(capabilities);
   const criteria = node.kind === "group" && node.operator === "and" ? node.children : [node];
-  let decoded: DatabaseTaskFilterGroup = {};
+  let status = defaultGroup.status;
+  let priority = defaultGroup.priority;
+  let tags = defaultGroup.tags;
+  const decodedRoles = new Set<keyof DatabaseTaskFilterGroup>();
   for (const criterion of criteria) {
     const result = decodeCriterion(criterion, capabilities);
-    if (!result || decoded[result.role]) return null;
-    if (result.role === "tags") decoded = { ...decoded, tags: result.value };
-    if (result.role === "status") decoded = { ...decoded, status: result.value };
-    if (result.role === "priority") decoded = { ...decoded, priority: result.value };
+    if (!result || decodedRoles.has(result.role)) return null;
+    decodedRoles.add(result.role);
+    if (result.role === "tags") tags = result.value;
+    if (result.role === "status") status = result.value;
+    if (result.role === "priority") priority = result.value;
   }
-  return { ...defaultGroup, ...decoded };
+  return { status, priority, tags };
 };
 
 export const decodeDatabaseTaskFilter = (

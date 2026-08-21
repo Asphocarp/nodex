@@ -228,6 +228,8 @@ export interface DatabaseViewPageMenuSession {
   readonly onMove: (direction: DatabaseViewPageMoveDirection) => void;
 }
 
+const EMPTY_PAGE_ACTION_PORT: DatabaseViewPageActionPort = {};
+
 export function DatabaseViewPageContextMenuOverlay({
   menuOpen,
   onMenuOpenChange,
@@ -236,7 +238,7 @@ export function DatabaseViewPageContextMenuOverlay({
   canMoveDown,
   propertySource,
   groupingPropertyId = null,
-  actionPort = {},
+  actionPort = EMPTY_PAGE_ACTION_PORT,
   deleteDisabled = false,
   onMove,
 }: {

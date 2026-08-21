@@ -38,7 +38,7 @@ export interface ToastCustomOptions {
   id?: string;
   hasCloseButton?: boolean;
   onRemove?: () => void;
-  content: (input: { close: () => void; level: ToastLevel }) => ReactNode;
+  renderContent: (input: { close: () => void; level: ToastLevel }) => ReactNode;
 }
 
 interface ToastBaseRecord {
@@ -59,7 +59,7 @@ export interface ToastPlainRecord extends ToastBaseRecord {
 
 export interface ToastCustomRecord extends ToastBaseRecord {
   kind: "custom";
-  content: ToastCustomOptions["content"];
+  renderContent: ToastCustomOptions["renderContent"];
 }
 
 export type ToastRecord = ToastPlainRecord | ToastCustomRecord;
@@ -128,7 +128,7 @@ class NodexToastStore {
       duration: resolveToastDuration(options.duration),
       hasCloseButton: options.hasCloseButton ?? true,
       isShown: true,
-      content: options.content,
+      renderContent: options.renderContent,
     };
     return this.insertRecord(record, options.onRemove);
   }
@@ -393,7 +393,7 @@ function NodexToastCustomSurface({
           <ToastDismissButton onClick={onClose} />
         </div>
       ) : null}
-      {record.content({
+      {record.renderContent({
         close: onClose,
         level: record.level,
       })}

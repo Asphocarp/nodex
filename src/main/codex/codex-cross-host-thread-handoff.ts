@@ -244,9 +244,11 @@ export class CodexCrossHostThreadHandoffService {
         destinationCodexHome,
       });
       if (cleanupWarnings.length === 0) throw error;
+      // oxlint-disable-next-line eslint/preserve-caught-error -- AggregateError retains the primary failure and every cleanup failure explicitly.
       throw new AggregateError(
         [error, ...cleanupWarnings.map((warning) => new Error(warning))],
         `Cross-host handoff failed: ${errorMessage(error)}; cleanup requires attention`,
+        { cause: error },
       );
     }
   }

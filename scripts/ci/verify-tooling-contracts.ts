@@ -128,7 +128,7 @@ function verifyAdvisoryPolicy(): void {
   );
   const hasCategoryWarning = warnings.some(
     (diagnostic) =>
-      diagnostic.code === "react(no-array-index-key)" &&
+      diagnostic.code === "react(no-object-type-as-default-prop)" &&
       diagnostic.filename === "scripts/fixtures/tooling/advisory-warning.tsx",
   );
   const hasUnusedDisableWarning = warnings.some(

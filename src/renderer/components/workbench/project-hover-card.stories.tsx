@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { NodexHoverCard, NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexFloatingSurface } from "@/components/ui/floating-surface";
 import type { Project } from "@/lib/types";
@@ -29,13 +29,7 @@ const PROJECT: Project = {
 
 function HoverCardStory({
   project = PROJECT,
-  activity = {
-    projectId: project.id,
-    taskCount: 66,
-    waitingCount: 0,
-    unreadCount: 0,
-    activeCount: 1,
-  },
+  activity,
   appearancePending = false,
   markerPickerOpen = false,
   missingRepository = false,
@@ -57,6 +51,19 @@ function HoverCardStory({
 }) {
   const [appearance, setAppearance] = useState<ProjectAppearance>(project.appearance);
   const [pinned, setPinned] = useState(project.pinned);
+  const resolvedActivity = useMemo(
+    () =>
+      activity === undefined
+        ? {
+            projectId: project.id,
+            taskCount: 66,
+            waitingCount: 0,
+            unreadCount: 0,
+            activeCount: 1,
+          }
+        : activity,
+    [activity, project.id],
+  );
 
   return (
     <div className="min-h-screen bg-token-main-surface-primary p-16 text-token-foreground">
@@ -64,7 +71,7 @@ function HoverCardStory({
         <ProjectHoverCard
           project={{ ...project, appearance, pinned }}
           appearance={appearance}
-          activity={activity}
+          activity={resolvedActivity}
           appearancePending={appearancePending}
           repositoryIdentity={
             missingRepository

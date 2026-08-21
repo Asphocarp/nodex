@@ -318,9 +318,11 @@ const terminateAfterStartupFailure = async (
   try {
     await terminateCandidate(child, exit);
   } catch (terminationError) {
+    // oxlint-disable-next-line eslint/preserve-caught-error -- AggregateError retains both failures; startup remains the primary cause.
     throw new AggregateError(
       [startupError, terminationError],
       "Native Rust Core startup failed and its candidate could not be terminated",
+      { cause: startupError },
     );
   }
   throw startupError;

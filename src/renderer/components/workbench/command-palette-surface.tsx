@@ -75,12 +75,12 @@ interface CommandPaletteSurfaceProps {
   openTriggerTick: number;
   mode: CommandMenuMode;
   initialQuery?: string;
-  commands: CommandPaletteCommand[];
-  pages?: CommandPalettePage[];
-  projects?: Project[];
+  commands: readonly CommandPaletteCommand[];
+  pages?: readonly CommandPalettePage[];
+  projects?: readonly Project[];
   activeProjectId?: string | null;
-  recentPageIds?: string[];
-  threads?: CommandPaletteThread[];
+  recentPageIds?: readonly string[];
+  threads?: readonly CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   pageSearchBatch?: CommandPalettePageSearchBatch;
   loading: boolean;
@@ -91,6 +91,11 @@ interface CommandPaletteSurfaceProps {
   onRequestClose: () => void;
   onExecute: (item: PaletteItem) => void;
 }
+
+const EMPTY_PALETTE_PAGES: readonly CommandPalettePage[] = [];
+const EMPTY_PALETTE_PROJECTS: readonly Project[] = [];
+const EMPTY_RECENT_PAGE_IDS: readonly string[] = [];
+const EMPTY_PALETTE_THREADS: readonly CommandPaletteThread[] = [];
 
 const COMMAND_GROUP_ORDER: CommandPaletteCommandGroup[] = [
   "Suggested",
@@ -154,12 +159,12 @@ function resolveSelectableIndex(
 interface CommandPaletteSectionsInput {
   query: string;
   mode: CommandMenuMode;
-  commands: CommandPaletteCommand[];
-  pages: CommandPalettePage[];
-  projects: Project[];
+  commands: readonly CommandPaletteCommand[];
+  pages: readonly CommandPalettePage[];
+  projects: readonly Project[];
   activeProjectId: string | null;
-  recentPageIds: string[];
-  threads: CommandPaletteThread[];
+  recentPageIds: readonly string[];
+  threads: readonly CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   pageSearchBatch?: CommandPalettePageSearchBatch | null;
   pageSearchScopeKey?: string | null;
@@ -671,11 +676,11 @@ export function CommandPaletteSurface({
   mode,
   initialQuery,
   commands,
-  pages = [],
-  projects = [],
+  pages = EMPTY_PALETTE_PAGES,
+  projects = EMPTY_PALETTE_PROJECTS,
   activeProjectId = null,
-  recentPageIds = [],
-  threads = [],
+  recentPageIds = EMPTY_RECENT_PAGE_IDS,
+  threads = EMPTY_PALETTE_THREADS,
   threadSearchIndex,
   pageSearchBatch: injectedPageSearchBatch,
   loading,

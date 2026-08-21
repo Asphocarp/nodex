@@ -17,8 +17,8 @@ export interface DbViewToolbarItem {
 }
 
 interface DbViewToolbarProps {
-  items: DbViewToolbarItem[];
-  destinationItems?: DbViewToolbarItem[];
+  items: readonly DbViewToolbarItem[];
+  destinationItems?: readonly DbViewToolbarItem[];
   activeSearchQuery: string;
   taskSearchOpen: boolean;
   searchShortcutLabel: string;
@@ -32,6 +32,8 @@ interface DbViewToolbarProps {
   onOpenTaskSearch: (selectQuery?: boolean) => void;
   onCloseTaskSearch: () => void;
 }
+
+const EMPTY_DESTINATION_ITEMS: readonly DbViewToolbarItem[] = [];
 
 export function resolveDbViewToolbarClearAction(hasActiveSearchQuery: boolean): {
   shouldClear: boolean;
@@ -52,7 +54,7 @@ export function resolveDbViewToolbarClearAction(hasActiveSearchQuery: boolean): 
 
 export function DbViewToolbar({
   items,
-  destinationItems = [],
+  destinationItems = EMPTY_DESTINATION_ITEMS,
   activeSearchQuery,
   taskSearchOpen,
   searchShortcutLabel,

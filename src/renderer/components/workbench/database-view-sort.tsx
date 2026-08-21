@@ -13,6 +13,7 @@ import type {
 } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { DatabaseViewSelect } from "./database-view-select";
+import { useObjectIdentityKey } from "@/lib/use-object-identity-keys";
 
 interface DatabaseViewSortProps {
   readonly effective: EffectiveDatabaseViewPresentation;
@@ -49,6 +50,7 @@ export function DatabaseViewSort({
     (property) => property.lifecycle === "active" && property.capabilities.sortable,
   );
   const sorts = effective.presentation.sort;
+  const objectIdentityKey = useObjectIdentityKey();
   const setSorts = (nextSorts: readonly DatabaseViewSort[]) =>
     onChange({
       ...effective,
@@ -95,10 +97,7 @@ export function DatabaseViewSort({
             </div>
           ) : (
             sorts.map((sort, index) => (
-              <div
-                key={`${sortFieldValue(sort)}:${index}`}
-                className="flex min-h-8 items-center gap-1"
-              >
+              <div key={objectIdentityKey(sort)} className="flex min-h-8 items-center gap-1">
                 <DatabaseViewSelect
                   ariaLabel={`Sort field ${index + 1}`}
                   search="filter"

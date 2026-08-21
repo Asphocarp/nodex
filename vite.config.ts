@@ -110,6 +110,17 @@ const workbenchRefreshBoundaries = [
   "src/renderer/components/workbench/workbench-session-sidebar.tsx",
 ];
 
+const singleOwnerEventHandlerFiles = [
+  "src/renderer/components/block-documents/long-page-open.stress.browser.test.ts",
+  "src/renderer/features/local-conversation/view/composer/image-attachments/use-composer-image-attachments.ts",
+  "src/renderer/features/user-attachment-image-editor/view/user-attachment-image-editor-surface.tsx",
+  "src/renderer/lib/assets.ts",
+  "src/renderer/lib/canvas-scene-outbox.node.test.ts",
+  "src/renderer/lib/canvas-scene-outbox.ts",
+  "src/renderer/lib/document-local-checkpoint.ts",
+  "src/renderer/lib/mcp-app/mcp-app-port-rpc.ts",
+];
+
 const toolingFixtureIgnorePatterns = new Set(["scripts/fixtures/tooling/**", "**/fixtures/**"]);
 const effectControlPlaneFiles = [
   "src/main/effect-control-plane/**/*.{ts,tsx}",
@@ -154,6 +165,8 @@ export default defineConfig({
       "eslint/no-underscore-dangle": "off",
       "eslint/no-useless-escape": "off",
       "oxc/no-map-spread": "off",
+      "oxc/no-accumulating-spread": "off",
+      "react/no-array-index-key": "off",
       "react/no-children-prop": "off",
       "react/react-in-jsx-scope": "off",
       "typescript/await-thenable": "off",
@@ -177,19 +190,27 @@ export default defineConfig({
       "unicorn/no-useless-fallback-in-spread": "off",
       "unicorn/no-useless-spread": "off",
       "unicorn/prefer-array-find": "off",
+      "unicorn/prefer-set-has": "off",
 
       // Only stable correctness contracts and app-owned invariants block the gate.
       // Broad category diagnostics remain advisory so agents can improve nearby code
       // without turning historical warning volume into unrelated cleanup work.
       "eslint/no-extra-boolean-cast": "error",
+      "eslint/preserve-caught-error": "error",
       "eslint/no-unreachable": "error",
       "eslint/no-unsafe-finally": "error",
       "eslint/no-unsafe-optional-chaining": "error",
       "nodex/no-manual-effect-runtime-in-tests": "error",
       "nodex/no-native-title-tooltip": "error",
       "oxc/const-comparisons": "error",
+      "react/iframe-missing-sandbox": "error",
+      "react/jsx-no-constructed-context-values": "error",
+      // Render-prop callbacks are lazy slots, not component identities. Their
+      // call site owns invocation; component-valued props remain prohibited.
+      "react/no-unstable-nested-components": ["error", { allowAsProps: true }],
       "typescript/no-floating-promises": "error",
       "typescript/no-misused-spread": "error",
+      "typescript/no-unsafe-enum-comparison": "error",
       "typescript/require-array-sort-compare": "error",
       ...tanstackQueryRules,
       ...betterTailwindRules,
@@ -201,6 +222,10 @@ export default defineConfig({
           // Test assertions deliberately probe nullable values and cleanup failures.
           "eslint/no-unsafe-finally": "off",
           "eslint/no-unsafe-optional-chaining": "off",
+          // Constructor-only and nominal classes are legitimate platform fixtures.
+          "typescript/no-extraneous-class": "off",
+          // One-shot Provider fixtures do not cross a production render boundary.
+          "react/jsx-no-constructed-context-values": "off",
         },
       },
       {
@@ -216,6 +241,21 @@ export default defineConfig({
           "no-restricted-imports": ["error", { paths: rendererRestrictedImportPaths }],
           "react/exhaustive-deps": "error",
           "react/rules-of-hooks": "error",
+        },
+      },
+      {
+        files: singleOwnerEventHandlerFiles,
+        rules: {
+          // These adapters exclusively own fresh EventTarget handler slots and
+          // intentionally replace or clear the one lifecycle callback.
+          "unicorn/prefer-add-event-listener": "off",
+        },
+      },
+      {
+        files: ["src/renderer/env.d.ts"],
+        rules: {
+          // The empty export is the declaration file's explicit module marker.
+          "unicorn/require-module-specifiers": "off",
         },
       },
       {

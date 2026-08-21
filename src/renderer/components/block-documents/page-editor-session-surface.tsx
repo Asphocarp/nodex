@@ -58,7 +58,7 @@ export function PageEditorSessionSurface({
   dependencies,
   runtimeRef,
   pendingFallback,
-  failureFallback,
+  renderFailureFallback,
   children,
 }: PageEditorSessionSurfaceProps) {
   const [revision, setRevision] = useState(0);
@@ -136,8 +136,8 @@ export function PageEditorSessionSurface({
         reloading: false,
         reload: restart,
       };
-      return failureFallback ? (
-        failureFallback(failure)
+      return renderFailureFallback ? (
+        renderFailureFallback(failure)
       ) : (
         <BlockDocumentSurfaceFailureState {...failure} />
       );
@@ -165,7 +165,7 @@ export function PageEditorSessionSurface({
       startupError={startupError}
       onReload={restart}
       pendingFallback={pendingFallback}
-      failureFallback={failureFallback}
+      renderFailureFallback={renderFailureFallback}
     >
       {(surface) => {
         if (surface.kind !== "page") {

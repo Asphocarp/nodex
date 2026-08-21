@@ -1152,7 +1152,7 @@ export function ConnectedThreadStage({
         }
         floatingContent={
           <ThreadSummaryPanelRenderBoundary
-            fallback={({ resetError }) => (
+            renderFallback={({ resetError }) => (
               <ThreadSummaryPanelRenderErrorFallback
                 hideImmediately={summaryPanelHideImmediately}
                 mounted={summaryPanelMounted}
@@ -1231,7 +1231,7 @@ export function ConnectedThreadStage({
         }
         floatingContent={
           <ThreadSummaryPanelRenderBoundary
-            fallback={({ resetError }) => (
+            renderFallback={({ resetError }) => (
               <ThreadSummaryPanelRenderErrorFallback
                 hideImmediately={summaryPanelHideImmediately}
                 mounted={summaryPanelMounted}

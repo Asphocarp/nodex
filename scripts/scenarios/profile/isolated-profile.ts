@@ -164,9 +164,11 @@ export const createIsolatedProfile = async (
       retention: "dispose",
     });
     if (cleanup.status === "unsafe") {
+      // oxlint-disable-next-line eslint/preserve-caught-error -- AggregateError retains the primary failure and cleanup failure explicitly.
       throw new AggregateError(
         [error, new Error(cleanup.reason)],
         `Failed to create and clean isolated Profile ${profile.runRoot}`,
+        { cause: error },
       );
     }
     throw error;

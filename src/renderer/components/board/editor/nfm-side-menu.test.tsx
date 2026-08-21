@@ -240,8 +240,10 @@ function renderSideMenuSurface({
   return { calls, view };
 }
 
+const ignoreBlockMove = (): void => undefined;
+
 function StatefulSideMenuSurface({
-  onMoveBlocksToDestination = () => undefined,
+  onMoveBlocksToDestination = ignoreBlockMove,
   moveToLoading = false,
   moveToError = null,
 }: {

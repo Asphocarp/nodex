@@ -63,8 +63,10 @@ const property = (
     updatedAt: "2026-08-16T00:00:00.000Z",
   }) as DataSourcePropertyRecordV2;
 
+const EMPTY_PROPERTY_BINDINGS: readonly DataSourcePropertyEditorBinding[] = [];
+
 function Harness({
-  bindings = [],
+  bindings = EMPTY_PROPERTY_BINDINGS,
   source,
   groupingPropertyId = null,
   query = "",

@@ -544,7 +544,7 @@ function ToastDemo() {
       level: "danger",
       duration: 0,
       hasCloseButton: false,
-      content: ({ close }) => (
+      renderContent: ({ close }) => (
         <div className="flex items-start gap-3 p-3">
           <div className="mt-0.5 size-2.5 rounded-full bg-token-charts-red" />
           <div className="min-w-0 flex-1">

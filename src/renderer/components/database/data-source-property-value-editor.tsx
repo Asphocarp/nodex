@@ -161,6 +161,14 @@ export interface DataSourcePropertyValueEditorProps extends DataSourcePropertyEd
   readonly onOverlayRequestClose?: () => void;
 }
 
+const EMPTY_RELATION_CANDIDATES: NonNullable<
+  DataSourcePropertyValueEditorProps["relationCandidates"]
+> = [];
+const EMPTY_PROPERTY_OPTIONS: NonNullable<DataSourcePropertyValueEditorProps["options"]> = [];
+const ignoreRelationPatch: NonNullable<
+  DataSourcePropertyValueEditorProps["onPatchRelation"]
+> = () => undefined;
+
 export function DataSourcePropertyValueEditor({
   property,
   value,
@@ -182,11 +190,11 @@ export function DataSourcePropertyValueEditor({
   optionRegistryLoadingMore = false,
   onRequestMoreOptions,
   onPatchOptions,
-  relationCandidates = [],
+  relationCandidates = EMPTY_RELATION_CANDIDATES,
   relationSourcePageId,
-  options = [],
+  options = EMPTY_PROPERTY_OPTIONS,
   optionRegistryState = "ready",
-  onPatchRelation = () => undefined,
+  onPatchRelation = ignoreRelationPatch,
   onReplaceOneRelation,
   onLoadRelationTargets,
   onSearchRelationCandidates,

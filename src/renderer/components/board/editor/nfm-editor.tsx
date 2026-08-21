@@ -221,7 +221,7 @@ interface NfmEditorCommonProps {
   sessionId?: string | null;
   sessionThread?: CodexThreadSummary | null;
   canStartThreadInSession?: boolean;
-  linkedCodexThreads?: PageStageLinkedThread[];
+  linkedCodexThreads?: readonly PageStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
   onOpenPage?: (input: ContentPageNavigationTarget) => void | Promise<void>;
   onOpenDatabase?: BlockReferenceHostRuntime["openDatabase"];
@@ -404,6 +404,8 @@ export function NfmEditor(props: NfmEditorProps) {
   );
 }
 
+const EMPTY_LINKED_CODEX_THREADS: readonly PageStageLinkedThread[] = [];
+
 function NfmEditorInstance({
   contentAccessContext,
   projectName = null,
@@ -415,7 +417,7 @@ function NfmEditorInstance({
   sessionId = null,
   sessionThread = null,
   canStartThreadInSession = false,
-  linkedCodexThreads = [],
+  linkedCodexThreads = EMPTY_LINKED_CODEX_THREADS,
   onOpenCodexThread,
   onOpenPage,
   onOpenDatabase,

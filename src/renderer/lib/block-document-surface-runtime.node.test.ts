@@ -290,20 +290,17 @@ describe("BlockDocumentSurfaceRuntime", () => {
 
   test("rejects an unregistered owner before allocating a collaborative surface", () => {
     let providersCreated = 0;
-    let errorMessage = "";
-    try {
-      new BlockDocumentSurfaceRuntime({
-        descriptor: descriptor({ ownerType: "database" }),
-        adapter: unusedAdapter,
-        createProvider: (options) => {
-          providersCreated += 1;
-          return new FakeSurfaceProvider(options, []);
-        },
-      });
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
-    }
-    expect(errorMessage).toBe("No owned Document Adapter is registered for database/nodex.page@2");
+    expect(
+      () =>
+        new BlockDocumentSurfaceRuntime({
+          descriptor: descriptor({ ownerType: "database" }),
+          adapter: unusedAdapter,
+          createProvider: (options) => {
+            providersCreated += 1;
+            return new FakeSurfaceProvider(options, []);
+          },
+        }),
+    ).toThrow("No owned Document Adapter is registered for database/nodex.page@2");
     expect(providersCreated).toBe(0);
   });
 

@@ -418,7 +418,7 @@ describe("BlockDocumentSurface", () => {
             throw new Error("Document adapter unavailable");
           },
         }}
-        failureFallback={({ error, reload }) => (
+        renderFailureFallback={({ error, reload }) => (
           <section data-testid="embedding-shell">
             <span>{error.message}</span>
             <button type="button" onClick={() => void reload?.()}>

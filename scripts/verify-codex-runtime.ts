@@ -61,8 +61,7 @@ function readMacosArchitectures(artifactPath: string): string[] {
   }
   if (result.status !== 0) {
     throw new Error(
-      `Could not inspect architectures for ${artifactPath}: ` +
-        `${(result.stderr || result.stdout).trim()}`,
+      `Could not inspect architectures for ${artifactPath}: ${(result.stderr || result.stdout).trim()}`,
     );
   }
   return result.stdout

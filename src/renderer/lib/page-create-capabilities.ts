@@ -11,25 +11,17 @@ export interface PageCreatePropertyCapabilities {
 export function resolvePageCreatePropertyCapabilities(
   properties: readonly DataSourcePropertyRecordV2[],
 ): PageCreatePropertyCapabilities {
-  const capabilities: PageCreatePropertyCapabilities = {
-    priorityProperty: null,
-    estimateProperty: null,
-    tagsProperty: null,
-  };
-
-  return properties.reduce<PageCreatePropertyCapabilities>((current, property) => {
+  let priorityProperty: DataSourcePropertyRecordV2 | null = null;
+  let estimateProperty: DataSourcePropertyRecordV2 | null = null;
+  let tagsProperty: DataSourcePropertyRecordV2 | null = null;
+  for (const property of properties) {
     const role = matchBuiltInDataSourceProperty(property);
-    if (role === "priority" && !current.priorityProperty) {
-      return { ...current, priorityProperty: property };
-    }
-    if (role === "estimate" && !current.estimateProperty) {
-      return { ...current, estimateProperty: property };
-    }
-    if (role === "tags" && !current.tagsProperty) {
-      return { ...current, tagsProperty: property };
-    }
-    return current;
-  }, capabilities);
+    if (role === "priority" && !priorityProperty) priorityProperty = property;
+    if (role === "estimate" && !estimateProperty) estimateProperty = property;
+    if (role === "tags" && !tagsProperty) tagsProperty = property;
+    if (priorityProperty && estimateProperty && tagsProperty) break;
+  }
+  return { priorityProperty, estimateProperty, tagsProperty };
 }
 
 export function gatePageCreateInputByCapabilities(

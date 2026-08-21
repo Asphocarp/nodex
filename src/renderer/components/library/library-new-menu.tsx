@@ -12,9 +12,11 @@ import {
 import type { LibraryRouteTarget, LibraryWriteParent } from "../../../shared/library-module";
 import { createUuidV7 } from "../../../shared/uuid-v7";
 
+const LIBRARY_ROOT_PARENT: LibraryWriteParent = { kind: "library" };
+
 export function LibraryNewMenu({
   triggerButton,
-  parent = { kind: "library" },
+  parent = LIBRARY_ROOT_PARENT,
   onCreated,
 }: {
   readonly triggerButton: ReactElement;
@@ -44,7 +46,7 @@ export function LibraryNewMenu({
 }
 
 export function useLibraryCreateCommands({
-  parent = { kind: "library" },
+  parent = LIBRARY_ROOT_PARENT,
   onCreated,
 }: {
   readonly parent?: LibraryWriteParent;

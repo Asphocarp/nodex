@@ -268,7 +268,7 @@ describe("Nodex toast system", () => {
         level: "danger",
         duration: 0,
         hasCloseButton: false,
-        content: ({ close, level }) => (
+        renderContent: ({ close, level }) => (
           <div className="flex items-center gap-2 p-3 text-sm">
             <span>{level}</span>
             <button type="button" onClick={close}>

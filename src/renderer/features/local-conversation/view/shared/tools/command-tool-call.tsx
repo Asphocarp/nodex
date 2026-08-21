@@ -42,8 +42,10 @@ interface CommandToolCallProps {
   item: CodexTranscriptEntry;
   threadCwd?: string;
   isStreamingTurn?: boolean;
-  automaticApprovalReviews?: CodexTranscriptEntry[];
+  automaticApprovalReviews?: readonly CodexTranscriptEntry[];
 }
+
+const EMPTY_AUTOMATIC_APPROVAL_REVIEWS: readonly CodexTranscriptEntry[] = [];
 
 type CommandViewState = "collapsed" | "expanded";
 
@@ -489,7 +491,7 @@ function SingleExplorationActionRow({
   threadDetailLevel,
 }: {
   action: CodexCommandAction;
-  automaticApprovalReviews: CodexTranscriptEntry[];
+  automaticApprovalReviews: readonly CodexTranscriptEntry[];
   cwd?: string;
   effectiveStatus: string | undefined;
   summaryIcon: ReactNode;
@@ -585,7 +587,7 @@ export function CommandToolCall({
   item,
   threadCwd,
   isStreamingTurn = true,
-  automaticApprovalReviews = [],
+  automaticApprovalReviews = EMPTY_AUTOMATIC_APPROVAL_REVIEWS,
 }: CommandToolCallProps) {
   const { settings } = useCodexThreadSettings();
   const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);

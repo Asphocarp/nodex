@@ -12,7 +12,7 @@ const CurrentWorkbenchViewSchema = z.enum(["board", "list", "toggle-list", "cale
 export const WorkbenchViewSchema = z.preprocess(
   (value) => (value === "kanban" ? "board" : value),
   CurrentWorkbenchViewSchema,
-) satisfies z.ZodType<WorkbenchLayoutView, unknown>;
+) satisfies z.ZodType<WorkbenchLayoutView>;
 
 export const WorkbenchStageIdSchema = z.enum([
   "db",

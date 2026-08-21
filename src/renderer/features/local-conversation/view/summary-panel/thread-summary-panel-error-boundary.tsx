@@ -8,7 +8,7 @@ type ThreadSummaryPanelRenderBoundaryFallbackProps = {
 
 type ThreadSummaryPanelRenderBoundaryProps = {
   children: ReactNode;
-  fallback: (props: ThreadSummaryPanelRenderBoundaryFallbackProps) => ReactNode;
+  renderFallback: (props: ThreadSummaryPanelRenderBoundaryFallbackProps) => ReactNode;
   onError?: (error: Error, info: ErrorInfo) => void;
   resetKey: string | null;
 };
@@ -45,7 +45,7 @@ export class ThreadSummaryPanelRenderBoundary extends Component<
 
   render() {
     if (this.state.error) {
-      return this.props.fallback({ resetError: this.resetError });
+      return this.props.renderFallback({ resetError: this.resetError });
     }
 
     return this.props.children;

@@ -127,6 +127,9 @@ interface ComposerAddContextMenuProps {
   readonly onInsertMention: (mention: ComposerPromptMentionInput) => void;
 }
 
+const EMPTY_COMPOSER_SITES: readonly CodexComposerSite[] = [];
+const EMPTY_CHATGPT_CONVERSATIONS: readonly CodexComposerChatGptConversation[] = [];
+
 function isSafeBrandColor(value: string | null): value is string {
   return Boolean(value && /^#[\da-f]{3,8}$/iu.test(value));
 }
@@ -770,10 +773,10 @@ const ComposerAddContextRootMenuContent = forwardRef<
     skillsLoading = false,
     apps,
     appsLoading = false,
-    sites = [],
+    sites = EMPTY_COMPOSER_SITES,
     sitesAvailable = false,
     sitesLoading = false,
-    chatGptConversations = [],
+    chatGptConversations = EMPTY_CHATGPT_CONVERSATIONS,
     chatGptConversationsAvailable = false,
     chatGptConversationsLoading = false,
     workspaceRoot,

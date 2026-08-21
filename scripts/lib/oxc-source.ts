@@ -12,7 +12,7 @@ export function parseTypeScriptSource(path: string, sourceText: string): Program
     lang: /\.d\.[cm]?ts$/.test(path) ? "dts" : path.endsWith(".tsx") ? "tsx" : "ts",
     sourceType: "module",
   });
-  const errors = result.errors.filter((error) => error.severity === "Error");
+  const errors = result.errors.filter((error) => String(error.severity) === "Error");
   if (errors.length === 0) return result.program;
 
   throw new Error(

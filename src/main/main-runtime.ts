@@ -2514,15 +2514,14 @@ export async function runMainAppStartup(
           )
           .map(
             (download) =>
-              `${download.browserConversationId}\0${download.browserViewScopeId}` +
-              `\0${download.browserTabId}`,
+              `${download.browserConversationId}\0${download.browserViewScopeId}\0${download.browserTabId}`,
           ),
       );
       for (const tab of browserSidebarService.getStateSnapshot().tabs) {
         browserSidebarService.setDownloadActive(
           tab,
           activeDownloadKeys.has(
-            `${tab.browserConversationId}\0${tab.browserViewScopeId}` + `\0${tab.browserTabId}`,
+            `${tab.browserConversationId}\0${tab.browserViewScopeId}\0${tab.browserTabId}`,
           ),
         );
       }

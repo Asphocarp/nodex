@@ -166,7 +166,8 @@ function applyFilterGroupPatch(
   targetColumnId: WorkflowStatus,
   group: DbViewFilterGroup,
 ): CardInputWithDefaults | null {
-  let next: CardInputWithDefaults = normalizeCardInput(card);
+  const next = normalizeCardInput(card);
+  const nextTags = new Set(next.tags);
 
   for (const clause of group.all) {
     if (clause.field === "status") {
@@ -182,30 +183,24 @@ function applyFilterGroupPatch(
         return null;
       }
       if (priorityPatch !== NO_CHANGE) {
-        next = {
-          ...next,
-          priority: priorityPatch,
-        };
+        next.priority = priorityPatch;
       }
       continue;
     }
 
     if (clause.op === "hasAll") {
-      next = {
-        ...next,
-        tags: dedupeTags([...next.tags, ...clause.values]),
-      };
+      for (const value of clause.values) nextTags.add(value);
       continue;
     }
 
     if (clause.op === "hasNone") {
-      if (next.tags.some((tag) => clause.values.includes(tag))) {
+      if (clause.values.some((value) => nextTags.has(value))) {
         return null;
       }
       continue;
     }
 
-    if (next.tags.some((tag) => clause.values.includes(tag))) {
+    if (clause.values.some((value) => nextTags.has(value))) {
       continue;
     }
 
@@ -213,11 +208,10 @@ function applyFilterGroupPatch(
       return null;
     }
 
-    next = {
-      ...next,
-      tags: dedupeTags([...next.tags, clause.values[0]]),
-    };
+    nextTags.add(clause.values[0]);
   }
+
+  next.tags = dedupeTags([...nextTags]);
 
   const visible = filterDbViewCards([buildVisibleCardRecord(next, targetColumnId)], {
     filter: { any: [group] },

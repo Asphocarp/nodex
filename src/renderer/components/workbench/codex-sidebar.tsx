@@ -373,16 +373,20 @@ function revealInFileManagerLabel(): string {
   return platform.includes("WIN") ? "Open in Explorer" : "Open in File Manager";
 }
 
+const EMPTY_SIDEBAR_THREAD_ITEMS: readonly CodexSidebarThreadItem[] = [];
+const EMPTY_WORKSPACE_ROOT_OPTIONS: readonly string[] = [];
+const EMPTY_WORKSPACE_ROOT_LABELS: Readonly<Record<string, string | undefined>> = {};
+
 export function CodexProjectActionsMenu({
   project,
-  threadItems = [],
+  threadItems = EMPTY_SIDEBAR_THREAD_ITEMS,
   onUpdateProject,
   onArchiveProject,
   onSetProjectPinned,
   onCreateStableWorktree,
   canCreateStableWorktree = false,
-  stableWorktreeWorkspaceRootOptions = [],
-  stableWorktreeWorkspaceRootLabels = {},
+  stableWorktreeWorkspaceRootOptions = EMPTY_WORKSPACE_ROOT_OPTIONS,
+  stableWorktreeWorkspaceRootLabels = EMPTY_WORKSPACE_ROOT_LABELS,
   onArchiveThreadItem,
   onMarkThreadItemRead,
   onThreadsChanged,

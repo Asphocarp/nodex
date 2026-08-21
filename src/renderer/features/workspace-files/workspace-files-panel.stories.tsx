@@ -8,6 +8,7 @@ const WORKSPACE_ROOT = "/Users/asc/repo/nodex";
 const WORKTREE_FILE = "/Users/asc/.nodex/worktrees/abcd/nodex/README.md";
 const LARGE_MARKDOWN_FILE = `${WORKSPACE_ROOT}/large-notes.md`;
 const CREATED_AT = "2026-06-13T00:00:00.000Z";
+const EMPTY_WORKSPACE_FILES_TAB_STATE: NonNullable<WorkspaceFilesTab["state"]> = {};
 const LARGE_MARKDOWN_SOURCE = Array.from(
   { length: 6_000 },
   (_, index) =>
@@ -117,7 +118,7 @@ export const ProjectlessFile: Story = {
 
 function WorkspaceFilesStoryFrame({
   selectedPath,
-  tabState = {},
+  tabState = EMPTY_WORKSPACE_FILES_TAB_STATE,
   workspaceRoot = WORKSPACE_ROOT,
 }: {
   selectedPath: string | undefined;

@@ -92,7 +92,8 @@ export interface AppShellTabItem {
   isLabel?: boolean;
   disabled?: boolean;
   titleLabel?: string | ((title: string) => string);
-  tooltip?: ReactNode | ((title: string) => ReactNode);
+  tooltip?: ReactNode;
+  renderTooltip?: (title: string) => ReactNode;
   contextMenuItems?: AppShellTabContextMenuItem[];
   renderPanel: (closeTab: () => void, context: AppShellTabPanelRenderContext) => ReactNode;
 }
@@ -114,7 +115,7 @@ function makeAppShellTabAccessibleLabel(tab: AppShellTabItem, title: string): st
 }
 
 function makeAppShellTabTooltip(tab: AppShellTabItem, title: string): ReactNode {
-  if (typeof tab.tooltip === "function") return tab.tooltip(title);
+  if (tab.renderTooltip) return tab.renderTooltip(title);
   if (tab.tooltip !== undefined) return tab.tooltip;
   if (tab.contextLabel) return `${tab.contextLabel} · ${title}`;
   return title;

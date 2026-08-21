@@ -72,6 +72,13 @@ export interface PropertyOptionPickerProps {
   ) => ReactNode;
 }
 
+const DEFAULT_SEARCH_LEADING = (
+  <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+);
+const renderDefaultPropertyOption: NonNullable<PropertyOptionPickerProps["renderOption"]> = (
+  option,
+) => <PropertyOptionToken option={option} />;
+
 export function PropertyOptionToken({
   option,
   className,
@@ -227,6 +234,12 @@ function PropertyOptionPickerFrame({
         className={cn("w-[min(320px,calc(100vw-16px))] overflow-hidden p-0", contentClassName)}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenChange(false);
+        }}
       >
         {children}
       </NodexPopoverContent>
@@ -252,7 +265,7 @@ export function PropertyOptionPicker({
   triggerPrefix,
   triggerIconOnly = false,
   searchPlaceholder = "Search options…",
-  searchLeading = <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />,
+  searchLeading = DEFAULT_SEARCH_LEADING,
   contentClassName,
   allowCreate = false,
   allowClear = true,
@@ -263,7 +276,7 @@ export function PropertyOptionPicker({
   onLoadMore,
   onSelectedIdsChange,
   onCreateOption,
-  renderOption = (option) => <PropertyOptionToken option={option} />,
+  renderOption = renderDefaultPropertyOption,
 }: PropertyOptionPickerProps) {
   const [open, setOpen] = useState(host === "embedded");
   const [query, setQuery] = useState("");
@@ -530,12 +543,6 @@ export function PropertyOptionPicker({
           disabled={mutationDisabled}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              if (host === "embedded") return;
-              event.preventDefault();
-              changeOpen(false);
-              return;
-            }
             if (
               event.key === "Backspace" &&
               mode === "multiple" &&

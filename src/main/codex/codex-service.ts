@@ -14034,6 +14034,7 @@ export class CodexService extends EventEmitter {
         const errorMessage = error instanceof Error ? error.message : String(error);
         throw new Error(
           `Failed to set up new worktree using environment '${selectedEnvironmentPath}': ${errorMessage}`,
+          { cause: error },
         );
       }
     }
@@ -16503,7 +16504,9 @@ export class CodexService extends EventEmitter {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Projectless side chat workspace repair failed: ${message}`);
+      throw new Error(`Projectless side chat workspace repair failed: ${message}`, {
+        cause: error,
+      });
     }
 
     const repairedCwd = repairedParent?.cwd?.trim() ?? "";
@@ -21386,7 +21389,9 @@ export class CodexService extends EventEmitter {
           });
           const recoveredDetail = await this.resumeThreadWithSeed(threadId, undefined, true);
           if (!recoveredDetail) {
-            throw new Error(`Thread '${threadId}' could not be resumed after turn/start failed`);
+            throw new Error(`Thread '${threadId}' could not be resumed after turn/start failed`, {
+              cause: error,
+            });
           }
           workspacePath = recoveredDetail.cwd;
           workspaceRoots = [...(workspacePath ? [workspacePath] : []), ...workspaceRoots].filter(

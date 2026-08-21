@@ -121,6 +121,9 @@ import {
 
 const EMPTY_CHILD_MEMBERSHIPS: readonly CodexConversationChildMembership[] = [];
 const EMPTY_KNOWN_CONVERSATIONS_BY_ID: Record<string, CodexConversationSnapshot> = {};
+const EMPTY_BACKGROUND_TERMINAL_ROWS: readonly CodexBackgroundTerminalRow[] = [];
+const EMPTY_SIDE_CHAT_ROWS: readonly ThreadSummaryPanelAuxiliaryRow[] = [];
+const EMPTY_BROWSER_ROWS: readonly ThreadSummaryPanelBrowserRow[] = [];
 const EMPTY_MCP_SERVER_STATUSES: ProtocolListMcpServerStatusResponse = {
   data: [],
   nextCursor: null,
@@ -921,11 +924,11 @@ export function ThreadSummaryPanelSurface({
   projectlessOutputDirectory = null,
   projectWorkspacePath,
   turns,
-  backgroundTerminalRows = [],
+  backgroundTerminalRows = EMPTY_BACKGROUND_TERMINAL_ROWS,
   childMemberships = EMPTY_CHILD_MEMBERSHIPS,
   knownConversationsById = EMPTY_KNOWN_CONVERSATIONS_BY_ID,
-  sideChatRows = [],
-  browserRows = [],
+  sideChatRows = EMPTY_SIDE_CHAT_ROWS,
+  browserRows = EMPTY_BROWSER_ROWS,
   scheduledAutomation = null,
   computerUsePip = null,
   isVisible = true,

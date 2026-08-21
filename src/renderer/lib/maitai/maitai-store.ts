@@ -852,10 +852,10 @@ function mergeScopeDescriptors(descriptors: readonly unknown[]): unknown {
   let merged: unknown = {};
   for (const descriptor of descriptors) {
     if (isPlainObject(merged) && isPlainObject(descriptor)) {
-      merged = { ...merged, ...descriptor };
+      Object.assign(merged, descriptor);
       continue;
     }
-    merged = descriptor;
+    merged = isPlainObject(descriptor) ? { ...descriptor } : descriptor;
   }
   return merged;
 }

@@ -383,6 +383,8 @@ function ProjectedToolActivityScenario({
   );
 }
 
+const EMPTY_AUTOMATIC_APPROVAL_REVIEWS: CodexTranscriptEntry[] = [];
+
 function ToolCallStory({
   item,
   title,
@@ -391,7 +393,7 @@ function ToolCallStory({
   autoExpandCommandLine = false,
   isTurnCancelled = false,
   isStreamingTurn = true,
-  automaticApprovalReviews = [],
+  automaticApprovalReviews = EMPTY_AUTOMATIC_APPROVAL_REVIEWS,
 }: {
   item: CodexTranscriptEntry;
   title: string;
@@ -517,7 +519,7 @@ function FileChangeLivePatchUpdateStory() {
 }
 
 function AutoOpenMcpToolCall({
-  automaticApprovalReviews = [],
+  automaticApprovalReviews = EMPTY_AUTOMATIC_APPROVAL_REVIEWS,
   item,
   rawDialogOpen = false,
 }: {

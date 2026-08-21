@@ -183,8 +183,7 @@ describe("Codex projectless workspace repair", () => {
       expect(repaired?.cwd).toBe(repaired?.outputDirectory);
       expect(repaired?.cwd).toMatch(
         new RegExp(
-          `${path.join("Documents", "Nodex").replaceAll("\\", "\\\\")}` +
-            `${path.sep}\\d{4}-\\d{2}-\\d{2}${path.sep}repair-this-missing-workspace$`,
+          `${path.join("Documents", "Nodex").replaceAll("\\", "\\\\")}${path.sep}\\d{4}-\\d{2}-\\d{2}${path.sep}repair-this-missing-workspace$`,
         ),
       );
     } finally {

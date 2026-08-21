@@ -183,6 +183,8 @@ interface WorkbenchAutomationsRouteShellProps {
   }) => void;
 }
 
+const EMPTY_AUTOMATION_PROJECTS: readonly Project[] = [];
+
 function formatAutomationStatus(status: CodexScheduledAutomation["status"]): string {
   if (status === "ACTIVE") return "Active";
   if (status === "PAUSED") return "Paused";
@@ -3351,7 +3353,7 @@ export function WorkbenchAutomationSidePanelTab({
 
 export function WorkbenchAutomationsRouteShell({
   path,
-  projects = [],
+  projects = EMPTY_AUTOMATION_PROJECTS,
   externalHeader = false,
   detailRailPortalTarget = null,
   onDetailRailOpenChange,

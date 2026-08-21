@@ -93,11 +93,12 @@ const LANDSCAPE_IMAGE = uploadedFixture(
     width: 1280,
   }),
 );
+const EMPTY_IMAGE_COMMENTS: readonly ImageComment[] = [];
 
 function SingleStory({
   height = 760,
   image = GENERATED_IMAGES[0]!,
-  initialComments = [],
+  initialComments = EMPTY_IMAGE_COMMENTS,
   initialTool = "navigate",
   width = 620,
 }: {
@@ -175,10 +176,12 @@ const FAILED_IMAGE: GeneratedImageDescriptor = {
   status: "failed",
 };
 
+const EMPTY_IMAGE_COMMENTS_BY_ID: Readonly<Record<string, readonly ImageComment[]>> = {};
+
 function PlaygroundStory({
   height = 760,
   images = GENERATED_IMAGES,
-  initialComments = {},
+  initialComments = EMPTY_IMAGE_COMMENTS_BY_ID,
   initialTool = "navigate",
   initialZoom = 100,
   width = 920,
