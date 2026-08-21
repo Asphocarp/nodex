@@ -33,6 +33,7 @@ import type {
   TerminalRunActionRequest,
   TerminalSessionSnapshot,
 } from "../shared/types";
+import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import {
   disposeRemoteHostedPipRuntime,
   isRemoteHostedPipPrivacySettingsTerminationRequest,
@@ -2081,6 +2082,10 @@ export interface MainRuntimeStartupContext {
       error?: unknown,
     ) => void;
   }) => Promise<void>;
+  readChatGptAuthStatus: (input: {
+    readonly includeToken: boolean;
+    readonly refreshToken: boolean;
+  }) => Promise<GetAuthStatusResponse>;
   terminalRuntime?: {
     readonly listLiveSessionsForOwners: (input: {
       readonly conversationIds: ReadonlySet<string>;
@@ -2431,7 +2436,7 @@ export async function runMainAppStartup(
       fetchImpl: async (url, init) => await net.fetch(url, init),
       getAppVersion: () => app.getVersion(),
       logger,
-      readAuthStatus: async (input) => await codexService.readAuthStatusForDesktopService(input),
+      readAuthStatus: context.readChatGptAuthStatus,
     }),
   );
   const browserCredentialVault = new BrowserCredentialVault({

@@ -12718,24 +12718,6 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private async readAuthStatusForChatGptServices(input: {
-    includeToken: boolean;
-    refreshToken: boolean;
-  }): Promise<GetAuthStatusResponse> {
-    return await this.client.request<"getAuthStatus", GetAuthStatusResponse>(
-      "getAuthStatus",
-      input,
-    );
-  }
-
-  async readAuthStatusForDesktopService(input: {
-    includeToken: boolean;
-    refreshToken: boolean;
-  }): Promise<GetAuthStatusResponse> {
-    await this.ensureClientReady();
-    return await this.readAuthStatusForChatGptServices(input);
-  }
-
   private buildCollaborationModePayload(input: {
     collaborationMode?: CodexCollaborationModeKind;
     model?: string;

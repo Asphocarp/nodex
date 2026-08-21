@@ -67,6 +67,7 @@ it.effect("owns dictation projection and transcription", () =>
     const scope = yield* Scope.make();
     const context = yield* build(
       ChatGptDesktop.of({
+        authStatus: () => Effect.die(new Error("unused")),
         authMethod: Effect.succeed("chatgptAuthTokens"),
         request: (input) => {
           requests.push(input.path);
@@ -96,6 +97,7 @@ it.effect("resolves generated images without leaking transport failures", () =>
     const scope = yield* Scope.make();
     const context = yield* build(
       ChatGptDesktop.of({
+        authStatus: () => Effect.die(new Error("unused")),
         authMethod: Effect.succeed("chatgpt"),
         request: () =>
           Effect.succeed(

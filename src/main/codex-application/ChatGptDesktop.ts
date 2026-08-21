@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import type { ClientRequestResponsesByMethod } from "@nodex/effect-codex-app-server/rpc";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import {
@@ -24,6 +25,10 @@ export type ChatGptDesktopError = CodexRuntimeError | ElectronNetError | ChatGpt
 export class ChatGptDesktop extends Context.Service<
   ChatGptDesktop,
   {
+    readonly authStatus: (
+      includeToken: boolean,
+      refreshToken: boolean,
+    ) => Effect.Effect<ClientRequestResponsesByMethod["getAuthStatus"], CodexRuntimeError>;
     readonly authMethod: Effect.Effect<string | null, CodexRuntimeError>;
     readonly request: (
       input: ChatGptDesktopRequestInput,
@@ -73,6 +78,7 @@ export const live: Layer.Layer<ChatGptDesktop, never, CodexGateway | ElectronNet
     });
 
     return ChatGptDesktop.of({
+      authStatus: readAuth,
       authMethod: readAuth(false, false).pipe(
         Effect.map((status) => (typeof status.authMethod === "string" ? status.authMethod : null)),
       ),

@@ -48,6 +48,7 @@ it.effect("projects Sites and ChatGPT suggestions behind account availability", 
     const scope = yield* Scope.make();
     const context = yield* build(
       ChatGptDesktop.of({
+        authStatus: () => Effect.die(new Error("unused")),
         authMethod: Effect.succeed("chatgpt"),
         request: (input) => {
           requests.push(input.path);
@@ -111,6 +112,7 @@ it.effect("returns unavailable without issuing ChatGPT requests for API-key acco
     const scope = yield* Scope.make();
     const context = yield* build(
       ChatGptDesktop.of({
+        authStatus: () => Effect.die(new Error("unused")),
         authMethod: Effect.succeed("apikey"),
         request: () => Effect.die(new Error("request should not run")),
       }),

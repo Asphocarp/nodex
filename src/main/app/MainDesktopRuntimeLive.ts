@@ -64,6 +64,7 @@ import { MainRuntime, MainRuntimeError } from "./MainRuntimeLive";
 import { MainShutdown } from "./MainShutdown";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
+import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 
 const runtimeError = (operation: string, cause: unknown) =>
   new MainRuntimeError({ operation, cause });
@@ -424,6 +425,12 @@ export const live: Layer.Layer<
                 manageElectronLifecycle: false,
                 startupEvents: [],
                 startCoreEvents,
+                readChatGptAuthStatus: (input) =>
+                  callbacks.runPromise(
+                    chatGpt
+                      .authStatus(input.includeToken, input.refreshToken)
+                      .pipe(Effect.map((value) => value as unknown as GetAuthStatusResponse)),
+                  ),
                 terminalRuntime: {
                   listLiveSessionsForOwners: (input) =>
                     callbacks.runPromise(terminals.listLiveSessionsForOwners(input)),
