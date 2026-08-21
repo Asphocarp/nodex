@@ -209,6 +209,7 @@ function launchMainApplication(): void {
     platform: process.platform,
     profileId: nodexHome,
     projectRootPath: app.getAppPath(),
+    rendererUrl: process.env.ELECTRON_RENDERER_URL ?? null,
     resourcesPath: process.resourcesPath,
     runtimeBinaryPath: process.execPath,
   });

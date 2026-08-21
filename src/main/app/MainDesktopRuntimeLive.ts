@@ -30,13 +30,13 @@ import {
   CodexToolRuntime,
   live as codexToolRuntimeLive,
 } from "../codex-application/CodexToolRuntime";
-import { makeCodexToolRuntimePromiseAdapter } from "../codex-application/CodexToolRuntimePromiseAdapter";
 import { CodexEndpointMap } from "../codex-runtime/CodexEndpointMap";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
+import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import {
   activateMainServiceComposition,
@@ -172,8 +172,9 @@ export const live: Layer.Layer<
           composerCatalogLive.pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
           runtimeScope,
         );
+        const composerCatalogService = Context.get(composerCatalogContext, ComposerCatalog);
         const composerCatalog = makeComposerCatalogPromiseAdapter(
-          Context.get(composerCatalogContext, ComposerCatalog),
+          composerCatalogService,
           callbacks,
         );
         const codexToolRuntimeContext = yield* Layer.buildWithScope(
@@ -189,9 +190,20 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const codexToolRuntime = makeCodexToolRuntimePromiseAdapter(
-          Context.get(codexToolRuntimeContext, CodexToolRuntime),
-          callbacks,
+        const codexToolRuntimeService = Context.get(codexToolRuntimeContext, CodexToolRuntime);
+        yield* Layer.buildWithScope(
+          CodexApplicationIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(CodexAccount, codexAccountService),
+                Layer.succeed(ComposerCatalog, composerCatalogService),
+                Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
+              ),
+            ),
+          ),
+          runtimeScope,
         );
         codexBridge.attach(codexGateway, codexEndpoints);
         yield* codexBridge.events.pipe(
@@ -205,7 +217,6 @@ export const live: Layer.Layer<
               locale: () => locale,
               codexAccount,
               composerCatalog,
-              codexToolRuntime,
               codexClient: codexBridge,
               codexRuntime,
               providerCredentialStore,

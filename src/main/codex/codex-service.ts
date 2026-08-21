@@ -263,7 +263,6 @@ import {
 import type { CodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { parseModelOption } from "../codex-application/ComposerCatalogState";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
-import type { CodexToolRuntimePromiseAdapter } from "../codex-application/CodexToolRuntimePromiseAdapter";
 import { CodexComposerExternalSuggestionService } from "./composer-external-suggestion-service";
 import {
   getCodexThreadOwnerNotificationThreadId,
@@ -1493,7 +1492,6 @@ type CodexManagedWorktreeSettingsPort = {
 type CodexServiceOptions = {
   accountRuntime?: CodexAccountPromiseAdapter;
   composerCatalog?: ComposerCatalogPromiseAdapter;
-  toolRuntime?: CodexToolRuntimePromiseAdapter;
   client?: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntimeCoordinator?: Pick<
@@ -2861,7 +2859,6 @@ export class CodexService extends EventEmitter {
   private readonly client: CodexApplicationClient;
   private readonly accountRuntime: CodexAccountPromiseAdapter | null;
   private readonly composerCatalog: ComposerCatalogPromiseAdapter | null;
-  private readonly toolRuntime: CodexToolRuntimePromiseAdapter | null;
   private releaseAccountRuntimeSubscription: (() => void) | null = null;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
@@ -3147,7 +3144,6 @@ export class CodexService extends EventEmitter {
 
     this.accountRuntime = options?.accountRuntime ?? null;
     this.composerCatalog = options?.composerCatalog ?? null;
-    this.toolRuntime = options?.toolRuntime ?? null;
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.browserRuntime = runtime.browserRuntime;
@@ -10514,7 +10510,6 @@ export class CodexService extends EventEmitter {
   }
 
   async readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse> {
-    if (this.toolRuntime !== null) return await this.toolRuntime.readResource(params);
     await this.ensureClientReady();
     return this.client.request<"mcpServer/resource/read", McpResourceReadResponse>(
       "mcpServer/resource/read",
@@ -10523,7 +10518,6 @@ export class CodexService extends EventEmitter {
   }
 
   async callMcpServerTool(params: McpServerToolCallParams): Promise<McpServerToolCallResponse> {
-    if (this.toolRuntime !== null) return await this.toolRuntime.callTool(params);
     await this.ensureClientReady();
     return this.client.request<"mcpServer/tool/call", McpServerToolCallResponse>(
       "mcpServer/tool/call",
@@ -10532,7 +10526,6 @@ export class CodexService extends EventEmitter {
   }
 
   async listMcpApps(): Promise<AppInfo[]> {
-    if (this.toolRuntime !== null) return await this.toolRuntime.listApps();
     if (!this.supportsChatGptApps) return [];
     if (this.accountSnapshot.account?.type !== "chatgpt") return [];
     await this.ensureClientReady();
@@ -10584,7 +10577,6 @@ export class CodexService extends EventEmitter {
   }
 
   listMcpServerStatuses(): Promise<ListMcpServerStatusResponse> {
-    if (this.toolRuntime !== null) return this.toolRuntime.listServerStatuses();
     if (this.mcpServerStatusesInFlight) return this.mcpServerStatusesInFlight;
 
     const request = this.fetchMcpServerStatuses();

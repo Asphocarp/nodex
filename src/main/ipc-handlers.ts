@@ -125,7 +125,7 @@ import {
   WorkspaceFileUserError,
   writeWorkspaceFile,
 } from "./workspace-files-service";
-import { isTrustedAppRendererIpcSender } from "./app-renderer-ipc-authorization";
+import { requireTrustedAppRendererSender as requireTrustedAppRendererSenderWithOrigin } from "./platform/electron/TrustedRendererSender";
 import { validateDictationTranscriptionInput } from "./dictation-transcription-input";
 import { localFileWatchHost, type FileWatchSession } from "./file-watch-host";
 import {
@@ -383,19 +383,11 @@ function requireTrustedAppRendererSender(
   event: IpcMainInvokeEvent | IpcMainEvent,
   capabilityName: string,
 ): void {
-  const ownerWindow = BrowserWindow.fromWebContents(event.sender);
-  if (
-    isTrustedAppRendererIpcSender({
-      developmentOrigin: process.env.ELECTRON_RENDERER_URL ?? null,
-      hasOwnerWindow: ownerWindow !== null,
-      senderType: event.sender.getType(),
-      senderUrl: event.senderFrame?.url ?? "",
-      isMainFrame: event.senderFrame === event.sender.mainFrame,
-    })
-  ) {
-    return;
-  }
-  throw new Error(`${capabilityName} is available only to the top-level app renderer`);
+  requireTrustedAppRendererSenderWithOrigin(
+    event,
+    capabilityName,
+    process.env.ELECTRON_RENDERER_URL ?? null,
+  );
 }
 
 async function runWorkspaceFileHandler<Result>(
@@ -1015,45 +1007,6 @@ function assertValidOccurrenceUpdateIpcInput(input: PageOccurrenceUpdateInput): 
   if (typeof input.updates !== "object" || input.updates === null || Array.isArray(input.updates)) {
     throw new Error("Missing or invalid occurrence updates");
   }
-}
-
-function parseComposerInventoryCwds(input: unknown): string[] {
-  if (
-    typeof input !== "object" ||
-    input === null ||
-    !("cwds" in input) ||
-    !Array.isArray(input.cwds) ||
-    input.cwds.length > 32 ||
-    input.cwds.some(
-      (cwd) =>
-        typeof cwd !== "string" ||
-        cwd.length > 4_096 ||
-        (cwd.trim().length > 0 && !isAbsolute(cwd.trim())),
-    )
-  ) {
-    throw new Error("Invalid composer inventory input");
-  }
-  return input.cwds;
-}
-
-function parseComposerPluginActivationInput(input: unknown): {
-  id: string;
-  cwds: string[];
-} {
-  if (
-    typeof input !== "object" ||
-    input === null ||
-    !("id" in input) ||
-    typeof input.id !== "string" ||
-    input.id.trim().length === 0 ||
-    input.id.length > 512
-  ) {
-    throw new Error("Invalid composer plugin activation input");
-  }
-  return {
-    id: input.id.trim(),
-    cwds: parseComposerInventoryCwds(input),
-  };
 }
 
 function parseComposerChatGptConversationQuery(input: unknown): string {
@@ -3172,12 +3125,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   // Codex
   registerHandle("codex:connection:status", () => codexService.getConnectionState());
 
-  registerHandle("codex:account:read", () => codexService.readAccountSnapshot());
-
-  registerHandle("codex:account:rate-limit-reset:consume", (_, input) =>
-    codexService.consumeAccountRateLimitResetCredit(input),
-  );
-
   registerHandle("codex:dictation:state:read", () => codexService.readDictationStateSnapshot());
   registerHandle("codex:dictation:transcribe", (event, input) => {
     requireTrustedAppRendererSender(event, "Dictation transcription");
@@ -3187,14 +3134,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("codex:conversation-image-asset:resolve", (_, input) =>
     codexService.resolveConversationImageAsset(input),
   );
-
-  registerHandle("codex:account:login:start", (_, input) => codexService.startAccountLogin(input));
-
-  registerHandle("codex:account:login:cancel", (_, loginId: string) =>
-    codexService.cancelAccountLogin(loginId),
-  );
-
-  registerHandle("codex:account:logout", () => codexService.logoutAccount());
 
   registerHandle(
     "codex:threads:list",
@@ -3318,16 +3257,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     onHeartbeatAutomationThreadStateChanged: options.onHeartbeatAutomationThreadStateChanged,
   });
 
-  registerHandle("codex:model:list", () => codexService.listModels());
-  registerHandle("codex:composer-plugins:list", (_, input) =>
-    codexService.listComposerPlugins(parseComposerInventoryCwds(input)),
-  );
-  registerHandle("codex:composer-plugins:activate", (_, input) =>
-    codexService.activateComposerPlugin(parseComposerPluginActivationInput(input)),
-  );
-  registerHandle("codex:composer-skills:list", (_, input) =>
-    codexService.listComposerSkills(parseComposerInventoryCwds(input)),
-  );
   registerHandle("codex:composer-sites:list", () => codexService.listComposerSites());
   registerHandle("codex:composer-chatgpt-conversations:list", (_, input) =>
     codexService.listComposerChatGptConversations(parseComposerChatGptConversationQuery(input)),
@@ -3810,16 +3739,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       codexService.terminateBackgroundTerminal(input),
   );
 
-  registerHandle("codex:mcp-resource:read", (event, params) => {
-    requireTrustedAppRendererSender(event, "MCP resource access");
-    return codexService.readMcpResource(params);
-  });
-
-  registerHandle("codex:mcp-tool:call", (event, params) => {
-    requireTrustedAppRendererSender(event, "MCP tool access");
-    return codexService.callMcpServerTool(params);
-  });
-
   registerHandle("mcp-app:open-external", async (event, value) => {
     requireTrustedAppRendererSender(event, "MCP external navigation");
     if (value.length > 8_192) throw new Error("MCP external URL is too long");
@@ -3830,19 +3749,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     await shell.openExternal(url.toString());
   });
 
-  registerHandle("codex:mcp-apps:list", (event) => {
-    requireTrustedAppRendererSender(event, "MCP app access");
-    return codexService.listMcpApps();
-  });
-
   registerHandle("codex:experimental-features:list", (event) => {
     requireTrustedAppRendererSender(event, "Experimental feature access");
     return codexService.listExperimentalFeatures();
-  });
-
-  registerHandle("codex:mcp-server-statuses:list", (event) => {
-    requireTrustedAppRendererSender(event, "MCP server status access");
-    return codexService.listMcpServerStatuses();
   });
 
   registerHandle(

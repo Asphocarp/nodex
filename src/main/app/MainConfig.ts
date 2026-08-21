@@ -12,6 +12,7 @@ export const MainConfigValue = Schema.Struct({
   platform: Schema.String,
   profileId: Schema.String,
   projectRootPath: Schema.String,
+  rendererUrl: Schema.NullOr(Schema.String),
   resourcesPath: Schema.String,
   runtimeBinaryPath: Schema.String,
 });
@@ -46,6 +47,7 @@ export const testLayer = (overrides: Partial<MainConfigValue> = {}): Layer.Layer
       platform: "darwin",
       profileId: "test-profile",
       projectRootPath: "/tmp/nodex-project",
+      rendererUrl: null,
       resourcesPath: "/tmp/nodex-resources",
       runtimeBinaryPath: "/tmp/nodex-runtime",
       ...overrides,
