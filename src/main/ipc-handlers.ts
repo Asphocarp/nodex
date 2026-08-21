@@ -3123,8 +3123,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   // Codex
-  registerHandle("codex:connection:status", () => codexService.getConnectionState());
-
   registerHandle("codex:dictation:state:read", () => codexService.readDictationStateSnapshot());
   registerHandle("codex:dictation:transcribe", (event, input) => {
     requireTrustedAppRendererSender(event, "Dictation transcription");
@@ -3747,11 +3745,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       throw new Error("MCP external navigation requires a credential-free HTTPS URL");
     }
     await shell.openExternal(url.toString());
-  });
-
-  registerHandle("codex:experimental-features:list", (event) => {
-    requireTrustedAppRendererSender(event, "Experimental feature access");
-    return codexService.listExperimentalFeatures();
   });
 
   registerHandle(

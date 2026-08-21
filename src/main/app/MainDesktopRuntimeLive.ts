@@ -24,6 +24,7 @@ import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import { makeCodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
+import { CodexConnection, live as codexConnectionLive } from "../codex-application/CodexConnection";
 import { ComposerCatalog, live as composerCatalogLive } from "../codex-application/ComposerCatalog";
 import { makeComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import {
@@ -173,6 +174,11 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const composerCatalogService = Context.get(composerCatalogContext, ComposerCatalog);
+        const codexConnectionContext = yield* Layer.buildWithScope(
+          codexConnectionLive.pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+          runtimeScope,
+        );
+        const codexConnectionService = Context.get(codexConnectionContext, CodexConnection);
         const composerCatalog = makeComposerCatalogPromiseAdapter(
           composerCatalogService,
           callbacks,
@@ -198,6 +204,7 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(CodexAccount, codexAccountService),
+                Layer.succeed(CodexConnection, codexConnectionService),
                 Layer.succeed(ComposerCatalog, composerCatalogService),
                 Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
               ),

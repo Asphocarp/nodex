@@ -10,7 +10,8 @@ import { ComposerCatalog, live as composerCatalogLive } from "./ComposerCatalog"
 
 it.effect("projects models, plugins, and skills through one composer interface", () =>
   Effect.gen(function* () {
-    const requestLocal = ((method: string) => {
+    const experimentalRequests: unknown[] = [];
+    const requestLocal = ((method: string, params: unknown) => {
       if (method === "model/list") {
         return Effect.succeed({
           data: [
@@ -85,6 +86,24 @@ it.effect("projects models, plugins, and skills through one composer interface",
           ],
         });
       }
+      if (method === "experimentalFeature/list") {
+        experimentalRequests.push(params);
+        const cursor = (params as { readonly cursor?: string | null }).cursor ?? null;
+        return Effect.succeed({
+          data: [
+            {
+              name: cursor === null ? "apps" : "memories",
+              stage: "stable",
+              displayName: null,
+              description: null,
+              announcement: null,
+              enabled: true,
+              defaultEnabled: true,
+            },
+          ],
+          nextCursor: cursor === null ? "next-page" : null,
+        });
+      }
       throw new Error(`Unexpected request: ${method}`);
     }) as CodexGateway["Service"]["requestLocal"];
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
@@ -111,6 +130,14 @@ it.effect("projects models, plugins, and skills through one composer interface",
     const models = yield* catalog.listModels;
     assert.strictEqual(models[0]?.id, "model-a");
     assert.strictEqual(models[0]?.defaultReasoningEffort, "medium");
+    const features = yield* catalog.listExperimentalFeatures;
+    assert.deepEqual(
+      features.map((feature) => feature.name),
+      ["apps", "memories"],
+    );
+    assert.strictEqual(experimentalRequests.length, 2);
+    assert.strictEqual((experimentalRequests[0] as { readonly limit?: number }).limit, 100);
+    assert.isFalse(Object.hasOwn(experimentalRequests[0] as object, "threadId"));
     const plugins = yield* catalog.listPlugins([" /repo ", "/repo"]);
     assert.strictEqual(plugins[0]?.id, "browser@openai-bundled");
     const skills = yield* catalog.listSkills(["/repo"]);

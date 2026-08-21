@@ -288,9 +288,6 @@ interface TestableCodexService {
     response: "accept" | "decline" | "cancel" | CodexMcpServerElicitationResponse,
     conversationId?: string,
   ) => Promise<boolean>;
-  listExperimentalFeatures: () => Promise<
-    import("@nodex/codex-app-server-protocol/v2").ExperimentalFeature[]
-  >;
   startThreadForSession: (
     input: CodexThreadStartForSessionInput,
   ) => Promise<CodexThreadStartForSessionResult>;
@@ -7278,52 +7275,6 @@ describe("codex-service session-backed transcript recovery", () => {
       );
     } finally {
       await serviceInternals.endThreadStartNotificationDeferral();
-      await service.shutdown();
-    }
-  });
-
-  test("listExperimentalFeatures loads the host catalog without a thread context", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method !== "experimentalFeature/list") {
-        throw new Error(`Unexpected client request: ${method}`);
-      }
-      const cursor = (params as { cursor?: string | null }).cursor ?? null;
-      return {
-        data: [
-          {
-            name: cursor === null ? "apps" : "memories",
-            stage: "stable",
-            displayName: null,
-            description: null,
-            announcement: null,
-            enabled: true,
-            defaultEnabled: true,
-          },
-        ],
-        nextCursor: cursor === null ? "next-page" : null,
-      };
-    };
-
-    try {
-      const features = await service.listExperimentalFeatures();
-
-      expect(features.map((feature) => feature.name)).toEqual(["apps", "memories"]);
-      expect(requests).toHaveLength(2);
-      expect(requests.every(({ params }) => !Object.hasOwn(params as object, "threadId"))).toBe(
-        true,
-      );
-      expect((requests[0]?.params as { limit?: number })?.limit).toBe(100);
-      expect((requests[1]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
-    } finally {
       await service.shutdown();
     }
   });

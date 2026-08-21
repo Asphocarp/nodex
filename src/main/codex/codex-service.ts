@@ -31,8 +31,6 @@ import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
 import type { FsGetMetadataResponse } from "@nodex/codex-app-server-protocol/v2/FsGetMetadataResponse";
-import type { ExperimentalFeature } from "@nodex/codex-app-server-protocol/v2/ExperimentalFeature";
-import type { ExperimentalFeatureListResponse } from "@nodex/codex-app-server-protocol/v2/ExperimentalFeatureListResponse";
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
 import type { GetAccountResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountResponse";
 import type { LoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/LoginAccountResponse";
@@ -7988,10 +7986,6 @@ export class CodexService extends EventEmitter {
     return (await this.readPermissionState(projectId)).mode;
   }
 
-  getConnectionState() {
-    return this.client.getState();
-  }
-
   private shouldPollRateLimits(): boolean {
     if (this.accountRuntime !== null) return false;
     if (this.rateLimitsPollIntervalMs <= 0) return false;
@@ -10499,26 +10493,6 @@ export class CodexService extends EventEmitter {
       await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "host-message");
     }
     return summary;
-  }
-
-  async listExperimentalFeatures(): Promise<ExperimentalFeature[]> {
-    await this.ensureClientReady();
-    const features: ExperimentalFeature[] = [];
-    let cursor: string | null = null;
-
-    do {
-      const response: ExperimentalFeatureListResponse = await this.client.request<
-        "experimentalFeature/list",
-        ExperimentalFeatureListResponse
-      >("experimentalFeature/list", {
-        cursor,
-        limit: 100,
-      });
-      features.push(...response.data);
-      cursor = response.nextCursor;
-    } while (cursor);
-
-    return features;
   }
 
   async listWorktreeEnvironments(projectId: string): Promise<WorktreeEnvironmentOption[]> {

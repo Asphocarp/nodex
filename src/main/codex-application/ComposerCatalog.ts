@@ -8,6 +8,7 @@ import type {
 } from "@nodex/effect-codex-app-server/rpc";
 import type { PluginInstalledResponse } from "@nodex/codex-app-server-protocol/v2/PluginInstalledResponse";
 import type { SkillsListResponse } from "@nodex/codex-app-server-protocol/v2/SkillsListResponse";
+import type { ExperimentalFeature } from "@nodex/codex-app-server-protocol/v2/ExperimentalFeature";
 import type {
   CodexComposerPlugin,
   CodexComposerPluginActivateInput,
@@ -47,6 +48,10 @@ export class ComposerCatalog extends Context.Service<
   ComposerCatalog,
   {
     readonly listModels: Effect.Effect<readonly CodexModelOption[], CodexRuntimeError>;
+    readonly listExperimentalFeatures: Effect.Effect<
+      readonly ExperimentalFeature[],
+      CodexRuntimeError
+    >;
     readonly listPlugins: (
       cwds: readonly string[],
     ) => Effect.Effect<readonly CodexComposerPlugin[], ComposerCatalogError>;
@@ -147,6 +152,22 @@ export const live: Layer.Layer<ComposerCatalog, never, CodexGateway> = Layer.eff
         return response.data
           .map(parseModelOption)
           .filter((option): option is CodexModelOption => option !== null);
+      }),
+      listExperimentalFeatures: Effect.gen(function* () {
+        yield* awaitReady;
+        const features: ExperimentalFeature[] = [];
+        const seenCursors = new Set<string>();
+        let cursor: string | null = null;
+        do {
+          const response: ClientRequestResponsesByMethod["experimentalFeature/list"] =
+            yield* gateway.requestLocal("experimentalFeature/list", { cursor, limit: 100 });
+          features.push(...response.data.map((feature) => feature as ExperimentalFeature));
+          const nextCursor: string | null = response.nextCursor ?? null;
+          if (nextCursor === null || seenCursors.has(nextCursor)) break;
+          seenCursors.add(nextCursor);
+          cursor = nextCursor;
+        } while (true);
+        return features;
       }),
       listPlugins,
       activatePlugin,

@@ -8,6 +8,7 @@ import {
   serverRequestLayer,
 } from "./ApprovalCoordinator";
 import { CodexAccount, live as accountLive, type CodexAccountOptions } from "./CodexAccount";
+import { CodexConnection, live as connectionLive } from "./CodexConnection";
 import * as CodexApplicationEventRouter from "./CodexApplicationEventRouter";
 import { ComposerCatalog, live as composerCatalogLive } from "./ComposerCatalog";
 import { ConversationCommands, live as conversationCommandsLive } from "./ConversationCommands";
@@ -35,6 +36,7 @@ export const requestHandlingLive: Layer.Layer<
 
 export type CodexApplicationModules =
   | ConversationCommands
+  | CodexConnection
   | ThreadCatalog
   | ComposerCatalog
   | CodexAccount
@@ -46,6 +48,7 @@ export const modulesLive = (
 ): Layer.Layer<CodexApplicationModules, never, CodexGateway | ConversationRuntimeMap> =>
   Layer.mergeAll(
     conversationCommandsLive,
+    connectionLive,
     threadCatalogLive,
     composerCatalogLive,
     accountLive(account),

@@ -12,6 +12,7 @@ import type {
   CodexRateLimitResetInput,
 } from "../../../shared/types";
 import { CodexAccount, type CodexAccountLoginInput } from "../../codex-application/CodexAccount";
+import { CodexConnection } from "../../codex-application/CodexConnection";
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -70,12 +71,13 @@ const parseComposerPluginActivation = (
 export const live: Layer.Layer<
   never,
   never,
-  ElectronIpc | MainConfig | CodexAccount | ComposerCatalog | CodexToolRuntime
+  ElectronIpc | MainConfig | CodexAccount | CodexConnection | ComposerCatalog | CodexToolRuntime
 > = Layer.effectDiscard(
   Effect.gen(function* () {
     const ipc = yield* ElectronIpc;
     const config = yield* MainConfig;
     const account = yield* CodexAccount;
+    const connection = yield* CodexConnection;
     const composer = yield* ComposerCatalog;
     const tools = yield* CodexToolRuntime;
     const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
@@ -95,8 +97,14 @@ export const live: Layer.Layer<
       account.cancelLogin(loginId),
     );
     yield* ipc.handle("codex:account:logout", () => account.logout);
+    yield* ipc.handle("codex:connection:status", () => connection.read);
 
     yield* ipc.handle("codex:model:list", () => composer.listModels);
+    yield* ipc.handle("codex:experimental-features:list", (event) =>
+      trusted(event, "Experimental feature access").pipe(
+        Effect.andThen(composer.listExperimentalFeatures),
+      ),
+    );
     yield* ipc.handle(
       "codex:composer-plugins:list",
       (_event, input: CodexComposerPluginListInput) =>
