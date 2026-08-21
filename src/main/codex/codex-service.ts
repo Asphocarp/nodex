@@ -507,8 +507,6 @@ import {
 import type { ResolvedCodexRuntime } from "./codex-runtime";
 import type { ComputerUseRuntimeResult } from "./computer-use-runtime";
 import type { DesktopToolRuntimePromiseAdapter } from "../host-runtime/DesktopToolRuntime";
-import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
-import type { BrowserRuntimeAvailability } from "./browser-runtime-bundle";
 import type {
   AgentExecutionProfile,
   AgentExecutionProfileChange,
@@ -1450,21 +1448,6 @@ export interface CodexTerminalRuntimePort {
   readonly getSessionSnapshot: (sessionId: string) => Promise<TerminalSessionSnapshot | null>;
   readonly getThreadSnapshot: (threadId: string) => Promise<TerminalSessionSnapshot | null>;
   readonly refreshSessionProcessMetrics: (sessionIds: readonly string[]) => Promise<void>;
-}
-
-export interface CodexBrowserUseTurnLifecyclePort {
-  releaseSession?(sessionId: string): Promise<void> | void;
-  turnEnded(input: { sessionId: string; turnId: string }): Promise<void> | void;
-  turnStarted(input: { sessionId: string; turnId: string }): Promise<void> | void;
-}
-
-export interface CodexBrowserUseRoutePromoterPort {
-  promote(input: {
-    browserConversationId: string;
-    browserViewScopeId: string;
-    codexSessionId: string;
-    projectId: string | null;
-  }): Promise<void>;
 }
 
 type CodexConversationStreamRole = "owner" | "follower" | null;
@@ -2645,8 +2628,6 @@ export class CodexService extends EventEmitter {
   private readonly threadCodexConfigBuilder:
     | ((cwd: string | null) => Promise<NonNullable<ThreadStartParams["config"]> | null>)
     | null;
-  private browserUseTurnLifecycle: CodexBrowserUseTurnLifecyclePort | null = null;
-  private browserUseRoutePromoter: CodexBrowserUseRoutePromoterPort | null = null;
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
@@ -4537,10 +4518,6 @@ export class CodexService extends EventEmitter {
     this.nodexAgentAuthorizationBroker = broker;
   }
 
-  getBrowserRuntimeAvailability(): BrowserRuntimeAvailability {
-    return this.desktopTools.browserRuntime;
-  }
-
   async ensureComputerUseRuntimeReady(): Promise<ComputerUseRuntimeResult> {
     return await this.desktopTools.ensureComputerUse();
   }
@@ -4551,18 +4528,6 @@ export class CodexService extends EventEmitter {
       "configRequirements/read",
       undefined,
     );
-  }
-
-  setBrowserUseBackendAvailabilityResolver(resolver: () => readonly BrowserRuntimeBackend[]): void {
-    this.desktopTools.setAvailableBackendsResolver(resolver);
-  }
-
-  setBrowserUseTurnLifecycle(lifecycle: CodexBrowserUseTurnLifecyclePort | null): void {
-    this.browserUseTurnLifecycle = lifecycle;
-  }
-
-  setBrowserUseRoutePromoter(promoter: CodexBrowserUseRoutePromoterPort | null): void {
-    this.browserUseRoutePromoter = promoter;
   }
 
   private async promoteBrowserUseRouteForFirstTurn(input: {
@@ -4578,8 +4543,7 @@ export class CodexService extends EventEmitter {
     ) {
       throw new Error("Browser Use origin does not belong to this window");
     }
-    if (!this.browserUseRoutePromoter) return;
-    await this.browserUseRoutePromoter.promote({
+    await this.desktopTools.promoteBrowserUseRoute({
       ...input.origin,
       codexSessionId: input.codexSessionId,
       projectId: input.projectId,
@@ -26048,7 +26012,7 @@ export class CodexService extends EventEmitter {
       this.forgetThreadLocalState(payload.threadId);
       this.deletedThreadIds.add(payload.threadId);
       try {
-        await this.browserUseTurnLifecycle?.releaseSession?.(payload.threadId);
+        await this.desktopTools.releaseBrowserUseSession(payload.threadId);
       } catch (error) {
         this.logger.warn("Browser Use session release failed after thread deletion", {
           error: error instanceof Error ? error.message : String(error),
@@ -26260,12 +26224,12 @@ export class CodexService extends EventEmitter {
       }
       try {
         if (method === "turn/started") {
-          await this.browserUseTurnLifecycle?.turnStarted({
+          await this.desktopTools.turnStarted({
             sessionId: threadId,
             turnId: mergedTurn.turnId,
           });
         } else {
-          await this.browserUseTurnLifecycle?.turnEnded({
+          await this.desktopTools.turnEnded({
             sessionId: threadId,
             turnId: mergedTurn.turnId,
           });

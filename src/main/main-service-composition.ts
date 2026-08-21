@@ -12,6 +12,7 @@ import type { ServerRequestResponsesPromiseAdapter } from "./codex-application/S
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
   readonly codexService: CodexService;
+  readonly desktopTools: DesktopToolRuntimePromiseAdapter;
 }
 
 export interface MainServiceCompositionInput {
@@ -48,7 +49,7 @@ export function createMainServiceComposition(
     runtime: input.codexRuntime,
   });
 
-  return { browserSidebarService, codexService };
+  return { browserSidebarService, codexService, desktopTools: input.desktopTools };
 }
 
 /**

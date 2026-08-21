@@ -1550,6 +1550,7 @@ function createService(options?: {
     },
     desktopTools: {
       browserRuntime: TEST_CODEX_RUNTIME.browserRuntime,
+      clearBrowserUseBindings: async () => undefined,
       ensureReady: async () => ({
         browserPluginReady: false,
         computerUsePluginReady: false,
@@ -1569,8 +1570,13 @@ function createService(options?: {
         reason: "runtime-unavailable",
         status: "unavailable",
       }),
+      installBrowserUseBindings: async () => undefined,
+      promoteBrowserUseRoute: async () => undefined,
+      releaseBrowserUseSession: async () => undefined,
       threadConfig: async () => null,
       setAvailableBackendsResolver: () => undefined,
+      turnEnded: async () => undefined,
+      turnStarted: async () => undefined,
     },
     preferences: { current: () => "friendly" },
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },

@@ -240,7 +240,7 @@ const appIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(__dirname, "../../resources/icon.png");
 const appDockIcon = nativeImage.createFromPath(appIconPath);
-const { browserSidebarService, codexService } = getMainServiceComposition();
+const { browserSidebarService, codexService, desktopTools } = getMainServiceComposition();
 
 const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
@@ -2261,10 +2261,10 @@ function shutdownMainRuntime(): Promise<void> {
       async () => {
         disposeBrowserUseSessionRegistryBridge?.();
         disposeBrowserUseSessionRegistryBridge = null;
+        await desktopTools.clearBrowserUseBindings();
         await browserUseSessionRegistry?.dispose();
         browserUseSessionRegistry = null;
-        codexService.setBrowserUseTurnLifecycle(null);
-        codexService.setBrowserUseBackendAvailabilityResolver(() => []);
+        desktopTools.setAvailableBackendsResolver(() => []);
       },
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
@@ -2475,7 +2475,7 @@ export async function runMainAppStartup(
     siteInfoProvider: new BrowserSiteInfoProvider(browserSidebarService, browserSession.cookies),
     usePolicyStore: browserUsePolicyStore,
   });
-  const browserRuntime = codexService.getBrowserRuntimeAvailability();
+  const browserRuntime = desktopTools.browserRuntime;
   const browserUseHostCapability = resolveBrowserUseHostCapability({
     browserRuntimeStatus: browserRuntime.status,
     environment: process.env,
@@ -2571,17 +2571,18 @@ export async function runMainAppStartup(
   browserSidebarService.on("browserUseCursorArrived", cursorArrivedListener);
   disposeBrowserUseSessionRegistryBridge = () => {
     browserSidebarService.setBrowserUseRouteCaptureHandler(null);
-    codexService.setBrowserUseRoutePromoter(null);
     browserSidebarService.off("browserUseOwnerReleased", ownerReleasedListener);
     browserSidebarService.off("browserUseCursorArrived", cursorArrivedListener);
   };
-  codexService.setBrowserUseBackendAvailabilityResolver(
+  desktopTools.setAvailableBackendsResolver(
     () => browserUseSessionRegistry?.availableBackends() ?? [],
   );
-  codexService.setBrowserUseTurnLifecycle(browserUseSessionRegistry);
-  codexService.setBrowserUseRoutePromoter({
-    promote: async (input) => {
-      await browserSidebarService.promoteBrowserUseRoute(input);
+  await desktopTools.installBrowserUseBindings({
+    lifecycle: browserUseSessionRegistry,
+    routePromoter: {
+      promote: async (input) => {
+        await browserSidebarService.promoteBrowserUseRoute(input);
+      },
     },
   });
   const browserDownloadService = new BrowserDownloadService({

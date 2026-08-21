@@ -61,6 +61,43 @@ it.effect("owns desktop plugin readiness and derives one coherent snapshot", () 
     assert.isFalse(ready.computerUsePluginReady);
     assert.strictEqual(ready.computerUse, computerUse);
     assert.isNull(yield* runtime.threadConfig);
+    const browserEvents: string[] = [];
+    yield* runtime.installBrowserUseBindings({
+      lifecycle: {
+        releaseSession: (sessionId) => {
+          browserEvents.push(`release:${sessionId}`);
+        },
+        turnEnded: ({ sessionId, turnId }) => {
+          browserEvents.push(`ended:${sessionId}:${turnId}`);
+        },
+        turnStarted: ({ sessionId, turnId }) => {
+          browserEvents.push(`started:${sessionId}:${turnId}`);
+        },
+      },
+      routePromoter: {
+        promote: async ({ codexSessionId }) => {
+          browserEvents.push(`promote:${codexSessionId}`);
+        },
+      },
+    });
+    yield* runtime.turnStarted({ sessionId: "thread-1", turnId: "turn-1" });
+    yield* runtime.turnEnded({ sessionId: "thread-1", turnId: "turn-1" });
+    yield* runtime.promoteBrowserUseRoute({
+      browserConversationId: "browser-1",
+      browserViewScopeId: "scope-1",
+      codexSessionId: "thread-1",
+      projectId: "project-1",
+    });
+    yield* runtime.releaseBrowserUseSession("thread-1");
+    assert.deepEqual(browserEvents, [
+      "started:thread-1:turn-1",
+      "ended:thread-1:turn-1",
+      "promote:thread-1",
+      "release:thread-1",
+    ]);
+    yield* runtime.clearBrowserUseBindings;
+    yield* runtime.turnStarted({ sessionId: "thread-1", turnId: "turn-2" });
+    assert.strictEqual(browserEvents.length, 4);
     yield* Scope.close(scope, Exit.void);
   }),
 );
