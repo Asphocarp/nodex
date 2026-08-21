@@ -9,12 +9,14 @@ import type {
   CodexComposerPluginActivateInput,
   CodexComposerPluginListInput,
   CodexComposerSkillListInput,
+  CodexConversationImageAssetResolveInput,
   CodexRateLimitResetInput,
 } from "../../../shared/types";
 import type { IpcEvents } from "../../../shared/ipc-api";
 import type { CodexHooksListInput, CodexHooksStateUpdateInput } from "../../../shared/codex-hooks";
 import { CodexAccount, type CodexAccountLoginInput } from "../../codex-application/CodexAccount";
 import { CodexConnection } from "../../codex-application/CodexConnection";
+import { CodexMedia } from "../../codex-application/CodexMedia";
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
@@ -23,6 +25,7 @@ import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { MainConfig } from "../../app/MainConfig";
+import { validateDictationTranscriptionInput } from "../../dictation-transcription-input";
 
 export class CodexApplicationIpcError extends Schema.TaggedError<CodexApplicationIpcError>()(
   "CodexApplicationIpcError",
@@ -81,6 +84,7 @@ export const live: Layer.Layer<
   | MainConfig
   | CodexAccount
   | CodexConnection
+  | CodexMedia
   | ComposerCatalog
   | ComposerExternalSuggestions
   | CodexToolRuntime
@@ -91,6 +95,7 @@ export const live: Layer.Layer<
     const config = yield* MainConfig;
     const account = yield* CodexAccount;
     const connection = yield* CodexConnection;
+    const media = yield* CodexMedia;
     const composer = yield* ComposerCatalog;
     const externalSuggestions = yield* ComposerExternalSuggestions;
     const tools = yield* CodexToolRuntime;
@@ -112,6 +117,21 @@ export const live: Layer.Layer<
     );
     yield* ipc.handle("codex:account:logout", () => account.logout);
     yield* ipc.handle("codex:connection:status", () => connection.read);
+    yield* ipc.handle("codex:dictation:state:read", () => media.dictationState);
+    yield* ipc.handle("codex:dictation:transcribe", (event, input: unknown) =>
+      trusted(event, "Dictation transcription").pipe(
+        Effect.andThen(
+          validate("dictation-transcription-input", () =>
+            validateDictationTranscriptionInput(input),
+          ),
+        ),
+        Effect.flatMap(media.transcribe),
+      ),
+    );
+    yield* ipc.handle(
+      "codex:conversation-image-asset:resolve",
+      (_event, input: CodexConversationImageAssetResolveInput) => media.resolveImage(input),
+    );
 
     yield* ipc.handle("codex:model:list", () => composer.listModels);
     yield* ipc.handle("codex:experimental-features:list", (event) =>

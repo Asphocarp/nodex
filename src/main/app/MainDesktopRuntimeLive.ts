@@ -25,6 +25,7 @@ import { createElectronProviderCredentialStore } from "../codex/electron-provide
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import { makeCodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { CodexConnection, live as codexConnectionLive } from "../codex-application/CodexConnection";
+import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
 import { ChatGptDesktop, live as chatGptDesktopLive } from "../codex-application/ChatGptDesktop";
 import {
   ComposerExternalSuggestions,
@@ -203,13 +204,33 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const codexToolRuntimeService = Context.get(codexToolRuntimeContext, CodexToolRuntime);
+        const electronNetContext = yield* Layer.buildWithScope(ElectronNet.live, runtimeScope);
+        const electronNet = Context.get(electronNetContext, ElectronNet.ElectronNet);
         const chatGptContext = yield* Layer.buildWithScope(
           chatGptDesktopLive.pipe(
-            Layer.provide(Layer.merge(Layer.succeed(CodexGateway, codexGateway), ElectronNet.live)),
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(ElectronNet.ElectronNet, electronNet),
+              ),
+            ),
           ),
           runtimeScope,
         );
         const chatGpt = Context.get(chatGptContext, ChatGptDesktop);
+        const codexMediaContext = yield* Layer.buildWithScope(
+          codexMediaLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(ChatGptDesktop, chatGpt),
+                Layer.succeed(ElectronNet.ElectronNet, electronNet),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const codexMedia = Context.get(codexMediaContext, CodexMedia);
         const externalSuggestionsContext = yield* Layer.buildWithScope(
           composerExternalSuggestionsLive.pipe(
             Layer.provide(
@@ -234,6 +255,7 @@ export const live: Layer.Layer<
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(CodexAccount, codexAccountService),
                 Layer.succeed(CodexConnection, codexConnectionService),
+                Layer.succeed(CodexMedia, codexMedia),
                 Layer.succeed(ComposerCatalog, composerCatalogService),
                 Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
                 Layer.succeed(ComposerExternalSuggestions, externalSuggestions),

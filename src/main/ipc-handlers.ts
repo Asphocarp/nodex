@@ -126,7 +126,6 @@ import {
   writeWorkspaceFile,
 } from "./workspace-files-service";
 import { requireTrustedAppRendererSender as requireTrustedAppRendererSenderWithOrigin } from "./platform/electron/TrustedRendererSender";
-import { validateDictationTranscriptionInput } from "./dictation-transcription-input";
 import { localFileWatchHost, type FileWatchSession } from "./file-watch-host";
 import {
   WorkspaceDirectoryEntriesInputSchema,
@@ -3109,16 +3108,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   // Codex
-  registerHandle("codex:dictation:state:read", () => codexService.readDictationStateSnapshot());
-  registerHandle("codex:dictation:transcribe", (event, input) => {
-    requireTrustedAppRendererSender(event, "Dictation transcription");
-    return codexService.transcribeDictation(validateDictationTranscriptionInput(input));
-  });
-
-  registerHandle("codex:conversation-image-asset:resolve", (_, input) =>
-    codexService.resolveConversationImageAsset(input),
-  );
-
   registerHandle(
     "codex:threads:list",
     (_, projectId: string, opts?: { includeArchived?: boolean }) =>

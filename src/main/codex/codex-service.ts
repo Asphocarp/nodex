@@ -99,8 +99,6 @@ import type {
   CodexComposerIntent,
   CodexConversationChildMembership,
   CodexConversationCapabilityFlags,
-  CodexConversationImageAssetResolveInput,
-  CodexConversationImageAssetResolveResult,
   CodexConversationItem,
   CodexConversationResumeState,
   CodexConversationThreadSettings,
@@ -112,7 +110,6 @@ import type {
   CodexCollaborationModeState,
   CodexCollaborationModePreset,
   CodexConnectionState,
-  CodexDictationStateSnapshot,
   CodexEvent,
   CodexHeartbeatAutomationCollaborationMode,
   CodexHeartbeatAutomationPermissions,
@@ -611,8 +608,6 @@ import {
   CODEX_APP_READ_THREAD_MAX_OUTPUT_CHARS,
   CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
 } from "./codex-app-meta-thread-tools";
-import { CodexDictationService } from "./dictation-service";
-import { CodexConversationImageAssetService } from "./conversation-image-asset-service";
 import {
   CodexThreadStreamSubscriptionState,
   CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS,
@@ -624,7 +619,6 @@ import {
   resolveCodexThreadIdForClientThreadId,
   setCodexClientThreadIdentity,
 } from "./codex-client-thread-identity";
-import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 import { makeCodexBackgroundProcessRecordId } from "../../shared/codex-background-processes";
 import {
   CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
@@ -2921,19 +2915,6 @@ export class CodexService extends EventEmitter {
   });
   private readonly terminalInputBuffers = new Map<string, string>();
   private readonly manualCompactionTracker = new CodexManualCompactionTracker();
-  private readonly dictationService = new CodexDictationService({
-    readConfig: async () => await this.readConfigForChatGptServices(),
-    readAuthStatus: async (input) => await this.readAuthStatusForChatGptServices(input),
-    requestChatGptDesktop: async (input) => await this.requestAuthenticatedChatGpt(input),
-  });
-  private readonly conversationImageAssetService = new CodexConversationImageAssetService({
-    readConfig: async () => await this.readConfigForChatGptServices(),
-    requestChatGptDesktop: async (input) => await this.requestAuthenticatedChatGpt(input),
-    fetchImpl: async (url, init) => {
-      const electron = await import("electron");
-      return await electron.net.fetch(url, init);
-    },
-  });
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
   private accountReadInFlight: Promise<CodexAccountSnapshot> | null = null;
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
@@ -8323,19 +8304,6 @@ export class CodexService extends EventEmitter {
     return this.accountSnapshot;
   }
 
-  async readDictationStateSnapshot(): Promise<CodexDictationStateSnapshot> {
-    await this.ensureClientReady();
-    return await this.dictationService.readState();
-  }
-
-  async transcribeDictation(input: {
-    contentType: string;
-    base64Payload: string;
-  }): Promise<string> {
-    await this.ensureClientReady();
-    return await this.dictationService.transcribe(input);
-  }
-
   async listProjectThreads(
     projectId: string,
     input?: {
@@ -12807,12 +12775,6 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private async readConfigForChatGptServices(): Promise<ConfigReadResponse> {
-    return await this.client.request<"config/read", ConfigReadResponse>("config/read", {
-      includeLayers: false,
-    } satisfies ConfigReadParams);
-  }
-
   private async readAuthStatusForChatGptServices(input: {
     includeToken: boolean;
     refreshToken: boolean;
@@ -12829,28 +12791,6 @@ export class CodexService extends EventEmitter {
   }): Promise<GetAuthStatusResponse> {
     await this.ensureClientReady();
     return await this.readAuthStatusForChatGptServices(input);
-  }
-
-  private async requestAuthenticatedChatGpt(
-    input: Parameters<typeof requestChatGptDesktop>[1],
-  ): Promise<Response> {
-    const electron = await import("electron");
-    return await requestChatGptDesktop(
-      {
-        readAuthStatus: async (requestInput) =>
-          await this.readAuthStatusForChatGptServices(requestInput),
-        fetchImpl: async (url, init) => await electron.net.fetch(url, init),
-        getAppVersion: () => electron.app.getVersion(),
-      },
-      input,
-    );
-  }
-
-  async resolveConversationImageAsset(
-    input: CodexConversationImageAssetResolveInput,
-  ): Promise<CodexConversationImageAssetResolveResult> {
-    await this.ensureClientReady();
-    return await this.conversationImageAssetService.resolve(input);
   }
 
   async listCollaborationModes(): Promise<CodexCollaborationModePreset[]> {

@@ -8,6 +8,7 @@ import type { IpcMainInvokeEvent } from "electron";
 import { MainConfig } from "../../app/MainConfig";
 import { CodexAccount } from "../../codex-application/CodexAccount";
 import { CodexConnection } from "../../codex-application/CodexConnection";
+import { CodexMedia } from "../../codex-application/CodexMedia";
 import { emptyAccountSnapshot } from "../../codex-application/CodexAccountState";
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
@@ -73,6 +74,16 @@ it.effect("registers application channels directly against their owning modules"
     const connection = CodexConnection.of({
       read: Effect.succeed({ status: "connected", retries: 0 }),
     });
+    const media = CodexMedia.of({
+      dictationState: Effect.succeed({
+        isEnabled: true,
+        authMethod: "chatgpt",
+        isRealtimeVoiceActive: false,
+        shortcutLabel: "Ctrl+M",
+      }),
+      transcribe: () => Effect.succeed("hello"),
+      resolveImage: () => Effect.succeed({ ok: false, message: "not available", status: null }),
+    });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live.pipe(
@@ -105,6 +116,7 @@ it.effect("registers application channels directly against their owning modules"
             ),
             Layer.succeed(CodexAccount, account),
             Layer.succeed(CodexConnection, connection),
+            Layer.succeed(CodexMedia, media),
             Layer.succeed(ComposerCatalog, composer),
             Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
             Layer.succeed(CodexToolRuntime, tools),
@@ -116,6 +128,9 @@ it.effect("registers application channels directly against their owning modules"
 
     assert.isTrue(handlers.has("codex:account:read"));
     assert.isTrue(handlers.has("codex:connection:status"));
+    assert.isTrue(handlers.has("codex:dictation:state:read"));
+    assert.isTrue(handlers.has("codex:dictation:transcribe"));
+    assert.isTrue(handlers.has("codex:conversation-image-asset:resolve"));
     assert.isTrue(handlers.has("codex:experimental-features:list"));
     assert.isTrue(handlers.has("codex:composer-plugins:list"));
     assert.isTrue(handlers.has("codex:mcp-server-statuses:list"));
