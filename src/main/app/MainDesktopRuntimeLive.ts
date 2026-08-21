@@ -84,6 +84,11 @@ import {
   live as remoteHostedPipRuntimeLive,
   makeRemoteHostedPipRuntimeAdapter,
 } from "../host-runtime/RemoteHostedPipRuntime";
+import {
+  ComputerUseSettingsRuntime,
+  live as computerUseSettingsRuntimeLive,
+  makeComputerUseSettingsRuntimeAdapter,
+} from "../host-runtime/ComputerUseSettingsRuntime";
 import { BrowserSidebarService } from "../browser-sidebar-service";
 import {
   activateMainServiceComposition,
@@ -284,6 +289,27 @@ export const live: Layer.Layer<
           Context.get(desktopToolContext, DesktopToolRuntime),
           callbacks,
         );
+        const computerUseSettingsContext = yield* Layer.buildWithScope(
+          computerUseSettingsRuntimeLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(
+                  DesktopToolRuntime,
+                  Context.get(desktopToolContext, DesktopToolRuntime),
+                ),
+                Layer.succeed(
+                  RemoteHostedPipRuntime,
+                  Context.get(remoteHostedPipContext, RemoteHostedPipRuntime),
+                ),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const computerUseSettings = makeComputerUseSettingsRuntimeAdapter(
+          Context.get(computerUseSettingsContext, ComputerUseSettingsRuntime),
+          callbacks,
+        );
         const providerCredentialsContext = yield* Layer.buildWithScope(
           ProviderCredentials.fromStore(providerCredentialStore),
           runtimeScope,
@@ -418,6 +444,7 @@ export const live: Layer.Layer<
             const composition = createMainServiceComposition({
               agentProviderRuntime,
               browserSidebarService,
+              computerUseSettings,
               composerCatalog,
               desktopTools,
               preferences,

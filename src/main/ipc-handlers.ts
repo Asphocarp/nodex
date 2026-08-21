@@ -251,7 +251,6 @@ import {
   type CommandKeymapState,
 } from "../shared/command-keybindings";
 import { safeBroadcastToWindows, safeSendToWebContents } from "./ipc-safe-send";
-import { ComputerUseSettingsService } from "./codex/computer-use-settings-service";
 import {
   approximateJsonPayloadBytes,
   getDevRuntimeMetricDurationMs,
@@ -293,7 +292,7 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const { browserSidebarService, codexService, desktopTools, remoteHostedPip } =
+const { browserSidebarService, codexService, computerUseSettings, remoteHostedPip } =
   getMainServiceComposition();
 
 const ipcPayloadLogger = getLogger({
@@ -435,15 +434,6 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
 ): void {
   safeSendToWebContents(sender, channel, [payload]);
 }
-
-const computerUseSettingsService = new ComputerUseSettingsService({
-  alwaysHidePictureInPicture: {
-    get: remoteHostedPip.getAlwaysHide,
-    set: remoteHostedPip.setAlwaysHide,
-  },
-  getRuntimeResult: async () => await desktopTools.ensureComputerUse(),
-  readConfigRequirements: async () => await desktopTools.readConfigRequirements(),
-});
 
 function refreshRemoteHostedPipState(): void {
   void remoteHostedPip.refresh().catch((error) => {
@@ -2964,33 +2954,33 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
   registerHandle("computer-use-settings-get", async (event) => {
     requireTrustedAppRendererSender(event, "Computer Use settings");
-    return await computerUseSettingsService.getSnapshot();
+    return await computerUseSettings.getSnapshot();
   });
   registerHandle("computer-use-settings-remove-app-approval", async (event, bundleIdentifier) => {
     requireTrustedAppRendererSender(event, "Computer Use app approval update");
-    return await computerUseSettingsService.removeAppApproval(bundleIdentifier);
+    return await computerUseSettings.removeAppApproval(bundleIdentifier);
   });
   registerHandle("computer-use-settings-remove-message-approval", async (event, chatGuid) => {
     requireTrustedAppRendererSender(event, "Computer Use message approval update");
-    return await computerUseSettingsService.removeMessageApproval(chatGuid);
+    return await computerUseSettings.removeMessageApproval(chatGuid);
   });
   registerHandle("computer-use-settings-set-always-hide-pip", async (event, alwaysHide) => {
     requireTrustedAppRendererSender(event, "Computer Use picture-in-picture setting");
     if (typeof alwaysHide !== "boolean") {
       throw new Error("Computer Use picture-in-picture setting is invalid");
     }
-    return await computerUseSettingsService.setAlwaysHidePictureInPicture(alwaysHide);
+    return await computerUseSettings.setAlwaysHidePictureInPicture(alwaysHide);
   });
   registerHandle("computer-use-settings-set-locked-use", async (event, enabled) => {
     requireTrustedAppRendererSender(event, "Computer Use Locked Use setting");
     if (typeof enabled !== "boolean") {
       throw new Error("Computer Use Locked Use setting is invalid");
     }
-    return await computerUseSettingsService.setLockedUseEnabled(enabled);
+    return await computerUseSettings.setLockedUseEnabled(enabled);
   });
   registerHandle("computer-use-settings-set-sound-mode", async (event, soundMode) => {
     requireTrustedAppRendererSender(event, "Computer Use sound setting");
-    return await computerUseSettingsService.setSoundMode(soundMode);
+    return await computerUseSettings.setSoundMode(soundMode);
   });
   registerHandle("browser-annotation-capture-evidence", async (event, rawInput) => {
     requireTrustedAppRendererSender(event, "Browser annotation evidence");

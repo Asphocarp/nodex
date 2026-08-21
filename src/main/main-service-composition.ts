@@ -9,10 +9,12 @@ import type { CodexPreferences } from "./codex-application/CodexPreferences";
 import type { CodexAttachments } from "./codex-application/CodexAttachments";
 import type { ServerRequestResponsesPromiseAdapter } from "./codex-application/ServerRequestResponsesPromiseAdapter";
 import type { RemoteHostedPipRuntimeAdapter } from "./host-runtime/RemoteHostedPipRuntime";
+import type { ComputerUseSettingsRuntimeAdapter } from "./host-runtime/ComputerUseSettingsRuntime";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
   readonly codexService: CodexService;
+  readonly computerUseSettings: ComputerUseSettingsRuntimeAdapter;
   readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   readonly remoteHostedPip: RemoteHostedPipRuntimeAdapter;
 }
@@ -20,6 +22,7 @@ export interface MainServiceComposition {
 export interface MainServiceCompositionInput {
   readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   readonly browserSidebarService: BrowserSidebarService;
+  readonly computerUseSettings: ComputerUseSettingsRuntimeAdapter;
   readonly terminalRuntime: CodexTerminalRuntimePort;
   readonly runtimeStateHome: string;
   readonly composerCatalog: ComposerCatalogPromiseAdapter;
@@ -56,6 +59,7 @@ export function createMainServiceComposition(
   return {
     browserSidebarService,
     codexService,
+    computerUseSettings: input.computerUseSettings,
     desktopTools: input.desktopTools,
     remoteHostedPip: input.remoteHostedPip,
   };
