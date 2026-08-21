@@ -176,6 +176,11 @@ import { MainRuntime, MainRuntimeError } from "./MainRuntimeLive";
 import { MainShutdown } from "./MainShutdown";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
+import { APP_RENDERER_URL } from "../../shared/app-renderer-policy";
+import {
+  ApplicationWindowRuntime,
+  live as applicationWindowRuntimeLive,
+} from "../window-runtime/ApplicationWindowRuntime";
 
 const runtimeError = (operation: string, cause: unknown) =>
   new MainRuntimeError({ operation, cause });
@@ -869,6 +874,31 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);
+        const applicationWindowContext = yield* Layer.buildWithScope(
+          applicationWindowRuntimeLive({
+            appUpdates,
+            browserSidebar: browserSidebarService,
+            codex: codexService,
+            desktopNotifications: desktopNotifications.manager,
+            iconPath: config.isPackaged
+              ? `${config.resourcesPath}/icon.png`
+              : `${config.projectRootPath}/resources/icon.png`,
+            mcpAppSandbox,
+            onRendererLoaded: () => {
+              callbacks.fork(
+                Effect.all([deepLinks.flush, appUpdates.startAutomaticChecks], {
+                  concurrency: 2,
+                }).pipe(Effect.asVoid),
+              );
+            },
+            preloadPath: `${__dirname}/../preload/index.js`,
+            rendererClients: rendererClients.router,
+            rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
+            windows,
+          }),
+          runtimeScope,
+        );
+        const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);
         const projectionDeliveryContext = yield* Layer.buildWithScope(
           projectionDeliveryRuntimeLive({
             authority: dataAuthority,
@@ -1005,6 +1035,7 @@ export const live: Layer.Layer<
                   markApplicationReady: () => callbacks.runPromise(appUpdates.markApplicationReady),
                   startAutomaticChecks: () => callbacks.runPromise(appUpdates.startAutomaticChecks),
                 },
+                applicationWindows,
                 applicationSchedulers,
                 automationModule,
                 browserSidebarService,
@@ -1017,14 +1048,12 @@ export const live: Layer.Layer<
                   handle: (value) => callbacks.runPromise(deepLinks.handle(value)),
                   markReady: () => callbacks.runPromise(deepLinks.markReady),
                 },
-                desktopNotificationManager: desktopNotifications.manager,
                 documentSync,
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
                 rendererClientRouter: rendererClients.router,
                 libraryModule,
                 markInitializationDone: () => callbacks.runPromise(initialization.markDone),
-                mcpAppSandbox,
                 projectWorkspace,
                 projectionDelivery: {
                   deliverTail: (envelope) =>

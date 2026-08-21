@@ -4,32 +4,24 @@ import {
   BrowserWindow,
   dialog,
   nativeImage,
-  nativeTheme,
-  screen,
-  shell,
   systemPreferences,
   type MenuItemConstructorOptions,
 } from "electron";
 import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
-import { APP_RENDERER_URL } from "../shared/app-renderer-policy";
 import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
 import { dbNotifier } from "./local-store/notifier";
 import type { BrowserSidebarService } from "./browser-sidebar-service";
 import type { CodexService } from "./codex/codex-service";
-import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
-import type { McpAppSandboxRuntime } from "./host-runtime/McpAppSandboxRuntime";
 import {
   getCommandKeymapState,
   getNodexHome,
   getWindowRestoreSettings,
 } from "./local-store/config";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
-import type { DesktopNotificationManager } from "./desktop-notification-manager";
-import { composerAppshotService } from "./composer-appshot-service";
-import { isWindowSessionBoundsVisible, type AcquiredWindowSession } from "./window-session-state";
+import type { AcquiredWindowSession } from "./window-session-state";
 import {
   captureWindowSessionBounds,
   type WindowRuntimeService,
@@ -41,7 +33,6 @@ import type {
 } from "../shared/window-session";
 import { getLogger } from "./logging/logger";
 import { closeWindowsBeforeRuntimeShutdown } from "./runtime-quit-coordinator";
-import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
 import {
   CLOSE_PANEL_TAB_HOST_CHANNEL,
   CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL,
@@ -63,20 +54,12 @@ import {
   EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL,
   type WorkbenchCommandInvocation,
 } from "../shared/workbench-commands";
-import { BROWSER_SIDEBAR_PARTITION } from "../shared/browser-sidebar";
-import { isAllowedBrowserExternalUrl } from "../shared/browser-url";
-import {
-  consumePendingBrowserWebviewAttachment,
-  decideBrowserWebviewAttachment,
-  parseBrowserWebviewInstanceId,
-  registerPendingBrowserWebviewAttachment,
-} from "./browser/browser-webview-attachment-policy";
 import type { BootstrapRuntimeEvent } from "./bootstrap-events";
 import {
   collectSecondInstancesForStartupReplay,
   requestsExplicitNewWindow,
 } from "./main-runtime-startup-events";
-import { captureMainException, captureMainMessage } from "./observability/sentry-main";
+import { captureMainException } from "./observability/sentry-main";
 import {
   getPrimaryCommandAccelerator,
   NEXT_PANEL_TAB_COMMAND_ID,
@@ -84,10 +67,8 @@ import {
   toElectronAccelerator,
 } from "../shared/command-keybindings";
 import { safeSendToWindow } from "./ipc-safe-send";
-import {
-  type RendererClientRouter,
-  type RendererClientRegistration,
-} from "./codex/renderer-client-router";
+import type { RendererClientRouter } from "./codex/renderer-client-router";
+import type { ApplicationWindowRuntime } from "./window-runtime/ApplicationWindowRuntime";
 import {
   buildNodexSetupMenuItems,
   buildWindowFileMenu,
@@ -134,17 +115,15 @@ const appIconPath = app.isPackaged
 const appDockIcon = nativeImage.createFromPath(appIconPath);
 let browserSidebarService: BrowserSidebarService;
 let codexService: CodexService;
-let mcpAppSandboxRuntime: McpAppSandboxRuntime["Service"];
 let deepLinkRuntime: MainRuntimeStartupContext["deepLinks"];
+let applicationWindowRuntime: ApplicationWindowRuntime["Service"];
 
 let rendererHostReadyForWindows = false;
 let windowRuntime: WindowRuntimeService | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
-let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 const logger = getLogger({ subsystem: "app" });
-let desktopNotificationManager: DesktopNotificationManager | null = null;
 
 function getLastFocusedWindow(): BrowserWindow | null {
   return windowRuntime?.getLastFocused() ?? null;
@@ -235,12 +214,6 @@ function openClonedWindow(
   window.show();
   window.focus();
   return window;
-}
-
-function syncMacWindowTitle(window: BrowserWindow): void {
-  if (process.platform !== "darwin") return;
-  if (window.isDestroyed()) return;
-  window.setTitle("Nodex");
 }
 
 export async function requestHostMicrophonePermission(): Promise<void> {
@@ -460,10 +433,6 @@ function configureApplicationMenus(commandKeymapState = getCommandKeymapState())
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate));
 }
 
-function maybeStartAutomaticAppUpdateChecks(): void {
-  void appUpdateRuntime?.startAutomaticChecks();
-}
-
 export function awaitMainInitialization(): Promise<void> {
   return appInitializationPromise;
 }
@@ -487,254 +456,7 @@ function registerDeepLinkProtocol(): void {
 }
 
 function createWindow(options: { session: WindowSessionRecord }): BrowserWindow {
-  const windowCreatedAt = performance.now();
-  const shouldUseSavedBounds = isWindowSessionBoundsVisible(
-    options.session.bounds,
-    screen.getAllDisplays(),
-  );
-  const savedBounds = shouldUseSavedBounds ? options.session.bounds : undefined;
-  const titleBarOptions = resolveCodexTitleBarOptions({
-    platform: process.platform,
-    windowZoom: 1,
-    isDark: nativeTheme.shouldUseDarkColors,
-  });
-  const window = new BrowserWindow({
-    x: savedBounds?.x,
-    y: savedBounds?.y,
-    width: savedBounds?.width ?? 1400,
-    height: savedBounds?.height ?? 900,
-    minWidth: 800,
-    minHeight: 600,
-    ...(process.platform === "darwin" ? { title: "Nodex" } : {}),
-    ...(process.platform === "darwin" ? {} : { icon: appIconPath }),
-    ...titleBarOptions,
-    ...(process.platform === "darwin"
-      ? {
-          vibrancy: "menu" as const,
-          visualEffectState: "followWindow" as const,
-          backgroundColor: "#00000000",
-        }
-      : {}),
-    webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webviewTag: true,
-      backgroundThrottling: false,
-    },
-  });
-  composerAppshotService.observeWindow(window);
-  const mcpAppSandboxHost = mcpAppSandboxRuntime.createHost(window.webContents);
-  mcpAppSandboxHost.installForOwner();
-  const pendingBrowserWebviewAttachments = new Map<number, BrowserAuthorizedAttachment>();
-  // Open external links in the system browser
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isAllowedBrowserExternalUrl(url)) {
-      void shell.openExternal(url);
-    }
-    return { action: "deny" };
-  });
-  window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
-    const webviewParams = params as typeof params & {
-      instanceId?: number | string;
-      nodeintegration?: string;
-      preload?: string;
-      webpreferences?: string;
-    };
-    if (mcpAppSandboxHost.handlesPartition(webviewParams.partition)) {
-      mcpAppSandboxHost.handleWillAttach(event, webPreferences, webviewParams);
-      return;
-    }
-    const instanceId = parseBrowserWebviewInstanceId(webviewParams.instanceId);
-    if (instanceId === null || pendingBrowserWebviewAttachments.has(instanceId)) {
-      logger.warn("Rejected Browser webview attachment", {
-        reason: instanceId === null ? "invalid-instance-id" : "duplicate-instance-id",
-        webContentsId: window.webContents.id,
-      });
-      event.preventDefault();
-      return;
-    }
-    const decision = decideBrowserWebviewAttachment({
-      authorizeAttachment: (route) =>
-        browserSidebarService.authorizeWebviewAttachment(window.webContents.id, route),
-      isRegisteredBrowserStorage: (identity, browserStorageId) =>
-        browserSidebarService.isRegisteredBrowserStorage(identity, browserStorageId),
-      ownerBrowserViewScopeId: windowRuntime?.resolveSessionId(window.webContents.id) ?? null,
-      partition: params.partition,
-      revokeAuthorizedAttachment: (attachToken) =>
-        browserSidebarService.revokeAuthorizedWebviewAttachment(attachToken),
-      src: params.src,
-    });
-    if (!decision.ok) {
-      logger.warn("Rejected Browser webview attachment", {
-        reason: decision.reason,
-        browserConversationId: decision.route?.browserConversationId,
-        browserViewScopeId: decision.route?.browserViewScopeId,
-        browserTabId: decision.route?.browserTabId,
-        webContentsId: window.webContents.id,
-      });
-      event.preventDefault();
-      return;
-    }
-    const registration = registerPendingBrowserWebviewAttachment(
-      pendingBrowserWebviewAttachments,
-      instanceId,
-      decision.authorization,
-    );
-    if (!registration.ok) {
-      browserSidebarService.revokeAuthorizedWebviewAttachment(decision.authorization.attachToken);
-      logger.warn("Rejected Browser webview attachment", {
-        reason: registration.reason,
-        browserConversationId: decision.authorization.browserConversationId,
-        browserViewScopeId: decision.authorization.browserViewScopeId,
-        browserTabId: decision.authorization.browserTabId,
-        webContentsId: window.webContents.id,
-      });
-      event.preventDefault();
-      return;
-    }
-    Object.assign(webPreferences, {
-      allowRunningInsecureContent: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-      nodeIntegrationInSubFrames: false,
-      nodeIntegrationInWorker: false,
-      preload: join(__dirname, "../preload/browser-guest.js"),
-      plugins: false,
-      partition: BROWSER_SIDEBAR_PARTITION,
-      sandbox: true,
-      webSecurity: true,
-      webviewTag: false,
-    });
-    params.partition = BROWSER_SIDEBAR_PARTITION;
-    delete webviewParams.nodeintegration;
-    delete webviewParams.preload;
-    delete webviewParams.webpreferences;
-    delete (webPreferences as typeof webPreferences & { preloadURL?: string }).preloadURL;
-  });
-  window.webContents.on("did-attach-webview", (_event, guestWebContents) => {
-    if (mcpAppSandboxHost.handleDidAttach(guestWebContents)) return;
-    const guestWebContentsId = guestWebContents.id;
-    const pendingAttachment = consumePendingBrowserWebviewAttachment(
-      pendingBrowserWebviewAttachments,
-      (
-        guestWebContents as typeof guestWebContents & {
-          viewInstanceId?: number | string;
-        }
-      ).viewInstanceId,
-    );
-    if (!pendingAttachment) {
-      logger.warn("Rejected unmatched Browser webview attachment", {
-        guestWebContentsId,
-        ownerWebContentsId: window.webContents.id,
-      });
-      guestWebContents.close();
-      return;
-    }
-    const ownership = browserSidebarService.consumeAuthorizedWebviewAttachment(
-      pendingAttachment.attachToken,
-      window.webContents.id,
-      guestWebContentsId,
-    );
-    if (!ownership) {
-      logger.warn("Rejected unauthorized Browser webview attachment", {
-        browserConversationId: pendingAttachment.browserConversationId,
-        browserViewScopeId: pendingAttachment.browserViewScopeId,
-        browserTabId: pendingAttachment.browserTabId,
-        guestWebContentsId,
-        ownerWebContentsId: window.webContents.id,
-      });
-      guestWebContents.close();
-      return;
-    }
-    browserSidebarService.registerAttachedWebviewOwnership(
-      window.webContents.id,
-      guestWebContentsId,
-      ownership,
-      ownership.browserStorageId,
-    );
-    browserSidebarService.prepareAttachedWebviewHistoryRestore(ownership, guestWebContentsId);
-  });
-
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? APP_RENDERER_URL;
-  void window.loadURL(rendererUrl).catch((error) => {
-    logger.error("Could not load the application renderer", { error, rendererUrl });
-  });
-
-  const webContentsId = window.webContents.id;
-  const windows = windowRuntime;
-  if (!windows) {
-    window.destroy();
-    throw new Error("Window runtime is unavailable");
-  }
-
-  let rendererClientRegistration: RendererClientRegistration | null = null;
-  if (rendererClientRouter) {
-    rendererClientRegistration = rendererClientRouter.register(window.webContents);
-    codexService.setRendererClientForegrounded(
-      rendererClientRegistration.clientId,
-      window.isFocused(),
-    );
-  }
-  syncMacWindowTitle(window);
-
-  if (savedBounds?.mode === "maximized") {
-    window.maximize();
-  } else if (savedBounds?.mode === "fullscreen") {
-    window.setFullScreen(true);
-  }
-
-  window.on("focus", () => {
-    codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, true);
-  });
-  window.on("blur", () => {
-    codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
-  });
-  window.webContents.on("did-finish-load", () => {
-    logger.info("Renderer document finished loading", {
-      durationMs: Math.round(performance.now() - windowCreatedAt),
-      webContentsId,
-    });
-    syncMacWindowTitle(window);
-    const appUpdateStatus = appUpdateRuntime?.currentStatus();
-    if (appUpdateStatus) {
-      safeSendToWindow(window, "app:update-status", [appUpdateStatus]);
-    }
-    void deepLinkRuntime.flush();
-    maybeStartAutomaticAppUpdateChecks();
-  });
-  window.webContents.on("render-process-gone", (_event, details) => {
-    logger.error("Renderer process gone", {
-      webContentsId,
-      reason: details.reason,
-      exitCode: details.exitCode,
-    });
-    captureMainMessage("Renderer process gone", {
-      tags: {
-        reason: details.reason,
-      },
-      extra: {
-        webContentsId,
-        exitCode: details.exitCode,
-      },
-    });
-  });
-  window.on("closed", () => {
-    browserSidebarService.releaseRendererOwner(webContentsId);
-    desktopNotificationManager?.dismissByOriginWebContentsId(webContentsId);
-    codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
-    rendererClientRegistration?.dispose();
-    rendererClientRegistration = null;
-  });
-
-  try {
-    windows.attach(window, options.session.id);
-  } catch (error) {
-    window.destroy();
-    throw error;
-  }
-  return window;
+  return applicationWindowRuntime.create(options.session);
 }
 
 async function publishCoreResync(eventHead: number): Promise<void> {
@@ -924,6 +646,7 @@ export interface MainRuntimeStartupContext {
     readonly markApplicationReady: () => Promise<void>;
     readonly startAutomaticChecks: () => Promise<void>;
   };
+  applicationWindows: ApplicationWindowRuntime["Service"];
   applicationSchedulers: ApplicationSchedulerRuntime["Service"];
   automationModule: DesktopAutomationModulePort;
   browserSidebarService: BrowserSidebarService;
@@ -936,13 +659,11 @@ export interface MainRuntimeStartupContext {
     readonly handle: (value: string) => Promise<boolean>;
     readonly markReady: () => Promise<void>;
   };
-  desktopNotificationManager: DesktopNotificationManager;
   documentSync: DesktopDocumentSyncPort;
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
   libraryModule: DesktopLibraryModuleBridge;
   markInitializationDone: () => Promise<void>;
-  mcpAppSandbox: McpAppSandboxRuntime["Service"];
   projectWorkspace: DesktopProjectWorkspacePort;
   projectionDelivery: {
     readonly deliverTail: (envelope: CoreEventEnvelope) => Promise<void>;
@@ -1019,8 +740,6 @@ function beginMainRuntimeShutdown(): void {
   rendererHostReadyForWindows = false;
   windowRuntime?.beginApplicationQuit();
   appUpdateRuntime = null;
-  desktopNotificationManager = null;
-  rendererClientRouter = null;
   logger.info("Nodex before-quit");
   windowRuntime = null;
 }
@@ -1053,10 +772,8 @@ export async function runMainAppStartup(
   browserSidebarService = context.browserSidebarService;
   codexService = context.codexService;
   deepLinkRuntime = context.deepLinks;
-  mcpAppSandboxRuntime = context.mcpAppSandbox;
+  applicationWindowRuntime = context.applicationWindows;
   appUpdateRuntime = context.appUpdateRuntime;
-  desktopNotificationManager = context.desktopNotificationManager;
-  rendererClientRouter = context.rendererClientRouter;
   windowRuntime = context.windowRuntime;
   const startupSecondInstancesWithoutDeepLinks = await collectStartupDeepLinks(context);
 
@@ -1184,7 +901,7 @@ export async function runMainAppStartup(
       const session = windows.bootstrap(webContentsId);
       const window = windows.get(webContentsId);
       if (window) {
-        syncMacWindowTitle(window);
+        applicationWindowRuntime.syncTitle(window);
       }
       return { session };
     },
@@ -1200,7 +917,7 @@ export async function runMainAppStartup(
         window && !window.isDestroyed() ? captureWindowSessionBounds(window) : undefined,
       );
       if (window) {
-        syncMacWindowTitle(window);
+        applicationWindowRuntime.syncTitle(window);
       }
       return { session };
     },
