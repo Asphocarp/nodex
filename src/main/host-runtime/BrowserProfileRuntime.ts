@@ -6,10 +6,7 @@ import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import { BROWSER_SIDEBAR_PARTITION } from "../../shared/browser-sidebar";
 import type { BrowserDownloadsSnapshot } from "../../shared/browser-download";
 import type { BrowserSidebarService } from "../browser-sidebar-service";
-import {
-  activateBrowserDownloadService,
-  BrowserDownloadService,
-} from "../browser/browser-download-service";
+import { BrowserDownloadService } from "../browser/browser-download-service";
 import { FileBrowserDownloadStore } from "../browser/browser-download-store";
 import { BrowserCredentialService } from "../browser/browser-credential-service";
 import { BrowserCredentialVault } from "../browser/browser-credential-vault";
@@ -20,10 +17,7 @@ import {
   resolveBrowserProfileHelperExecutable,
 } from "../browser/browser-profile-helper-client";
 import { BrowserProfileImporter } from "../browser/browser-profile-importer";
-import {
-  activateBrowserProfileServices,
-  type BrowserProfileServices,
-} from "../browser/browser-profile-services";
+import type { BrowserProfileServices } from "../browser/browser-profile-services";
 import { BrowserSiteInfoProvider } from "../browser/browser-site-info-provider";
 import { BrowserUsePolicyStore } from "../browser-use/browser-use-policy-store";
 import { BrowserUseSiteStatusPolicyService } from "../browser-use/site-status-policy-service";
@@ -158,11 +152,6 @@ export const live = (
         ),
         usePolicyStore: policyStore,
       };
-      yield* Effect.acquireRelease(
-        Effect.sync(() => activateBrowserProfileServices(services)),
-        (release) => Effect.sync(release),
-      ).pipe(Effect.asVoid);
-
       const siteStatusPolicy = new BrowserUseSiteStatusPolicyService({
         apiBaseUrl: DEFAULT_CHATGPT_BASE_URL,
         fetchImpl: (url, init) => callbacks.runPromise(net.fetch(url, init)),
@@ -202,10 +191,6 @@ export const live = (
         store: new FileBrowserDownloadStore(`${options.userDataPath}/browser-downloads.json`),
       });
       yield* Effect.addFinalizer(() => Effect.sync(() => download.dispose()));
-      yield* Effect.acquireRelease(
-        Effect.sync(() => activateBrowserDownloadService(download)),
-        (release) => Effect.sync(release),
-      ).pipe(Effect.asVoid);
       options.browserSidebar.setDownloadService(download);
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => options.browserSidebar.setDownloadService(null)),

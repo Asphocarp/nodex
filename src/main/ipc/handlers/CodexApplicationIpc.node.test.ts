@@ -166,6 +166,7 @@ it.effect("registers application channels directly against their owning modules"
               ElectronWindowHost.of({
                 all: Effect.succeed([]),
                 destroyAll: Effect.void,
+                fromWebContents: () => Effect.succeed(null),
                 onCreated: () => Effect.void,
               }),
             ),

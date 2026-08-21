@@ -2,7 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
-import { app, BrowserWindow, type Event } from "electron";
+import { app, BrowserWindow, type Event, type WebContents } from "electron";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 
 export class ElectronWindowHost extends Context.Service<
@@ -10,6 +10,7 @@ export class ElectronWindowHost extends Context.Service<
   {
     readonly all: Effect.Effect<readonly BrowserWindow[]>;
     readonly destroyAll: Effect.Effect<void>;
+    readonly fromWebContents: (webContents: WebContents) => Effect.Effect<BrowserWindow | null>;
     readonly onCreated: (
       handler: (window: BrowserWindow) => Effect.Effect<void>,
     ) => Effect.Effect<void, never, Scope.Scope>;
@@ -27,6 +28,8 @@ export const live: Layer.Layer<ElectronWindowHost, never, ScopedCallbackRuntime>
           if (!window.isDestroyed()) window.destroy();
         }
       }),
+      fromWebContents: (webContents) =>
+        Effect.sync(() => BrowserWindow.fromWebContents(webContents)),
       onCreated: (handler) => {
         const listener = (_event: Event, window: BrowserWindow) => {
           callbacks.fork(handler(window));

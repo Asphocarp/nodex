@@ -154,29 +154,11 @@ import type {
   NativeContextMenuOptions,
 } from "../shared/native-context-menu";
 import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
-import { BrowserDownloadActionRequestSchema } from "../shared/browser/browser-download-schemas";
-import { getBrowserDownloadService } from "./browser/browser-download-service";
-import { getBrowserProfileServices } from "./browser/browser-profile-services";
 import {
-  BrowserContactInfoFillInputSchema,
-  BrowserContactInfoRemoveInputSchema,
-  BrowserContactInfoUpsertInputSchema,
-  BrowserCredentialCandidateActionInputSchema,
-  BrowserCredentialFillInputSchema,
-  BrowserCredentialGenerateInputSchema,
-  BrowserCredentialGuestCandidateSchema,
-  BrowserCredentialListInputSchema,
-  BrowserExtensionRemoveInputSchema,
   BrowserHistoryDeleteInputSchema,
   BrowserHistoryListInputSchema,
-  BrowserProfileImportInputSchema,
-  BrowserSiteInfoInputSchema,
 } from "../shared/browser-profile";
-import {
-  BrowserAnnotationAnchorUpdateEventSchema,
-  BrowserAnnotationEvidenceCaptureInputSchema,
-  BrowserAnnotationSelectionEventSchema,
-} from "../shared/browser-annotation";
+import { BrowserAnnotationEvidenceCaptureInputSchema } from "../shared/browser-annotation";
 import { computeBrowserAnnotationEvidenceCrop } from "./browser/browser-annotation-evidence";
 import {
   filterBrowserStateForViewScope,
@@ -239,8 +221,6 @@ import type {
 } from "../shared/browser-sidebar";
 import {
   BrowserBrowsingDataKindSchema,
-  BrowserGuestImageDragStartedSchema,
-  BrowserLocalServerPreferencesUpdateSchema,
   BrowserSidebarLocalServerThumbnailRequestSchema,
   parseBrowserSidebarCommand,
   parseBrowserSidebarWebviewDestroyed,
@@ -518,7 +498,6 @@ function showNativeContextMenu(
 }
 
 let browserSidebarEventBridgeRegistered = false;
-let browserGuestBridgeRegistered = false;
 let resolveBrowserSidebarViewScope: (webContentsId: number) => string | null = () => null;
 
 function sendBrowserEventToViewScope(
@@ -645,123 +624,6 @@ function ensureBrowserSidebarEventBridge(): void {
   browserSidebarService.on("destroyWebview", (event) =>
     sendBrowserEventToViewScope("browser-sidebar-destroy-webview", event.browserViewScopeId, event),
   );
-}
-
-function ensureBrowserGuestBridge(): void {
-  if (browserGuestBridgeRegistered) return;
-  browserGuestBridgeRegistered = true;
-  ipcMain.on("browser-image-drag-started", (event, rawInput: unknown) => {
-    if (!browserSidebarService.isAuthorizedGuestWebContents(event.sender.id)) {
-      return;
-    }
-    const input = BrowserGuestImageDragStartedSchema.safeParse(rawInput);
-    if (!input.success) return;
-    const owner = event.sender.hostWebContents;
-    if (
-      !owner ||
-      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
-    ) {
-      return;
-    }
-    browserSidebarService.startBrowserImageDrag(event.sender.id, input.data.sourceUrl);
-  });
-  ipcMain.on("browser-image-drag-ended", (event) => {
-    if (!browserSidebarService.isAuthorizedGuestWebContents(event.sender.id)) {
-      return;
-    }
-    browserSidebarService.endBrowserImageDrag(event.sender.id);
-  });
-  ipcMain.on("browser-credential-save-candidate", (event, rawInput: unknown) => {
-    if (!browserSidebarService.isAuthorizedGuestWebContents(event.sender.id)) {
-      return;
-    }
-    const input = BrowserCredentialGuestCandidateSchema.safeParse(rawInput);
-    if (!input.success) return;
-    const owner = event.sender.hostWebContents;
-    if (
-      !owner ||
-      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
-    ) {
-      return;
-    }
-    void getBrowserProfileServices()
-      .credentialService.captureGuestCandidate(event.sender.id, input.data)
-      .then((candidate) => {
-        if (!candidate) return;
-        sendIpcEvent(owner, "browser-credential-save-candidate", candidate);
-      })
-      .catch(() => {
-        // Candidate capture is opportunistic and never blocks form submission.
-      });
-  });
-  ipcMain.on("browser-annotation-selection", (event, rawInput: unknown) => {
-    if (!browserSidebarService.isAuthorizedGuestWebContents(event.sender.id)) {
-      return;
-    }
-    const selection = BrowserAnnotationSelectionEventSchema.safeParse(rawInput);
-    if (!selection.success || selection.data.anchor.pageUrl !== event.sender.getURL()) {
-      return;
-    }
-    const identity = browserSidebarService.getIdentityForWebContents(event.sender.id);
-    const owner = event.sender.hostWebContents;
-    if (
-      !identity ||
-      !owner ||
-      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
-    ) {
-      return;
-    }
-    sendIpcEvent(owner, "browser-annotation-selection", {
-      ...identity,
-      selection: selection.data,
-    });
-  });
-  ipcMain.on("browser-annotation-anchor-update", (event, rawInput: unknown) => {
-    if (!browserSidebarService.isAuthorizedGuestWebContents(event.sender.id)) {
-      return;
-    }
-    const update = BrowserAnnotationAnchorUpdateEventSchema.safeParse(rawInput);
-    if (!update.success || update.data.anchor.pageUrl !== event.sender.getURL()) {
-      return;
-    }
-    const identity = browserSidebarService.getIdentityForWebContents(event.sender.id);
-    const owner = event.sender.hostWebContents;
-    if (
-      !identity ||
-      !owner ||
-      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
-    ) {
-      return;
-    }
-    sendIpcEvent(owner, "browser-annotation-anchor-update", {
-      ...identity,
-      update: update.data,
-    });
-  });
-  ipcMain.on("browser-navigation-button", (event, rawDirection: unknown) => {
-    if (!browserSidebarService.isAuthorizedGuestWebContents(event.sender.id)) {
-      return;
-    }
-    const direction =
-      rawDirection === "back" ? "go-back" : rawDirection === "forward" ? "go-forward" : null;
-    const identity = browserSidebarService.getIdentityForWebContents(event.sender.id);
-    const owner = event.sender.hostWebContents;
-    if (
-      !direction ||
-      !identity ||
-      !owner ||
-      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
-    ) {
-      return;
-    }
-    void browserSidebarService.handleCommand(
-      {
-        type: direction,
-        ...identity,
-      },
-      { ownerWebContentsId: owner.id },
-    );
-  });
 }
 
 function broadcastCommandKeymapState(state: CommandKeymapState): void {
@@ -979,7 +841,6 @@ function createGitActionWorkerPort(
 const pageSearchRequests = new Map<string, AbortController>();
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
-  ensureBrowserGuestBridge();
   ipcMain.removeAllListeners(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL);
   ipcMain.on(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL, (event) => {
     try {
@@ -2783,105 +2644,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       return browserSidebarService.handleWebviewDestroyed(event);
     },
   );
-  registerHandle("browser-downloads-list", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser download history");
-    return getBrowserDownloadService().snapshot();
-  });
-  registerHandle("browser-download-action", async (event, rawRequest) => {
-    requireTrustedAppRendererSender(event, "Browser download action");
-    const request = BrowserDownloadActionRequestSchema.parse(rawRequest);
-    return await getBrowserDownloadService().handleAction(request);
-  });
-  registerHandle("browser-download-history-clear", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser download history clearing");
-    await getBrowserDownloadService().clearHistory();
-    return { ok: true as const };
-  });
-  registerHandle("browser-profile-capabilities", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser Profile capabilities");
-    const services = getBrowserProfileServices();
-    return {
-      credentialVault: services.credentialService.capability(),
-      contactInfo: services.credentialService.capability(),
-      profileImport: services.profileImporter.capability(),
-      siteInfo: {
-        available: true as const,
-        provider: "electron-public-api" as const,
-      },
-      history: {
-        available: true as const,
-        provider: "electron-public-api" as const,
-      },
-      extensions: services.extensionsProvider.capability(),
-    };
-  });
-  registerHandle("browser-profile-import-profiles", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser Profile discovery");
-    return await getBrowserProfileServices().profileImporter.listProfiles();
-  });
-  registerHandle("browser-profile-import", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser Profile import");
-    return await getBrowserProfileServices().profileImporter.import(
-      BrowserProfileImportInputSchema.parse(rawInput),
-    );
-  });
-  registerHandle("browser-credentials-list", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser credential listing");
-    const input = BrowserCredentialListInputSchema.parse(rawInput);
-    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-    return await getBrowserProfileServices().credentialService.listForTab(input);
-  });
-  registerHandle("browser-credentials-list-all", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser credential listing");
-    return await getBrowserProfileServices().credentialService.listAll();
-  });
-  registerHandle("browser-credential-fill", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser credential fill");
-    const input = BrowserCredentialFillInputSchema.parse(rawInput);
-    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-    return await getBrowserProfileServices().credentialService.fill(input);
-  });
-  registerHandle("browser-credential-generate-fill", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser password generation");
-    const input = BrowserCredentialGenerateInputSchema.parse(rawInput);
-    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-    return await getBrowserProfileServices().credentialService.generateAndFill(input);
-  });
-  registerHandle("browser-credential-candidate-action", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser credential save");
-    return await getBrowserProfileServices().credentialService.actOnCandidate(
-      event.sender.id,
-      BrowserCredentialCandidateActionInputSchema.parse(rawInput),
-    );
-  });
-  registerHandle("browser-credential-remove", async (event, credentialId) => {
-    requireTrustedAppRendererSender(event, "Browser credential removal");
-    const { id } = BrowserHistoryDeleteInputSchema.parse({ id: credentialId });
-    return await getBrowserProfileServices().credentialService.remove(id);
-  });
-  registerHandle("browser-contact-info-list", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser contact info listing");
-    return await getBrowserProfileServices().credentialService.listContactInfo();
-  });
-  registerHandle("browser-contact-info-upsert", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser contact info save");
-    return await getBrowserProfileServices().credentialService.saveContactInfo(
-      BrowserContactInfoUpsertInputSchema.parse(rawInput),
-    );
-  });
-  registerHandle("browser-contact-info-remove", async (event, contactInfoId) => {
-    requireTrustedAppRendererSender(event, "Browser contact info removal");
-    const input = BrowserContactInfoRemoveInputSchema.parse({ contactInfoId });
-    return await getBrowserProfileServices().credentialService.removeContactInfo(
-      input.contactInfoId,
-    );
-  });
-  registerHandle("browser-contact-info-fill", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser contact info fill");
-    const input = BrowserContactInfoFillInputSchema.parse(rawInput);
-    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-    return await getBrowserProfileServices().credentialService.fillContactInfo(input);
-  });
   registerHandle("browser-history-list", async (event, rawInput) => {
     requireTrustedAppRendererSender(event, "Browser history");
     const input = rawInput === undefined ? {} : BrowserHistoryListInputSchema.parse(rawInput);
@@ -2892,50 +2654,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     const { id } = BrowserHistoryDeleteInputSchema.parse({ id: historyId });
     await browserSidebarService.deleteHistoryEntry(id);
     return { ok: true as const };
-  });
-  registerHandle("browser-site-info", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser site information");
-    const input = BrowserSiteInfoInputSchema.parse(rawInput);
-    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-    return await getBrowserProfileServices().siteInfoProvider.get(input);
-  });
-  registerHandle("browser-extensions-list", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser extensions");
-    return getBrowserProfileServices().extensionsProvider.snapshot();
-  });
-  registerHandle("browser-extension-load", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser extension loading");
-    const [extensionPath] = await showDirectoriesPicker(event, {
-      title: "Load unpacked Browser extension",
-      properties: ["openDirectory"],
-    });
-    if (!extensionPath) return null;
-    return await getBrowserProfileServices().extensionsProvider.load(extensionPath);
-  });
-  registerHandle("browser-extension-remove", async (event, extensionId) => {
-    requireTrustedAppRendererSender(event, "Browser extension removal");
-    const input = BrowserExtensionRemoveInputSchema.parse({ extensionId });
-    try {
-      getBrowserProfileServices().extensionsProvider.remove(input.extensionId);
-      return { ok: true as const };
-    } catch (error) {
-      return {
-        ok: false as const,
-        message: error instanceof Error ? error.message : "Browser extension removal failed",
-      };
-    }
-  });
-  registerHandle("browser-use-policy-get", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser Use policy");
-    return getBrowserProfileServices().usePolicyStore.snapshot();
-  });
-  registerHandle("browser-use-policy-update-modes", async (event, input) => {
-    requireTrustedAppRendererSender(event, "Browser Use policy update");
-    return await getBrowserProfileServices().usePolicyStore.updateModes(input);
-  });
-  registerHandle("browser-use-policy-update-origin-rule", async (event, input) => {
-    requireTrustedAppRendererSender(event, "Browser Use origin policy update");
-    return await getBrowserProfileServices().usePolicyStore.updateOriginRule(input);
   });
   registerHandle("browser-annotation-capture-evidence", async (event, rawInput) => {
     requireTrustedAppRendererSender(event, "Browser annotation evidence");
@@ -2987,18 +2705,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
     return await browserSidebarService.captureLocalServerThumbnail(input);
   });
-  registerHandle("browser-local-server-preferences-get", (event) => {
-    requireTrustedAppRendererSender(event, "Local server preferences");
-    return getBrowserProfileServices().localServerPreferencesStore.snapshot();
-  });
-  registerHandle("browser-local-server-preferences-update", (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Local server preferences update");
-    const input = BrowserLocalServerPreferencesUpdateSchema.parse(rawInput);
-    const preferences = getBrowserProfileServices().localServerPreferencesStore.update(input);
-    broadcastIpcEvent("browser-local-server-preferences-changed", preferences);
-    return preferences;
-  });
-
   // Codex
   registerHandle(
     "codex:threads:list",

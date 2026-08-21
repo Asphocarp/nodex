@@ -345,22 +345,3 @@ export class BrowserDownloadService {
     this.onSnapshot(this.snapshot());
   }
 }
-
-let configuredBrowserDownloadService: BrowserDownloadService | null = null;
-
-export function activateBrowserDownloadService(service: BrowserDownloadService): () => void {
-  if (configuredBrowserDownloadService !== null) {
-    throw new Error("Browser download service is already active");
-  }
-  configuredBrowserDownloadService = service;
-  return () => {
-    if (configuredBrowserDownloadService === service) configuredBrowserDownloadService = null;
-  };
-}
-
-export function getBrowserDownloadService(): BrowserDownloadService {
-  if (!configuredBrowserDownloadService) {
-    throw new Error("Browser download service is unavailable");
-  }
-  return configuredBrowserDownloadService;
-}

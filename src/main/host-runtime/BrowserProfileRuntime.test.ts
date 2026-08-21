@@ -10,8 +10,6 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import type { Session } from "electron";
 import { BrowserSidebarService } from "../browser-sidebar-service";
-import { getBrowserDownloadService } from "../browser/browser-download-service";
-import { getBrowserProfileServices } from "../browser/browser-profile-services";
 import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
@@ -114,6 +112,7 @@ it.effect("owns Browser Profile services and the download session listener", () 
                   ElectronWindowHost.of({
                     all: Effect.succeed([]),
                     destroyAll: Effect.void,
+                    fromWebContents: () => Effect.succeed(null),
                     onCreated: () => Effect.void,
                   }),
                 ),
@@ -125,14 +124,12 @@ it.effect("owns Browser Profile services and the download session listener", () 
         );
         const runtime = Context.get(context, BrowserProfileRuntime);
 
-        assert.strictEqual(getBrowserProfileServices(), runtime.services);
-        assert.strictEqual(getBrowserDownloadService(), runtime.download);
+        assert.isObject(runtime.services);
+        assert.isObject(runtime.download);
         assert.strictEqual(browserSession.listenerCount("will-download"), 1);
 
         yield* Scope.close(scope, Exit.void);
         assert.strictEqual(browserSession.listenerCount("will-download"), 0);
-        assert.throws(getBrowserProfileServices, /not configured/);
-        assert.throws(getBrowserDownloadService, /unavailable/);
       }),
     (root) => Effect.sync(() => rmSync(root, { force: true, recursive: true })),
   ),

@@ -69,6 +69,7 @@ import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
+import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
@@ -600,6 +601,25 @@ export const live: Layer.Layer<
           try: () => import("../main-runtime"),
           catch: (cause) => runtimeError("load-runtime", cause),
         });
+        const windowSessions = WindowSessionCatalog.WindowSessionCatalog.of({
+          resolveForWebContents: (webContentsId) =>
+            Effect.sync(() => module.resolveMainWindowSessionId(webContentsId)),
+        });
+        yield* Layer.buildWithScope(
+          BrowserProfileIpc.live({ browserSidebar: browserSidebarService }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(BrowserProfileRuntime, browserProfile),
+                Layer.succeed(ElectronDesktop, desktop),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(ElectronWindowHost, windowHost),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowSessionCatalog.WindowSessionCatalog, windowSessions),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const authorityLayer = coreAuthorityLive().pipe(
           Layer.provide(
             Layer.merge(
@@ -639,9 +659,7 @@ export const live: Layer.Layer<
           TerminalProjectAdmission.live.pipe(
             Layer.provide(Layer.succeed(CoreModules, coreModules)),
           ),
-          WindowSessionCatalog.fromResolver((webContentsId) =>
-            module.resolveMainWindowSessionId(webContentsId),
-          ),
+          Layer.succeed(WindowSessionCatalog.WindowSessionCatalog, windowSessions),
         );
         yield* Layer.buildWithScope(
           TerminalIpc.live.pipe(Layer.provide(terminalDependencies)),

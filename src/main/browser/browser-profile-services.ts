@@ -13,20 +13,3 @@ export interface BrowserProfileServices {
   siteInfoProvider: BrowserSiteInfoProvider;
   usePolicyStore: BrowserUsePolicyStore;
 }
-
-let services: BrowserProfileServices | null = null;
-
-export function activateBrowserProfileServices(nextServices: BrowserProfileServices): () => void {
-  if (services !== null) throw new Error("Browser Profile services are already active");
-  services = nextServices;
-  return () => {
-    if (services === nextServices) services = null;
-  };
-}
-
-export function getBrowserProfileServices(): BrowserProfileServices {
-  if (!services) {
-    throw new Error("Browser Profile services are not configured");
-  }
-  return services;
-}
