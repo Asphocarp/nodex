@@ -621,6 +621,20 @@ export const live: Layer.Layer<
           },
           catch: (cause) => runtimeError("activate-services", cause),
         });
+        yield* Scope.addFinalizer(
+          runtimeScope,
+          Effect.tryPromise({
+            try: () => activation.composition.codexService.shutdown(),
+            catch: (cause) => runtimeError("shutdown-codex-application", cause),
+          }).pipe(
+            Effect.timeout("15 seconds"),
+            Effect.catch((error) =>
+              Effect.logWarning("Could not fully close the Codex application runtime").pipe(
+                Effect.annotateLogs({ error: String(error) }),
+              ),
+            ),
+          ),
+        );
         yield* Scope.addFinalizer(runtimeScope, Effect.sync(activation.release));
         yield* Layer.buildWithScope(
           applicationRequestDispatcherLive.pipe(

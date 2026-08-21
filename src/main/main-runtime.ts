@@ -222,8 +222,6 @@ let browserPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let codexThreadNotificationCoordinator: CodexThreadNotificationCoordinator | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
-let desktopDataAuthorityStartup: Promise<DesktopDataAuthorityRuntime> | null = null;
-let coreAuthorityClosePromise: Promise<void> | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 let desktopDocumentSync: DesktopDocumentSyncPort | null = null;
@@ -1666,7 +1664,6 @@ async function initializeDesktopApp(
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
-  desktopDataAuthorityStartup = null;
   releaseCoreAuthorityStatus?.();
   releaseCoreAuthorityStatus = desktopDataAuthorityRuntime.subscribeToCoreAuthority(
     publishCoreAuthorityStatus,
@@ -2036,8 +2033,6 @@ let runtimeShutdownCompleted = false;
 let runtimeShutdownPromise: Promise<void> | null = null;
 let runtimeQuitContinuationStarted = false;
 let requestRuntimeShutdown: () => Promise<void> = shutdownMainRuntime;
-const RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS = 15_000;
-
 function handleSecondInstanceArgv(argv: string[]): boolean {
   const handledDeepLink = Boolean(extractDeepLinkFromArgv(argv));
   if (handledDeepLink) {
@@ -2074,13 +2069,6 @@ function beginMainRuntimeShutdown(): void {
   desktopDocumentSync = null;
   releaseCoreAuthorityStatus?.();
   releaseCoreAuthorityStatus = null;
-  coreAuthorityClosePromise =
-    desktopDataAuthorityRuntime?.close() ??
-    desktopDataAuthorityStartup?.then(
-      async (runtime) => await runtime.close(),
-      () => undefined,
-    ) ??
-    Promise.resolve();
   for (const state of projectionIpcSubscriptions.values()) {
     state.sender.removeListener("destroyed", state.onDestroyed);
     for (const release of state.releases.values()) release();
@@ -2104,62 +2092,15 @@ function beginMainRuntimeShutdown(): void {
   desktopNotificationManager.dispose();
 }
 
-async function settleRuntimeShutdownStep(
-  name: string,
-  operation: () => Promise<unknown>,
-  timeoutMs?: number,
-): Promise<void> {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const pending = operation();
-    if (timeoutMs === undefined) {
-      await pending;
-      return;
-    }
-    await Promise.race([
-      pending,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          reject(new Error(`${name} did not stop within ${timeoutMs}ms`));
-        }, timeoutMs);
-        timeout.unref?.();
-      }),
-    ]);
-  } catch (error) {
-    logger.warn(`${name} failed during shutdown`, {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    captureMainException(error, {
-      tags: { phase: "runtime-shutdown", component: name },
-    });
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
-}
-
 function shutdownMainRuntime(): Promise<void> {
   beginMainRuntimeShutdown();
   if (runtimeShutdownPromise) {
     return runtimeShutdownPromise;
   }
 
-  runtimeShutdownPromise = (async () => {
-    await settleRuntimeShutdownStep(
-      "Core launcher",
-      async () => {
-        await coreAuthorityClosePromise;
-      },
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
-    await settleRuntimeShutdownStep(
-      "Codex service",
-      () => codexService.shutdown(),
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
+  runtimeShutdownPromise = Promise.resolve().then(() => {
     runtimeShutdownCompleted = true;
-  })();
+  });
   return runtimeShutdownPromise;
 }
 
@@ -2264,7 +2205,6 @@ export async function runMainAppStartup(
   windowSessionState = new WindowSessionState(app.getPath("userData"));
   setAppInitializationStep({ phase: "opening" });
   const dataAuthority = context.dataAuthority;
-  desktopDataAuthorityStartup = dataAuthority;
   codexService.setNodexAgentAuthorityPort(
     createDesktopNodexAgentAuthorityPort({
       authority: dataAuthority,
