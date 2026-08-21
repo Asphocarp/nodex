@@ -15,7 +15,7 @@ import { performance } from "node:perf_hooks";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { writeStructuralClipboard } from "./clipboard-structural-writer";
 import { inspectClipboardPasteItems, readClipboardPastePayload } from "./clipboard-paste-inspector";
@@ -251,9 +251,6 @@ import {
   type CommandKeymapState,
 } from "../shared/command-keybindings";
 import { safeBroadcastToWindows, safeSendToWebContents } from "./ipc-safe-send";
-import { RemoteHostedPipService } from "./remote-hosted-pip-service";
-import { RemoteHostedPipPreferenceStore } from "./remote-hosted-pip-preference-store";
-import { isMacOSVersionAtLeast, loadSkyNativeAddon } from "./sky-native";
 import { ComputerUseSettingsService } from "./codex/computer-use-settings-service";
 import {
   approximateJsonPayloadBytes,
@@ -296,7 +293,8 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const { browserSidebarService, codexService, desktopTools } = getMainServiceComposition();
+const { browserSidebarService, codexService, desktopTools, remoteHostedPip } =
+  getMainServiceComposition();
 
 const ipcPayloadLogger = getLogger({
   subsystem: "ipc",
@@ -438,67 +436,17 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
   safeSendToWebContents(sender, channel, [payload]);
 }
 
-let remoteHostedPipPreferenceStore: RemoteHostedPipPreferenceStore | null = null;
-
-function getRemoteHostedPipPreferenceStore(): RemoteHostedPipPreferenceStore {
-  remoteHostedPipPreferenceStore ??= new RemoteHostedPipPreferenceStore(
-    join(app.getPath("userData"), "remote-hosted-pip-preferences.json"),
-  );
-  return remoteHostedPipPreferenceStore;
-}
-
-const remoteHostedPipService = new RemoteHostedPipService({
-  addon: loadSkyNativeAddon(),
-  broadcast: (channel, payload) => {
-    broadcastIpcEvent(channel, payload);
-  },
-  getFocusedWindow: () => BrowserWindow.getFocusedWindow(),
-  getWindowForSender: (sender) => BrowserWindow.fromWebContents(sender as Electron.WebContents),
-  isEnabled: () => process.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
-  isThreadSurfacePresented: (threadId) =>
-    browserSidebarService.hasPresentedBrowserUseSurfaceForThread(threadId),
-  readAlwaysHide: () => getRemoteHostedPipPreferenceStore().readAlwaysHide(),
-  readMaxDisplaySize: () => getRemoteHostedPipPreferenceStore().readMaxDisplaySize(),
-  sendToSender: (sender, channel, payload) => {
-    sendIpcEvent(sender as Electron.WebContents, channel, payload);
-  },
-  writeAlwaysHide: (alwaysHide) => {
-    getRemoteHostedPipPreferenceStore().writeAlwaysHide(alwaysHide);
-  },
-  writeMaxDisplaySize: (size) => {
-    getRemoteHostedPipPreferenceStore().writeMaxDisplaySize(size);
-  },
-});
-
 const computerUseSettingsService = new ComputerUseSettingsService({
   alwaysHidePictureInPicture: {
-    get: () => remoteHostedPipService.getAlwaysHide(),
-    set: (value) => remoteHostedPipService.setAlwaysHide(value),
+    get: remoteHostedPip.getAlwaysHide,
+    set: remoteHostedPip.setAlwaysHide,
   },
   getRuntimeResult: async () => await desktopTools.ensureComputerUse(),
   readConfigRequirements: async () => await desktopTools.readConfigRequirements(),
 });
 
-const disposeRemoteHostedPipCodexObserver = codexService.observeAppServerNotifications(
-  (notification) => {
-    remoteHostedPipService.handleCodexNotification(notification);
-  },
-);
-let remoteHostedPipRuntimeDisposed = false;
-
-export function isRemoteHostedPipPrivacySettingsTerminationRequest(): boolean {
-  return remoteHostedPipService.isPrivacySettingsTerminationRequest();
-}
-
-export function disposeRemoteHostedPipRuntime(): void {
-  if (remoteHostedPipRuntimeDisposed) return;
-  remoteHostedPipRuntimeDisposed = true;
-  disposeRemoteHostedPipCodexObserver();
-  remoteHostedPipService.dispose();
-}
-
 function refreshRemoteHostedPipState(): void {
-  void remoteHostedPipService.handleBrowserUseStateSnapshot().catch((error) => {
+  void remoteHostedPip.refresh().catch((error) => {
     ipcPayloadLogger.warn("Could not resolve remote hosted PIP Thread state", {
       error: error instanceof Error ? error.message : String(error),
     });
@@ -1392,7 +1340,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     rendererDiagnosticsLogger.info(input.message, input.fields);
   });
   registerHandle("codex-desktop:message-from-view", (event, message) => {
-    remoteHostedPipService.handleDesktopMessageFromView(event.sender, message);
+    remoteHostedPip.handleDesktopMessageFromView(event.sender, message);
   });
 
   registerHandle("codex:renderer-client:id", (event) => resolveRendererClientId(event));

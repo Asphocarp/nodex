@@ -18,6 +18,7 @@ const fakeElectronLayer = (events: string[]) =>
     ElectronApp,
     ElectronApp.of({
       locale: Effect.succeed("en-US"),
+      userDataPath: Effect.succeed("/tmp/nodex-test-user-data"),
       whenReady: Effect.sync(() => events.push("ready")),
       quit: Effect.sync(() => events.push("quit")),
       relaunch: Effect.sync(() => events.push("relaunch")),

@@ -8,20 +8,24 @@ import type { DesktopToolRuntimePromiseAdapter } from "./host-runtime/DesktopToo
 import type { CodexPreferences } from "./codex-application/CodexPreferences";
 import type { CodexAttachments } from "./codex-application/CodexAttachments";
 import type { ServerRequestResponsesPromiseAdapter } from "./codex-application/ServerRequestResponsesPromiseAdapter";
+import type { RemoteHostedPipRuntimeAdapter } from "./host-runtime/RemoteHostedPipRuntime";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
   readonly codexService: CodexService;
   readonly desktopTools: DesktopToolRuntimePromiseAdapter;
+  readonly remoteHostedPip: RemoteHostedPipRuntimeAdapter;
 }
 
 export interface MainServiceCompositionInput {
   readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
+  readonly browserSidebarService: BrowserSidebarService;
   readonly terminalRuntime: CodexTerminalRuntimePort;
   readonly runtimeStateHome: string;
   readonly composerCatalog: ComposerCatalogPromiseAdapter;
   readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   readonly preferences: Pick<CodexPreferences["Service"], "current">;
+  readonly remoteHostedPip: RemoteHostedPipRuntimeAdapter;
   readonly attachments: CodexAttachments["Service"]["legacy"];
   readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
   readonly codexClient: CodexApplicationClient;
@@ -34,7 +38,7 @@ let activeComposition: MainServiceComposition | null = null;
 export function createMainServiceComposition(
   input: MainServiceCompositionInput,
 ): MainServiceComposition {
-  const browserSidebarService = new BrowserSidebarService();
+  const browserSidebarService = input.browserSidebarService;
   const codexService = new CodexService({
     browserTransferRuntime: browserSidebarService,
     agentProviderRuntime: input.agentProviderRuntime,
@@ -49,7 +53,12 @@ export function createMainServiceComposition(
     runtime: input.codexRuntime,
   });
 
-  return { browserSidebarService, codexService, desktopTools: input.desktopTools };
+  return {
+    browserSidebarService,
+    codexService,
+    desktopTools: input.desktopTools,
+    remoteHostedPip: input.remoteHostedPip,
+  };
 }
 
 /**

@@ -34,11 +34,7 @@ import type {
   TerminalSessionSnapshot,
 } from "../shared/types";
 import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
-import {
-  disposeRemoteHostedPipRuntime,
-  isRemoteHostedPipPrivacySettingsTerminationRequest,
-  registerIpcHandlers,
-} from "./ipc-handlers";
+import { registerIpcHandlers } from "./ipc-handlers";
 import { GitWorkerHost } from "./git-worker-host";
 import { registerGitWorkerIpc } from "./git-worker-ipc";
 import { CodexWorktreeWorkerHost } from "./worktree-worker/worktree-worker-host";
@@ -240,7 +236,8 @@ const appIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(__dirname, "../../resources/icon.png");
 const appDockIcon = nativeImage.createFromPath(appIconPath);
-const { browserSidebarService, codexService, desktopTools } = getMainServiceComposition();
+const { browserSidebarService, codexService, desktopTools, remoteHostedPip } =
+  getMainServiceComposition();
 
 const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
@@ -2245,13 +2242,6 @@ function shutdownMainRuntime(): Promise<void> {
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
     await settleRuntimeShutdownStep(
-      "Remote hosted PiP",
-      async () => {
-        disposeRemoteHostedPipRuntime();
-      },
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
-    await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
@@ -2319,7 +2309,7 @@ function registerRuntimeLifecycleHandlers(requestShutdown?: () => Promise<void>)
   runtimeLifecycleHandlersRegistered = true;
 
   app.on("before-quit", (event) => {
-    if (isRemoteHostedPipPrivacySettingsTerminationRequest()) {
+    if (remoteHostedPip.isPrivacySettingsTerminationRequest()) {
       event.preventDefault();
       return;
     }

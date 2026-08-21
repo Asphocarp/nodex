@@ -33,7 +33,7 @@ const LOCKED_USE_INSTALLER_RELATIVE_PATH = path.join(
 type ComputerUseSettingsServiceOptions = {
   alwaysHidePictureInPicture: {
     get(): boolean;
-    set(value: boolean): void;
+    set(value: boolean): Promise<void> | void;
   };
   exec?: typeof execFileAsync;
   getRuntimeResult: () =>
@@ -196,7 +196,7 @@ export class ComputerUseSettingsService {
 
   async setAlwaysHidePictureInPicture(value: boolean): Promise<ComputerUseSettingsSnapshot> {
     return await this.serializeMutation(async () => {
-      this.options.alwaysHidePictureInPicture.set(value);
+      await this.options.alwaysHidePictureInPicture.set(value);
       return await this.getSnapshot();
     });
   }

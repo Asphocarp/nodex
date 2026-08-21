@@ -80,6 +80,12 @@ import {
   makeDesktopToolRuntimePromiseAdapter,
 } from "../host-runtime/DesktopToolRuntime";
 import {
+  RemoteHostedPipRuntime,
+  live as remoteHostedPipRuntimeLive,
+  makeRemoteHostedPipRuntimeAdapter,
+} from "../host-runtime/RemoteHostedPipRuntime";
+import { BrowserSidebarService } from "../browser-sidebar-service";
+import {
   activateMainServiceComposition,
   createMainServiceComposition,
 } from "../main-service-composition";
@@ -130,6 +136,7 @@ export const live: Layer.Layer<
     const terminals = yield* TerminalSessions;
     const runtimeScope = yield* Scope.Scope;
     const locale = yield* electron.locale;
+    const userDataPath = yield* electron.userDataPath;
     let controller: MainRuntimeController | null = null;
     let started = false;
 
@@ -218,6 +225,18 @@ export const live: Layer.Layer<
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
+        const browserSidebarService = new BrowserSidebarService();
+        const remoteHostedPipContext = yield* Layer.buildWithScope(
+          remoteHostedPipRuntimeLive({
+            browserSidebarService,
+            preferenceFilePath: `${userDataPath}/remote-hosted-pip-preferences.json`,
+          }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+          runtimeScope,
+        );
+        const remoteHostedPip = makeRemoteHostedPipRuntimeAdapter(
+          Context.get(remoteHostedPipContext, RemoteHostedPipRuntime),
+          callbacks,
+        );
         const conversationCommandsContext = yield* Layer.buildWithScope(
           conversationCommandsLive.pipe(
             Layer.provide(
@@ -398,9 +417,11 @@ export const live: Layer.Layer<
           try: () => {
             const composition = createMainServiceComposition({
               agentProviderRuntime,
+              browserSidebarService,
               composerCatalog,
               desktopTools,
               preferences,
+              remoteHostedPip,
               attachments: attachments.legacy,
               serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
                 approvalCoordinator,
