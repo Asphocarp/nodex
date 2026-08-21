@@ -3,14 +3,20 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { getBoardProjectStore } from "@/lib/board-store";
+import { MotionGlobalConfig } from "motion";
 import { LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY } from "./local-environment-selection";
 import { type CodexSidebarThreadItem } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
 import { makeAttachedSession, makePanelLayout, makeProject, makeSession } from "./workbench-testkit/workbench-shell-fixtures";
-import { getConnectedThreadStagePropsByThreadId, getLastThreadStageActions, getMountedSessionIds, getMountedSessionRoot, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, installReducedMotionMatchMediaForTest, invokeCalls, mockInvokeImpl, renderWorkbench, requestThreadStreamSnapshotCalls, selectSidebarSession, setInvokeCalls, setMockInvokeImpl, setRequestThreadStreamSnapshotImpl } from "./workbench-testkit/workbench-shell-harness";
+import { getConnectedThreadStagePropsByThreadId, getLastThreadStageActions, getMountedSessionIds, getMountedSessionRoot, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, installMotionEnabledMatchMediaForTest, installReducedMotionMatchMediaForTest, invokeCalls, mockInvokeImpl, renderWorkbench, requestThreadStreamSnapshotCalls, selectSidebarSession, setInvokeCalls, setMockInvokeImpl, setRequestThreadStreamSnapshotImpl } from "./workbench-testkit/workbench-shell-harness";
 import type { ProjectSession } from "./workbench-testkit/workbench-shell-fixtures";
 
 describe("workbench session shell / sidebar-core", () => {
+  test("settles Motion without impersonating reduced-motion preferences", () => {
+    expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(false);
+    expect(MotionGlobalConfig.skipAnimations).toBe(true);
+  });
+
   test("loads project sessions and renders the Database View DB tab", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -1089,43 +1095,48 @@ describe("workbench session shell / sidebar-core", () => {
   });
 
   test("clicking the Projects section header collapses and expands project rows", async () => {
-    const screen = renderWorkbench();
-    await settleAsyncRender();
-    await settleAsyncRender();
+    const restoreMatchMedia = installMotionEnabledMatchMediaForTest();
+    try {
+      const screen = renderWorkbench();
+      await settleAsyncRender();
+      await settleAsyncRender();
 
-    const section = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
-    if (!(section instanceof HTMLElement)) {
-      throw new Error("Expected Projects section");
+      const section = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
+      if (!(section instanceof HTMLElement)) {
+        throw new Error("Expected Projects section");
+      }
+
+      const toggle = section.querySelector("[data-app-action-sidebar-section-toggle]");
+      if (!(toggle instanceof HTMLElement)) {
+        throw new Error("Expected Projects section toggle");
+      }
+
+      expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
+      expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
+      expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
+
+      await act(async () => {
+        fireEvent.click(toggle);
+        await Promise.resolve();
+      });
+
+      expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+      const exitingSectionBody = section.querySelector("[data-app-action-sidebar-section-body-motion]");
+      expect(Boolean(exitingSectionBody)).toBe(true);
+      expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
+      expect(Boolean(section.querySelector("[data-app-action-sidebar-project-row]")?.closest("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
+
+      await act(async () => {
+        fireEvent.click(toggle);
+        await Promise.resolve();
+      });
+
+      expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
+      expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
+      expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
+    } finally {
+      restoreMatchMedia();
     }
-
-    const toggle = section.querySelector("[data-app-action-sidebar-section-toggle]");
-    if (!(toggle instanceof HTMLElement)) {
-      throw new Error("Expected Projects section toggle");
-    }
-
-    expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
-    expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
-    expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
-
-    await act(async () => {
-      fireEvent.click(toggle);
-      await Promise.resolve();
-    });
-
-    expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
-    const exitingSectionBody = section.querySelector("[data-app-action-sidebar-section-body-motion]");
-    expect(Boolean(exitingSectionBody)).toBe(true);
-    expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
-    expect(Boolean(section.querySelector("[data-app-action-sidebar-project-row]")?.closest("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
-
-    await act(async () => {
-      fireEvent.click(toggle);
-      await Promise.resolve();
-    });
-
-    expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
-    expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
-    expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
   });
 
   test("sidebar organizer section collapse state survives sidebar hide and show", async () => {

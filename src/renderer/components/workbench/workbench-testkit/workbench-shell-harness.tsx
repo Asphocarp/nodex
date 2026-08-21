@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, expect, vi } from "vitest";
 import { initPrefersReducedMotion } from "motion";
+import { installMotionPreferenceForTest } from "@/test/browser-globals";
 import {
   Fragment,
   createElement,
@@ -2035,32 +2036,32 @@ export function appendMockNfmEditor(container: HTMLElement): { root: HTMLElement
   return { root, content };
 }
 
-export function installReducedMotionMatchMediaForTest() {
-  const originalMatchMedia = window.matchMedia;
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: (query: string) => ({
-      matches: query === "(prefers-reduced-motion)"
-        || query === "(prefers-reduced-motion: reduce)",
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
+function installMotionPreferenceMatchMediaForTest(
+  reducedMotion: boolean,
+  options: { readonly skipAnimations?: boolean } = {},
+) {
+  const restoreMatchMedia = installMotionPreferenceForTest(reducedMotion, options);
   initPrefersReducedMotion();
 
   return () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: originalMatchMedia,
-    });
+    restoreMatchMedia();
     initPrefersReducedMotion();
   };
 }
+
+export function installReducedMotionMatchMediaForTest() {
+  return installMotionPreferenceMatchMediaForTest(true);
+}
+
+export function installMotionEnabledMatchMediaForTest() {
+  return installMotionPreferenceMatchMediaForTest(false);
+}
+
+export function installInstantMotionMatchMediaForTest() {
+  return installMotionPreferenceMatchMediaForTest(false, { skipAnimations: true });
+}
+
+let restoreDefaultInstantMotion: (() => void) | null = null;
 
 export function renderWorkbench({
   projects = [makeProject()],
@@ -3604,6 +3605,11 @@ export function installTerminalEventApiMock(): TerminalEventListenerMap {
 }
 
 beforeEach(() => {
+  restoreDefaultInstantMotion?.();
+  // Shell behavior tests assert settled product state without impersonating a
+  // user's accessibility preference. Motion contracts opt into live timelines;
+  // reduced-motion contracts set that preference explicitly.
+  restoreDefaultInstantMotion = installInstantMotionMatchMediaForTest();
   terminalSessionStore.disposeEventSubscriptions();
   resetDatabaseRowDetailStoreForTests();
   resetPageDetailStoreForTests();
@@ -3676,6 +3682,8 @@ beforeEach(() => {
 
 afterEach(() => {
   terminalSessionStore.disposeEventSubscriptions();
+  restoreDefaultInstantMotion?.();
+  restoreDefaultInstantMotion = null;
 });
 
 export async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Promise<void> {

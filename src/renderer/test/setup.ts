@@ -1,5 +1,7 @@
 import { cleanup } from "@testing-library/react";
+import { MotionGlobalConfig } from "motion";
 import { afterEach } from "vitest";
+import { installMotionPreferenceForTest } from "./browser-globals";
 
 const nativeRequest = Request;
 const nativeResponse = Response;
@@ -12,26 +14,10 @@ const nativeCSS = globalThis.CSS ?? {
   },
 };
 
-function createMediaQueryList(query: string): MediaQueryList {
-  return {
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => true,
-  };
-}
-
-if (typeof window.matchMedia !== "function") {
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    writable: true,
-    value: createMediaQueryList,
-  });
-}
+// Renderer behavior tests assert settled product state without impersonating a
+// user's accessibility preference. Motion contracts opt into live timelines;
+// reduced-motion contracts set that preference explicitly.
+installMotionPreferenceForTest(false, { skipAnimations: true });
 if (typeof globalThis.PointerEvent !== "function") {
   Object.defineProperty(globalThis, "PointerEvent", {
     configurable: true,
@@ -141,6 +127,8 @@ Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 const browserWindow = window;
 const browserDocument = document;
 const browserCustomEvent = browserWindow.CustomEvent;
+const browserMatchMedia = browserWindow.matchMedia;
+const browserSkipAnimations = MotionGlobalConfig.skipAnimations;
 const browserWindowApiDescriptor = Object.getOwnPropertyDescriptor(browserWindow, "api");
 function createDefaultRendererApi(): NonNullable<Window["api"]> {
   let persistedAtomRevision = 0;
@@ -301,6 +289,12 @@ function restoreBrowserGlobals() {
     writable: true,
     value: browserCustomEvent,
   });
+  Object.defineProperty(browserWindow, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: browserMatchMedia,
+  });
+  MotionGlobalConfig.skipAnimations = browserSkipAnimations;
   Object.defineProperty(globalThis, "KeyboardEvent", {
     configurable: true,
     writable: true,

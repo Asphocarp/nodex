@@ -402,6 +402,22 @@ export function classifyChangedPaths(
   );
 }
 
+export function buildChangeClassificationDocument(
+  changedPaths: readonly string[],
+  options: { readonly full?: boolean; readonly forceFullTests?: boolean } = {},
+): {
+  readonly changedPaths: readonly string[];
+  readonly plan: CiGatePlan;
+} {
+  return {
+    // Full gates never use an affected-path closure. Keeping a repo-wide list
+    // out of reusable job environments also keeps every subprocess below the
+    // host operating system's ARG_MAX limit.
+    changedPaths: options.full ? [] : changedPaths,
+    plan: classifyChangedPaths(changedPaths, options),
+  };
+}
+
 const readOption = (args: readonly string[], name: string): string | undefined => {
   const index = args.indexOf(name);
   if (index < 0) return undefined;
@@ -412,24 +428,28 @@ const readOption = (args: readonly string[], name: string): string | undefined =
 
 const main = (): void => {
   const args = process.argv.slice(2);
+  const full = args.includes("--full");
   const base = readOption(args, "--base");
   const head = readOption(args, "--head") ?? "HEAD";
-  if (!base) throw new Error("Usage: classify-change --base <sha> [--head <sha>] [--full] [--output <path>].");
+  if (!base && !full) {
+    throw new Error("Usage: classify-change --base <sha> [--head <sha>] [--full] [--output <path>].");
+  }
   const cwd = resolve(import.meta.dirname, "../..");
-  const output = execFileSync("git", ["diff", "--name-only", "-z", `${base}..${head}`], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const paths = output.split("\0").filter(Boolean);
+  const paths = full
+    ? []
+    : execFileSync("git", ["diff", "--name-only", "-z", `${base}..${head}`], {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).split("\0").filter(Boolean);
   const forceFullTests = paths.some((path) => (
     !isDocumentationPath(path) && !existsSync(resolve(cwd, path))
   ));
-  const gatePlan = classifyChangedPaths(paths, {
+  const document = buildChangeClassificationDocument(paths, {
     forceFullTests,
-    full: args.includes("--full"),
+    full,
   });
-  const serialized = `${JSON.stringify({ changedPaths: paths, plan: gatePlan }, null, 2)}\n`;
+  const serialized = `${JSON.stringify(document, null, 2)}\n`;
   const destination = readOption(args, "--output");
   if (!destination) {
     process.stdout.write(serialized);

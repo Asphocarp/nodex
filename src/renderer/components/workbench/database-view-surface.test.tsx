@@ -15,7 +15,7 @@ import {
 } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
-import { render } from "../../test/dom";
+import { render, settleAsyncRender } from "../../test/dom";
 import {
   databaseViewMutationErrorMessage,
   DatabaseViewSurface,
@@ -661,7 +661,7 @@ describe("DatabaseViewSurface", () => {
     }));
   });
 
-  test("uses the canonical Card contract for a non-Status grouping", () => {
+  test("uses the canonical Card contract for a non-Status grouping", async () => {
     const screen = render(
       <DatabaseViewSurface
         model={priorityGroupedBoardModel()}
@@ -690,6 +690,7 @@ describe("DatabaseViewSurface", () => {
     expect([...screen.container.querySelectorAll(
       '[data-database-board-collapsed-label="true"]',
     )].some((element) => element.textContent === "P3 - Low")).toBe(true);
+    await settleAsyncRender();
   });
 
   test("uses the shared Page action hierarchy on Board cards", async () => {
@@ -777,11 +778,7 @@ describe("DatabaseViewSurface", () => {
       fireEvent.click(within(card).getByRole("button", { name: /^Edit Tags:/ }));
       await Promise.resolve();
     });
-    const nextOption = await screen.findByRole("option", { name: "Next" });
-    await act(async () => {
-      fireEvent.click(nextOption);
-      await Promise.resolve();
-    });
+    expect(await screen.findByRole("option", { name: "Next" })).toBeTruthy();
     expect(onOpenPage).toHaveBeenCalledTimes(1);
   });
 

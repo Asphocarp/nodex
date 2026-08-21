@@ -30,6 +30,7 @@ const editorState = vi.hoisted(() => ({
     delete: (index: number, length: number) => void;
   },
 }));
+const optionRuntime = vi.hoisted(() => ({ readWindow: vi.fn() }));
 
 const property = (
   propertyId: "priority" | "estimate",
@@ -49,6 +50,11 @@ const property = (
 
 vi.mock("@/lib/board-page-create-command", () => ({
   createBoardPage: (...args: unknown[]) => commandState.create(...args),
+}));
+
+vi.mock("@/lib/database-property-options-runtime", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/database-property-options-runtime")>(),
+  readPropertyOptionWindow: optionRuntime.readWindow,
 }));
 
 vi.mock("./editor/nfm-editor", async () => {
@@ -246,6 +252,12 @@ function TestShell({
 describe("PageCreateDialog", () => {
   beforeEach(() => {
     commandState.create.mockReset();
+    optionRuntime.readWindow.mockReset();
+    optionRuntime.readWindow.mockResolvedValue({
+      options: [],
+      nextCursor: null,
+      projectionRevision: 1,
+    });
     editorState.latestFragment = null;
     __resetNodexToastStoreForTests();
   });
@@ -524,10 +536,25 @@ describe("PageCreateDialog", () => {
     await view.findByRole("dialog");
 
     fireEvent.click(view.getByRole("button", { name: "Status" }));
-    fireEvent.click(await view.findByRole("option", { name: "Build" }));
+    const buildOption = await view.findByRole("option", { name: "Build" });
+    await act(async () => {
+      fireEvent.pointerDown(buildOption, {
+        button: 0,
+        pointerId: 1,
+        pointerType: "mouse",
+      });
+      fireEvent.pointerUp(buildOption, {
+        button: 0,
+        pointerId: 1,
+        pointerType: "mouse",
+      });
+      fireEvent.click(buildOption);
+    });
 
     expect(view.getByRole("dialog")).toBeTruthy();
-    expect(view.getByRole("button", { name: "Status" }).textContent).toContain("Build");
+    await waitFor(() => expect(
+      view.getByRole("button", { name: "Status" }).textContent,
+    ).toContain("Build"));
   });
 
   test("uses searchable semantic pickers for Priority and Estimate", async () => {

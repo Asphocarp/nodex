@@ -1,6 +1,16 @@
 import { DayPicker, type DateRange } from "react-day-picker";
 import { NODEX_DAY_PICKER_CLASS_NAMES } from "@/components/ui/date-calendar";
 
+export interface DateMentionCalendarProps {
+  readonly hasEndDate: boolean;
+  readonly selectedRange: DateRange;
+  readonly selectedDate: Date;
+  readonly month: Date;
+  readonly onMonthChange: (month: Date) => void;
+  readonly onSelectDate: (date: Date | undefined) => void;
+  readonly onSelectRange: (range: DateRange | undefined) => void;
+}
+
 export function DateMentionCalendar({
   hasEndDate,
   selectedRange,
@@ -9,15 +19,7 @@ export function DateMentionCalendar({
   onMonthChange,
   onSelectDate,
   onSelectRange,
-}: {
-  readonly hasEndDate: boolean;
-  readonly selectedRange: DateRange;
-  readonly selectedDate: Date;
-  readonly month: Date;
-  readonly onMonthChange: (month: Date) => void;
-  readonly onSelectDate: (date: Date | undefined) => void;
-  readonly onSelectRange: (range: DateRange | undefined) => void;
-}) {
+}: DateMentionCalendarProps) {
   if (hasEndDate) {
     return (
       <DayPicker

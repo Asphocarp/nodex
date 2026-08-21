@@ -384,6 +384,15 @@ evidence at the seam that owns the behavior:
 - Renderer DOM tests and their testkits import the owning
   `shared/block-documents/*` module directly. Importing its aggregate entry
   point pulls unrelated schemas and editors into every isolated test file.
+- Renderer behavior tests make Motion timelines instant by default without
+  impersonating a user's accessibility preference, so transition timers and
+  exit trees do not distort settled-state assertions. Tests that own full-
+  motion or reduced-motion contracts set that state explicitly through the
+  shared adapter and restore it during cleanup.
+- Parent composition tests may replace an independently covered heavy child
+  surface with a type-checked adapter that preserves the child's semantic
+  ports. Keep the child's own interaction and rendering behavior in its focused
+  suite rather than paying for the full subtree in every parent case.
 
 Before adding prose here, confirm that every affected feature branch needs the
 same convention and that the nearest executable seam cannot carry it. That is

@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
+import {
+  installAsyncRequestAnimationFrame,
+  installMotionPreferenceForTest,
+} from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
-import { renderWithMaitai as render } from "../../../test/dom";
+import {
+  renderWithMaitai as render,
+  settleAsyncRender,
+} from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
 import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
@@ -376,6 +382,7 @@ describe("LocalConversationFooter", () => {
   });
 
   test("renders the catch-up button inside the footer owner", async () => {
+    const restoreMotionPreference = installMotionPreferenceForTest(true);
     const { LocalConversationFooter } = await import("./local-conversation-footer");
     const { container, getByLabelText } = render(
       <TooltipProvider>
@@ -398,6 +405,7 @@ describe("LocalConversationFooter", () => {
         </div>
       </TooltipProvider>,
     );
+    await settleAsyncRender();
 
     const viewport = container.querySelector(
       "[data-local-conversation-thread-body='true']",
@@ -434,14 +442,20 @@ describe("LocalConversationFooter", () => {
     });
 
     scrollTopValue = -200;
-    fireEvent.scroll(viewport);
+    await act(async () => {
+      fireEvent.scroll(viewport);
+      await Promise.resolve();
+    });
 
     await waitFor(() => {
       expect(Boolean(container.querySelector('[aria-label="Scroll to latest message"]'))).toBe(true);
     });
 
     scrollToCalls.length = 0;
-    fireEvent.click(getByLabelText("Scroll to latest message"));
+    await act(async () => {
+      fireEvent.click(getByLabelText("Scroll to latest message"));
+      await Promise.resolve();
+    });
 
     const footerOwner = container.querySelector('[data-thread-find-composer="true"]');
     const catchUpSlot = footerOwner?.querySelector('[data-thread-catch-up-control="true"]');
@@ -460,6 +474,7 @@ describe("LocalConversationFooter", () => {
     expect(isBefore(queuePortal, composerShell)).toBe(true);
     expect(scrollToCalls.length).toBe(1);
     expect(scrollToCalls[0]?.top).toBe(0);
+    restoreMotionPreference();
   });
 
   test("overlay mode renders portals, latest-turn preview, and composer in fixture order", async () => {

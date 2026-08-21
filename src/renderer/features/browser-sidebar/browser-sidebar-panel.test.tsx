@@ -72,7 +72,7 @@ afterEach(async () => {
 });
 
 describe("BrowserSidebarPanel chrome", () => {
-  test("renders address input inside a no-drag island within the draggable toolbar", () => {
+  test("renders address input inside a no-drag island within the draggable toolbar", async () => {
     const view = render(
       <BrowserSidebarPanel
         tab={browserTab}
@@ -94,6 +94,7 @@ describe("BrowserSidebarPanel chrome", () => {
 
     const addressShell = input?.closest(".group\\/address-bar");
     expect(addressShell === null).toBe(false);
+    await settleAsyncRender();
   });
 
   test("does not close the browser guest when the React panel unmounts", async () => {

@@ -221,7 +221,7 @@ describe("Nodex toast system", () => {
   });
 
   test("runs the newest visible toast action from the keyboard command", async () => {
-    render(<ToastHarness />);
+    const view = render(<ToastHarness />);
     const calls: string[] = [];
 
     await act(async () => {
@@ -242,7 +242,8 @@ describe("Nodex toast system", () => {
     });
 
     expect(calls).toEqual(["latest"]);
-    expect(__getNodexToastSnapshotForTests()[0]?.isShown).toBe(false);
+    expect(view.queryByRole("button", { name: "Latest" })).toBeNull();
+    expect(view.getByRole("button", { name: "Older" })).toBeTruthy();
   });
 
   test("renders custom toasts and lets the custom content close itself", async () => {

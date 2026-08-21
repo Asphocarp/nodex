@@ -1,5 +1,5 @@
 import { fireEvent, waitFor } from "@testing-library/react";
-import { act, useState } from "react";
+import { act, useState, type ComponentProps } from "react";
 import { describe, expect, test, vi } from "vitest";
 
 import { render } from "@/test/dom";
@@ -16,6 +16,42 @@ import type { DataSourcePropertyEditorBinding } from "./data-source-property-edi
 import { DataSourcePagePropertyContextMenuItems } from "./data-source-page-property-context-menu";
 import { dataSourcePagePropertyMenuSourceFromBindings } from "./data-source-page-property-menu-source";
 import type { DataSourcePagePropertyMenuSource } from "./data-source-page-property-menu-source";
+import type { DatePropertyEditor } from "./date-property-editor";
+import type { RelationPropertyEditor } from "./relation-property-editor";
+
+type DatePropertyEditorAdapterProps = Pick<
+  ComponentProps<typeof DatePropertyEditor>,
+  "host" | "label"
+>;
+type RelationPropertyEditorAdapterProps = Pick<
+  ComponentProps<typeof RelationPropertyEditor>,
+  "host" | "label"
+>;
+
+vi.mock("./date-property-editor", () => ({
+  DatePropertyEditor: ({
+    host,
+    label,
+  }: DatePropertyEditorAdapterProps) => (
+    <input
+      aria-label={`${label} date`}
+      data-property-editor-host={host}
+    />
+  ),
+}));
+
+vi.mock("./relation-property-editor", () => ({
+  RelationPropertyEditor: ({
+    host,
+    label,
+  }: RelationPropertyEditorAdapterProps) => (
+    <input
+      role="combobox"
+      aria-label={`Search ${label} target pages`}
+      data-property-editor-host={host}
+    />
+  ),
+}));
 
 const property = (
   propertyId: string,
@@ -235,7 +271,8 @@ describe("DataSourcePagePropertyContextMenuItems", () => {
       fireEvent.click(dateView.getByRole("menuitem", { name: "Due date" }));
       await Promise.resolve();
     });
-    expect(await dateView.findByRole("textbox", { name: "Due date date" })).toBeTruthy();
+    const dateEditor = await dateView.findByRole("textbox", { name: "Due date date" });
+    expect(dateEditor.getAttribute("data-property-editor-host")).toBe("embedded");
     expect(dateView.queryByRole("button", { name: "Edit Due date" })).toBeNull();
     expect(dateView.queryByText("Empty", { exact: true })).toBeNull();
     dateView.unmount();
@@ -252,9 +289,10 @@ describe("DataSourcePagePropertyContextMenuItems", () => {
       fireEvent.click(relationView.getByRole("menuitem", { name: "Related" }));
       await Promise.resolve();
     });
-    expect(await relationView.findByRole("combobox", {
+    const relationEditor = await relationView.findByRole("combobox", {
       name: "Search Related target pages",
-    })).toBeTruthy();
+    });
+    expect(relationEditor.getAttribute("data-property-editor-host")).toBe("embedded");
     expect(relationView.queryByRole("button", { name: "Edit Related relation" })).toBeNull();
     expect(relationView.queryByText("Empty", { exact: true })).toBeNull();
   });

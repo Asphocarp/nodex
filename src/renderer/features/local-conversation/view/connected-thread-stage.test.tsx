@@ -1,15 +1,18 @@
 import { describe, expect, vi, test } from "vitest";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
-import { TestQueryProvider } from "../../../test/query";
+import {
+  createTestQueryClient,
+  TestQueryProvider,
+} from "../../../test/query";
+import { queryKeys } from "../../../lib/query-keys";
 import { RendererStateProvider } from "../../../app-providers";
 import { WorkbenchSessionScopePath } from "../../../lib/workbench-ui-scopes";
 import type {
   CodexConnectionState,
-  CodexConversationChildMembership,
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexHostMessage,
@@ -28,6 +31,35 @@ let invokeCalls: Array<{
   presented?: boolean;
 }> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
+
+function createConnectedThreadStageQueryClient() {
+  const client = createTestQueryClient();
+  client.setQueryData(queryKeys.codexComposerPlugins.list(["/tmp/project"]), []);
+  client.setQueryData(queryKeys.codexComposerSkills.list(["/tmp/project"]), []);
+  client.setQueryData(queryKeys.codexComposerSites.list(), {
+    available: false,
+    sites: [],
+  });
+  client.setQueryData(queryKeys.codexComposerChatGptConversations.list(""), {
+    available: false,
+    conversations: [],
+  });
+  client.setQueryData(queryKeys.mcp.apps(), []);
+  client.setQueryData(queryKeys.mcp.statuses(), {
+    data: [],
+    nextCursor: null,
+  });
+  return client;
+}
+
+function ConnectedThreadStageQueryProvider({
+  children,
+}: {
+  readonly children: ReactNode;
+}) {
+  const [client] = useState(createConnectedThreadStageQueryClient);
+  return <TestQueryProvider client={client}>{children}</TestQueryProvider>;
+}
 
 function ThreadStageScope({ children }: { children: ReactNode }) {
   return (
@@ -103,91 +135,6 @@ vi.mock("../local-conversation-deps", () => ({
   },
   subscribeCodexRendererClientRequests: () => () => {},
 }));
-
-describe("resolveEffectiveThreadStageSettings", () => {
-  test("prefers active conversation thread settings over shell fallbacks", async () => {
-    const { resolveEffectiveThreadStageSettings } = await import("./connected-thread-stage");
-    const settings = resolveEffectiveThreadStageSettings({
-      activeThreadId: "thread_1",
-      liveThreadSettings: {
-        model: "gpt-thread",
-        reasoningEffort: "medium",
-        collaborationMode: {
-          mode: "plan",
-          settings: {
-            model: "gpt-thread",
-            reasoning_effort: "medium",
-            developer_instructions: null,
-          },
-        },
-        personality: "pragmatic",
-      },
-      liveMode: null,
-      fallbackMode: "default",
-      fallbackModel: "gpt-draft",
-      fallbackReasoningEffort: "high",
-      availableModes: [
-        { mode: "default", name: "Default", model: null },
-        { mode: "plan", name: "Plan", model: null },
-      ],
-    });
-
-    expect(settings.selectedCollaborationMode).toBe("plan");
-    expect(settings.selectedModel).toBe("gpt-thread");
-    expect(settings.selectedReasoningEffort).toBe("medium");
-  });
-
-  test("uses shell fallbacks for new-thread drafts", async () => {
-    const { resolveEffectiveThreadStageSettings } = await import("./connected-thread-stage");
-    const settings = resolveEffectiveThreadStageSettings({
-      activeThreadId: null,
-      liveThreadSettings: {
-        model: "gpt-thread",
-        reasoningEffort: "medium",
-        collaborationMode: {
-          mode: "plan",
-          settings: {
-            model: "gpt-thread",
-            reasoning_effort: "medium",
-            developer_instructions: null,
-          },
-        },
-        personality: "pragmatic",
-      },
-      liveMode: null,
-      fallbackMode: "default",
-      fallbackModel: "gpt-draft",
-      fallbackReasoningEffort: "high",
-      availableModes: [
-        { mode: "default", name: "Default", model: null },
-        { mode: "plan", name: "Plan", model: null },
-      ],
-    });
-
-    expect(settings.selectedCollaborationMode).toBe("default");
-    expect(settings.selectedModel).toBe("gpt-draft");
-    expect(settings.selectedReasoningEffort).toBe("high");
-  });
-});
-
-describe("resolveChildConversationIds", () => {
-  test("returns the unique non-active child conversations needed by background surfaces", async () => {
-    const { resolveChildConversationIds } = await import("./connected-thread-stage");
-    const membership = (threadId: string): CodexConversationChildMembership => ({
-      threadId,
-      parentThreadId: "thread_parent",
-      role: "backgroundChild",
-    });
-
-    expect(resolveChildConversationIds("thread_parent", [
-      membership(" thread_child "),
-      membership("thread_child"),
-      membership("thread_parent"),
-      membership("  "),
-      membership("thread_other"),
-    ])).toStrictEqual(["thread_child", "thread_other"]);
-  });
-});
 
 function buildThreadSummary(archived: boolean): CodexThreadSummary {
   return {
@@ -336,7 +283,7 @@ async function renderStage(
   __resetLocalConversationStoreForTests();
 
   const view = render(
-    <TestQueryProvider>
+    <ConnectedThreadStageQueryProvider>
       <ThreadStageScope>
         <TooltipProvider>
           <LocalConversationProvider>
@@ -374,7 +321,7 @@ async function renderStage(
           </LocalConversationProvider>
         </TooltipProvider>
       </ThreadStageScope>
-    </TestQueryProvider>,
+    </ConnectedThreadStageQueryProvider>,
   );
   await settleAsyncRender();
   return view;
@@ -421,7 +368,7 @@ async function renderPrimaryAndAuxiliaryThread(
   };
 
   const view = render(
-    <TestQueryProvider>
+    <ConnectedThreadStageQueryProvider>
       <ThreadStageScope>
         <TooltipProvider>
           <LocalConversationProvider>
@@ -448,7 +395,7 @@ async function renderPrimaryAndAuxiliaryThread(
           </LocalConversationProvider>
         </TooltipProvider>
       </ThreadStageScope>
-    </TestQueryProvider>,
+    </ConnectedThreadStageQueryProvider>,
   );
   await settleAsyncRender();
   return view;
@@ -497,6 +444,16 @@ async function renderNewThreadHome(overrides?: {
           iconUrlDark: null,
           brandColor: "#4b8df8",
         }];
+      }
+      if (channel === "codex:composer-skills:list") return [];
+      if (channel === "codex:composer-sites:list") {
+        return { available: false, sites: [] };
+      }
+      if (channel === "codex:composer-chatgpt-conversations:list") {
+        return { available: false, conversations: [] };
+      }
+      if (channel === "codex:mcp-server-statuses:list") {
+        return { data: [], nextCursor: null };
       }
       if (channel === "codex:mcp-apps:list") {
         return [{

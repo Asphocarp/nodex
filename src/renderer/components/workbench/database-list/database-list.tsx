@@ -1641,6 +1641,7 @@ export function DatabaseList({
       && isDatabaseListOccurrenceSelected(selection, nextRow.key);
     const row = (
       <DatabaseListRow
+        key={item.key}
         item={item}
         libraryId={model.libraryId}
         selected={selected}

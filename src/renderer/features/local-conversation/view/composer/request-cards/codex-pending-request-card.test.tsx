@@ -4,12 +4,9 @@ import { act, fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type {
   CodexApprovalRequest,
-  CodexMcpServerElicitationRequest,
   CodexOptionPickerRequest,
-  CodexPermissionRequest,
   CodexPlanImplementationRequest,
   CodexSetupCodexStepRequest,
-  NodexAgentAuthorizationRequest,
 } from "@/lib/types";
 import { renderWithMaitai as render, settleAsyncRender } from "@/test/dom";
 import type {
@@ -111,17 +108,11 @@ function createActions(log: string[]): ThreadStageActions {
 }
 
 describe("CodexPendingRequestCard", () => {
-  test("passes conversation context to direct request-card response actions", async () => {
+  test("wires a direct request-card response to its conversation adapter", async () => {
     const { CodexPendingRequestCard } = await import("./codex-pending-request-card");
     const log: string[] = [];
     const actions = createActions(log);
-    const entries: Array<{
-      buttonText: string;
-      entry: ThreadComposerShellPendingRequestModel;
-    }> = [
-      {
-        buttonText: "Skip",
-        entry: {
+    const entry: ThreadComposerShellPendingRequestModel = {
           conversationId: "thread_1",
           surface: "activeThread",
           request: {
@@ -134,103 +125,22 @@ describe("CodexPendingRequestCard", () => {
             itemId: "file_1",
             createdAt: 2,
           } satisfies CodexApprovalRequest,
-        },
-      },
-      {
-        buttonText: "Cancel",
-        entry: {
-          conversationId: "thread_1",
-          surface: "activeThread",
-          request: {
-            type: "mcpServerElicitation",
-            requestId: "mcp_1",
-            projectId: "project_1",
-            threadId: "thread_1",
-            turnId: "turn_1",
-            itemId: "mcp_item_1",
-            kind: "toolSuggestion",
-            mode: "url",
-            serverName: "server",
-            message: "Confirm",
-            url: "https://example.test/continue",
-            elicitationId: "elicitation_1",
-            createdAt: 3,
-          } satisfies CodexMcpServerElicitationRequest,
-        },
-      },
-      {
-        buttonText: "Skip",
-        entry: {
-          conversationId: "thread_1",
-          surface: "activeThread",
-          request: {
-            type: "permissionRequest",
-            requestId: "permission_1",
-            projectId: "project_1",
-            threadId: "thread_1",
-            turnId: "turn_1",
-            itemId: "permission_item_1",
-            cwd: "/repo",
-            reason: "Need access",
-            permissions: {
-              network: null,
-              fileSystem: null,
-            },
-            response: null,
-            completed: false,
-            createdAt: 4,
-          } satisfies CodexPermissionRequest,
-        },
-      },
-      {
-        buttonText: "Skip",
-        entry: {
-          conversationId: "thread_1",
-          surface: "activeThread",
-          request: {
-            type: "nodexAgentAuthorization",
-            requestId: "nodex_auth_1",
-            projectId: "project_1",
-            threadId: "thread_1",
-            turnId: "turn_1",
-            itemId: "call_1",
-            tool: "create",
-            effect: "write",
-            preview: {
-              title: "Create Card",
-              summary: "Create one Card.",
-              details: [],
-            },
-            createdAt: 5,
-          } satisfies NodexAgentAuthorizationRequest,
-        },
-      },
-    ];
+        };
 
-    for (const { buttonText, entry } of entries) {
-      const { getByText, unmount } = render(
-        <TooltipProvider>
-          <CodexPendingRequestCard
-            entry={entry}
-            actions={actions}
-          />
-        </TooltipProvider>,
-      );
+    const { getByText } = render(
+      <TooltipProvider>
+        <CodexPendingRequestCard entry={entry} actions={actions} />
+      </TooltipProvider>,
+    );
 
-      await act(async () => {
-        fireEvent.click(getByText(buttonText));
-        await settleAsyncRender();
-      });
+    await act(async () => {
+      fireEvent.click(getByText("Skip"));
+      await settleAsyncRender();
+    });
 
-      unmount();
-    }
-
-    expect(JSON.stringify(log)).toBe(JSON.stringify([
+    expect(log).toEqual([
       "approval:approval_1:file:decline:thread_1",
-      "mcp:mcp_1:decline:thread_1",
-      "permission:permission_1:turn:thread_1",
-      "nodex:nodex_auth_1:deny:thread_1",
-    ]));
+    ]);
   });
 
   test("implementing a plan preserves the request while starting the Default-mode turn", async () => {

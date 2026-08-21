@@ -3,6 +3,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CodexUserInputRequest } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
+import { installMotionPreferenceForTest } from "@/test/browser-globals";
 
 const optionRequest: CodexUserInputRequest = {
   type: "userInput",
@@ -135,30 +136,38 @@ describe("local-conversation request cards", () => {
     expect(respondCount).toBe(1);
   });
 
-  test("focuses the next question after its wait-mode transition mounts", async () => {
+  test("focuses the next question after its reduced-motion panel mounts", async () => {
+    const restoreMotionPreference = installMotionPreferenceForTest(true);
     const {
       REQUEST_INPUT_COMPOSER_POLICY,
       RequestComposerView,
     } = await import("./local-conversation-request-cards");
-    const view = render(
-      <NodexTooltipProvider>
-        <RequestComposerView
-          request={multiQuestionRequest}
-          policy={REQUEST_INPUT_COMPOSER_POLICY}
-          onSubmit={async () => { }}
-          onEscapeDismiss={async () => { }}
-          submitErrorMessage="Could not submit input request"
-          dismissErrorMessage="Could not dismiss input request"
-        />
-      </NodexTooltipProvider>,
-    );
+    try {
+      const view = render(
+        <NodexTooltipProvider>
+          <RequestComposerView
+            request={multiQuestionRequest}
+            policy={REQUEST_INPUT_COMPOSER_POLICY}
+            onSubmit={async () => { }}
+            onEscapeDismiss={async () => { }}
+            submitErrorMessage="Could not submit input request"
+            dismissErrorMessage="Could not dismiss input request"
+          />
+        </NodexTooltipProvider>,
+      );
 
-    fireEvent.click(view.getByRole("radio", { name: "3" }));
+      await act(async () => {
+        fireEvent.click(view.getByRole("radio", { name: "3" }));
+        await Promise.resolve();
+      });
 
-    await waitFor(() => {
-      const input = view.getByPlaceholderText("Type your answer");
-      expect(document.activeElement).toBe(input);
-    }, { timeout: 2_000 });
+      await waitFor(() => {
+        const input = view.getByPlaceholderText("Type your answer");
+        expect(document.activeElement).toBe(input);
+      }, { timeout: 2_000 });
+    } finally {
+      restoreMotionPreference();
+    }
   });
 
   test("focuses the new option panel instead of the outgoing option panel", async () => {
@@ -179,7 +188,10 @@ describe("local-conversation request cards", () => {
       </NodexTooltipProvider>,
     );
 
-    fireEvent.click(view.getByRole("button", { name: "Next question" }));
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Next question" }));
+      await Promise.resolve();
+    });
 
     await waitFor(() => {
       expect(document.activeElement).toBe(view.getByRole("radio", { name: "Approve" }));
@@ -187,6 +199,7 @@ describe("local-conversation request cards", () => {
   });
 
   test("ignores activation from an outgoing wait-mode question panel", async () => {
+    const restoreMatchMedia = installMotionPreferenceForTest(false);
     const {
       REQUEST_INPUT_COMPOSER_POLICY,
       RequestComposerView,
@@ -195,31 +208,41 @@ describe("local-conversation request cards", () => {
     const onSubmit = async () => {
       throw new Error("Outgoing question must not submit");
     };
-    const view = render(
-      <NodexTooltipProvider>
-        <RequestComposerView
-          request={multiQuestionRequest}
-          policy={REQUEST_INPUT_COMPOSER_POLICY}
-          onDraftChange={(draft) => {
-            draftChanges.push(draft);
-          }}
-          onSubmit={onSubmit}
-          onEscapeDismiss={async () => { }}
-          submitErrorMessage="Could not submit input request"
-          dismissErrorMessage="Could not dismiss input request"
-        />
-      </NodexTooltipProvider>,
-    );
-    const outgoingOption = view.getByRole("radio", { name: "3" });
+    try {
+      const view = render(
+        <NodexTooltipProvider>
+          <RequestComposerView
+            request={multiQuestionRequest}
+            policy={REQUEST_INPUT_COMPOSER_POLICY}
+            onDraftChange={(draft) => {
+              draftChanges.push(draft);
+            }}
+            onSubmit={onSubmit}
+            onEscapeDismiss={async () => { }}
+            submitErrorMessage="Could not submit input request"
+            dismissErrorMessage="Could not dismiss input request"
+          />
+        </NodexTooltipProvider>,
+      );
+      const outgoingOption = view.getByRole("radio", { name: "3" });
 
-    fireEvent.click(view.getByRole("button", { name: "Next question" }));
-    expect(draftChanges).toHaveLength(1);
-    fireEvent.click(outgoingOption);
-    expect(draftChanges).toHaveLength(1);
+      await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: "Next question" }));
+        await Promise.resolve();
+      });
+      expect(draftChanges).toHaveLength(1);
+      await act(async () => {
+        fireEvent.click(outgoingOption);
+        await Promise.resolve();
+      });
+      expect(draftChanges).toHaveLength(1);
 
-    await waitFor(() => {
-      expect(view.getByPlaceholderText("Type your answer")).not.toBeNull();
-    }, { timeout: 2_000 });
+      await waitFor(() => {
+        expect(view.getByPlaceholderText("Type your answer")).not.toBeNull();
+      }, { timeout: 2_000 });
+    } finally {
+      restoreMatchMedia();
+    }
   });
 
   test("renders the composer-style request surface with hover metadata affordance", async () => {
