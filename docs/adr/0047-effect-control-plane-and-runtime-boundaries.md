@@ -48,8 +48,9 @@ The architecture frontier is enforced as follows:
 5. Tests exercise public lifecycle behavior and use Effect test clocks only where time is
    part of the contract.
 6. Dynamic resources use their semantic owner: keyed host/session families use `LayerMap`,
-   callback ingress uses scoped fiber tracking, ordered commands use `Queue`, and
-   observation-only fan-out uses `PubSub` or `Stream`.
+   reference-counted keyed coordination uses `RcMap`, callback ingress uses scoped fiber
+   tracking, ordered commands use `Queue`, and observation-only fan-out uses `PubSub` or
+   `Stream`.
 7. Electron's platform-required synchronous bootstrap remains ordinary TypeScript. One
    process Scope acquires services only after `app.whenReady()` and is the common shutdown
    boundary for normal quit, startup rollback, and authority-driven relaunch.
@@ -69,6 +70,12 @@ Effect is deliberately not a second domain model, protocol schema system, render
 framework, or storage authority. Renderer, preload, shared contracts, and generated wire
 types remain Effect-free under executable boundary checks. New unstable imports require an
 app-owned adapter. This makes Effect upgrades and RC API movement visible and bounded.
+
+Project lifecycle mutation and admission of new Project-owned runtime work share one
+process-scoped, Project-keyed runtime gate. Codex turns, Terminal sessions, and other host
+work revalidate durable Project lifecycle while holding that gate. Callers may project this
+contract through a tracked Promise adapter during cut-over, but they must not create a
+parallel lock map or process singleton.
 
 The optional `msgpackr-extract` native accelerator remains disabled. None of these control
 planes use MessagePack as a performance boundary, and accepting another native dependency

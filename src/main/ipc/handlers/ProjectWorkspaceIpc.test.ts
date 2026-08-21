@@ -4,10 +4,12 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
+import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
 import type { BrowserSidebarService } from "../../browser-sidebar-service";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
+import { live as projectRuntimeLifecycleLive } from "../../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./ProjectWorkspaceIpc";
@@ -36,6 +38,8 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
+            projectRuntimeLifecycleLive,
+            scopedCallbackRuntimeLive,
             Layer.succeed(ElectronDesktop, { dialog: {} } as unknown as ElectronDesktop["Service"]),
             Layer.succeed(WindowRuntime, {
               has: () => true,

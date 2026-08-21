@@ -10,17 +10,14 @@ import type {
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import { getLogger } from "./logging/logger";
 import type { ProjectSessionBrowserRuntime } from "./project-session-browser-ownership";
-import {
-  projectRuntimeLifecycleCoordinator,
-  type ProjectRuntimeLifecycleCoordinator,
-} from "./project-runtime-lifecycle-coordinator";
+import type { ProjectRuntimeLifecyclePromiseAdapter } from "./host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 
 export interface ProjectLifecycleServiceDependencies {
   readonly projectWorkspace: Pick<
     DesktopProjectWorkspacePort,
     "getProject" | "listProjectSessionSummaryWindow" | "setProjectLifecycle"
   >;
-  readonly coordinator?: ProjectRuntimeLifecycleCoordinator;
+  readonly coordinator: ProjectRuntimeLifecyclePromiseAdapter;
   readonly browserRuntime: Pick<
     ProjectSessionBrowserRuntime,
     "closeBrowserConversation" | "closeBrowserProject"
@@ -87,7 +84,7 @@ export async function runWithTerminalProjectAdmission<Result>(
   >,
   input: TerminalProjectOwnershipInput,
   operation: () => Promise<Result> | Result,
-  coordinator: ProjectRuntimeLifecycleCoordinator = projectRuntimeLifecycleCoordinator,
+  coordinator: ProjectRuntimeLifecyclePromiseAdapter,
 ): Promise<Result> {
   const projectId = await assertTerminalProjectIsActive(projectWorkspace, input);
   return await coordinator.runExclusive(projectId, async () => {
@@ -233,7 +230,7 @@ async function cleanupProjectRuntimeOwnership(
 export function createProjectLifecycleService(
   dependencies: ProjectLifecycleServiceDependencies,
 ): ProjectLifecycleService {
-  const coordinator = dependencies.coordinator ?? projectRuntimeLifecycleCoordinator;
+  const coordinator = dependencies.coordinator;
   const archiveProject = async (project: Project): Promise<ProjectLifecycleMutationResult> => {
     const ownership = await readOwnershipSnapshot(dependencies, project);
     if (project.lifecycle === "archived") {

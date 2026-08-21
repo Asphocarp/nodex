@@ -8,6 +8,7 @@ import { WorkbenchSceneSnapshotSchema } from "../../../shared/schemas/workbench-
 import { ProjectLifecycleInputSchema } from "../../../shared/schemas/projects";
 import type { TerminalSessionSnapshot } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
+import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import type { BrowserSidebarService } from "../../browser-sidebar-service";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
@@ -23,6 +24,8 @@ import { resolveNodexProjectsDirectory } from "../../nodex-projects-directory";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
+import { ProjectRuntimeLifecycleRuntime } from "../../host-runtime/ProjectRuntimeLifecycleRuntime";
+import { makeProjectRuntimeLifecyclePromiseAdapter } from "../../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 import { deleteProjectSessionWithBrowserCleanupUsing } from "../../project-session-browser-ownership";
 import { createProjectLifecycleService } from "../../project-lifecycle-service";
 import { renameProjectSessionChat } from "../../project-session-rename-service";
@@ -59,12 +62,23 @@ type CoreValue<Channel extends keyof IpcApi> =
 
 export const live = (
   options: ProjectWorkspaceIpcOptions,
-): Layer.Layer<never, never, ElectronDesktop | ElectronIpc | MainConfig | WindowRuntime> =>
+): Layer.Layer<
+  never,
+  never,
+  | ElectronDesktop
+  | ElectronIpc
+  | MainConfig
+  | ProjectRuntimeLifecycleRuntime
+  | ScopedCallbackRuntime
+  | WindowRuntime
+> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
       const desktop = yield* ElectronDesktop;
       const ipc = yield* ElectronIpc;
+      const projectRuntimeLifecycle = yield* ProjectRuntimeLifecycleRuntime;
+      const callbacks = yield* ScopedCallbackRuntime;
       const windows = yield* WindowRuntime;
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
         ipc.handle(channel, handler);
@@ -136,6 +150,7 @@ export const live = (
           options.terminals?.listLiveSessionsForOwners(input) ?? Promise.resolve([]),
         discardExitedTerminalSessions: (input) =>
           options.terminals?.discardExitedSessionsForOwners(input) ?? Promise.resolve([]),
+        coordinator: makeProjectRuntimeLifecyclePromiseAdapter(projectRuntimeLifecycle, callbacks),
       });
 
       yield* invoke("projects:list", (_, input) => options.projects.listProjectWindow(input));

@@ -140,6 +140,7 @@ import { dbNotifier } from "../local-store/notifier";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
 import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
+import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
 
 interface TestableCodexService {
   on: {
@@ -897,6 +898,7 @@ const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
   }),
 };
 const MANAGED_WORKTREE_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
+const PROJECT_RUNTIME_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
 
 const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
   source: "staged",
@@ -1408,7 +1410,10 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
 };
 
 afterAll(async () => {
-  await Promise.all(MANAGED_WORKTREE_TEST_HARNESS_RELEASES.map((close) => close()));
+  await Promise.all([
+    ...MANAGED_WORKTREE_TEST_HARNESS_RELEASES.map((close) => close()),
+    ...PROJECT_RUNTIME_TEST_HARNESS_RELEASES.map((close) => close()),
+  ]);
   if (PREVIOUS_TEST_NODEX_HOME === undefined) delete process.env.NODEX_HOME;
   else process.env.NODEX_HOME = PREVIOUS_TEST_NODEX_HOME;
   fs.rmSync(DEFAULT_TEST_LOCAL_STORE_ROOT, { recursive: true, force: true });
@@ -1555,6 +1560,8 @@ function createService(options?: {
   });
   const managedWorktreeHarness = makeManagedWorktreeRuntimeTestHarness(executionHosts);
   MANAGED_WORKTREE_TEST_HARNESS_RELEASES.push(managedWorktreeHarness.close);
+  const projectRuntimeLifecycleHarness = makeProjectRuntimeLifecycleTestHarness();
+  PROJECT_RUNTIME_TEST_HARNESS_RELEASES.push(projectRuntimeLifecycleHarness.close);
   const configuredAttachmentsRoot =
     options?.resolveThreadGoalAttachmentsRoot?.() ?? DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT;
   if (typeof configuredAttachmentsRoot !== "string") {
@@ -1673,6 +1680,7 @@ function createService(options?: {
     runtimeStateHome,
     executionHosts,
     managedWorktrees: managedWorktreeHarness.adapter,
+    projectRuntimeLifecycle: projectRuntimeLifecycleHarness.adapter,
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
     inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,

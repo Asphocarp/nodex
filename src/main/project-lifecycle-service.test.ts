@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vite-plus/test";
+import { afterAll, describe, expect, test, vi } from "vite-plus/test";
 import type {
   CodexBackgroundProcessRow,
   Project,
@@ -12,9 +12,21 @@ import {
   runWithTerminalProjectAdmission,
   type ProjectLifecycleServiceDependencies,
 } from "./project-lifecycle-service";
-import { ProjectRuntimeLifecycleCoordinator } from "./project-runtime-lifecycle-coordinator";
+import { makeProjectRuntimeLifecycleTestHarness } from "./host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
 import type { DesktopProjectWorkspaceThread } from "./core-client/project-workspace-adapter";
 import { DEFAULT_PROJECT_APPEARANCE } from "../shared/project-appearance";
+
+const PROJECT_RUNTIME_TEST_HARNESSES: Array<() => Promise<void>> = [];
+
+function makeProjectRuntimeLifecycleAdapter() {
+  const harness = makeProjectRuntimeLifecycleTestHarness();
+  PROJECT_RUNTIME_TEST_HARNESSES.push(harness.close);
+  return harness.adapter;
+}
+
+afterAll(async () => {
+  await Promise.all(PROJECT_RUNTIME_TEST_HARNESSES.map((close) => close()));
+});
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
@@ -175,7 +187,7 @@ function makeDependencies(project = makeProject()): Mutable<ProjectLifecycleServ
       })),
       setProjectLifecycle,
     },
-    coordinator: new ProjectRuntimeLifecycleCoordinator(),
+    coordinator: makeProjectRuntimeLifecycleAdapter(),
     browserRuntime: { closeBrowserConversation, closeBrowserProject },
     listCodexBlockers: () => [],
     listBackgroundProcessRows: async () => [],
@@ -469,7 +481,7 @@ describe("terminal Project lifecycle guard", () => {
       await firstLookup;
       return project;
     });
-    const coordinator = new ProjectRuntimeLifecycleCoordinator();
+    const coordinator = makeProjectRuntimeLifecycleAdapter();
     const archive = coordinator.runExclusive(project.id, async () => {
       project = { ...project, lifecycle: "archived" };
       releaseFirstLookup();

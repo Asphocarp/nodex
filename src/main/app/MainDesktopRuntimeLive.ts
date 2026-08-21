@@ -159,6 +159,11 @@ import {
   live as hostWorkerRuntimeLive,
 } from "../host-runtime/HostWorkerRuntime";
 import {
+  live as projectRuntimeLifecycleLive,
+  ProjectRuntimeLifecycleRuntime,
+} from "../host-runtime/ProjectRuntimeLifecycleRuntime";
+import { makeProjectRuntimeLifecyclePromiseAdapter } from "../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
+import {
   BrowserUseRuntime,
   live as browserUseRuntimeLive,
 } from "../host-runtime/BrowserUseRuntime";
@@ -323,6 +328,18 @@ export const live: Layer.Layer<
           catch: (cause) => runtimeError("provider-credential-store", cause),
         });
         const runtimeStateHome = `${config.nodexHome}/agent`;
+        const projectRuntimeLifecycleContext = yield* Layer.buildWithScope(
+          projectRuntimeLifecycleLive,
+          runtimeScope,
+        );
+        const projectRuntimeLifecycle = Context.get(
+          projectRuntimeLifecycleContext,
+          ProjectRuntimeLifecycleRuntime,
+        );
+        const projectRuntimeLifecycleAdapter = makeProjectRuntimeLifecyclePromiseAdapter(
+          projectRuntimeLifecycle,
+          callbacks,
+        );
         const codexBridge = new CodexGatewayBridge(callbacks);
         const applicationServerRequests = CodexGlobalServerRequestRuntime.of(
           codexBridge.applicationServerRequests(),
@@ -995,6 +1012,7 @@ export const live: Layer.Layer<
                 managedWorktrees,
                 callbacks,
               ),
+              projectRuntimeLifecycle: projectRuntimeLifecycleAdapter,
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>
                   callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
@@ -1144,6 +1162,8 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -1437,7 +1457,12 @@ export const live: Layer.Layer<
           Layer.succeed(ScopedCallbackRuntime, callbacks),
           Layer.succeed(TerminalSessions, terminals),
           TerminalProjectAdmission.live.pipe(
-            Layer.provide(Layer.succeed(CoreModules, coreModules)),
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CoreModules, coreModules),
+                Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+              ),
+            ),
           ),
           Layer.succeed(WindowSessionCatalog.WindowSessionCatalog, windowSessions),
         );
@@ -1598,6 +1623,8 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),

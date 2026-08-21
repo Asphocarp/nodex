@@ -1,16 +1,14 @@
 import * as Context from "effect/Context";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as LayerMap from "effect/LayerMap";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
 import type {
   TerminalAttachRequest,
   TerminalCreateRequest,
   TerminalRunActionRequest,
 } from "../../shared/types";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 
 export type TerminalProjectOwnershipInput =
   | TerminalCreateRequest
@@ -35,11 +33,6 @@ export class TerminalProjectAdmission extends Context.Service<
   }
 >()("nodex/main/terminal-runtime/TerminalProjectAdmission") {}
 
-class ProjectAdmissionGate extends Context.Service<
-  ProjectAdmissionGate,
-  { readonly semaphore: Semaphore.Semaphore }
->()("nodex/main/terminal-runtime/ProjectAdmissionGate") {}
-
 const admissionError = (operation: string, cause: unknown) =>
   new TerminalProjectAdmissionError({ operation, cause });
 
@@ -49,40 +42,31 @@ type ResolveProjectId = (
 
 export const fromResolver = (
   resolveProjectId: ResolveProjectId,
-): Layer.Layer<TerminalProjectAdmission> =>
+): Layer.Layer<TerminalProjectAdmission, never, ProjectRuntimeLifecycleRuntime> =>
   Layer.effect(
     TerminalProjectAdmission,
     Effect.gen(function* () {
-      const gates = yield* LayerMap.make(
-        (_projectId: string) =>
-          Layer.effect(
-            ProjectAdmissionGate,
-            Semaphore.make(1).pipe(
-              Effect.map((semaphore) => ProjectAdmissionGate.of({ semaphore })),
-            ),
-          ),
-        { idleTimeToLive: Duration.infinity },
-      );
+      const projectLifecycle = yield* ProjectRuntimeLifecycleRuntime;
       const assertActive = (input: TerminalProjectOwnershipInput) => resolveProjectId(input);
       return TerminalProjectAdmission.of({
         run: (input, operation) =>
           assertActive(input).pipe(
-            Effect.andThen((projectId) => {
-              if (projectId === null) return operation;
-              return Effect.scoped(gates.contextEffect(projectId)).pipe(
-                Effect.andThen((context) =>
-                  Context.get(context, ProjectAdmissionGate).semaphore.withPermits(1)(
-                    assertActive(input).pipe(Effect.andThen(operation)),
-                  ),
-                ),
-              );
-            }),
+            Effect.andThen((projectId) =>
+              projectLifecycle.runExclusive(
+                projectId,
+                assertActive(input).pipe(Effect.andThen(operation)),
+              ),
+            ),
           ),
       });
     }),
   );
 
-export const live: Layer.Layer<TerminalProjectAdmission, never, CoreModules> = Layer.unwrap(
+export const live: Layer.Layer<
+  TerminalProjectAdmission,
+  never,
+  CoreModules | ProjectRuntimeLifecycleRuntime
+> = Layer.unwrap(
   Effect.gen(function* () {
     const core = yield* CoreModules;
     const resolveProjectId = Effect.fn("TerminalProjectAdmission.resolveProjectId")(function* (

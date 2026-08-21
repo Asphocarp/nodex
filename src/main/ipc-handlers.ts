@@ -10,6 +10,7 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { MainConfig } from "./app/MainConfig";
+import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import type { CodexService } from "./codex/codex-service";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
@@ -44,6 +45,8 @@ import { ElectronIpc } from "./platform/electron/ElectronIpc";
 import { WindowRuntime } from "./window-runtime/WindowRuntime";
 import type { IpcApi } from "../shared/ipc-api";
 import { runWithTerminalProjectAdmission } from "./project-lifecycle-service";
+import { ProjectRuntimeLifecycleRuntime } from "./host-runtime/ProjectRuntimeLifecycleRuntime";
+import { makeProjectRuntimeLifecyclePromiseAdapter } from "./host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type {
   CodexBackgroundSubagentThreadsHydrateInput,
@@ -119,13 +122,23 @@ function assertValidWorktreeEnvironmentSaveInput(
 
 export const codexIpcLive = (
   options: CodexIpcOptions,
-): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
+): Layer.Layer<
+  never,
+  never,
+  ElectronIpc | MainConfig | ProjectRuntimeLifecycleRuntime | ScopedCallbackRuntime | WindowRuntime
+> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const { codexService } = options;
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
+      const projectRuntimeLifecycle = yield* ProjectRuntimeLifecycleRuntime;
+      const callbacks = yield* ScopedCallbackRuntime;
       const windows = yield* WindowRuntime;
+      const projectRuntimeLifecycleAdapter = makeProjectRuntimeLifecyclePromiseAdapter(
+        projectRuntimeLifecycle,
+        callbacks,
+      );
       const registrations: Array<Effect.Effect<void, never, Scope.Scope>> = [];
       const authorize = (event: IpcMainInvokeEvent) =>
         Effect.try({
@@ -655,15 +668,20 @@ export const codexIpcLive = (
             command: input.command,
             title: input.command,
           };
-          await runWithTerminalProjectAdmission(projectWorkspace, terminalInput, async () => {
-            await codexService.registerBackgroundProcessRunAction(input);
-            if (!options.terminalRuntime) throw new Error("Terminal runtime is unavailable");
-            await options.terminalRuntime.runAction({
-              webContentsId: sender.id,
-              windowSessionId: requireAssignedWindowSessionId(sender.id),
-              request: terminalInput,
-            });
-          });
+          await runWithTerminalProjectAdmission(
+            projectWorkspace,
+            terminalInput,
+            async () => {
+              await codexService.registerBackgroundProcessRunAction(input);
+              if (!options.terminalRuntime) throw new Error("Terminal runtime is unavailable");
+              await options.terminalRuntime.runAction({
+                webContentsId: sender.id,
+                windowSessionId: requireAssignedWindowSessionId(sender.id),
+                request: terminalInput,
+              });
+            },
+            projectRuntimeLifecycleAdapter,
+          );
           return codexService.listBackgroundProcessRows({
             threadId: input.threadId,
             observedTerminals: [],

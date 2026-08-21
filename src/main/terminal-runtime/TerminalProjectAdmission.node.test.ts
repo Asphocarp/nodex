@@ -7,6 +7,10 @@ import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import { assert, it } from "@effect/vitest";
 import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules";
+import {
+  live as projectRuntimeLifecycleLive,
+  ProjectRuntimeLifecycleRuntime,
+} from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { TerminalProjectAdmission, live } from "./TerminalProjectAdmission";
 
 const coreLayer = (input?: { readonly lifecycle?: "active" | "archived" | "removed" }) =>
@@ -45,8 +49,15 @@ const request = {
 
 it.effect("serializes terminal admission with project lifecycle transitions", () =>
   Effect.gen(function* () {
-    const context = yield* Layer.build(live.pipe(Layer.provide(coreLayer())));
+    const projectLifecycleLayer = projectRuntimeLifecycleLive;
+    const context = yield* Layer.build(
+      Layer.merge(
+        projectLifecycleLayer,
+        live.pipe(Layer.provide(Layer.merge(coreLayer(), projectLifecycleLayer))),
+      ),
+    );
     const admission = Context.get(context, TerminalProjectAdmission);
+    const projectLifecycle = Context.get(context, ProjectRuntimeLifecycleRuntime);
     const active = yield* Ref.make(0);
     const maximum = yield* Ref.make(0);
     const firstEntered = yield* Deferred.make<void>();
@@ -58,7 +69,9 @@ it.effect("serializes terminal admission with project lifecycle transitions", ()
         Effect.andThen(wait ? Deferred.await(releaseFirst) : Effect.void),
         Effect.ensuring(Ref.update(active, (value) => value - 1)),
       );
-    const first = yield* admission.run(request, operation(true)).pipe(Effect.forkChild);
+    const first = yield* projectLifecycle
+      .runExclusive("project-a", operation(true))
+      .pipe(Effect.forkChild);
     yield* Deferred.await(firstEntered);
     const second = yield* admission.run(request, operation(false)).pipe(Effect.forkChild);
     yield* Effect.yieldNow;
@@ -73,7 +86,11 @@ it.effect("serializes terminal admission with project lifecycle transitions", ()
 it.effect("rejects terminal creation for a non-active project", () =>
   Effect.gen(function* () {
     const context = yield* Layer.build(
-      live.pipe(Layer.provide(coreLayer({ lifecycle: "archived" }))),
+      live.pipe(
+        Layer.provide(
+          Layer.merge(coreLayer({ lifecycle: "archived" }), projectRuntimeLifecycleLive),
+        ),
+      ),
     );
     const result = yield* Context.get(context, TerminalProjectAdmission)
       .run(request, Effect.void)

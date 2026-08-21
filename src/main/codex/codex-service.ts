@@ -600,7 +600,7 @@ import type {
   DesktopProjectWorkspaceThreadPatch,
 } from "../core-client/project-workspace-adapter";
 import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
-import { projectRuntimeLifecycleCoordinator } from "../project-runtime-lifecycle-coordinator";
+import type { ProjectRuntimeLifecyclePromiseAdapter } from "../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 import {
   buildCodexNewConversationParams,
   parseCodexStoredShellEnvironment,
@@ -1422,6 +1422,7 @@ type CodexServiceOptions = {
   loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   executionHosts: CodexExecutionHostRegistry;
   managedWorktrees: ManagedWorktreeRuntimePromiseAdapter;
+  projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   browserTransferRuntime?: CodexForkBrowserRuntime;
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
@@ -2620,6 +2621,7 @@ export class CodexService extends EventEmitter {
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   private readonly executionHosts: CodexExecutionHostRegistry;
   private readonly managedWorktreeLifecycle: ManagedWorktreeRuntimePromiseAdapter;
+  private readonly projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
   private readonly threadExecutionLocationService: CodexThreadExecutionLocationService;
   private readonly managedWorktreeInspectionByThreadId = new Map<
@@ -2856,6 +2858,7 @@ export class CodexService extends EventEmitter {
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     this.managedWorktreeLifecycle = options.managedWorktrees;
+    this.projectRuntimeLifecycle = options.projectRuntimeLifecycle;
     this.crossHostThreadHandoff = new CodexCrossHostThreadHandoffService({
       executionHosts: this.executionHosts,
       relayBaseRoot: path.join(this.runtimeStateHome, "handoffs"),
@@ -19536,195 +19539,199 @@ export class CodexService extends EventEmitter {
     );
     const startedAt = Date.now();
     const clientUserMessageId = overrides?.clientUserMessageId ?? randomUUID();
-    const projectRuntimeRelease = await projectRuntimeLifecycleCoordinator.acquire(
+    return await this.projectRuntimeLifecycle.runExclusive(
       threadRef?.projectId ?? null,
-    );
-    try {
-      if (threadRef?.projectId) {
-        const project = await this.projectWorkspace.getProject(threadRef.projectId);
-        if (project?.lifecycle !== "active") {
-          throw new Error("Codex turns cannot be started for an inactive or removed project");
-        }
-      }
-      const authorityLaunch = await this.beginNodexAgentTurnAuthority(
-        threadId,
-        permissionDecision.verifiedBuiltinFullAccess,
-      );
-
-      this.logger.info("Starting Codex turn", {
-        threadId,
-        projectId: threadRef?.projectId ?? null,
-        cwd: workspacePath,
-        permissionMode,
-        model: effectiveModel ?? null,
-        serviceTier: formatServiceTierForReporting(effectiveServiceTier),
-        reasoningEffort: effectiveReasoningEffort ?? null,
-        reasoningSummary,
-        collaborationMode: effectiveCollaborationMode ?? null,
-        promptLength: promptText.length,
-        promptPreview: previewText(promptText),
-      });
-
-      const buildTurnStartParams = (): TurnStartParams => ({
-        threadId,
-        clientUserMessageId,
-        ...(workspacePath ? { cwd: workspacePath } : {}),
-        ...(preparedPrompt.additionalContext
-          ? { additionalContext: preparedPrompt.additionalContext }
-          : {}),
-        ...turnPermissionOverrides,
-        ...(effectiveModel ? { model: effectiveModel } : {}),
-        ...(effectiveServiceTier ? { serviceTier: effectiveServiceTier } : {}),
-        ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
-        summary: reasoningSummary,
-        ...(collaborationMode ? { collaborationMode } : {}),
-        input: preparedPrompt.inputItems,
-      });
-      const startTurnRequest = () =>
-        this.client.request<"turn/start", TurnStartResponse>("turn/start", buildTurnStartParams());
-
-      const requestTurnStartWithRecovery = async (): Promise<TurnStartResponse> => {
-        try {
-          return await startTurnRequest();
-        } catch (error) {
-          if (rendererOwnsState || !isThreadNotFoundError(error)) throw error;
-
-          this.logger.warn("Codex turn start hit missing thread; attempting resume", {
-            threadId,
-            error,
-          });
-          const recoveredDetail = await this.resumeThreadWithSeed(threadId, undefined, true);
-          if (!recoveredDetail) {
-            throw new Error(`Thread '${threadId}' could not be resumed after turn/start failed`, {
-              cause: error,
-            });
+      async () => {
+        if (threadRef?.projectId) {
+          const project = await this.projectWorkspace.getProject(threadRef.projectId);
+          if (project?.lifecycle !== "active") {
+            throw new Error("Codex turns cannot be started for an inactive or removed project");
           }
-          workspacePath = recoveredDetail.cwd;
-          workspaceRoots = [...(workspacePath ? [workspacePath] : []), ...workspaceRoots].filter(
-            (root, index, roots) => roots.indexOf(root) === index,
+        }
+        const authorityLaunch = await this.beginNodexAgentTurnAuthority(
+          threadId,
+          permissionDecision.verifiedBuiltinFullAccess,
+        );
+
+        this.logger.info("Starting Codex turn", {
+          threadId,
+          projectId: threadRef?.projectId ?? null,
+          cwd: workspacePath,
+          permissionMode,
+          model: effectiveModel ?? null,
+          serviceTier: formatServiceTierForReporting(effectiveServiceTier),
+          reasoningEffort: effectiveReasoningEffort ?? null,
+          reasoningSummary,
+          collaborationMode: effectiveCollaborationMode ?? null,
+          promptLength: promptText.length,
+          promptPreview: previewText(promptText),
+        });
+
+        const buildTurnStartParams = (): TurnStartParams => ({
+          threadId,
+          clientUserMessageId,
+          ...(workspacePath ? { cwd: workspacePath } : {}),
+          ...(preparedPrompt.additionalContext
+            ? { additionalContext: preparedPrompt.additionalContext }
+            : {}),
+          ...turnPermissionOverrides,
+          ...(effectiveModel ? { model: effectiveModel } : {}),
+          ...(effectiveServiceTier ? { serviceTier: effectiveServiceTier } : {}),
+          ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
+          summary: reasoningSummary,
+          ...(collaborationMode ? { collaborationMode } : {}),
+          input: preparedPrompt.inputItems,
+        });
+        const startTurnRequest = () =>
+          this.client.request<"turn/start", TurnStartResponse>(
+            "turn/start",
+            buildTurnStartParams(),
           );
-          turnPermissionOverrides = buildTurnPermissionOverrides({
-            permissionState,
-            workspaceRoots,
-          });
-          return await startTurnRequest();
-        }
-      };
 
-      const canonicalState = record.canonicalState;
-      const hydration = canonicalState?.sidecar.hydrationContext;
-      const canonicalPermissionContext = hydration
-        ? this.resolveCanonicalResumePermissionContext(
-            permissionState,
-            workspaceRoots,
-            hydration.currentPermissions,
-          )
-        : null;
-      const canonicalParams =
-        canonicalState && hydration && canonicalPermissionContext
-          ? ({
-              ...buildTurnStartParams(),
-              cwd: workspacePath,
-              approvalPolicy: canonicalPermissionContext.approvalPolicy,
-              approvalsReviewer: canonicalPermissionContext.approvalsReviewer,
-              sandboxPolicy: canonicalPermissionContext.sandboxPolicy,
-              permissions: canonicalPermissionContext.activePermissionProfile?.id ?? null,
-              runtimeWorkspaceRoots: canonicalPermissionContext.activePermissionProfile
-                ? [...canonicalPermissionContext.runtimeWorkspaceRoots]
-                : null,
-              useAppServerPermissionDefault: permissionState.effectivePreset === "custom",
-              model: collaborationMode ? null : effectiveModel,
-              serviceTier: hasExplicitServiceTier
-                ? effectiveServiceTier
-                : latestThreadSettings?.serviceTier !== undefined
-                  ? effectiveServiceTier
-                  : (hydration.latestThreadSettings?.serviceTier ?? null),
-              effort: collaborationMode ? null : (effectiveReasoningEffort ?? null),
-              multiAgentMode:
-                hydration.latestThreadSettings?.multiAgentMode ?? "explicitRequestOnly",
-              summary: reasoningSummary,
-              personality: latestThreadSettings?.personality ?? this.preferences.current(),
-              outputSchema: null,
-              collaborationMode,
-              attachments: dedupeCodexLiveFileAttachments([
-                ...preparedPrompt.fileAttachments,
-                ...preparedPrompt.addedFiles,
-              ]),
-              commentAttachments: [...preparedPrompt.commentAttachments],
-            } satisfies CodexCanonicalLiveTurnParams<
-              CodexLiveFileAttachment,
-              CodexReviewDiffCommentAttachment
-            >)
-          : null;
+        const requestTurnStartWithRecovery = async (): Promise<TurnStartResponse> => {
+          try {
+            return await startTurnRequest();
+          } catch (error) {
+            if (rendererOwnsState || !isThreadNotFoundError(error)) throw error;
 
-      const usedCanonicalTransaction = !rendererOwnsState && canonicalParams !== null;
-      let turnStartResult: TurnStartResponse;
-      try {
-        turnStartResult = usedCanonicalTransaction
-          ? {
-              turn: await this.dispatchCanonicalOptimisticTurn({
-                authorityLaunch,
-                canonicalParams,
-                clientUserMessageId,
-                currentCollaborationModel: record.latestCollaborationMode.settings.model,
-                request: requestTurnStartWithRecovery,
-                threadId,
-              }),
+            this.logger.warn("Codex turn start hit missing thread; attempting resume", {
+              threadId,
+              error,
+            });
+            const recoveredDetail = await this.resumeThreadWithSeed(threadId, undefined, true);
+            if (!recoveredDetail) {
+              throw new Error(`Thread '${threadId}' could not be resumed after turn/start failed`, {
+                cause: error,
+              });
             }
-          : await requestTurnStartWithRecovery();
-        if (!usedCanonicalTransaction) {
-          await this.nodexAgentAuthorityRegistry.bindTurn(authorityLaunch, turnStartResult.turn.id);
-        }
-      } catch (error) {
-        if (!usedCanonicalTransaction) {
-          this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
-        }
-        throw error;
-      }
-
-      await this.markAutomationRunAcceptedForUserContinuation(threadId);
-      if (rendererOwnsState) {
-        await this.markThreadAsActive(threadId);
-        return turnStartResult;
-      }
-
-      const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
-      if (startedTurn) {
-        const observedTurn: CodexTurnSummary & { turnId: string } = {
-          ...startedTurn,
-          turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+            workspacePath = recoveredDetail.cwd;
+            workspaceRoots = [...(workspacePath ? [workspacePath] : []), ...workspaceRoots].filter(
+              (root, index, roots) => roots.indexOf(root) === index,
+            );
+            turnPermissionOverrides = buildTurnPermissionOverrides({
+              permissionState,
+              workspaceRoots,
+            });
+            return await startTurnRequest();
+          }
         };
-        this.clearPausedQueuedFollowUps(threadId, false);
-        if (!usedCanonicalTransaction) {
-          this.mergeTurn(threadId, observedTurn);
-          await this.markThreadAsActive(threadId);
+
+        const canonicalState = record.canonicalState;
+        const hydration = canonicalState?.sidecar.hydrationContext;
+        const canonicalPermissionContext = hydration
+          ? this.resolveCanonicalResumePermissionContext(
+              permissionState,
+              workspaceRoots,
+              hydration.currentPermissions,
+            )
+          : null;
+        const canonicalParams =
+          canonicalState && hydration && canonicalPermissionContext
+            ? ({
+                ...buildTurnStartParams(),
+                cwd: workspacePath,
+                approvalPolicy: canonicalPermissionContext.approvalPolicy,
+                approvalsReviewer: canonicalPermissionContext.approvalsReviewer,
+                sandboxPolicy: canonicalPermissionContext.sandboxPolicy,
+                permissions: canonicalPermissionContext.activePermissionProfile?.id ?? null,
+                runtimeWorkspaceRoots: canonicalPermissionContext.activePermissionProfile
+                  ? [...canonicalPermissionContext.runtimeWorkspaceRoots]
+                  : null,
+                useAppServerPermissionDefault: permissionState.effectivePreset === "custom",
+                model: collaborationMode ? null : effectiveModel,
+                serviceTier: hasExplicitServiceTier
+                  ? effectiveServiceTier
+                  : latestThreadSettings?.serviceTier !== undefined
+                    ? effectiveServiceTier
+                    : (hydration.latestThreadSettings?.serviceTier ?? null),
+                effort: collaborationMode ? null : (effectiveReasoningEffort ?? null),
+                multiAgentMode:
+                  hydration.latestThreadSettings?.multiAgentMode ?? "explicitRequestOnly",
+                summary: reasoningSummary,
+                personality: latestThreadSettings?.personality ?? this.preferences.current(),
+                outputSchema: null,
+                collaborationMode,
+                attachments: dedupeCodexLiveFileAttachments([
+                  ...preparedPrompt.fileAttachments,
+                  ...preparedPrompt.addedFiles,
+                ]),
+                commentAttachments: [...preparedPrompt.commentAttachments],
+              } satisfies CodexCanonicalLiveTurnParams<
+                CodexLiveFileAttachment,
+                CodexReviewDiffCommentAttachment
+              >)
+            : null;
+
+        const usedCanonicalTransaction = !rendererOwnsState && canonicalParams !== null;
+        let turnStartResult: TurnStartResponse;
+        try {
+          turnStartResult = usedCanonicalTransaction
+            ? {
+                turn: await this.dispatchCanonicalOptimisticTurn({
+                  authorityLaunch,
+                  canonicalParams,
+                  clientUserMessageId,
+                  currentCollaborationModel: record.latestCollaborationMode.settings.model,
+                  request: requestTurnStartWithRecovery,
+                  threadId,
+                }),
+              }
+            : await requestTurnStartWithRecovery();
+          if (!usedCanonicalTransaction) {
+            await this.nodexAgentAuthorityRegistry.bindTurn(
+              authorityLaunch,
+              turnStartResult.turn.id,
+            );
+          }
+        } catch (error) {
+          if (!usedCanonicalTransaction) {
+            this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
+          }
+          throw error;
         }
+
+        await this.markAutomationRunAcceptedForUserContinuation(threadId);
+        if (rendererOwnsState) {
+          await this.markThreadAsActive(threadId);
+          return turnStartResult;
+        }
+
+        const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
+        if (startedTurn) {
+          const observedTurn: CodexTurnSummary & { turnId: string } = {
+            ...startedTurn,
+            turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+          };
+          this.clearPausedQueuedFollowUps(threadId, false);
+          if (!usedCanonicalTransaction) {
+            this.mergeTurn(threadId, observedTurn);
+            await this.markThreadAsActive(threadId);
+          }
+          if (syncDormantConversationUpdates) {
+            this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
+          }
+          this.logger.info("Started Codex turn", {
+            threadId,
+            turnId: observedTurn.turnId,
+            durationMs: Date.now() - startedAt,
+          });
+          return this.getKnownTurn(threadId, observedTurn.turnId) ?? observedTurn;
+        }
+
+        await this.markThreadAsActive(threadId);
+        this.clearPausedQueuedFollowUps(threadId, false);
         if (syncDormantConversationUpdates) {
           this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
         }
-        this.logger.info("Started Codex turn", {
+        const detail = this.serializeThreadDetail(threadId);
+        if (!detail || detail.turns.length === 0) return null;
+        this.logger.info("Started Codex turn from canonical conversation state", {
           threadId,
-          turnId: observedTurn.turnId,
           durationMs: Date.now() - startedAt,
         });
-        return this.getKnownTurn(threadId, observedTurn.turnId) ?? observedTurn;
-      }
-
-      await this.markThreadAsActive(threadId);
-      this.clearPausedQueuedFollowUps(threadId, false);
-      if (syncDormantConversationUpdates) {
-        this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-      }
-      const detail = this.serializeThreadDetail(threadId);
-      if (!detail || detail.turns.length === 0) return null;
-      this.logger.info("Started Codex turn from canonical conversation state", {
-        threadId,
-        durationMs: Date.now() - startedAt,
-      });
-      return detail.turns[detail.turns.length - 1];
-    } finally {
-      projectRuntimeRelease();
-    }
+        return detail.turns[detail.turns.length - 1];
+      },
+    );
   }
 
   async startReview(params: ReviewStartParams): Promise<ReviewStartResponse> {
