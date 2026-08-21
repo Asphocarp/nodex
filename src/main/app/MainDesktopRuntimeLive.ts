@@ -1013,6 +1013,7 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               projectRuntimeLifecycle: projectRuntimeLifecycleAdapter,
+              databaseNotifier: databaseNotifications.notifier,
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>
                   callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),

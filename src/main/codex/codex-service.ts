@@ -443,7 +443,7 @@ import {
 import { buildTurnErrorItemView } from "../../shared/codex-turn-error-projection";
 import { normalizeCodexAppInfoLogos } from "../../shared/codex-app-info";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
-import { dbNotifier } from "../local-store/notifier";
+import type { DatabaseNotifier } from "../local-store/notifier";
 import type { CodexApplicationClient } from "../codex-runtime/CodexApplicationClient";
 import { resolveAssetPath } from "../local-store/assets";
 import {
@@ -1423,6 +1423,7 @@ type CodexServiceOptions = {
   executionHosts: CodexExecutionHostRegistry;
   managedWorktrees: ManagedWorktreeRuntimePromiseAdapter;
   projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
+  databaseNotifier: DatabaseNotifier;
   browserTransferRuntime?: CodexForkBrowserRuntime;
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
@@ -2622,6 +2623,7 @@ export class CodexService extends EventEmitter {
   private readonly executionHosts: CodexExecutionHostRegistry;
   private readonly managedWorktreeLifecycle: ManagedWorktreeRuntimePromiseAdapter;
   private readonly projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
+  private readonly databaseNotifier: DatabaseNotifier;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
   private readonly threadExecutionLocationService: CodexThreadExecutionLocationService;
   private readonly managedWorktreeInspectionByThreadId = new Map<
@@ -2859,6 +2861,7 @@ export class CodexService extends EventEmitter {
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     this.managedWorktreeLifecycle = options.managedWorktrees;
     this.projectRuntimeLifecycle = options.projectRuntimeLifecycle;
+    this.databaseNotifier = options.databaseNotifier;
     this.crossHostThreadHandoff = new CodexCrossHostThreadHandoffService({
       executionHosts: this.executionHosts,
       relayBaseRoot: path.join(this.runtimeStateHome, "handoffs"),
@@ -2901,13 +2904,11 @@ export class CodexService extends EventEmitter {
         });
       },
     });
-    const notifier = dbNotifier as {
-      on?: (event: "project-sessions-changed", listener: () => void) => unknown;
-    };
-    if (typeof notifier.on === "function") {
-      notifier.on("project-sessions-changed", this.invalidateSidebarSnapshotCacheListener);
-      this.sidebarSnapshotCacheNotifierSubscribed = true;
-    }
+    this.databaseNotifier.on(
+      "project-sessions-changed",
+      this.invalidateSidebarSnapshotCacheListener,
+    );
+    this.sidebarSnapshotCacheNotifierSubscribed = true;
 
     this.client = options.client;
     this.client.setThreadHostResolver?.(
@@ -7115,18 +7116,10 @@ export class CodexService extends EventEmitter {
     this.managedWorktreeRetentionQueued = false;
     this.forkSidePanelTransferLifecycle?.clear();
     if (this.sidebarSnapshotCacheNotifierSubscribed) {
-      const notifier = dbNotifier as {
-        off?: (event: "project-sessions-changed", listener: () => void) => unknown;
-        removeListener?: (event: "project-sessions-changed", listener: () => void) => unknown;
-      };
-      if (typeof notifier.off === "function") {
-        notifier.off("project-sessions-changed", this.invalidateSidebarSnapshotCacheListener);
-      } else if (typeof notifier.removeListener === "function") {
-        notifier.removeListener(
-          "project-sessions-changed",
-          this.invalidateSidebarSnapshotCacheListener,
-        );
-      }
+      this.databaseNotifier.off(
+        "project-sessions-changed",
+        this.invalidateSidebarSnapshotCacheListener,
+      );
       this.sidebarSnapshotCacheNotifierSubscribed = false;
     }
     this.terminalInputBuffers.clear();

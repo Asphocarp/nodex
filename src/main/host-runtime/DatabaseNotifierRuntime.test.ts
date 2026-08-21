@@ -1,3 +1,4 @@
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -6,7 +7,37 @@ import { assert, it } from "@effect/vitest";
 import type { BrowserWindow } from "electron";
 import { DatabaseNotifier } from "../local-store/notifier";
 import { WindowRuntime } from "../window-runtime/WindowRuntime";
-import { fromNotifier } from "./DatabaseNotifierRuntime";
+import { DatabaseNotifierRuntime, fromNotifier, live } from "./DatabaseNotifierRuntime";
+
+const emptyWindows = {
+  all: () => [],
+  count: () => 0,
+} as unknown as WindowRuntime["Service"];
+
+it.effect("acquires an independent notifier for each Main Scope", () =>
+  Effect.gen(function* () {
+    const firstScope = yield* Scope.make();
+    const secondScope = yield* Scope.make();
+    const layer = live.pipe(Layer.provide(Layer.succeed(WindowRuntime, emptyWindows)));
+    const first = Context.get(
+      yield* Layer.buildWithScope(layer, firstScope),
+      DatabaseNotifierRuntime,
+    );
+    const second = Context.get(
+      yield* Layer.buildWithScope(layer, secondScope),
+      DatabaseNotifierRuntime,
+    );
+
+    assert.notStrictEqual(first.notifier, second.notifier);
+    assert.strictEqual(first.notifier.listenerCount("database-changed"), 1);
+    assert.strictEqual(second.notifier.listenerCount("database-changed"), 1);
+
+    yield* Scope.close(firstScope, Exit.void);
+    assert.strictEqual(first.notifier.eventNames().length, 0);
+    assert.strictEqual(second.notifier.listenerCount("database-changed"), 1);
+    yield* Scope.close(secondScope, Exit.void);
+  }),
+);
 
 it.effect("broadcasts database events and releases every notifier listener", () =>
   Effect.gen(function* () {

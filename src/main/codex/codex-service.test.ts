@@ -136,7 +136,7 @@ import type {
   DesktopProjectWorkspaceThread,
   DesktopProjectWorkspaceThreadMoveInput,
 } from "../core-client/project-workspace-adapter";
-import { dbNotifier } from "../local-store/notifier";
+import { DatabaseNotifier } from "../local-store/notifier";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
 import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
@@ -1498,6 +1498,7 @@ function createService(options?: {
     setTimeout?: (callback: () => void, timeoutMs: number) => unknown;
     clearTimeout?: (timer: unknown) => void;
   };
+  databaseNotifier?: DatabaseNotifier;
 }): TestableCodexService {
   const permissionStateByScope = new Map<string | null, CodexPermissionState>();
   const defaultPermissionState = (
@@ -1681,6 +1682,7 @@ function createService(options?: {
     executionHosts,
     managedWorktrees: managedWorktreeHarness.adapter,
     projectRuntimeLifecycle: projectRuntimeLifecycleHarness.adapter,
+    databaseNotifier: options?.databaseNotifier ?? new DatabaseNotifier(),
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
     inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,
@@ -2402,7 +2404,8 @@ test("does not mask a sidebar invalidation that lands during a Core read", async
       return overview;
     },
   } as DesktopProjectWorkspacePort;
-  const service = createService({ projectWorkspace });
+  const databaseNotifier = new DatabaseNotifier();
+  const service = createService({ projectWorkspace, databaseNotifier });
   const client = Reflect.get(service as object, "client") as {
     start: () => Promise<void>;
     request: (method: string) => Promise<unknown>;
@@ -2425,7 +2428,7 @@ test("does not mask a sidebar invalidation that lands during a Core read", async
       threadPreview: "After invalidation",
     });
     await baseWorkspace.setThreadPinned("thread:after-invalidation", true);
-    dbNotifier.emit("project-sessions-changed");
+    databaseNotifier.emit("project-sessions-changed");
     releaseFirstRead();
 
     const initial = await initialSync;

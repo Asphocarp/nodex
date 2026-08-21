@@ -139,5 +139,3 @@ export class DatabaseNotifier extends EventEmitter {
     this.emit("project-sessions-changed", event);
   }
 }
-
-export const dbNotifier = new DatabaseNotifier();

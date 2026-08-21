@@ -9,7 +9,6 @@ import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
 import { safeBroadcastToWindows } from "../ipc-safe-send";
 import {
   DatabaseNotifier,
-  dbNotifier,
   type BoardChangeEvent,
   type ProjectsChangeEvent,
 } from "../local-store/notifier";
@@ -78,5 +77,6 @@ export const fromNotifier = (
     }),
   );
 
-export const live: Layer.Layer<DatabaseNotifierRuntime, never, WindowRuntime> =
-  fromNotifier(dbNotifier);
+export const live: Layer.Layer<DatabaseNotifierRuntime, never, WindowRuntime> = Layer.unwrap(
+  Effect.sync(() => fromNotifier(new DatabaseNotifier())),
+);
