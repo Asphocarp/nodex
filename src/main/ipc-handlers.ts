@@ -1,17 +1,12 @@
 import {
   BrowserWindow,
-  Menu,
   dialog,
   ipcMain,
-  nativeImage,
   shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
-  type MenuItemConstructorOptions,
   type OpenDialogOptions,
 } from "electron";
-import { homedir } from "node:os";
-import { isAbsolute, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { writeStructuralClipboard } from "./clipboard-structural-writer";
 import { readClipboardPastePayload } from "./clipboard-paste-inspector";
@@ -60,18 +55,11 @@ import type {
   RendererClientRouter,
   RendererClientWebContents,
 } from "./codex/renderer-client-router";
-import { openFileLinkTarget } from "./file-link-opener";
-import { parseExternalNavigationUrl } from "./external-navigation";
 import { isWorkspaceFileUserError } from "./workspace-files-service";
 import { requireTrustedAppRendererSender as requireTrustedAppRendererSenderWithOrigin } from "./platform/electron/TrustedRendererSender";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
 import type { IpcApi } from "../shared/ipc-api";
-import type {
-  NativeContextMenuItem,
-  NativeContextMenuOptions,
-} from "../shared/native-context-menu";
-import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
 import { runWithTerminalProjectAdmission } from "./project-lifecycle-service";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type { GitWorkerHost } from "./git-worker-host";
@@ -181,89 +169,6 @@ async function showDirectoryPicker(
     : await dialog.showOpenDialog(options);
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0] ?? null;
-}
-
-function buildNativeContextMenuTemplate(
-  items: NativeContextMenuItem[],
-  onSelect: (id: string) => void,
-): MenuItemConstructorOptions[] {
-  return items.map((item) => {
-    if (item.type === "separator") {
-      return { type: "separator" };
-    }
-
-    const enabled = item.enabled !== false;
-    const icon = item.iconKey
-      ? nativeImage.createFromDataURL(
-          `data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildSessionContextMenuIconSvg(item.iconKey))}`,
-        )
-      : undefined;
-    icon?.setTemplateImage(true);
-
-    const base = {
-      id: item.id,
-      label: item.label,
-      enabled,
-      accelerator: item.accelerator,
-      toolTip: item.tooltip,
-      icon,
-    } satisfies MenuItemConstructorOptions;
-
-    if (item.type === "submenu") {
-      return {
-        ...base,
-        submenu: buildNativeContextMenuTemplate(item.submenu, onSelect),
-      } satisfies MenuItemConstructorOptions;
-    }
-
-    if (item.type === "checkbox") {
-      return {
-        ...base,
-        type: "checkbox",
-        checked: item.checked === true,
-        click: () => {
-          if (enabled) onSelect(item.id);
-        },
-      } satisfies MenuItemConstructorOptions;
-    }
-
-    return {
-      ...base,
-      click: () => {
-        if (enabled) onSelect(item.id);
-      },
-    } satisfies MenuItemConstructorOptions;
-  });
-}
-
-function showNativeContextMenu(
-  window: BrowserWindow | null,
-  items: NativeContextMenuItem[],
-  options: NativeContextMenuOptions | undefined,
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    let selectedId: string | null = null;
-    let resolved = false;
-    const finish = () => {
-      if (resolved) return;
-      resolved = true;
-      resolve(selectedId);
-    };
-
-    const menu = Menu.buildFromTemplate(
-      buildNativeContextMenuTemplate(items, (id) => {
-        selectedId = id;
-      }),
-    );
-
-    menu.popup({
-      window: window ?? undefined,
-      x: typeof options?.x === "number" ? Math.round(options.x) : undefined,
-      y: typeof options?.y === "number" ? Math.round(options.y) : undefined,
-      positioningItem: options?.positioningItem,
-      callback: finish,
-    });
-  });
 }
 
 interface RegisterIpcHandlersOptions {
@@ -413,35 +318,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
       ]);
     },
   });
-
-  registerHandle(
-    "native-context-menu:show",
-    async (event, items: NativeContextMenuItem[], menuOptions?: NativeContextMenuOptions) => {
-      const window = BrowserWindow.fromWebContents(event.sender);
-      return await showNativeContextMenu(window, items, menuOptions);
-    },
-  );
-
-  registerHandle("shell:open-file-link", (_, target, openerId) =>
-    openFileLinkTarget(target, openerId),
-  );
-  registerHandle("shell:open-external-url", async (event, value) => {
-    requireTrustedAppRendererSender(event, "external navigation");
-    const url = parseExternalNavigationUrl(value);
-    await shell.openExternal(url.toString());
-    return true;
-  });
-  registerHandle("shell:open-path-default", async (_, inputPath) => {
-    const normalizedPath = inputPath.trim();
-    if (!isAbsolute(normalizedPath)) return false;
-    return (await shell.openPath(normalizedPath)) === "";
-  });
-  registerHandle("shell:path-context:get", () => ({
-    homeDirectory: homedir(),
-    separator: sep === "\\" ? ("\\" as const) : ("/" as const),
-  }));
-
-  registerHandle("open-file", (_, target, openerId) => openFileLinkTarget(target, openerId));
 
   registerHandle("git:repository:identity", (_, cwd: string) => {
     return readGitRepositoryIdentity(cwd);
