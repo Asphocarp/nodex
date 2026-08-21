@@ -99,7 +99,6 @@ import type {
   CommandPaletteThreadSearchInput,
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
-  CodexAccountIdentity,
   CodexAccountSnapshot,
   CodexAgentMode,
   CodexAutomationRunsUpdatedEvent,
@@ -162,7 +161,6 @@ import type {
   CodexQueuedFollowUp,
   CodexReviewDiffCommentAttachment,
   CodexRateLimitsSnapshot,
-  CodexRateLimitResetCredit,
   CodexRateLimitResetCreditsSummary,
   CodexRateLimitResetInput,
   CodexRateLimitResetResult,
@@ -256,6 +254,14 @@ import {
   buildComposerSkillInventory,
   hydrateComposerSkillInventoryIcons,
 } from "./composer-skill-inventory";
+import {
+  emptyAccountRateLimitState,
+  emptyAccountSnapshot,
+  parseAccountIdentity,
+  parseRateLimitResetCreditsSummary,
+  parseRateLimitsSnapshot,
+} from "../codex-application/CodexAccountState";
+import type { CodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { CodexComposerExternalSuggestionService } from "./composer-external-suggestion-service";
 import {
   getCodexThreadOwnerNotificationThreadId,
@@ -1483,6 +1489,7 @@ type CodexManagedWorktreeSettingsPort = {
 };
 
 type CodexServiceOptions = {
+  accountRuntime?: CodexAccountPromiseAdapter;
   client?: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntimeCoordinator?: Pick<
@@ -2741,167 +2748,6 @@ function asTerminalTurnStatus(
   return status;
 }
 
-function emptyAccountSnapshot(): CodexAccountSnapshot {
-  return {
-    account: null,
-    requiresOpenAiAuth: true,
-    pendingLogin: null,
-    rateLimits: null,
-    rateLimitResetCredits: null,
-  };
-}
-
-function emptyAccountRateLimitState(): Pick<
-  CodexAccountSnapshot,
-  "rateLimits" | "rateLimitResetCredits"
-> {
-  return {
-    rateLimits: null,
-    rateLimitResetCredits: null,
-  };
-}
-
-function parseRateLimitsSnapshot(value: unknown): CodexRateLimitsSnapshot | null {
-  if (typeof value !== "object" || value === null) return null;
-  const candidate = value as Record<string, unknown>;
-  const primary =
-    typeof candidate.primary === "object" && candidate.primary !== null
-      ? {
-          usedPercent:
-            typeof (candidate.primary as Record<string, unknown>).usedPercent === "number"
-              ? ((candidate.primary as Record<string, unknown>).usedPercent as number)
-              : 0,
-          windowDurationMins:
-            typeof (candidate.primary as Record<string, unknown>).windowDurationMins === "number"
-              ? ((candidate.primary as Record<string, unknown>).windowDurationMins as number)
-              : undefined,
-          resetsAt:
-            typeof (candidate.primary as Record<string, unknown>).resetsAt === "number"
-              ? normalizeTimestamp((candidate.primary as Record<string, unknown>).resetsAt)
-              : undefined,
-        }
-      : undefined;
-
-  const secondary =
-    typeof candidate.secondary === "object" && candidate.secondary !== null
-      ? {
-          usedPercent:
-            typeof (candidate.secondary as Record<string, unknown>).usedPercent === "number"
-              ? ((candidate.secondary as Record<string, unknown>).usedPercent as number)
-              : 0,
-          windowDurationMins:
-            typeof (candidate.secondary as Record<string, unknown>).windowDurationMins === "number"
-              ? ((candidate.secondary as Record<string, unknown>).windowDurationMins as number)
-              : undefined,
-          resetsAt:
-            typeof (candidate.secondary as Record<string, unknown>).resetsAt === "number"
-              ? normalizeTimestamp((candidate.secondary as Record<string, unknown>).resetsAt)
-              : undefined,
-        }
-      : undefined;
-
-  const credits =
-    typeof candidate.credits === "object" && candidate.credits !== null
-      ? {
-          hasCredits: Boolean((candidate.credits as Record<string, unknown>).hasCredits),
-          unlimited: Boolean((candidate.credits as Record<string, unknown>).unlimited),
-          balance:
-            typeof (candidate.credits as Record<string, unknown>).balance === "string"
-              ? ((candidate.credits as Record<string, unknown>).balance as string)
-              : undefined,
-        }
-      : undefined;
-
-  return {
-    limitId: typeof candidate.limitId === "string" ? candidate.limitId : undefined,
-    limitName: typeof candidate.limitName === "string" ? candidate.limitName : undefined,
-    primary,
-    secondary,
-    credits,
-    planType: typeof candidate.planType === "string" ? candidate.planType : undefined,
-  };
-}
-
-function parseNonNegativeInteger(value: unknown): number | null {
-  const numericValue = typeof value === "bigint" ? Number(value) : value;
-  if (typeof numericValue !== "number" || !Number.isSafeInteger(numericValue)) return null;
-  if (numericValue < 0) return null;
-  return numericValue;
-}
-
-function parseRateLimitResetCredit(value: unknown): CodexRateLimitResetCredit | null {
-  if (typeof value !== "object" || value === null) return null;
-  const credit = value as Record<string, unknown>;
-  const id = typeof credit.id === "string" ? credit.id.trim() : "";
-  const grantedAt = typeof credit.grantedAt === "number" ? credit.grantedAt : null;
-  const expiresAt =
-    credit.expiresAt === null || typeof credit.expiresAt === "number"
-      ? credit.expiresAt
-      : undefined;
-  const resetType =
-    credit.resetType === "codexRateLimits" || credit.resetType === "unknown"
-      ? credit.resetType
-      : null;
-  const status =
-    credit.status === "available" ||
-    credit.status === "redeeming" ||
-    credit.status === "redeemed" ||
-    credit.status === "unknown"
-      ? credit.status
-      : null;
-
-  if (!id || grantedAt === null || !Number.isFinite(grantedAt)) return null;
-  if (expiresAt === undefined || (expiresAt !== null && !Number.isFinite(expiresAt))) return null;
-  if (resetType === null || status === null) return null;
-
-  return {
-    id,
-    resetType,
-    status,
-    grantedAt,
-    expiresAt,
-    title: typeof credit.title === "string" ? credit.title : null,
-    description: typeof credit.description === "string" ? credit.description : null,
-  };
-}
-
-function parseRateLimitResetCreditsSummary(
-  value: unknown,
-): CodexRateLimitResetCreditsSummary | null {
-  if (typeof value !== "object" || value === null) return null;
-  const candidate = value as Record<string, unknown>;
-  const availableCount = parseNonNegativeInteger(candidate.availableCount);
-  if (availableCount === null) return null;
-
-  const credits =
-    candidate.credits === null
-      ? null
-      : Array.isArray(candidate.credits)
-        ? candidate.credits.flatMap((entry) => {
-            const parsed = parseRateLimitResetCredit(entry);
-            return parsed ? [parsed] : [];
-          })
-        : null;
-
-  return { availableCount, credits };
-}
-
-function parseAccountIdentity(value: unknown): CodexAccountIdentity | null {
-  if (typeof value !== "object" || value === null) return null;
-  const candidate = value as Record<string, unknown>;
-  if (candidate.type === "apiKey") {
-    return { type: "apiKey" };
-  }
-  if (candidate.type === "chatgpt") {
-    return {
-      type: "chatgpt",
-      email: typeof candidate.email === "string" ? candidate.email : "",
-      planType: typeof candidate.planType === "string" ? candidate.planType : "unknown",
-    };
-  }
-  return null;
-}
-
 function parseReasoningEffort(value: unknown): CodexReasoningEffort | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -3058,6 +2904,8 @@ const unconfiguredAuthority = <Port extends object>(name: string): Port =>
 export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexApplicationClient;
+  private readonly accountRuntime: CodexAccountPromiseAdapter | null;
+  private releaseAccountRuntimeSubscription: (() => void) | null = null;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
   private readonly runtimeVersion: string | null;
@@ -3340,6 +3188,7 @@ export class CodexService extends EventEmitter {
   constructor(options?: CodexServiceOptions) {
     super();
 
+    this.accountRuntime = options?.accountRuntime ?? null;
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.browserRuntime = runtime.browserRuntime;
@@ -3657,6 +3506,14 @@ export class CodexService extends EventEmitter {
       this.logger.error("Received Codex protocol error", { message });
       this.emitEvent({ type: "error", message });
     });
+
+    if (this.accountRuntime !== null) {
+      this.releaseAccountRuntimeSubscription = this.accountRuntime.subscribe((snapshot) => {
+        this.accountSnapshot = snapshot;
+        this.emitEvent({ type: "rateLimits", rateLimits: snapshot.rateLimits ?? null });
+        this.emitEvent({ type: "account", account: snapshot });
+      });
+    }
   }
 
   private emitEvent(event: CodexEvent): void {
@@ -8188,6 +8045,7 @@ export class CodexService extends EventEmitter {
   }
 
   private shouldPollRateLimits(): boolean {
+    if (this.accountRuntime !== null) return false;
     if (this.rateLimitsPollIntervalMs <= 0) return false;
     if (this.lastConnectionStatus !== "connected") return false;
     if (this.accountSnapshot.account?.type !== "chatgpt") return false;
@@ -8280,6 +8138,8 @@ export class CodexService extends EventEmitter {
       pendingDynamicToolCalls: this.pendingDynamicToolCalls.size,
     });
     this.frameTextDeltaQueue.dispose();
+    this.releaseAccountRuntimeSubscription?.();
+    this.releaseAccountRuntimeSubscription = null;
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.outputDeltaQueue.dispose();
     this.userInputAutoResolutionController.dispose();
@@ -8655,6 +8515,7 @@ export class CodexService extends EventEmitter {
   }
 
   async readAccountSnapshot(): Promise<CodexAccountSnapshot> {
+    if (this.accountRuntime !== null) return await this.accountRuntime.refresh();
     if (this.accountReadInFlight) return await this.accountReadInFlight;
 
     const operation = this.loadAccountSnapshot().finally(() => {
@@ -8700,6 +8561,9 @@ export class CodexService extends EventEmitter {
   async consumeAccountRateLimitResetCredit(
     input: CodexRateLimitResetInput,
   ): Promise<CodexRateLimitResetResult> {
+    if (this.accountRuntime !== null) {
+      return await this.accountRuntime.consumeRateLimitResetCredit(input);
+    }
     await this.ensureClientReady();
 
     const idempotencyKey = input.idempotencyKey.trim();
@@ -8734,6 +8598,7 @@ export class CodexService extends EventEmitter {
   async startAccountLogin(
     input: { type: "chatgpt" } | { type: "apiKey"; apiKey: string },
   ): Promise<{ type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string }> {
+    if (this.accountRuntime !== null) return await this.accountRuntime.startLogin(input);
     await this.ensureClientReady();
 
     if (input.type === "apiKey") {
@@ -8769,6 +8634,7 @@ export class CodexService extends EventEmitter {
   }
 
   async cancelAccountLogin(loginId: string): Promise<{ status: "canceled" | "notFound" }> {
+    if (this.accountRuntime !== null) return await this.accountRuntime.cancelLogin(loginId);
     await this.ensureClientReady();
 
     const result = await this.client.request<"account/login/cancel", CancelLoginAccountResponse>(
@@ -8792,6 +8658,7 @@ export class CodexService extends EventEmitter {
   }
 
   async logoutAccount(): Promise<boolean> {
+    if (this.accountRuntime !== null) return await this.accountRuntime.logout();
     await this.ensureClientReady();
     await this.client.request("account/logout");
     this.accountSnapshot = emptyAccountSnapshot();
@@ -27792,6 +27659,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (method === "account/rateLimits/updated") {
+      if (this.accountRuntime !== null) return;
       const payload =
         typeof params === "object" && params !== null ? (params as Record<string, unknown>) : null;
 
@@ -27807,6 +27675,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (method === "account/updated") {
+      if (this.accountRuntime !== null) return;
       await this.readAccountSnapshot().catch(() => {
         // keep previous state
       });
@@ -27814,6 +27683,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (method === "account/login/completed") {
+      if (this.accountRuntime !== null) return;
       this.accountSnapshot = {
         ...this.accountSnapshot,
         pendingLogin: null,

@@ -3,50 +3,60 @@ import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type {
-  ClientRequestParamsByMethod,
-  ClientRequestResponsesByMethod,
-} from "@nodex/effect-codex-app-server/rpc";
+  CodexAccountSnapshot,
+  CodexRateLimitResetInput,
+  CodexRateLimitResetResult,
+} from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
-
-type AccountReadResponse = ClientRequestResponsesByMethod["account/read"];
-type RateLimitsReadResponse = ClientRequestResponsesByMethod["account/rateLimits/read"];
-type UsageReadResponse = ClientRequestResponsesByMethod["account/usage/read"];
-
-export interface CodexAccountSnapshot {
-  readonly account: AccountReadResponse | null;
-  readonly rateLimits: RateLimitsReadResponse | null;
-  readonly usage: UsageReadResponse | null;
-}
+import {
+  emptyAccountRateLimitState,
+  emptyAccountSnapshot,
+  parseAccountIdentity,
+  parseRateLimitResetCreditsSummary,
+  parseRateLimitsSnapshot,
+} from "./CodexAccountState";
 
 export interface CodexAccountOptions {
   readonly pollInterval: Duration.Input;
   readonly refreshOnStart?: boolean;
 }
 
+export class CodexAccountInputError extends Schema.TaggedError<CodexAccountInputError>()(
+  "CodexAccountInputError",
+  { message: Schema.String },
+) {}
+
+export type CodexAccountError = CodexRuntimeError | CodexAccountInputError;
+
+export type CodexAccountLoginInput =
+  | { readonly type: "chatgpt" }
+  | { readonly type: "apiKey"; readonly apiKey: string };
+
+export type CodexAccountLoginResult =
+  | { readonly type: "apiKey" }
+  | { readonly type: "chatgpt"; readonly loginId: string; readonly authUrl: string };
+
 export class CodexAccount extends Context.Service<
   CodexAccount,
   {
     readonly snapshot: SubscriptionRef.SubscriptionRef<CodexAccountSnapshot>;
     readonly refresh: Effect.Effect<CodexAccountSnapshot, CodexRuntimeError>;
-    readonly login: (
-      params: ClientRequestParamsByMethod["account/login/start"],
-    ) => Effect.Effect<ClientRequestResponsesByMethod["account/login/start"], CodexRuntimeError>;
-    readonly cancelLogin: (
-      params: ClientRequestParamsByMethod["account/login/cancel"],
-    ) => Effect.Effect<ClientRequestResponsesByMethod["account/login/cancel"], CodexRuntimeError>;
-    readonly logout: (
-      params: ClientRequestParamsByMethod["account/logout"],
-    ) => Effect.Effect<ClientRequestResponsesByMethod["account/logout"], CodexRuntimeError>;
     readonly consumeRateLimitResetCredit: (
-      params: ClientRequestParamsByMethod["account/rateLimitResetCredit/consume"],
-    ) => Effect.Effect<
-      ClientRequestResponsesByMethod["account/rateLimitResetCredit/consume"],
-      CodexRuntimeError
-    >;
+      input: CodexRateLimitResetInput,
+    ) => Effect.Effect<CodexRateLimitResetResult, CodexAccountError>;
+    readonly startLogin: (
+      input: CodexAccountLoginInput,
+    ) => Effect.Effect<CodexAccountLoginResult, CodexRuntimeError>;
+    readonly cancelLogin: (
+      loginId: string,
+    ) => Effect.Effect<{ readonly status: "canceled" | "notFound" }, CodexRuntimeError>;
+    readonly logout: Effect.Effect<boolean, CodexRuntimeError>;
   }
 >()("nodex/main/codex-application/CodexAccount") {}
 
@@ -57,49 +67,170 @@ export const live = (
     CodexAccount,
     Effect.gen(function* () {
       const gateway = yield* CodexGateway;
-      const snapshot = yield* SubscriptionRef.make<CodexAccountSnapshot>({
-        account: null,
-        rateLimits: null,
-        usage: null,
+      const snapshot = yield* SubscriptionRef.make<CodexAccountSnapshot>(emptyAccountSnapshot());
+      const refreshLock = yield* Semaphore.make(1);
+      const awaitReady = gateway.awaitReady(gateway.localHostId);
+      const asRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
+        typeof value === "object" && value !== null && !Array.isArray(value)
+          ? (value as Readonly<Record<string, unknown>>)
+          : undefined;
+
+      const readRateLimits = Effect.fn("CodexAccount.readRateLimits")(function* () {
+        const response = yield* gateway
+          .requestLocal("account/rateLimits/read", undefined)
+          .pipe(Effect.orElseSucceed(() => null));
+        if (response === null) return emptyAccountRateLimitState();
+        return {
+          rateLimits: parseRateLimitsSnapshot(response.rateLimits ?? null),
+          rateLimitResetCredits: parseRateLimitResetCreditsSummary(
+            response.rateLimitResetCredits ?? null,
+          ),
+        };
       });
 
-      const refresh = Effect.fn("CodexAccount.refresh")(function* () {
-        const [account, rateLimits, usage] = yield* Effect.all(
-          [
-            gateway.requestLocal("account/read", {}),
-            gateway.requestLocal("account/rateLimits/read", undefined),
-            gateway.requestLocal("account/usage/read", undefined),
-          ] as const,
-          { concurrency: "unbounded" },
-        );
-        const next = { account, rateLimits, usage };
+      const refresh: CodexAccount["Service"]["refresh"] = Effect.gen(function* () {
+        yield* awaitReady;
+        const response = yield* gateway.requestLocal("account/read", { refreshToken: false });
+        const account = parseAccountIdentity(response.account ?? null);
+        const rateLimitState =
+          account?.type === "chatgpt" ? yield* readRateLimits() : emptyAccountRateLimitState();
+        const previous = yield* SubscriptionRef.get(snapshot);
+        const next: CodexAccountSnapshot = {
+          account,
+          requiresOpenAiAuth: Boolean(response.requiresOpenaiAuth),
+          pendingLogin: previous.pendingLogin ?? null,
+          ...rateLimitState,
+        };
         yield* SubscriptionRef.set(snapshot, next);
+        yield* Effect.logInfo("Read Codex account snapshot").pipe(
+          Effect.annotateLogs({
+            accountType: next.account?.type ?? null,
+            requiresOpenAiAuth: next.requiresOpenAiAuth,
+            hasRateLimits: Boolean(next.rateLimits),
+          }),
+        );
         return next;
-      });
+      }).pipe(refreshLock.withPermits(1));
 
-      const refreshWhenConnected = gateway.connection(gateway.localHostId).pipe(
-        Effect.flatMap((connection) => (connection.kind === "ready" ? refresh() : Effect.void)),
+      const refreshRateLimits = Effect.gen(function* () {
+        const rateLimitState = yield* readRateLimits();
+        return yield* SubscriptionRef.modify(snapshot, (current) => {
+          const next = { ...current, ...rateLimitState };
+          return [next, next];
+        });
+      }).pipe(refreshLock.withPermits(1));
+
+      const pollOnce = SubscriptionRef.get(snapshot).pipe(
+        Effect.flatMap((current) =>
+          current.account?.type === "chatgpt" ? refreshRateLimits.pipe(Effect.asVoid) : Effect.void,
+        ),
         Effect.ignore,
       );
-      const polling = Effect.repeat(refreshWhenConnected, Schedule.spaced(options.pollInterval));
-      yield* Effect.forkScoped(polling);
+      yield* Effect.repeat(pollOnce, Schedule.spaced(options.pollInterval)).pipe(Effect.forkScoped);
+
       yield* gateway.events.pipe(
         Stream.filter(
-          (event) => event.kind === "notification" && event.value.method.startsWith("account/"),
+          (event) => event.kind === "notification" && event.hostId === gateway.localHostId,
         ),
-        Stream.runForEach(() => refresh().pipe(Effect.ignore)),
+        Stream.runForEach((event) => {
+          if (event.kind !== "notification") return Effect.void;
+          if (event.value.method === "account/rateLimits/updated") {
+            const params = asRecord(event.value.params);
+            return SubscriptionRef.update(snapshot, (current) => ({
+              ...current,
+              rateLimits: parseRateLimitsSnapshot(params?.rateLimits ?? null),
+            }));
+          }
+          if (event.value.method === "account/login/completed") {
+            return SubscriptionRef.update(snapshot, (current) => ({
+              ...current,
+              pendingLogin: null,
+            })).pipe(Effect.andThen(refresh.pipe(Effect.ignore)));
+          }
+          if (event.value.method === "account/updated") return refresh.pipe(Effect.ignore);
+          return Effect.void;
+        }),
         Effect.forkScoped,
       );
-      if (options.refreshOnStart === true) yield* refresh().pipe(Effect.ignore);
+
+      if (options.refreshOnStart === true) yield* refresh.pipe(Effect.ignore);
+
+      const consumeRateLimitResetCredit = Effect.fn("CodexAccount.consumeResetCredit")(function* (
+        input: CodexRateLimitResetInput,
+      ) {
+        const idempotencyKey = input.idempotencyKey.trim();
+        if (!idempotencyKey) {
+          return yield* new CodexAccountInputError({
+            message: "Rate-limit reset idempotency key is required",
+          });
+        }
+        const creditId = input.creditId?.trim();
+        if (input.creditId !== undefined && input.creditId !== null && !creditId) {
+          return yield* new CodexAccountInputError({
+            message: "Rate-limit reset credit ID must not be empty",
+          });
+        }
+        yield* awaitReady;
+        const response = yield* gateway.requestLocal("account/rateLimitResetCredit/consume", {
+          idempotencyKey,
+          ...(creditId ? { creditId } : {}),
+        });
+        const account =
+          response.outcome === "reset" ||
+          response.outcome === "alreadyRedeemed" ||
+          response.outcome === "noCredit"
+            ? yield* refreshRateLimits
+            : yield* SubscriptionRef.get(snapshot);
+        return { outcome: response.outcome, account };
+      });
+
+      const startLogin = Effect.fn("CodexAccount.startLogin")(function* (
+        input: CodexAccountLoginInput,
+      ) {
+        yield* awaitReady;
+        if (input.type === "apiKey") {
+          yield* gateway.requestLocal("account/login/start", input);
+          yield* refresh;
+          return { type: "apiKey" as const };
+        }
+        const response = yield* gateway.requestLocal("account/login/start", input);
+        const result = {
+          type: "chatgpt" as const,
+          loginId: response.type === "chatgpt" ? response.loginId : "",
+          authUrl: response.type === "chatgpt" ? response.authUrl : "",
+        };
+        yield* SubscriptionRef.update(snapshot, (current) => ({
+          ...current,
+          pendingLogin: { loginId: result.loginId, authUrl: result.authUrl },
+        }));
+        return result;
+      });
+
+      const cancelLogin = Effect.fn("CodexAccount.cancelLogin")(function* (loginId: string) {
+        yield* awaitReady;
+        const response = yield* gateway.requestLocal("account/login/cancel", { loginId });
+        yield* SubscriptionRef.update(snapshot, (current) =>
+          current.pendingLogin?.loginId === loginId ? { ...current, pendingLogin: null } : current,
+        );
+        return {
+          status: response.status === "canceled" ? ("canceled" as const) : ("notFound" as const),
+        };
+      });
+
+      const logout = Effect.gen(function* () {
+        yield* awaitReady;
+        yield* gateway.requestLocal("account/logout", undefined);
+        yield* SubscriptionRef.set(snapshot, emptyAccountSnapshot());
+        return true;
+      });
 
       return CodexAccount.of({
         snapshot,
-        refresh: refresh(),
-        login: (params) => gateway.requestLocal("account/login/start", params),
-        cancelLogin: (params) => gateway.requestLocal("account/login/cancel", params),
-        logout: (params) => gateway.requestLocal("account/logout", params),
-        consumeRateLimitResetCredit: (params) =>
-          gateway.requestLocal("account/rateLimitResetCredit/consume", params),
+        refresh,
+        consumeRateLimitResetCredit,
+        startLogin,
+        cancelLogin,
+        logout,
       });
     }),
   );

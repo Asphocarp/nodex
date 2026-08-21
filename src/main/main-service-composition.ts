@@ -3,6 +3,7 @@ import { CodexService, type CodexTerminalRuntimePort } from "./codex/codex-servi
 import type { ResolvedCodexRuntime } from "./codex/codex-runtime";
 import type { ProviderCredentialStore } from "./codex/provider-credential-store";
 import type { CodexApplicationClient } from "./codex-runtime/CodexGatewayBridge";
+import type { CodexAccountPromiseAdapter } from "./codex-application/CodexAccountPromiseAdapter";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
@@ -12,6 +13,7 @@ export interface MainServiceComposition {
 export interface MainServiceCompositionInput {
   readonly locale: () => string;
   readonly terminalRuntime: CodexTerminalRuntimePort;
+  readonly codexAccount?: CodexAccountPromiseAdapter;
   readonly codexClient?: CodexApplicationClient;
   readonly codexRuntime?: ResolvedCodexRuntime;
   readonly providerCredentialStore?: ProviderCredentialStore;
@@ -28,6 +30,7 @@ export function createMainServiceComposition(
     browserTransferRuntime: browserSidebarService,
     computerUseRuntimeConfig: () => ({ locale: input.locale() }),
     terminalRuntime: input.terminalRuntime,
+    ...(input.codexAccount === undefined ? {} : { accountRuntime: input.codexAccount }),
     ...(input.codexClient === undefined ? {} : { client: input.codexClient }),
     ...(input.codexRuntime === undefined ? {} : { runtime: input.codexRuntime }),
     ...(input.providerCredentialStore === undefined

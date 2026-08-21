@@ -22,6 +22,8 @@ import { live as coreTransportLive } from "../core-runtime/CoreTransport";
 import { makeDesktopDataAuthority } from "../core-runtime/DesktopCoreAdapter";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
+import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
+import { makeCodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { CodexEndpointMap } from "../codex-runtime/CodexEndpointMap";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
@@ -150,6 +152,16 @@ export const live: Layer.Layer<
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
+        const codexAccountContext = yield* Layer.buildWithScope(
+          codexAccountLive({ pollInterval: "60 seconds" }).pipe(
+            Layer.provide(Layer.succeed(CodexGateway, codexGateway)),
+          ),
+          runtimeScope,
+        );
+        const codexAccount = makeCodexAccountPromiseAdapter(
+          Context.get(codexAccountContext, CodexAccount),
+          callbacks,
+        );
         codexBridge.attach(codexGateway, codexEndpoints);
         yield* codexBridge.events.pipe(
           Stream.runForEach((event) => Effect.sync(() => codexBridge.observe(event))),
@@ -160,6 +172,7 @@ export const live: Layer.Layer<
           try: () => {
             const composition = createMainServiceComposition({
               locale: () => locale,
+              codexAccount,
               codexClient: codexBridge,
               codexRuntime,
               providerCredentialStore,
