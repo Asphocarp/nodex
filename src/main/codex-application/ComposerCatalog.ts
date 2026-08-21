@@ -10,6 +10,12 @@ import type { PluginInstalledResponse } from "@nodex/codex-app-server-protocol/v
 import type { SkillsListResponse } from "@nodex/codex-app-server-protocol/v2/SkillsListResponse";
 import type { ExperimentalFeature } from "@nodex/codex-app-server-protocol/v2/ExperimentalFeature";
 import type {
+  CodexHooksListInput,
+  CodexHooksListResponse,
+  CodexHooksStateUpdateInput,
+} from "../../shared/codex-hooks";
+import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import type {
   CodexComposerPlugin,
   CodexComposerPluginActivateInput,
   CodexComposerSkill,
@@ -61,6 +67,12 @@ export class ComposerCatalog extends Context.Service<
     readonly listSkills: (
       cwds: readonly string[],
     ) => Effect.Effect<readonly CodexComposerSkill[], ComposerCatalogError>;
+    readonly listHooks: (
+      input: CodexHooksListInput,
+    ) => Effect.Effect<CodexHooksListResponse, ComposerCatalogError>;
+    readonly updateHooksState: (
+      input: CodexHooksStateUpdateInput,
+    ) => Effect.Effect<void, ComposerCatalogError>;
   }
 >()("nodex/main/codex-application/ComposerCatalog") {}
 
@@ -184,6 +196,64 @@ export const live: Layer.Layer<ComposerCatalog, never, CodexGateway> = Layer.eff
             try: () =>
               hydrateComposerSkillInventoryIcons(plain, buildComposerSkillInventory(plain)),
             catch: (cause) => new ComposerCatalogProjectionError({ cause }),
+          });
+        }),
+      listHooks: (input) =>
+        Effect.gen(function* () {
+          if (input.hostId !== DEFAULT_CODEX_HOST_ID) {
+            return yield* new ComposerCatalogInputError({
+              message: `Codex host is unavailable: ${input.hostId}`,
+            });
+          }
+          yield* awaitReady;
+          return (yield* gateway.requestLocal("hooks/list", {
+            cwds: input.cwds,
+          })) as unknown as CodexHooksListResponse;
+        }),
+      updateHooksState: (input) =>
+        Effect.gen(function* () {
+          if (input.hostId !== DEFAULT_CODEX_HOST_ID) {
+            return yield* new ComposerCatalogInputError({
+              message: `Codex host is unavailable: ${input.hostId}`,
+            });
+          }
+          if (input.patches.length === 0) {
+            return yield* new ComposerCatalogInputError({
+              message: "At least one hook state patch is required",
+            });
+          }
+          const seenKeys = new Set<string>();
+          for (const patch of input.patches) {
+            if (!patch.key.trim()) {
+              return yield* new ComposerCatalogInputError({ message: "Hook key is required" });
+            }
+            if (seenKeys.has(patch.key)) {
+              return yield* new ComposerCatalogInputError({
+                message: `Duplicate hook state patch: ${patch.key}`,
+              });
+            }
+            if (patch.trustedHash !== undefined && !patch.trustedHash.trim()) {
+              return yield* new ComposerCatalogInputError({
+                message: "Hook trusted hash is required",
+              });
+            }
+            seenKeys.add(patch.key);
+          }
+          yield* awaitReady;
+          const value = Object.fromEntries(
+            input.patches.map((patch) => [
+              patch.key,
+              {
+                ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+                ...(patch.trustedHash === undefined ? {} : { trusted_hash: patch.trustedHash }),
+              },
+            ]),
+          );
+          yield* gateway.requestLocal("config/batchWrite", {
+            edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }],
+            filePath: null,
+            expectedVersion: null,
+            reloadUserConfig: true,
           });
         }),
     });

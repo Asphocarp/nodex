@@ -202,6 +202,7 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(ElectronWindowHost, windowHost),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(CodexAccount, codexAccountService),
                 Layer.succeed(CodexConnection, codexConnectionService),

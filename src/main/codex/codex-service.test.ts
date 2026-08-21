@@ -47,11 +47,6 @@ import type {
   ProjectSessionForkResult,
 } from "../../shared/types";
 import type {
-  CodexHooksListInput,
-  CodexHooksListResponse,
-  CodexHooksStateUpdateInput,
-} from "../../shared/codex-hooks";
-import type {
   CodexUserInputAutoResolutionChange,
   CodexUserInputAutoResolutionEntry,
 } from "../../shared/codex-user-input-auto-resolution";
@@ -294,8 +289,6 @@ interface TestableCodexService {
   setThreadName: (threadId: string, name: string) => Promise<boolean>;
   setGeneratedThreadName: (threadId: string, name: string) => Promise<boolean>;
   listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
-  listHooks: (input: CodexHooksListInput) => Promise<CodexHooksListResponse>;
-  updateHooksState: (input: CodexHooksStateUpdateInput) => Promise<void>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
@@ -9408,171 +9401,6 @@ describe("codex-service collaboration modes", () => {
         },
         latestProfile,
       ]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service hooks settings", () => {
-  test("lists hooks for the exact host-scoped working directories", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const response: CodexHooksListResponse = { data: [] };
-
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params });
-      if (method === "hooks/list") return response;
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-
-    try {
-      const result = await service.listHooks({
-        hostId: DEFAULT_CODEX_HOST_ID,
-        cwds: ["/workspace/alpha", "/workspace/beta"],
-      });
-
-      expect(result).toBe(response);
-      expect(requests).toEqual([
-        {
-          method: "hooks/list",
-          params: { cwds: ["/workspace/alpha", "/workspace/beta"] },
-        },
-      ]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("writes enable and trust patches through the exact hooks.state upsert", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params });
-      if (method === "config/batchWrite") return {};
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-
-    try {
-      await service.updateHooksState({
-        hostId: DEFAULT_CODEX_HOST_ID,
-        patches: [
-          { key: "hook-enable", enabled: false },
-          { key: "hook-trust", trustedHash: "sha256:trusted" },
-          { key: "hook-both", enabled: true, trustedHash: "sha256:both" },
-        ],
-      });
-
-      expect(requests).toEqual([
-        {
-          method: "config/batchWrite",
-          params: {
-            edits: [
-              {
-                keyPath: "hooks.state",
-                value: {
-                  "hook-enable": { enabled: false },
-                  "hook-trust": { trusted_hash: "sha256:trusted" },
-                  "hook-both": { enabled: true, trusted_hash: "sha256:both" },
-                },
-                mergeStrategy: "upsert",
-              },
-            ],
-            filePath: null,
-            expectedVersion: null,
-            reloadUserConfig: true,
-          },
-        },
-      ]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("rejects unknown hosts before starting or sending app-server requests", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    let startCount = 0;
-    let requestCount = 0;
-
-    client.start = async () => {
-      startCount += 1;
-    };
-    client.request = async () => {
-      requestCount += 1;
-      return {};
-    };
-
-    try {
-      await expect(service.listHooks({ hostId: "remote", cwds: ["/workspace"] })).rejects.toThrow(
-        "Codex host is unavailable: remote",
-      );
-      await expect(
-        service.updateHooksState({
-          hostId: "remote",
-          patches: [{ key: "hook", enabled: true }],
-        }),
-      ).rejects.toThrow("Codex host is unavailable: remote");
-
-      expect(startCount).toBe(0);
-      expect(requestCount).toBe(0);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("rejects empty, duplicate, and malformed state patches before starting the client", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-    };
-    const start = vi.fn(async () => undefined);
-    client.start = start;
-
-    try {
-      await expect(
-        service.updateHooksState({
-          hostId: DEFAULT_CODEX_HOST_ID,
-          patches: [],
-        }),
-      ).rejects.toThrow("At least one hook state patch is required");
-      await expect(
-        service.updateHooksState({
-          hostId: DEFAULT_CODEX_HOST_ID,
-          patches: [
-            { key: "hook", enabled: true },
-            { key: "hook", enabled: false },
-          ],
-        }),
-      ).rejects.toThrow("Duplicate hook state patch: hook");
-      await expect(
-        service.updateHooksState({
-          hostId: DEFAULT_CODEX_HOST_ID,
-          patches: [{ key: " ", enabled: true }],
-        }),
-      ).rejects.toThrow("Hook key is required");
-      await expect(
-        service.updateHooksState({
-          hostId: DEFAULT_CODEX_HOST_ID,
-          patches: [{ key: "hook", trustedHash: " " }],
-        }),
-      ).rejects.toThrow("Hook trusted hash is required");
-
-      expect(start).not.toHaveBeenCalled();
     } finally {
       await service.shutdown();
     }

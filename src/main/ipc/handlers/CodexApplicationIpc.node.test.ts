@@ -12,6 +12,7 @@ import { emptyAccountSnapshot } from "../../codex-application/CodexAccountState"
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
+import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { live } from "./CodexApplicationIpc";
 
 type Handler = (
@@ -55,6 +56,8 @@ it.effect("registers application channels directly against their owning modules"
       listPlugins: () => Effect.succeed([]),
       activatePlugin: () => Effect.void,
       listSkills: () => Effect.succeed([]),
+      listHooks: () => Effect.succeed({ data: [] }),
+      updateHooksState: () => Effect.void,
     });
     const tools = CodexToolRuntime.of({
       readResource: () => Effect.die("unused"),
@@ -71,6 +74,14 @@ it.effect("registers application channels directly against their owning modules"
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
+            Layer.succeed(
+              ElectronWindowHost,
+              ElectronWindowHost.of({
+                all: Effect.succeed([]),
+                destroyAll: Effect.void,
+                onCreated: () => Effect.void,
+              }),
+            ),
             Layer.succeed(
               MainConfig,
               MainConfig.of({
@@ -102,6 +113,8 @@ it.effect("registers application channels directly against their owning modules"
     assert.isTrue(handlers.has("codex:experimental-features:list"));
     assert.isTrue(handlers.has("codex:composer-plugins:list"));
     assert.isTrue(handlers.has("codex:mcp-server-statuses:list"));
+    assert.isTrue(handlers.has("codex:hooks:list"));
+    assert.isTrue(handlers.has("codex:hooks:state:update"));
     const event = {} as IpcMainInvokeEvent;
     const models = yield* handlers.get("codex:model:list")!(event);
     assert.strictEqual((models as readonly { id: string }[])[0]?.id, "model-a");

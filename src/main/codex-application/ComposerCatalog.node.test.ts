@@ -11,6 +11,7 @@ import { ComposerCatalog, live as composerCatalogLive } from "./ComposerCatalog"
 it.effect("projects models, plugins, and skills through one composer interface", () =>
   Effect.gen(function* () {
     const experimentalRequests: unknown[] = [];
+    const hookWrites: unknown[] = [];
     const requestLocal = ((method: string, params: unknown) => {
       if (method === "model/list") {
         return Effect.succeed({
@@ -104,6 +105,11 @@ it.effect("projects models, plugins, and skills through one composer interface",
           nextCursor: cursor === null ? "next-page" : null,
         });
       }
+      if (method === "hooks/list") return Effect.succeed({ data: [] });
+      if (method === "config/batchWrite") {
+        hookWrites.push(params);
+        return Effect.succeed({});
+      }
       throw new Error(`Unexpected request: ${method}`);
     }) as CodexGateway["Service"]["requestLocal"];
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
@@ -143,6 +149,37 @@ it.effect("projects models, plugins, and skills through one composer interface",
     const skills = yield* catalog.listSkills(["/repo"]);
     assert.strictEqual(skills[0]?.path, "/skills/pdf/SKILL.md");
     yield* catalog.activatePlugin({ id: "browser@openai-bundled", cwds: ["/repo"] });
+    assert.deepEqual(yield* catalog.listHooks({ hostId: "default", cwds: ["/repo"] }), {
+      data: [],
+    });
+    yield* catalog.updateHooksState({
+      hostId: "default",
+      patches: [{ key: "lint", enabled: true, trustedHash: "sha256:lint" }],
+    });
+    assert.deepEqual(hookWrites, [
+      {
+        edits: [
+          {
+            keyPath: "hooks.state",
+            value: { lint: { enabled: true, trusted_hash: "sha256:lint" } },
+            mergeStrategy: "upsert",
+          },
+        ],
+        filePath: null,
+        expectedVersion: null,
+        reloadUserConfig: true,
+      },
+    ]);
+    const invalidHooks = yield* catalog
+      .updateHooksState({
+        hostId: "default",
+        patches: [
+          { key: "lint", enabled: true },
+          { key: "lint", enabled: false },
+        ],
+      })
+      .pipe(Effect.result);
+    assert.strictEqual(invalidHooks._tag, "Failure");
 
     yield* Scope.close(scope, Exit.void);
   }),

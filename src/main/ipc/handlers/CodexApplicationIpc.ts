@@ -11,11 +11,15 @@ import type {
   CodexComposerSkillListInput,
   CodexRateLimitResetInput,
 } from "../../../shared/types";
+import type { IpcEvents } from "../../../shared/ipc-api";
+import type { CodexHooksListInput, CodexHooksStateUpdateInput } from "../../../shared/codex-hooks";
 import { CodexAccount, type CodexAccountLoginInput } from "../../codex-application/CodexAccount";
 import { CodexConnection } from "../../codex-application/CodexConnection";
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
+import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
+import { safeBroadcastToWindows } from "../../ipc-safe-send";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { MainConfig } from "../../app/MainConfig";
 
@@ -71,10 +75,17 @@ const parseComposerPluginActivation = (
 export const live: Layer.Layer<
   never,
   never,
-  ElectronIpc | MainConfig | CodexAccount | CodexConnection | ComposerCatalog | CodexToolRuntime
+  | ElectronIpc
+  | ElectronWindowHost
+  | MainConfig
+  | CodexAccount
+  | CodexConnection
+  | ComposerCatalog
+  | CodexToolRuntime
 > = Layer.effectDiscard(
   Effect.gen(function* () {
     const ipc = yield* ElectronIpc;
+    const windows = yield* ElectronWindowHost;
     const config = yield* MainConfig;
     const account = yield* CodexAccount;
     const connection = yield* CodexConnection;
@@ -122,6 +133,25 @@ export const live: Layer.Layer<
     yield* ipc.handle("codex:composer-skills:list", (_event, input: CodexComposerSkillListInput) =>
       validate("composer-skills-list", () => parseComposerInventoryCwds(input)).pipe(
         Effect.flatMap(composer.listSkills),
+      ),
+    );
+    yield* ipc.handle("codex:hooks:list", (_event, input: CodexHooksListInput) =>
+      composer.listHooks(input),
+    );
+    yield* ipc.handle("codex:hooks:state:update", (_event, input: CodexHooksStateUpdateInput) =>
+      composer.updateHooksState(input).pipe(
+        Effect.andThen(
+          windows.all.pipe(
+            Effect.tap((all) =>
+              Effect.sync(() => {
+                safeBroadcastToWindows(all, "codex:hooks:changed" satisfies keyof IpcEvents, [
+                  { hostId: input.hostId },
+                ]);
+              }),
+            ),
+            Effect.asVoid,
+          ),
+        ),
       ),
     );
 

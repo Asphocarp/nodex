@@ -628,11 +628,6 @@ import {
   buildNodexAgentDynamicToolSpecs,
   executeNodexAgentDynamicToolCall,
 } from "./nodex-agent-dynamic-tool-runtime";
-import type {
-  CodexHooksListInput,
-  CodexHooksListResponse,
-  CodexHooksStateUpdateInput,
-} from "../../shared/codex-hooks";
 import {
   buildCodexAppDynamicToolFailure,
   buildCodexAppDynamicToolSuccess,
@@ -11298,63 +11293,6 @@ export class CodexService extends EventEmitter {
         error: error instanceof Error ? error.message : String(error),
       });
     });
-  }
-
-  private assertDefaultCodexHost(hostId: string): void {
-    if (hostId === DEFAULT_CODEX_HOST_ID) return;
-    throw new Error(`Codex host is unavailable: ${hostId}`);
-  }
-
-  async listHooks(input: CodexHooksListInput): Promise<CodexHooksListResponse> {
-    this.assertDefaultCodexHost(input.hostId);
-    await this.ensureClientReady();
-
-    return await this.client.request<"hooks/list", CodexHooksListResponse>("hooks/list", {
-      cwds: input.cwds,
-    });
-  }
-
-  async updateHooksState(input: CodexHooksStateUpdateInput): Promise<void> {
-    this.assertDefaultCodexHost(input.hostId);
-    if (input.patches.length === 0) {
-      throw new Error("At least one hook state patch is required");
-    }
-
-    const seenKeys = new Set<string>();
-    for (const patch of input.patches) {
-      if (!patch.key.trim()) throw new Error("Hook key is required");
-      if (seenKeys.has(patch.key)) {
-        throw new Error(`Duplicate hook state patch: ${patch.key}`);
-      }
-      if (patch.trustedHash !== undefined && !patch.trustedHash.trim()) {
-        throw new Error("Hook trusted hash is required");
-      }
-      seenKeys.add(patch.key);
-    }
-
-    await this.ensureClientReady();
-
-    const value = Object.fromEntries(
-      input.patches.map((patch) => [
-        patch.key,
-        {
-          ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
-          ...(patch.trustedHash === undefined ? {} : { trusted_hash: patch.trustedHash }),
-        },
-      ]),
-    );
-    await this.client.request("config/batchWrite", {
-      edits: [
-        {
-          keyPath: "hooks.state",
-          value,
-          mergeStrategy: "upsert",
-        },
-      ],
-      filePath: null,
-      expectedVersion: null,
-      reloadUserConfig: true,
-    } satisfies ConfigBatchWriteParams);
   }
 
   async runScheduledAutomationNow(

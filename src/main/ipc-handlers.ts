@@ -265,7 +265,6 @@ import {
   recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
 import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-automation-ipc-handlers";
-import { registerCodexHooksIpcHandlers } from "./codex-hooks-ipc-handlers";
 import { type DocumentSyncClientTarget, documentSyncUnauthorized } from "./document-sync-transport";
 import {
   registerBlockPropertyMutationIpcHandler,
@@ -3334,15 +3333,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       itemIds: input.itemIds,
       scanId: input.scanId,
     });
-  });
-
-  registerCodexHooksIpcHandlers({
-    registerHandle,
-    listHooks: (input) => codexService.listHooks(input),
-    updateHooksState: (input) => codexService.updateHooksState(input),
-    broadcastHooksChanged: (event) => {
-      broadcastIpcEvent("codex:hooks:changed", event);
-    },
   });
 
   registerHandle("codex:collaboration-mode:list", () => codexService.listCollaborationModes());
