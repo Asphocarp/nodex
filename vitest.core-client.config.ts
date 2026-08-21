@@ -8,6 +8,7 @@ const testFiles = selectTieredTestFiles({
     "src/main/core-runtime/**/*.node.test.ts",
     "src/main/codex-runtime/**/*.node.test.ts",
     "src/main/codex-application/**/*.node.test.ts",
+    "src/main/terminal-runtime/**/*.node.test.ts",
     "src/main/effect-control-plane/**/*.node.test.ts",
   ],
   stressInclude: ["src/main/core-client/**/*.stress.node.test.ts"],
