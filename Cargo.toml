@@ -18,6 +18,7 @@ rust-version = "1.97.1"
 license = "MIT"
 
 [workspace.dependencies]
+nodex-core = { path = "crates/nodex-core" }
 nodex-core-contracts = { path = "crates/nodex-core-contracts" }
 nodex-core-protocol = { path = "crates/nodex-core-protocol" }
 nodex-store-format = { path = "crates/nodex-store-format" }

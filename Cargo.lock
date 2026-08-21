@@ -901,6 +901,7 @@ dependencies = [
  "clap",
  "getrandom",
  "hex",
+ "nodex-core",
  "nodex-core-contracts",
  "nodex-core-protocol",
  "rustix",

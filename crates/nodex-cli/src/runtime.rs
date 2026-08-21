@@ -35,7 +35,8 @@ use serde_json::{Value, json};
 use crate::cli::{
     BackupCommand, BlockArgs, BlockCommand, Cli, Command, DraftArgs, DraftCommand, HistoryArgs,
     OpenArgs, OpenCommand, PageArgs, PageCommand, PageTitleArgs, PageTitleCommand, PrepareKind,
-    ReadArgs, RgArgs, SedArgs, ServiceArgs, ViewArgs, ViewCommand,
+    ProfileArgs, ProfileCloneArgs, ProfileCommand, ReadArgs, RgArgs, SedArgs, ServiceArgs,
+    ViewArgs, ViewCommand,
 };
 use crate::error::{CliError, CliErrorCode};
 
@@ -126,6 +127,13 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             Command::Skills(arguments) => crate::skills::execute_skills(arguments, cli.json),
             _ => unreachable!("guarded by the Skill command match"),
         };
+    }
+    if let Command::Profile(ProfileArgs {
+        command: ProfileCommand::Clone(arguments),
+    }) = &cli.command
+    {
+        reject_profile_clone_scope_flags(&cli)?;
+        return clone_profile(arguments).map(CommandOutput::Json);
     }
     let cwd = env::current_dir().map_err(core_unavailable)?;
     match &cli.command {
@@ -326,6 +334,51 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             "this native CLI command is parsed but not implemented yet",
         )),
     }
+}
+
+fn clone_profile(arguments: &ProfileCloneArgs) -> Result<Value, CliError> {
+    let backup = if arguments.backup == "latest" {
+        nodex_core::administration::ProfileCloneBackupSelection::Latest
+    } else {
+        nodex_core::administration::ProfileCloneBackupSelection::Id(arguments.backup.clone())
+    };
+    let receipt = nodex_core::administration::materialize_profile_clone(
+        nodex_core::administration::ProfileCloneRequest {
+            source_profile_home: arguments.source.clone(),
+            target_profile_home: arguments.target.clone(),
+            backup,
+        },
+    )
+    .map_err(map_profile_clone_error)?;
+    serde_json::to_value(receipt).map_err(internal)
+}
+
+fn reject_profile_clone_scope_flags(cli: &Cli) -> Result<(), CliError> {
+    if cli.profile.is_none()
+        && cli.project.is_none()
+        && cli.database.is_none()
+        && cli.page.is_none()
+    {
+        return Ok(());
+    }
+    Err(CliError::new(
+        CliErrorCode::InvalidInput,
+        "profile clone does not accept Profile, Project, Database, or Page selectors",
+    ))
+}
+
+fn map_profile_clone_error(error: nodex_core::infrastructure::sqlite::StoreError) -> CliError {
+    let code = match error.code {
+        nodex_core::infrastructure::sqlite::StoreErrorCode::AlreadyOwned
+        | nodex_core::infrastructure::sqlite::StoreErrorCode::InvalidInput
+        | nodex_core::infrastructure::sqlite::StoreErrorCode::InvalidProfile
+        | nodex_core::infrastructure::sqlite::StoreErrorCode::NotFound
+        | nodex_core::infrastructure::sqlite::StoreErrorCode::UnsupportedSchema => {
+            CliErrorCode::InvalidInput
+        }
+        _ => CliErrorCode::Internal,
+    };
+    CliError::new(code, error.message)
 }
 
 fn reject_skill_scope_flags(cli: &Cli) -> Result<(), CliError> {

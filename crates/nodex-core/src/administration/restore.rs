@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
@@ -350,7 +351,7 @@ pub(super) fn rotate_installed_store_epoch(
     Ok(())
 }
 
-fn validate_candidate(
+pub(super) fn validate_candidate(
     database_path: &Path,
     assets_root: &Path,
     profile_id: &str,
@@ -358,12 +359,70 @@ fn validate_candidate(
 ) -> Result<String, StoreError> {
     let connection = open_immutable_reader(database_path)?;
     validate_store(&connection)?;
-    validate_codex_thread_timestamp_invariants(&connection)?;
-    validate_restore_documents(&connection)?;
-    validate_identity(&connection, profile_id, library_id)?;
-    validate_document_authorities(&connection)?;
-    validate_assets(&connection, assets_root)?;
-    read_store_epoch(&connection)
+    Ok(validate_candidate_semantics(
+        &connection,
+        assets_root,
+        profile_id,
+        library_id,
+        MissingAssetPolicy::Reject,
+    )?
+    .store_epoch)
+}
+
+pub(super) struct ProfileSnapshotCandidateValidation {
+    pub store_epoch: String,
+    pub store_schema_version: u32,
+    pub missing_managed_asset_count: usize,
+}
+
+/// Validates clone-specific semantics after `backup::copy_backup_to_profile`
+/// has verified the complete copied byte closure against publication evidence.
+pub(super) fn validate_profile_snapshot_candidate(
+    database_path: &Path,
+    assets_root: &Path,
+    profile_id: &str,
+    library_id: &str,
+) -> Result<ProfileSnapshotCandidateValidation, StoreError> {
+    let connection = open_immutable_reader(database_path)?;
+    validate_candidate_semantics(
+        &connection,
+        assets_root,
+        profile_id,
+        library_id,
+        MissingAssetPolicy::Preserve,
+    )
+}
+
+fn validate_candidate_semantics(
+    connection: &Connection,
+    assets_root: &Path,
+    profile_id: &str,
+    library_id: &str,
+    missing_asset_policy: MissingAssetPolicy,
+) -> Result<ProfileSnapshotCandidateValidation, StoreError> {
+    validate_codex_thread_timestamp_invariants(connection)?;
+    validate_restore_documents(connection)?;
+    validate_identity(connection, profile_id, library_id)?;
+    validate_document_authorities(connection)?;
+    let store_schema_version =
+        connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?;
+    let schema_owner = connection
+        .query_row(
+            "SELECT schema_owner FROM core_store_metadata WHERE id = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if schema_owner.as_deref() != Some("rust_core") {
+        return Err(corrupt("Restore candidate Store schema owner is invalid"));
+    }
+    let missing_managed_asset_count =
+        validate_assets(connection, assets_root, missing_asset_policy)?;
+    Ok(ProfileSnapshotCandidateValidation {
+        store_epoch: read_store_epoch(connection)?,
+        store_schema_version,
+        missing_managed_asset_count,
+    })
 }
 
 fn validate_identity(
@@ -510,7 +569,17 @@ fn validate_canvas_projection(
     Ok(())
 }
 
-fn validate_assets(connection: &Connection, assets_root: &Path) -> Result<(), StoreError> {
+#[derive(Clone, Copy)]
+enum MissingAssetPolicy {
+    Reject,
+    Preserve,
+}
+
+fn validate_assets(
+    connection: &Connection,
+    assets_root: &Path,
+    missing_asset_policy: MissingAssetPolicy,
+) -> Result<usize, StoreError> {
     let metadata = fs::symlink_metadata(assets_root).map_err(io_error)?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(corrupt(
@@ -533,6 +602,7 @@ fn validate_assets(connection: &Connection, assets_root: &Path) -> Result<(), St
         }
     }
 
+    let mut missing_assets = BTreeSet::new();
     let block_assets = connection
         .prepare(
             "SELECT DISTINCT asset.asset_uri, asset.asset_hash FROM block_asset_refs asset \
@@ -549,7 +619,16 @@ fn validate_assets(connection: &Connection, assets_root: &Path) -> Result<(), St
     for (asset_uri, expected_hash) in block_assets {
         let file_name = parse_asset_source(&asset_uri)
             .ok_or_else(|| corrupt("Restore candidate contains an invalid managed asset URI"))?;
-        let bytes = read_asset(assets_root, &file_name, None)?;
+        let Some(bytes) = read_asset(
+            assets_root,
+            &file_name,
+            None,
+            missing_asset_policy,
+            &mut missing_assets,
+        )?
+        else {
+            continue;
+        };
         if expected_hash.is_some_and(|expected| sha256(&bytes) != expected) {
             return Err(corrupt(
                 "Restore candidate managed asset hash evidence does not match",
@@ -583,11 +662,16 @@ fn validate_assets(connection: &Connection, assets_root: &Path) -> Result<(), St
                 "Restore candidate Canvas asset projection is invalid",
             ));
         }
-        let bytes = read_asset(
+        let Some(bytes) = read_asset(
             assets_root,
             &managed_file_name,
             Some(MAX_CANVAS_ASSET_BYTES),
-        )?;
+            missing_asset_policy,
+            &mut missing_assets,
+        )?
+        else {
+            continue;
+        };
         if i64::try_from(bytes.len()).ok() != Some(expected_length)
             || sha256(&bytes) != expected_hash
         {
@@ -596,23 +680,33 @@ fn validate_assets(connection: &Connection, assets_root: &Path) -> Result<(), St
             ));
         }
     }
-    Ok(())
+    Ok(missing_assets.len())
 }
 
 fn read_asset(
     assets_root: &Path,
     file_name: &str,
     maximum_bytes: Option<u64>,
-) -> Result<Vec<u8>, StoreError> {
+    missing_asset_policy: MissingAssetPolicy,
+    missing_assets: &mut BTreeSet<String>,
+) -> Result<Option<Vec<u8>>, StoreError> {
     if !safe_asset_file_name(file_name) {
         return Err(corrupt("Restore candidate managed asset name is unsafe"));
     }
     let path = assets_root.join(file_name);
-    let metadata = fs::symlink_metadata(&path).map_err(|_| {
-        corrupt(format!(
-            "Restore candidate is missing managed asset {file_name}"
-        ))
-    })?;
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if matches!(missing_asset_policy, MissingAssetPolicy::Preserve) {
+                missing_assets.insert(file_name.to_owned());
+                return Ok(None);
+            }
+            return Err(corrupt(format!(
+                "Restore candidate is missing managed asset {file_name}"
+            )));
+        }
+        Err(error) => return Err(io_error(error)),
+    };
     if metadata.file_type().is_symlink()
         || !metadata.is_file()
         || maximum_bytes.is_some_and(|maximum| metadata.len() > maximum)
@@ -621,7 +715,7 @@ fn read_asset(
             "Restore candidate managed asset {file_name} is invalid"
         )));
     }
-    fs::read(path).map_err(io_error)
+    fs::read(path).map(Some).map_err(io_error)
 }
 
 fn safe_asset_file_name(value: &str) -> bool {
@@ -634,7 +728,7 @@ fn safe_asset_file_name(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-fn read_store_epoch(connection: &Connection) -> Result<String, StoreError> {
+pub(super) fn read_store_epoch(connection: &Connection) -> Result<String, StoreError> {
     connection
         .query_row(
             "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
@@ -664,4 +758,61 @@ fn io_error(error: std::io::Error) -> StoreError {
         format!("Store restore filesystem operation failed: {error}"),
         false,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn snapshot_asset_validation_preserves_missing_evidence_that_restore_rejects() {
+        let connection = Connection::open_in_memory().expect("asset fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE documents( \
+                   id TEXT NOT NULL, library_id TEXT NOT NULL, generation INTEGER NOT NULL, \
+                   head_seq INTEGER NOT NULL \
+                 ); \
+                 CREATE TABLE block_asset_refs( \
+                   document_id TEXT NOT NULL, library_id TEXT NOT NULL, \
+                   document_generation INTEGER NOT NULL, projected_seq INTEGER NOT NULL, \
+                   asset_uri TEXT NOT NULL, asset_hash TEXT \
+                 ); \
+                 CREATE TABLE canvas_scene_file_refs( \
+                   document_id TEXT NOT NULL, library_id TEXT NOT NULL, \
+                   document_generation INTEGER NOT NULL, file_id TEXT NOT NULL, \
+                   asset_uri TEXT NOT NULL, managed_file_name TEXT NOT NULL, \
+                   asset_hash TEXT NOT NULL, byte_length INTEGER NOT NULL \
+                 ); \
+                 INSERT INTO documents(id, library_id, generation, head_seq) \
+                 VALUES ('document:1', 'library:1', 1, 4); \
+                 INSERT INTO block_asset_refs( \
+                   document_id, library_id, document_generation, projected_seq, \
+                   asset_uri, asset_hash \
+                 ) VALUES ( \
+                   'document:1', 'library:1', 1, 4, \
+                   'nodex://assets/missing.png', NULL \
+                 );",
+            )
+            .expect("asset projection fixture");
+        let assets = tempdir().expect("assets");
+
+        let restore_error = validate_assets(&connection, assets.path(), MissingAssetPolicy::Reject)
+            .expect_err("restore must reject incomplete closure");
+        assert_eq!(restore_error.code, StoreErrorCode::StoreCorrupt);
+
+        assert_eq!(
+            validate_assets(&connection, assets.path(), MissingAssetPolicy::Preserve,)
+                .expect("snapshot preserves missing evidence"),
+            1
+        );
+        fs::write(assets.path().join("missing.png"), b"available").expect("managed asset");
+        assert_eq!(
+            validate_assets(&connection, assets.path(), MissingAssetPolicy::Reject,)
+                .expect("complete restore closure"),
+            0
+        );
+    }
 }

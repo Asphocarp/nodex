@@ -69,7 +69,7 @@ features remain owned by `config.toml`. The former Library workspace and
 Calendar presentation gates were retired with those product surfaces, so they
 are intentionally not accepted as launcher aliases.
 
-`--build` builds an optimized release Core and Browser Profile Helper plus the
+`--build` builds optimized release Core, CLI, and Browser Profile Helper binaries plus the
 Electron application before launching without HMR. The launcher uses those
 release artifacts throughout the application runtime and uses the release Core
 during seed initialization. Without it, the launcher prepares
@@ -116,6 +116,55 @@ The catalog is shared by Core integration and Electron E2E tests. Deterministic
 UI behavior belongs in a dedicated Playwright spec such as
 `tests/e2e/board-dense.spec.ts`; `vp run dev --seed ...` never starts
 Playwright, focuses a Page, or performs assertions.
+
+### Real Profile snapshots
+
+Some defects and performance cliffs only appear with real document shapes,
+long histories, managed assets, or a production-sized Store. For that evidence,
+clone a published backup into a dedicated `runs.local` environment:
+
+```bash
+nodex backup create --label "before local validation"
+vp run dev --home runs.local/real-profile --from-profile ~/.nodex
+```
+
+`--from-profile` never starts Core against the source Profile and never copies a
+live SQLite/WAL pair. The native Core validates the latest assets-inclusive
+published backup, copies its database and managed assets into a private sibling
+staging directory, preserves the imported Store epoch, remints instance
+secrets, verifies the database and deterministic asset-tree digests recorded
+after backup integrity validation, performs clone-specific semantic checks, and
+only then publishes `<home>/.nodex` atomically. Same-volume macOS copies prefer
+APFS copy-on-write. Preserving the imported lineage and reusing published
+integrity evidence avoid replaying LocalCommit history or rescanning every
+SQLite page during provisioning. Existing dangling asset references are
+preserved as part of the real production state and reported by count instead of
+being silently repaired or replaced with synthetic files. Select a specific
+current backup with `--backup <backup-id>` when reproducibility matters; create
+a fresh backup first when the Profile has only an older manifest.
+
+The cloned environment is a normal local development Profile: the app, Agent,
+Terminal, Git, browser, and HMR behave normally against it. Backup contents do
+not include `CODEX_HOME` credentials. Add `--auth-json` or
+`--agent-config-toml` explicitly only when the validation requires those
+capabilities. Remote observability is disabled for a `--from-profile` launch so
+user content remains local by default.
+
+The snapshot is a detached local fork, not a branch that can be merged back.
+Its Store epoch and historical coordinates intentionally match the imported
+backup; new local history may diverge at the same coordinates and must never be
+replayed, synchronized, or exported into the source Profile.
+
+`dev-home.json` and `.nodex/profile-snapshot.json` record immutable backup and
+Store provenance. Reopen the environment with the same command or omit
+`--from-profile`; later edits are preserved. Use another `--home`, or delete the
+old environment after a clean stop, to test a newer backup.
+
+Profile snapshots are local exploratory and production-shape evidence. They
+must not run in CI, be committed, or produce uploaded screenshots, traces,
+databases, assets, or logs containing user content. Convert any durable finding
+into the smallest deterministic scenario or focused regression test that proves
+the behavior without private data.
 
 Build the app:
 

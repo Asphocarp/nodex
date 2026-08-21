@@ -47,6 +47,7 @@ describe("dev launcher", () => {
     ).toEqual({
       home: "runs.local/perf",
       seed: "board/dense",
+      backup: "latest",
       build: true,
       authJson: "/tmp/auth.json",
       agentConfigToml: "/tmp/config.toml",
@@ -61,6 +62,31 @@ describe("dev launcher", () => {
     expect(() => parseDevLauncherArguments(["--resume", "old-session"])).toThrow(
       "Unknown dev option",
     );
+    expect(() =>
+      parseDevLauncherArguments(["--seed", "board/dense", "--from-profile", "/tmp/live"]),
+    ).toThrow("mutually exclusive");
+    expect(() => parseDevLauncherArguments(["--backup", "backup-1"])).toThrow(
+      "requires --from-profile",
+    );
+  });
+
+  test("parses a real Profile snapshot source and disables remote observability", () => {
+    const arguments_ = parseDevLauncherArguments([
+      "--from-profile",
+      "/tmp/live-profile",
+      "--backup",
+      "backup-1",
+    ]);
+    expect(arguments_).toMatchObject({
+      fromProfile: "/tmp/live-profile",
+      backup: "backup-1",
+    });
+    const plan = createDevLaunchPlan({ arguments: arguments_, environment: {}, home: HOME });
+    expect(plan.environment).toMatchObject({
+      NODEX_SENTRY_ENABLED: "false",
+      NODEX_SENTRY_REPLAY_ENABLED: "false",
+      NODEX_TELEMETRY_ENABLED: "false",
+    });
   });
 
   test("selects HMR by default and applies one invocation feature override", () => {

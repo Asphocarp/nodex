@@ -25,6 +25,21 @@ export interface DevelopmentSeedProvenance {
   readonly revision: number;
 }
 
+export interface DevelopmentProfileSnapshotProvenance {
+  readonly sourceProfileHome: string;
+  readonly sourceProfileFingerprint: string;
+  readonly backupIntegrityEvidenceVersion: number;
+  readonly missingManagedAssetCount: number;
+  readonly backupId: string;
+  readonly backupCreatedAt: string;
+  readonly clonedAt: string;
+  readonly storeSchemaVersion: number;
+  readonly sourceStoreEpoch: string;
+  readonly storeEpoch: string;
+  readonly profileId: string;
+  readonly libraryId: string;
+}
+
 export interface DevelopmentHomeManifest {
   readonly version: typeof DEVELOPMENT_HOME_MANIFEST_VERSION;
   readonly environmentId: string;
@@ -32,6 +47,7 @@ export interface DevelopmentHomeManifest {
   readonly createdAt: string;
   readonly initializedAt?: string;
   readonly seed?: DevelopmentSeedProvenance;
+  readonly profileSnapshot?: DevelopmentProfileSnapshotProvenance;
 }
 
 export interface DevelopmentEnvironmentHome {
@@ -71,6 +87,51 @@ const parseSeed = (value: unknown): DevelopmentSeedProvenance | undefined => {
   return { id: value.id, revision: value.revision };
 };
 
+const parseProfileSnapshot = (value: unknown): DevelopmentProfileSnapshotProvenance | undefined => {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    typeof value.sourceProfileHome !== "string" ||
+    !path.isAbsolute(value.sourceProfileHome) ||
+    typeof value.sourceProfileFingerprint !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(value.sourceProfileFingerprint) ||
+    value.backupIntegrityEvidenceVersion !== 1 ||
+    typeof value.missingManagedAssetCount !== "number" ||
+    !Number.isInteger(value.missingManagedAssetCount) ||
+    value.missingManagedAssetCount < 0 ||
+    typeof value.backupId !== "string" ||
+    value.backupId.length === 0 ||
+    typeof value.backupCreatedAt !== "string" ||
+    typeof value.clonedAt !== "string" ||
+    typeof value.storeSchemaVersion !== "number" ||
+    !Number.isInteger(value.storeSchemaVersion) ||
+    typeof value.sourceStoreEpoch !== "string" ||
+    value.sourceStoreEpoch.length === 0 ||
+    typeof value.storeEpoch !== "string" ||
+    value.storeEpoch !== value.sourceStoreEpoch ||
+    typeof value.profileId !== "string" ||
+    value.profileId.length === 0 ||
+    typeof value.libraryId !== "string" ||
+    value.libraryId.length === 0
+  ) {
+    throw new Error("Development home Profile snapshot provenance is invalid");
+  }
+  return {
+    sourceProfileHome: value.sourceProfileHome,
+    sourceProfileFingerprint: value.sourceProfileFingerprint,
+    backupIntegrityEvidenceVersion: value.backupIntegrityEvidenceVersion,
+    missingManagedAssetCount: value.missingManagedAssetCount,
+    backupId: value.backupId,
+    backupCreatedAt: value.backupCreatedAt,
+    clonedAt: value.clonedAt,
+    storeSchemaVersion: value.storeSchemaVersion,
+    sourceStoreEpoch: value.sourceStoreEpoch,
+    storeEpoch: value.storeEpoch,
+    profileId: value.profileId,
+    libraryId: value.libraryId,
+  };
+};
+
 export const parseDevelopmentHomeManifest = (value: unknown): DevelopmentHomeManifest => {
   if (
     !isRecord(value) ||
@@ -84,6 +145,9 @@ export const parseDevelopmentHomeManifest = (value: unknown): DevelopmentHomeMan
   ) {
     throw new Error("Development home manifest is invalid or unsupported");
   }
+  if (value.seed !== undefined && value.profileSnapshot !== undefined) {
+    throw new Error("Development home cannot contain both seed and Profile snapshot provenance");
+  }
   return {
     version: DEVELOPMENT_HOME_MANIFEST_VERSION,
     environmentId: value.environmentId,
@@ -91,6 +155,9 @@ export const parseDevelopmentHomeManifest = (value: unknown): DevelopmentHomeMan
     createdAt: value.createdAt,
     ...(value.initializedAt === undefined ? {} : { initializedAt: value.initializedAt }),
     ...(value.seed === undefined ? {} : { seed: parseSeed(value.seed) }),
+    ...(value.profileSnapshot === undefined
+      ? {}
+      : { profileSnapshot: parseProfileSnapshot(value.profileSnapshot) }),
   };
 };
 
@@ -170,6 +237,7 @@ export const resolveDevelopmentHomeRoot = (
 export const openDevelopmentEnvironmentHome = async (input: {
   readonly repositoryRoot: string;
   readonly home?: string;
+  readonly initializeProfileHome?: boolean;
 }): Promise<DevelopmentEnvironmentHome> => {
   const repositoryRealpath = await realpath(input.repositoryRoot);
   const requestedRoot = resolveDevelopmentHomeRoot(repositoryRealpath, input.home);
@@ -229,16 +297,24 @@ export const openDevelopmentEnvironmentHome = async (input: {
   const home = descriptor(root, repositoryRealpath, manifest, wasCreated);
   try {
     await Promise.all([
-      mkdir(home.nodexHome, { recursive: true, mode: 0o700 }),
-      mkdir(home.codexHome, { recursive: true, mode: 0o700 }),
       mkdir(home.workspace, { recursive: true, mode: 0o700 }),
       mkdir(home.artifacts, { recursive: true, mode: 0o700 }),
     ]);
+    if (input.initializeProfileHome ?? true) {
+      await ensureDevelopmentProfileDirectories(home);
+    }
     return home;
   } catch (error) {
     if (wasCreated) await rm(root, { force: true, recursive: true });
     throw error;
   }
+};
+
+export const ensureDevelopmentProfileDirectories = async (
+  home: DevelopmentEnvironmentHome,
+): Promise<void> => {
+  await mkdir(home.nodexHome, { recursive: true, mode: 0o700 });
+  await mkdir(home.codexHome, { recursive: true, mode: 0o700 });
 };
 
 export const refreshDevelopmentEnvironmentHome = async (
@@ -257,9 +333,17 @@ export const refreshDevelopmentEnvironmentHome = async (
 
 export const markDevelopmentEnvironmentInitialized = async (
   home: DevelopmentEnvironmentHome,
-  seed?: DevelopmentSeedProvenance,
+  provenance?:
+    | { readonly kind: "seed"; readonly seed: DevelopmentSeedProvenance }
+    | {
+        readonly kind: "profileSnapshot";
+        readonly profileSnapshot: DevelopmentProfileSnapshotProvenance;
+      },
 ): Promise<DevelopmentEnvironmentHome> => {
   const current = await refreshDevelopmentEnvironmentHome(home);
+  const seed = provenance?.kind === "seed" ? provenance.seed : undefined;
+  const profileSnapshot =
+    provenance?.kind === "profileSnapshot" ? provenance.profileSnapshot : undefined;
   if (
     seed &&
     current.manifest.seed &&
@@ -267,13 +351,27 @@ export const markDevelopmentEnvironmentInitialized = async (
   ) {
     throw new Error("Development home seed provenance is immutable");
   }
+  if ((seed && current.manifest.profileSnapshot) || (profileSnapshot && current.manifest.seed)) {
+    throw new Error("Development home data source is immutable");
+  }
   if (seed && current.manifest.initializedAt && !current.manifest.seed) {
     throw new Error("Initialized development home cannot gain seed provenance");
+  }
+  if (
+    profileSnapshot &&
+    current.manifest.profileSnapshot &&
+    JSON.stringify(current.manifest.profileSnapshot) !== JSON.stringify(profileSnapshot)
+  ) {
+    throw new Error("Development home Profile snapshot provenance is immutable");
+  }
+  if (profileSnapshot && current.manifest.initializedAt && !current.manifest.profileSnapshot) {
+    throw new Error("Initialized development home cannot gain Profile snapshot provenance");
   }
   const manifest: DevelopmentHomeManifest = {
     ...current.manifest,
     initializedAt: current.manifest.initializedAt ?? new Date().toISOString(),
     ...(seed === undefined ? {} : { seed }),
+    ...(profileSnapshot === undefined ? {} : { profileSnapshot }),
   };
   await replaceManifest(home.manifestPath, manifest);
   return { ...home, manifest };
@@ -307,6 +405,7 @@ export const updateDevelopmentAgentFiles = async (
   home: DevelopmentEnvironmentHome,
   input: { readonly authJson?: string; readonly agentConfigToml?: string },
 ): Promise<void> => {
+  await mkdir(home.codexHome, { recursive: true, mode: 0o700 });
   if (input.authJson) {
     const source = await requireRegularSource(input.authJson, "--auth-json");
     await installPrivateFile(path.join(home.codexHome, "auth.json"), async (target) => {

@@ -1,5 +1,6 @@
 mod backup;
 mod operation_journal;
+mod profile_clone;
 mod restore;
 
 #[cfg(test)]
@@ -42,6 +43,11 @@ use crate::infrastructure::store_replacement::{
     StoreReplacementPhase, cleanup_store_replacement, read_store_replacement_journal,
 };
 use crate::infrastructure::writer::{StoreMaintenance, StoreReaders, StoreWriter};
+
+pub use profile_clone::{
+    ProfileCloneBackupSelection, ProfileCloneReceipt, ProfileCloneRequest,
+    materialize_profile_clone,
+};
 
 const MODULE_NAME: &str = "store_administration";
 const MAX_OPERATION_ID_BYTES: usize = 512;

@@ -1,5 +1,6 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use nodex_core_contracts::administration::{BackupRecord, BackupTrigger};
@@ -15,13 +16,16 @@ use crate::infrastructure::store_validation::{
     validate_codex_thread_timestamp_invariants, validate_database_priority_invariants,
 };
 
-const BACKUP_MANIFEST_VERSION: u32 = 2;
+const BACKUP_MANIFEST_VERSION: u32 = 3;
+const BACKUP_INTEGRITY_EVIDENCE_VERSION: u32 = 1;
 const BACKUP_DATABASE_FILE_NAME: &str = "nodex.db";
 const BACKUP_ASSETS_DIRECTORY_NAME: &str = "assets";
 const BACKUP_MANIFEST_FILE_NAME: &str = "manifest.json";
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_BACKUP_ENTRIES: usize = 10_000;
 const MAX_BACKUP_TREE_ENTRIES: usize = 100_000;
+const DIGEST_BUFFER_BYTES: usize = 1024 * 1024;
+const ASSET_TREE_DIGEST_DOMAIN: &[u8] = b"nodex-backup-asset-tree-v1\0";
 
 pub(super) struct BackupInventoryItem {
     pub record: BackupRecord,
@@ -31,6 +35,50 @@ pub(super) struct BackupInventoryItem {
 pub(super) struct ValidatedRestoreBackup {
     directory: PathBuf,
     manifest: BackupManifest,
+}
+
+pub(super) struct EvidenceBackedProfileClone {
+    directory: PathBuf,
+    manifest: BackupManifest,
+}
+
+impl EvidenceBackedProfileClone {
+    pub(super) fn backup_id(&self) -> &str {
+        &self.manifest.id
+    }
+
+    pub(super) fn created_at(&self) -> &str {
+        &self.manifest.created_at
+    }
+
+    pub(super) fn store_schema_version(&self) -> u32 {
+        self.manifest
+            .store_schema_version
+            .expect("evidence-backed backups have a schema version")
+    }
+
+    pub(super) fn store_epoch(&self) -> &str {
+        self.manifest
+            .store_epoch
+            .as_deref()
+            .expect("evidence-backed backups have a Store epoch")
+    }
+
+    pub(super) fn integrity_evidence_version(&self) -> u32 {
+        self.manifest
+            .integrity_evidence
+            .as_ref()
+            .expect("evidence-backed Profile clone has integrity evidence")
+            .version
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupIntegrityEvidence {
+    version: u32,
+    database_sha256: String,
+    asset_tree_sha256: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -52,6 +100,8 @@ struct BackupManifest {
     total_bytes: u64,
     store_schema_version: Option<u32>,
     store_epoch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    integrity_evidence: Option<BackupIntegrityEvidence>,
     #[serde(skip_serializing_if = "Option::is_none")]
     core_operation_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -368,17 +418,29 @@ fn stage_backup(
     connection.backup(MAIN_DB, &database_path, None)?;
     sync_file(&database_path)?;
 
+    let assets_directory = staging_directory.join(BACKUP_ASSETS_DIRECTORY_NAME);
     let assets_bytes = if include_assets {
-        let destination = staging_directory.join(BACKUP_ASSETS_DIRECTORY_NAME);
         copy_assets(
             &profile_home.join(BACKUP_ASSETS_DIRECTORY_NAME),
-            &destination,
+            &assets_directory,
+            CopyDurability::Durable,
         )?
     } else {
         0
     };
     let (store_schema_version, store_epoch) = validate_backup_database(&database_path)?;
     let db_bytes = regular_file_length(&database_path)?;
+    let database_sha256 = sha256_regular_file(&database_path)?;
+    let (digested_asset_bytes, asset_tree_sha256) = if include_assets {
+        digest_asset_tree(&assets_directory)?
+    } else {
+        (0, empty_asset_tree_sha256())
+    };
+    if digested_asset_bytes != assets_bytes {
+        return Err(corrupt(
+            "Backup asset tree changed while integrity evidence was created",
+        ));
+    }
     let created_at =
         connection.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
             row.get::<_, String>(0)
@@ -397,12 +459,19 @@ fn stage_backup(
             .ok_or_else(|| internal("Backup byte length exceeds the supported range"))?,
         store_schema_version: Some(store_schema_version),
         store_epoch: Some(store_epoch),
+        integrity_evidence: Some(BackupIntegrityEvidence {
+            version: BACKUP_INTEGRITY_EVIDENCE_VERSION,
+            database_sha256,
+            asset_tree_sha256,
+        }),
         core_operation_id: Some(operation_id.to_owned()),
         core_request_hash: Some(request_hash.to_owned()),
     };
     validate_manifest(&manifest)?;
     write_manifest(staging_directory, &manifest)?;
-    sync_tree(staging_directory)?;
+    // The database, manifest, asset files, and nested asset directories were
+    // already synced by their writers; persist only the staging entries here.
+    sync_directory(staging_directory)?;
     Ok(to_record(&manifest))
 }
 
@@ -454,6 +523,131 @@ pub(super) fn resolve_backup_for_restore(
     })
 }
 
+pub(super) fn resolve_backup_for_profile_clone(
+    profile_home: &Path,
+    backup_id: Option<&str>,
+) -> Result<EvidenceBackedProfileClone, StoreError> {
+    let selected = match backup_id {
+        Some(backup_id) => backup_id.to_owned(),
+        None => list_backup_inventory(profile_home)?
+            .into_iter()
+            .find(|item| {
+                item.record.includes_assets && item.record.version == BACKUP_MANIFEST_VERSION
+            })
+            .map(|item| item.record.backup_id)
+            .ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::NotFound,
+                    "Profile has no current evidence-backed backup to clone; create a new backup",
+                    false,
+                )
+            })?,
+    };
+    validate_evidence_backed_profile_clone(profile_home, &selected)
+}
+
+fn validate_evidence_backed_profile_clone(
+    profile_home: &Path,
+    backup_id: &str,
+) -> Result<EvidenceBackedProfileClone, StoreError> {
+    if !is_safe_backup_id(backup_id) {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Profile clone backup identity is invalid",
+            false,
+        ));
+    }
+    let root = profile_home.join("backups");
+    require_directory(&root, "Backup root")?;
+    let directory = root.join(backup_id);
+    if !directory.exists() {
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Profile clone backup was not found",
+            false,
+        ));
+    }
+    require_directory(&directory, "Published backup")?;
+    let manifest = read_manifest(&directory)?;
+    validate_manifest(&manifest)?;
+    if manifest.id != backup_id {
+        return Err(corrupt(
+            "Published backup manifest identity does not match its directory",
+        ));
+    }
+    if manifest.version != BACKUP_MANIFEST_VERSION || manifest.integrity_evidence.is_none() {
+        return Err(StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "Profile clone requires a current evidence-backed backup; create a new backup",
+            false,
+        ));
+    }
+    let database_path = directory.join(BACKUP_DATABASE_FILE_NAME);
+    if manifest.db_bytes != regular_file_length(&database_path)? {
+        return Err(corrupt(
+            "Published backup manifest does not match its database length",
+        ));
+    }
+    let assets_directory = directory.join(BACKUP_ASSETS_DIRECTORY_NAME);
+    let asset_bytes = if manifest.includes_assets {
+        inspect_assets(&assets_directory)?
+    } else {
+        0
+    };
+    if manifest.assets_bytes != asset_bytes
+        || manifest.total_bytes != manifest.db_bytes.saturating_add(asset_bytes)
+    {
+        return Err(corrupt("Published backup manifest byte counts are invalid"));
+    }
+    Ok(EvidenceBackedProfileClone {
+        directory,
+        manifest,
+    })
+}
+
+pub(super) fn copy_backup_to_profile(
+    backup: &EvidenceBackedProfileClone,
+    profile_home: &Path,
+) -> Result<(), StoreError> {
+    require_directory(profile_home, "Profile clone staging root")?;
+    let database = profile_home.join(BACKUP_DATABASE_FILE_NAME);
+    let database_bytes = clone_or_copy_file(
+        &backup.directory.join(BACKUP_DATABASE_FILE_NAME),
+        &database,
+        CopyDurability::Rebuildable,
+    )?;
+
+    let assets = profile_home.join(BACKUP_ASSETS_DIRECTORY_NAME);
+    let asset_bytes = if backup.manifest.includes_assets {
+        copy_assets(
+            &backup.directory.join(BACKUP_ASSETS_DIRECTORY_NAME),
+            &assets,
+            CopyDurability::Rebuildable,
+        )?
+    } else {
+        fs::create_dir(&assets).map_err(io_error)?;
+        0
+    };
+    let evidence = backup
+        .manifest
+        .integrity_evidence
+        .as_ref()
+        .expect("evidence-backed Profile clone has integrity evidence");
+    let database_sha256 = sha256_regular_file(&database)?;
+    let (digested_asset_bytes, asset_tree_sha256) = digest_asset_tree(&assets)?;
+    if backup.manifest.db_bytes != database_bytes
+        || backup.manifest.assets_bytes != asset_bytes
+        || asset_bytes != digested_asset_bytes
+        || evidence.database_sha256 != database_sha256
+        || evidence.asset_tree_sha256 != asset_tree_sha256
+    {
+        return Err(corrupt(
+            "Profile clone staging files diverge from published integrity evidence",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn stage_restore_candidate(
     profile_home: &Path,
     backup: &ValidatedRestoreBackup,
@@ -467,13 +661,17 @@ pub(super) fn stage_restore_candidate(
     fs::create_dir(&staging).map_err(io_error)?;
     let result = (|| {
         let database = staging.join(BACKUP_DATABASE_FILE_NAME);
-        fs::copy(backup.directory.join(BACKUP_DATABASE_FILE_NAME), &database).map_err(io_error)?;
-        sync_file(&database)?;
+        clone_or_copy_file(
+            &backup.directory.join(BACKUP_DATABASE_FILE_NAME),
+            &database,
+            CopyDurability::Durable,
+        )?;
         let assets = staging.join(BACKUP_ASSETS_DIRECTORY_NAME);
         if backup.manifest.includes_assets {
             copy_assets(
                 &backup.directory.join(BACKUP_ASSETS_DIRECTORY_NAME),
                 &assets,
+                CopyDurability::Durable,
             )?;
         } else {
             fs::create_dir(&assets).map_err(io_error)?;
@@ -515,7 +713,19 @@ fn validate_published_backup(
         ));
     }
     let database_path = directory.join(BACKUP_DATABASE_FILE_NAME);
-    let (schema_version, store_epoch) = validate_backup_database(&database_path)?;
+    let (schema_version, store_epoch) = if manifest.integrity_evidence.is_some() {
+        (
+            manifest
+                .store_schema_version
+                .expect("evidence-backed backup has a schema version"),
+            manifest
+                .store_epoch
+                .clone()
+                .expect("evidence-backed backup has a Store epoch"),
+        )
+    } else {
+        validate_backup_database(&database_path)?
+    };
     if manifest.store_schema_version != Some(schema_version)
         || manifest.store_epoch.as_deref() != Some(store_epoch.as_str())
         || manifest.db_bytes != regular_file_length(&database_path)?
@@ -524,8 +734,9 @@ fn validate_published_backup(
             "Published backup manifest does not match its database",
         ));
     }
+    let assets_directory = directory.join(BACKUP_ASSETS_DIRECTORY_NAME);
     let asset_bytes = if manifest.includes_assets {
-        inspect_assets(&directory.join(BACKUP_ASSETS_DIRECTORY_NAME))?
+        inspect_assets(&assets_directory)?
     } else {
         0
     };
@@ -533,6 +744,22 @@ fn validate_published_backup(
         || manifest.total_bytes != manifest.db_bytes.saturating_add(asset_bytes)
     {
         return Err(corrupt("Published backup manifest byte counts are invalid"));
+    }
+    if let Some(evidence) = &manifest.integrity_evidence {
+        let database_sha256 = sha256_regular_file(&database_path)?;
+        let (digested_asset_bytes, asset_tree_sha256) = if manifest.includes_assets {
+            digest_asset_tree(&assets_directory)?
+        } else {
+            (0, empty_asset_tree_sha256())
+        };
+        if digested_asset_bytes != manifest.assets_bytes
+            || database_sha256 != evidence.database_sha256
+            || asset_tree_sha256 != evidence.asset_tree_sha256
+        {
+            return Err(corrupt(
+                "Published backup diverges from its integrity evidence",
+            ));
+        }
     }
     Ok(manifest)
 }
@@ -591,12 +818,38 @@ fn prepare_backup_root(profile_home: &Path) -> Result<PathBuf, StoreError> {
     Ok(root)
 }
 
-fn copy_assets(source: &Path, destination: &Path) -> Result<u64, StoreError> {
+#[derive(Clone, Copy)]
+enum CopyDurability {
+    Durable,
+    Rebuildable,
+}
+
+fn clone_or_copy_file(
+    source: &Path,
+    destination: &Path,
+    durability: CopyDurability,
+) -> Result<u64, StoreError> {
+    // With the pinned Rust toolchain, std::fs::copy tries fclonefileat first on
+    // macOS and falls back to fcopyfile when CoW is unavailable or cross-volume.
+    let bytes = fs::copy(source, destination).map_err(io_error)?;
+    if matches!(durability, CopyDurability::Durable) {
+        sync_file(destination)?;
+    }
+    Ok(bytes)
+}
+
+fn copy_assets(
+    source: &Path,
+    destination: &Path,
+    durability: CopyDurability,
+) -> Result<u64, StoreError> {
     let metadata = match fs::symlink_metadata(source) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             fs::create_dir(destination).map_err(io_error)?;
-            sync_directory(destination)?;
+            if matches!(durability, CopyDurability::Durable) {
+                sync_directory(destination)?;
+            }
             return Ok(0);
         }
         Err(error) => return Err(io_error(error)),
@@ -607,10 +860,18 @@ fn copy_assets(source: &Path, destination: &Path) -> Result<u64, StoreError> {
         ));
     }
     fs::create_dir(destination).map_err(io_error)?;
-    copy_directory(source, destination)
+    let bytes = copy_directory(source, destination, durability)?;
+    if matches!(durability, CopyDurability::Durable) {
+        sync_directory(destination)?;
+    }
+    Ok(bytes)
 }
 
-fn copy_directory(source: &Path, destination: &Path) -> Result<u64, StoreError> {
+fn copy_directory(
+    source: &Path,
+    destination: &Path,
+    durability: CopyDurability,
+) -> Result<u64, StoreError> {
     let mut entries = fs::read_dir(source)
         .map_err(io_error)?
         .collect::<Result<Vec<_>, _>>()
@@ -629,9 +890,11 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<u64, StoreError> 
         if metadata.is_dir() {
             fs::create_dir(&destination_path).map_err(io_error)?;
             total = total
-                .checked_add(copy_directory(&source_path, &destination_path)?)
+                .checked_add(copy_directory(&source_path, &destination_path, durability)?)
                 .ok_or_else(|| internal("Managed asset byte length exceeds its bound"))?;
-            sync_directory(&destination_path)?;
+            if matches!(durability, CopyDurability::Durable) {
+                sync_directory(&destination_path)?;
+            }
             continue;
         }
         if !metadata.is_file() {
@@ -639,8 +902,7 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<u64, StoreError> 
                 "Managed assets may contain only regular files and directories",
             ));
         }
-        fs::copy(&source_path, &destination_path).map_err(io_error)?;
-        sync_file(&destination_path)?;
+        clone_or_copy_file(&source_path, &destination_path, durability)?;
         total = total
             .checked_add(metadata.len())
             .ok_or_else(|| internal("Managed asset byte length exceeds its bound"))?;
@@ -651,6 +913,122 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<u64, StoreError> 
 fn inspect_assets(root: &Path) -> Result<u64, StoreError> {
     require_directory(root, "Backup assets")?;
     inspect_directory(root)
+}
+
+fn sha256_regular_file(path: &Path) -> Result<String, StoreError> {
+    let metadata = fs::symlink_metadata(path).map_err(io_error)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(corrupt("Backup integrity evidence requires a regular file"));
+    }
+    let mut file = File::open(path).map_err(io_error)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; DIGEST_BUFFER_BYTES];
+    let mut bytes_read = 0_u64;
+    loop {
+        let count = file.read(&mut buffer).map_err(io_error)?;
+        if count == 0 {
+            break;
+        }
+        bytes_read = bytes_read
+            .checked_add(u64::try_from(count).map_err(|_| internal("Digest read is too large"))?)
+            .ok_or_else(|| internal("Digest byte length exceeds its bound"))?;
+        hasher.update(&buffer[..count]);
+    }
+    if bytes_read != metadata.len() {
+        return Err(corrupt(
+            "Backup file changed while integrity evidence was computed",
+        ));
+    }
+    Ok(hex(&hasher.finalize()))
+}
+
+fn empty_asset_tree_sha256() -> String {
+    hex(&Sha256::digest(ASSET_TREE_DIGEST_DOMAIN))
+}
+
+fn digest_asset_tree(root: &Path) -> Result<(u64, String), StoreError> {
+    require_directory(root, "Backup assets")?;
+    let mut hasher = Sha256::new();
+    hasher.update(ASSET_TREE_DIGEST_DOMAIN);
+    let mut inspected = 0_usize;
+    let mut buffer = vec![0_u8; DIGEST_BUFFER_BYTES];
+    let bytes = digest_asset_directory(root, root, &mut hasher, &mut inspected, &mut buffer)?;
+    Ok((bytes, hex(&hasher.finalize())))
+}
+
+fn digest_asset_directory(
+    root: &Path,
+    directory: &Path,
+    hasher: &mut Sha256,
+    inspected: &mut usize,
+    buffer: &mut [u8],
+) -> Result<u64, StoreError> {
+    let mut entries = fs::read_dir(directory)
+        .map_err(io_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(io_error)?;
+    entries.sort_by_key(fs::DirEntry::file_name);
+    let mut total = 0_u64;
+    for entry in entries {
+        *inspected = inspected
+            .checked_add(1)
+            .ok_or_else(|| corrupt("Backup asset tree exceeds its entry bound"))?;
+        if *inspected > MAX_BACKUP_TREE_ENTRIES {
+            return Err(corrupt("Backup asset tree exceeds its entry bound"));
+        }
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path).map_err(io_error)?;
+        if metadata.file_type().is_symlink() {
+            return Err(corrupt("Backup assets contain a symbolic link"));
+        }
+        let relative = path
+            .strip_prefix(root)
+            .map_err(|_| internal("Backup asset escaped its digest root"))?;
+        let relative_bytes = relative.as_os_str().as_bytes();
+        let relative_length = u64::try_from(relative_bytes.len())
+            .map_err(|_| internal("Backup asset path exceeds its digest bound"))?;
+        if metadata.is_dir() {
+            hasher.update(b"d");
+            hasher.update(relative_length.to_be_bytes());
+            hasher.update(relative_bytes);
+            total = total
+                .checked_add(digest_asset_directory(
+                    root, &path, hasher, inspected, buffer,
+                )?)
+                .ok_or_else(|| corrupt("Backup asset byte length exceeds its bound"))?;
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(corrupt("Backup assets contain a non-file filesystem entry"));
+        }
+        hasher.update(b"f");
+        hasher.update(relative_length.to_be_bytes());
+        hasher.update(relative_bytes);
+        hasher.update(metadata.len().to_be_bytes());
+        let mut file = File::open(&path).map_err(io_error)?;
+        let mut file_bytes = 0_u64;
+        loop {
+            let count = file.read(buffer).map_err(io_error)?;
+            if count == 0 {
+                break;
+            }
+            file_bytes = file_bytes
+                .checked_add(
+                    u64::try_from(count).map_err(|_| internal("Digest read is too large"))?,
+                )
+                .ok_or_else(|| corrupt("Backup asset byte length exceeds its bound"))?;
+            hasher.update(&buffer[..count]);
+        }
+        if file_bytes != metadata.len() {
+            return Err(corrupt(
+                "Backup asset changed while integrity evidence was computed",
+            ));
+        }
+        total = total
+            .checked_add(file_bytes)
+            .ok_or_else(|| corrupt("Backup asset byte length exceeds its bound"))?;
+    }
+    Ok(total)
 }
 
 fn inspect_directory(root: &Path) -> Result<u64, StoreError> {
@@ -777,8 +1155,20 @@ fn read_manifest(directory: &Path) -> Result<BackupManifest, StoreError> {
 }
 
 fn validate_manifest(manifest: &BackupManifest) -> Result<(), StoreError> {
+    let valid_integrity_evidence = match (&manifest.integrity_evidence, manifest.version) {
+        (None, 1 | 2) => true,
+        (Some(evidence), BACKUP_MANIFEST_VERSION) => {
+            evidence.version == BACKUP_INTEGRITY_EVIDENCE_VERSION
+                && is_sha256(&evidence.database_sha256)
+                && is_sha256(&evidence.asset_tree_sha256)
+                && (manifest.includes_assets
+                    || evidence.asset_tree_sha256 == empty_asset_tree_sha256())
+        }
+        _ => false,
+    };
     if manifest.version == 0
         || manifest.version > BACKUP_MANIFEST_VERSION
+        || !valid_integrity_evidence
         || !is_safe_backup_id(&manifest.id)
         || chrono::DateTime::parse_from_rfc3339(&manifest.created_at).is_err()
         || !matches!(manifest.trigger.as_str(), "manual" | "auto" | "pre-restore")
@@ -794,6 +1184,9 @@ fn validate_manifest(manifest: &BackupManifest) -> Result<(), StoreError> {
             .core_request_hash
             .as_ref()
             .is_some_and(|request_hash| !is_sha256(request_hash))
+        || (manifest.version == BACKUP_MANIFEST_VERSION
+            && (manifest.store_schema_version.is_none()
+                || manifest.store_epoch.as_ref().is_none_or(String::is_empty)))
     {
         return Err(corrupt("Backup manifest fields are invalid"));
     }

@@ -88,6 +88,18 @@ content, saved View queries, immutable snapshot search, explicit local drafts,
 semantic Page/Block mutations, backup/doctor operations, deep links, and
 optional Core prewarming.
 
+`profile clone` is the global offline provisioning operation for local
+production-shape testing. It accepts a source Profile home only to select a
+published Core backup, requires a new target Profile home, and returns exact
+backup and Store provenance plus the count of managed asset references already
+missing from that backup. The selected backup must carry current publication
+evidence for its database and asset-tree digests. The resulting local fork
+verifies the copied closure, preserves the backup's Store epoch instead of
+replaying immutable history, remints instance secrets, and is not mergeable with
+the source Profile. Because no target Core exists yet, the native CLI invokes
+the Core Administration materializer in-process; it cannot read a live Store or
+perform ordinary semantic operations through that exception.
+
 At human selector boundaries, a Page may be addressed by canonical `@pageId`,
 an authorized current or historical Page key, or an exact supported title path.
 Core resolves aliases inside the selected Project before the CLI calls the

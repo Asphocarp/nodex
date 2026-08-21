@@ -443,6 +443,31 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
         .expect("backed-up asset"),
         b"managed asset"
     );
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            fixture
+                .home()
+                .join("backups")
+                .join(&backup_id)
+                .join("manifest.json"),
+        )
+        .expect("backup manifest"),
+    )
+    .expect("valid backup manifest");
+    assert_eq!(manifest["version"], 3);
+    assert_eq!(manifest["integrityEvidence"]["version"], 1);
+    assert_eq!(
+        manifest["integrityEvidence"]["databaseSha256"]
+            .as_str()
+            .map(str::len),
+        Some(64)
+    );
+    assert_eq!(
+        manifest["integrityEvidence"]["assetTreeSha256"]
+            .as_str()
+            .map(str::len),
+        Some(64)
+    );
 
     let second = fixture.create_backup(
         "administration:create-backup:1",
@@ -459,7 +484,7 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
     };
     assert_eq!(backups.items.len(), 1);
     assert_eq!(backups.items[0].backup_id, backup_id);
-    assert_eq!(backups.items[0].version, 2);
+    assert_eq!(backups.items[0].version, 3);
     assert_eq!(backups.items[0].trigger, BackupTrigger::Manual);
     assert_eq!(backups.items[0].label.as_deref(), Some("before refactor"));
     assert!(backups.items[0].includes_assets);

@@ -49,9 +49,32 @@ pub enum Command {
     Block(BlockArgs),
     History(HistoryArgs),
     Backup(BackupArgs),
+    Profile(ProfileArgs),
     Doctor(DoctorArgs),
     Draft(DraftArgs),
     Service(ServiceArgs),
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct ProfileArgs {
+    #[command(subcommand)]
+    pub command: ProfileCommand,
+}
+
+#[derive(Clone, Debug, PartialEq, Subcommand)]
+pub enum ProfileCommand {
+    /// Clone a published backup into a new local Profile home.
+    Clone(ProfileCloneArgs),
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct ProfileCloneArgs {
+    #[arg(long = "from", value_name = "PROFILE_HOME")]
+    pub source: PathBuf,
+    #[arg(long = "to", value_name = "PROFILE_HOME")]
+    pub target: PathBuf,
+    #[arg(long, default_value = "latest", value_name = "BACKUP_ID_OR_LATEST")]
+    pub backup: String,
 }
 
 #[derive(Clone, Debug, Args, PartialEq)]
