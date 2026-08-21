@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
+import type { BlockTransferReceipt } from "../../../../shared/block-transfer";
 import {
   BlockDragSessionCoordinator,
   blockTransferDropLabel,
@@ -8,6 +9,8 @@ import {
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   parseBlockTransferDragPayload,
   resolveCrossSurfaceTransferMode,
+  summarizeBlockPagePromotionPreview,
+  summarizeBlockPagePromotionReceipt,
   shouldBlockNoteYieldManagedDrag,
 } from "./cross-surface-drag";
 
@@ -55,6 +58,63 @@ describe("cross-surface Block transfer drag", () => {
   test("recognizes Database owners as unsupported generic drag sources", () => {
     expect(containsDatabaseBlockDrag({ displayHints: ["database"] })).toBe(true);
     expect(containsDatabaseBlockDrag({ displayHints: ["page", "paragraph"] })).toBe(false);
+  });
+
+  test("summarizes only actual shorthand candidates from Core evidence", () => {
+    const receipt = {
+      transformationEvidence: [
+        { promotion: { kind: "preserved", grammarVersion: 1, reason: "malformed_shorthand" } },
+        { promotion: { kind: "no_match" } },
+        {
+          promotion: {
+            kind: "applied",
+            grammarVersion: 1,
+            priorityOptionId: "p1-high",
+            estimateOptionId: null,
+            tagOptionIds: [],
+            tagNames: [],
+            createdTagOptionIds: [],
+          },
+        },
+      ],
+    } as unknown as BlockTransferReceipt;
+
+    expect(summarizeBlockPagePromotionReceipt(receipt)).toEqual({
+      tone: "info",
+      message: "1 of 2 shorthand prefix wasn't applied; titles were kept.",
+    });
+    expect(
+      summarizeBlockPagePromotionReceipt({
+        transformationEvidence: [{ promotion: { kind: "no_match" } }],
+      } as unknown as BlockTransferReceipt),
+    ).toBeNull();
+  });
+
+  test("describes Block promotion and shorthand from the window-local drag session", () => {
+    expect(
+      summarizeBlockPagePromotionPreview({
+        mode: "move",
+        rootCount: 1,
+        hints: [{ rootBlockId: "block-a", priority: 1, estimate: "XL", tagCount: 2 }],
+        literal: false,
+      }),
+    ).toBe("Move as Page · P1 · XL · 2 tags");
+    expect(
+      summarizeBlockPagePromotionPreview({
+        mode: "copy",
+        rootCount: 2,
+        hints: [],
+        literal: false,
+      }),
+    ).toBe("Copy 2 as Pages");
+    expect(
+      summarizeBlockPagePromotionPreview({
+        mode: "copy",
+        rootCount: 2,
+        hints: [],
+        literal: true,
+      }),
+    ).toBe("Copy 2 as Pages · Literal");
   });
 
   test("compiles an editor session into one Database-parent transfer", () => {
@@ -146,6 +206,12 @@ describe("cross-surface Block transfer drag", () => {
       sourceSurfaceId: "surface-a",
       rootBlockIds: ["block-a"],
     });
+    const protectedTransfer = {
+      types,
+      getData: () => "",
+    };
+    expect(coordinator.resolve(protectedTransfer)).toEqual(session);
+    expect(coordinator.resolveDrop(protectedTransfer)).toBeNull();
     expect(coordinator.resolveDrop(transfer)).toEqual(session);
     values.set(
       NODEX_BLOCK_TRANSFER_DRAG_MIME,

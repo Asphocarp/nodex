@@ -17,7 +17,7 @@ import {
   registerLocalBlockDragDropTarget,
   releaseLocalBlockDragDropTarget,
   resolveLocalBlockDragDropSession,
-  resolveLocalBlockDragSession,
+  resolveLocalBlockDragOverSession,
   resolveCrossSurfaceTransferMode,
 } from "../../workbench/block-transfer/cross-surface-drag";
 import type { LibraryPageInsertion } from "../../../../shared/library-module";
@@ -334,7 +334,7 @@ export const setupBlockTransferDocumentDrop = (
   });
 
   const resolveManagedSession = (event: DragEvent) => {
-    const session = resolveLocalBlockDragSession(event.dataTransfer);
+    const session = resolveLocalBlockDragOverSession(event.dataTransfer);
     if (!session) return null;
     if (
       !claimLocalBlockDragDropTarget({
@@ -409,7 +409,7 @@ export const setupBlockTransferDocumentDrop = (
     updateIndicator(event.clientX, event.clientY, event.altKey);
   };
   const onNativeDragLeave = (event: DragEvent) => {
-    if (!resolveLocalBlockDragSession(event.dataTransfer)) return;
+    if (!resolveLocalBlockDragOverSession(event.dataTransfer)) return;
     const next = event.relatedTarget;
     if (next instanceof Node && container.contains(next)) return;
     releaseLocalBlockDragDropTarget(boundary.surfaceId);

@@ -148,8 +148,11 @@ import {
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   resolveCrossSurfaceTransferMode,
   resolveLocalBlockDragDropSession,
+  resolveLocalBlockDragOverSession,
   shouldHandleNativeCrossSurfaceDrag,
+  summarizeBlockPagePromotionPreview,
 } from "../block-transfer/cross-surface-drag";
+import { readTaskShorthandPagePromotionEnabled } from "@/lib/page-promotion-preference";
 import { commitDatabaseViewBlockDrop } from "../database-view-block-drop-command";
 import {
   resolveDatabaseListBlockDropRejection,
@@ -1480,7 +1483,16 @@ export function DatabaseList({
     event.stopPropagation();
     event.dataTransfer.dropEffect = resolveCrossSurfaceTransferMode(event);
     setBlockDropPreview(preview);
-    setBlockDropMessage(preview.message);
+    const session = resolveLocalBlockDragOverSession(event.dataTransfer);
+    const promotionMessage = session
+      ? summarizeBlockPagePromotionPreview({
+          mode: resolveCrossSurfaceTransferMode(event),
+          rootCount: session.payload.rootBlockIds.length,
+          hints: session.taskShorthandPreviewHints ?? [],
+          literal: !readTaskShorthandPagePromotionEnabled() || event.shiftKey,
+        })
+      : "";
+    setBlockDropMessage([promotionMessage, preview.message].filter(Boolean).join(" · "));
   };
 
   const handleBlockDragLeave = (event: ReactDragEvent<HTMLDivElement>): void => {

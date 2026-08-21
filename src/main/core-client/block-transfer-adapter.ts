@@ -195,16 +195,22 @@ const fromCoreTransformation = (
     ) {
       return evidence.promotion;
     }
+    if (evidence.promotion.grammar_version !== 1) {
+      throw new Error(
+        `Core returned unsupported task shorthand grammar v${evidence.promotion.grammar_version}`,
+      );
+    }
+    const grammarVersion = 1 as const;
     if (evidence.promotion.kind === "preserved") {
       return {
         kind: "preserved" as const,
-        grammarVersion: 1 as const,
+        grammarVersion,
         reason: evidence.promotion.reason,
       };
     }
     return {
       kind: "applied" as const,
-      grammarVersion: 1 as const,
+      grammarVersion,
       priorityOptionId: evidence.promotion.priority_option_id,
       estimateOptionId: evidence.promotion.estimate_option_id ?? null,
       tagOptionIds: evidence.promotion.tag_option_ids,

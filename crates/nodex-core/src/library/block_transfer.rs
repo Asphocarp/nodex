@@ -5902,8 +5902,48 @@ fn internal(message: impl Into<String>) -> StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::rich_text::RichTextStyles;
     use rusqlite::Connection;
     use serde_json::json;
+
+    fn promoted_paragraph(title: &str) -> BlockToPageTransformation {
+        BlockToPageTransformation::Promote {
+            page_id: "page:result".to_owned(),
+            rich_title: vec![RichTextItem::Text {
+                text: title.to_owned(),
+                styles: RichTextStyles::default(),
+            }],
+            body_roots: Vec::new(),
+            consumed_type: "paragraph".to_owned(),
+            consumed_props: BTreeMap::new(),
+            placeholder_block_id: None,
+        }
+    }
+
+    #[test]
+    fn task_shorthand_evidence_distinguishes_literal_digit_titles_from_candidates() {
+        let (ordinary_evidence, ordinary_candidate) = prepare_task_shorthand_title_policy(
+            LibraryPagePromotionPolicy::TaskShorthandV1,
+            true,
+            &promoted_paragraph("4abc"),
+        );
+        assert_eq!(
+            ordinary_evidence,
+            LibraryBlockTransferPromotionEvidence::NoMatch
+        );
+        assert!(ordinary_candidate.is_none());
+
+        let (candidate_evidence, candidate) = prepare_task_shorthand_title_policy(
+            LibraryPagePromotionPolicy::TaskShorthandV1,
+            true,
+            &promoted_paragraph("4 Later"),
+        );
+        assert!(matches!(
+            candidate_evidence,
+            LibraryBlockTransferPromotionEvidence::Preserved { .. }
+        ));
+        assert!(candidate.is_none());
+    }
 
     #[test]
     fn semantic_identity_ignores_connection_and_adapter_attempt() {

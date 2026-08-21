@@ -107,7 +107,6 @@ export const commitDatabaseViewBlockDrop = async (
     input.mutationHistory.registerBlockTransfer(result.value.undoToken);
   }
   const shorthandFeedback = summarizeBlockPagePromotionReceipt(result.value);
-  const feedbackMessage = shorthandFeedback?.message ?? "Block promoted to a Page.";
   const feedbackOptions = result.value.undoToken
     ? {
         action: {
@@ -130,10 +129,12 @@ export const commitDatabaseViewBlockDrop = async (
         },
       }
     : undefined;
-  if (shorthandFeedback?.tone === "info") {
-    toast.info(feedbackMessage, feedbackOptions);
-  } else {
-    toast.success(feedbackMessage, feedbackOptions);
+  if (shorthandFeedback) {
+    if (shorthandFeedback.tone === "info") {
+      toast.info(shorthandFeedback.message, feedbackOptions);
+    } else {
+      toast.success(shorthandFeedback.message, feedbackOptions);
+    }
   }
   const cursor =
     result.localCommit.status === "committed"

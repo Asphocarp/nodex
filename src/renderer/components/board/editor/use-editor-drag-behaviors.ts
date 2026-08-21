@@ -3,7 +3,7 @@ import type { RefObject } from "react";
 import { DropCursorExtension, SideMenuExtension } from "@blocknote/core/extensions";
 import {
   endLocalBlockDragSession,
-  resolveLocalBlockDragSession,
+  resolveLocalBlockDragOverSession,
   shouldBlockNoteYieldManagedDrag,
 } from "../../workbench/block-transfer/cross-surface-drag";
 import {
@@ -106,7 +106,7 @@ export function useEditorDragBehaviors({
       };
     };
     const resolveExternalDragOwnership = (event: DragEvent) => {
-      const session = resolveLocalBlockDragSession(event.dataTransfer);
+      const session = resolveLocalBlockDragOverSession(event.dataTransfer);
       return shouldBlockNoteYieldManagedDrag({
         session,
         currentSurfaceId: crossSurface.surfaceId,

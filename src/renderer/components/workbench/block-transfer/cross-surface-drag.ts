@@ -209,7 +209,7 @@ export const summarizeBlockPagePromotionPreview = (input: {
   const verb = input.mode === "copy" ? "Copy" : "Move";
   const object = input.rootCount === 1 ? "as Page" : `${input.rootCount} as Pages`;
   if (input.literal) return `${verb} ${object} · Literal`;
-  if (input.rootCount > 1) {
+  if (input.rootCount > 1 && input.hints.length > 0) {
     return `${verb} ${object} · ${input.hints.length} shorthand`;
   }
   const hint = input.hints[0];
@@ -228,10 +228,11 @@ export const summarizeBlockPagePromotionReceipt = (
   const promotions = receipt.transformationEvidence.map((evidence) => evidence.promotion);
   const applied = promotions.filter((promotion) => promotion.kind === "applied").length;
   const preserved = promotions.filter((promotion) => promotion.kind === "preserved").length;
+  const candidates = applied + preserved;
   if (preserved > 0) {
     return {
       tone: "info",
-      message: `${preserved} of ${promotions.length} shorthand ${preserved === 1 ? "prefix wasn't" : "prefixes weren't"} applied; titles were kept.`,
+      message: `${preserved} of ${candidates} shorthand ${preserved === 1 ? "prefix wasn't" : "prefixes weren't"} applied; titles were kept.`,
     };
   }
   if (applied > 0) {
@@ -387,7 +388,8 @@ export const endLocalBlockDragSession = (
   input?: Parameters<BlockDragSessionCoordinator["end"]>[0],
 ): void => blockDragSessionCoordinator.end(input);
 
-export const resolveLocalBlockDragSession = (
+/** Resolve an active local session during dragenter/dragover/dragleave without reading protected data. */
+export const resolveLocalBlockDragOverSession = (
   dataTransfer: Pick<DataTransfer, "types"> | null | undefined,
 ): LocalBlockDragSession | null => blockDragSessionCoordinator.resolve(dataTransfer);
 
@@ -422,7 +424,7 @@ export const shouldBlockNoteYieldManagedDrag = (input: {
 /** Native cross-surface DnD is intentionally renderer-window local. */
 export const shouldHandleNativeCrossSurfaceDrag = (
   dataTransfer: Pick<DataTransfer, "types">,
-): boolean => resolveLocalBlockDragSession(dataTransfer) !== null;
+): boolean => resolveLocalBlockDragOverSession(dataTransfer) !== null;
 
 if (typeof window !== "undefined") {
   window.addEventListener("blur", () => blockDragSessionCoordinator.end());

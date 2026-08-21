@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use unicode_normalization::UnicodeNormalization;
 
-use super::rich_text::RichTextItem;
+use super::rich_text::{RichTextItem, rich_text_plain_text};
 
 pub(crate) const TASK_SHORTHAND_GRAMMAR_VERSION: u32 = 1;
 const MAX_PREFIX_BYTES: usize = 1_024;
@@ -15,7 +15,6 @@ pub(crate) struct TaskShorthandMatch {
     pub(crate) priority: u8,
     pub(crate) estimate: Option<String>,
     pub(crate) tag_names: Vec<String>,
-    pub(crate) consumed_chars: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,20 +31,21 @@ pub(crate) enum TaskShorthandParse {
     Match(TaskShorthandMatch),
 }
 
+struct TaskShorthandCandidate<'a> {
+    priority_char: char,
+    estimate: Option<&'static str>,
+    raw_tags: Option<&'a str>,
+    consumed_bytes: usize,
+}
+
 /// Parses only a leading run of ordinary rich-text Text spans. Inline atoms,
 /// links and line breaks are authority boundaries and are never flattened.
 pub(crate) fn parse_task_shorthand(items: &[RichTextItem]) -> TaskShorthandParse {
     let Some(RichTextItem::Text { text: first, .. }) = items.first() else {
         return TaskShorthandParse::NoMatch;
     };
-    let Some(priority_char) = first.chars().next() else {
+    if !first.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
         return TaskShorthandParse::NoMatch;
-    };
-    if !priority_char.is_ascii_digit() {
-        return TaskShorthandParse::NoMatch;
-    }
-    if !matches!(priority_char, '0'..='3') {
-        return TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed);
     }
 
     let mut leading_text = String::new();
@@ -56,53 +56,46 @@ pub(crate) fn parse_task_shorthand(items: &[RichTextItem]) -> TaskShorthandParse
         leading_text.push_str(text);
     }
 
-    parse_leading_text(items, &leading_text)
+    let Some(candidate) = scan_candidate(&leading_text) else {
+        let crosses_authority_boundary = items
+            .iter()
+            .any(|item| !matches!(item, RichTextItem::Text { .. }))
+            && scan_candidate(&rich_text_plain_text(items)).is_some();
+        return if crosses_authority_boundary {
+            TaskShorthandParse::Rejected(TaskShorthandRejection::RichTextBoundary)
+        } else {
+            TaskShorthandParse::NoMatch
+        };
+    };
+    validate_candidate(items, &leading_text, candidate)
 }
 
-fn parse_leading_text(items: &[RichTextItem], leading_text: &str) -> TaskShorthandParse {
-    let chars = leading_text.char_indices().collect::<Vec<_>>();
+fn scan_candidate(leading_text: &str) -> Option<TaskShorthandCandidate<'_>> {
+    let priority_char = leading_text.chars().next()?;
+    if !priority_char.is_ascii_digit() {
+        return None;
+    }
     let mut cursor = 1;
     let mut estimate = None;
     let remaining_upper = leading_text[cursor..].to_ascii_uppercase();
     for candidate in ["XL", "XS", "S", "M", "L"] {
         if remaining_upper.starts_with(candidate) {
-            estimate = Some(candidate.to_owned());
+            estimate = Some(candidate);
             cursor += candidate.len();
             break;
         }
     }
 
-    let mut tags = Vec::new();
+    let mut raw_tags = None;
     if leading_text[cursor..].starts_with('(') {
-        let Some(close_offset) = leading_text[cursor + 1..].find(')') else {
-            return boundary_or_malformed(items, leading_text);
-        };
+        let close_offset = leading_text[cursor + 1..].find(')')?;
         let close = cursor + 1 + close_offset;
-        let raw_tags = &leading_text[cursor + 1..close];
-        if raw_tags.contains(['(', ')']) {
-            return TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed);
-        }
-        let mut seen = BTreeSet::new();
-        for raw in raw_tags.split(',') {
-            let canonical = raw.trim().nfc().collect::<String>();
-            if canonical.is_empty()
-                || canonical.len() > MAX_TAG_NAME_BYTES
-                || canonical.chars().any(char::is_control)
-            {
-                return TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed);
-            }
-            if seen.insert(canonical.clone()) {
-                tags.push(canonical);
-            }
-        }
-        if tags.len() > MAX_TAGS {
-            return TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed);
-        }
+        raw_tags = Some(&leading_text[cursor + 1..close]);
         cursor = close + 1;
     }
 
     if leading_text[cursor..].starts_with(':') {
-        return TaskShorthandParse::NoMatch;
+        return None;
     }
     let whitespace_bytes = leading_text[cursor..]
         .char_indices()
@@ -110,50 +103,73 @@ fn parse_leading_text(items: &[RichTextItem], leading_text: &str) -> TaskShortha
         .last()
         .map_or(0, |(offset, ch)| offset + ch.len_utf8());
     if whitespace_bytes == 0 {
-        if items
-            .iter()
-            .any(|item| !matches!(item, RichTextItem::Text { .. }))
-        {
-            return TaskShorthandParse::Rejected(TaskShorthandRejection::RichTextBoundary);
-        }
-        return TaskShorthandParse::NoMatch;
+        return None;
     }
     cursor += whitespace_bytes;
-    if cursor > MAX_PREFIX_BYTES {
-        return TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed);
-    }
-    if title_is_empty(items, leading_text, cursor) {
-        return TaskShorthandParse::Rejected(TaskShorthandRejection::NonemptyTitleRequired);
-    }
 
-    let priority = chars[0].1.to_digit(10).expect("validated priority") as u8;
-    TaskShorthandParse::Match(TaskShorthandMatch {
-        rewritten_title: strip_leading_text(items, cursor),
-        priority,
+    Some(TaskShorthandCandidate {
+        priority_char,
         estimate,
-        tag_names: tags,
-        consumed_chars: leading_text[..cursor].chars().count(),
+        raw_tags,
+        consumed_bytes: cursor,
     })
 }
 
-fn boundary_or_malformed(items: &[RichTextItem], leading_text: &str) -> TaskShorthandParse {
-    if leading_text.len()
-        == items
-            .iter()
-            .take_while(|item| matches!(item, RichTextItem::Text { .. }))
-            .map(|item| match item {
-                RichTextItem::Text { text, .. } => text.len(),
-                _ => 0,
-            })
-            .sum::<usize>()
-        && items
-            .iter()
-            .any(|item| !matches!(item, RichTextItem::Text { .. }))
-    {
-        TaskShorthandParse::Rejected(TaskShorthandRejection::RichTextBoundary)
-    } else {
-        TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed)
+fn validate_candidate(
+    items: &[RichTextItem],
+    leading_text: &str,
+    candidate: TaskShorthandCandidate<'_>,
+) -> TaskShorthandParse {
+    // A digit-leading title becomes a shorthand candidate only after a complete
+    // compact token and its whitespace separator have been recognized. Keep all
+    // semantic validation below this gate so ordinary titles remain literal.
+    if !matches!(candidate.priority_char, '0'..='3') {
+        return TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed);
     }
+    if candidate.consumed_bytes > MAX_PREFIX_BYTES {
+        return TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed);
+    }
+    let Some(tags) = parse_tags(candidate.raw_tags) else {
+        return TaskShorthandParse::Rejected(TaskShorthandRejection::Malformed);
+    };
+    if title_is_empty(items, leading_text, candidate.consumed_bytes) {
+        return TaskShorthandParse::Rejected(TaskShorthandRejection::NonemptyTitleRequired);
+    }
+
+    let priority = candidate
+        .priority_char
+        .to_digit(10)
+        .expect("validated priority") as u8;
+    TaskShorthandParse::Match(TaskShorthandMatch {
+        rewritten_title: strip_leading_text(items, candidate.consumed_bytes),
+        priority,
+        estimate: candidate.estimate.map(str::to_owned),
+        tag_names: tags,
+    })
+}
+
+fn parse_tags(raw_tags: Option<&str>) -> Option<Vec<String>> {
+    let Some(raw_tags) = raw_tags else {
+        return Some(Vec::new());
+    };
+    if raw_tags.contains(['(', ')']) {
+        return None;
+    }
+    let mut seen = BTreeSet::new();
+    let mut tags = Vec::new();
+    for raw in raw_tags.split(',') {
+        let canonical = raw.trim().nfc().collect::<String>();
+        if canonical.is_empty()
+            || canonical.len() > MAX_TAG_NAME_BYTES
+            || canonical.chars().any(char::is_control)
+        {
+            return None;
+        }
+        if seen.insert(canonical.clone()) {
+            tags.push(canonical);
+        }
+    }
+    (tags.len() <= MAX_TAGS).then_some(tags)
 }
 
 fn title_is_empty(items: &[RichTextItem], leading_text: &str, consumed_bytes: usize) -> bool {
@@ -285,17 +301,43 @@ mod tests {
                     uuid: "t".to_owned()
                 }
             ]),
-            TaskShorthandParse::Rejected(TaskShorthandRejection::RichTextBoundary)
+            TaskShorthandParse::NoMatch
         ));
         assert!(matches!(
             parse_task_shorthand(&[
-                text("1XL"),
+                text("4XL"),
                 RichTextItem::PageMention {
                     target_page_id: "page:target".to_owned()
                 }
             ]),
+            TaskShorthandParse::NoMatch
+        ));
+        assert!(matches!(
+            parse_task_shorthand(&[
+                text("1"),
+                RichTextItem::Link {
+                    text: "XL".to_owned(),
+                    href: "https://nodex.dev".to_owned(),
+                    styles: RichTextStyles::default(),
+                },
+                text(" Fix import"),
+            ]),
             TaskShorthandParse::Rejected(TaskShorthandRejection::RichTextBoundary)
         ));
+        let TaskShorthandParse::Match(prefix_before_atom) = parse_task_shorthand(&[
+            text("1XL "),
+            RichTextItem::PageMention {
+                target_page_id: "page:target".to_owned(),
+            },
+        ]) else {
+            panic!("expected prefix before rich title atom to match")
+        };
+        assert_eq!(
+            prefix_before_atom.rewritten_title,
+            [RichTextItem::PageMention {
+                target_page_id: "page:target".to_owned(),
+            }]
+        );
     }
 
     #[test]

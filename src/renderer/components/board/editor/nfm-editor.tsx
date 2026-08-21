@@ -54,7 +54,7 @@ import {
   endLocalBlockDragSession,
 } from "../../workbench/block-transfer/cross-surface-drag";
 import { resolveTopLevelDraggedBlocks } from "./dragged-block-roots";
-import { previewTaskShorthand } from "@/lib/task-shorthand-preview";
+import { previewTaskShorthandInlineContent } from "@/lib/task-shorthand-preview";
 import type { CodexPromptInput } from "@/lib/types";
 import { NfmSlashMenu } from "./nfm-slash-menu";
 import { NfmTableHandlesController } from "./nfm-table-handles";
@@ -1989,18 +1989,7 @@ function NfmEditorInstance({
           displayHints: roots.map((block) => block.type),
           taskShorthandPreviewHints: roots.flatMap((block) => {
             const content = (block as { readonly content?: unknown }).content;
-            if (!Array.isArray(content)) return [];
-            const text = content.every(
-              (item) =>
-                typeof item === "object" &&
-                item !== null &&
-                (item as { readonly type?: unknown }).type === "text" &&
-                typeof (item as { readonly text?: unknown }).text === "string",
-            )
-              ? content.map((item) => (item as { readonly text: string }).text).join("")
-              : null;
-            if (text === null) return [];
-            const preview = previewTaskShorthand(text);
+            const preview = previewTaskShorthandInlineContent(content);
             return preview
               ? [
                   {

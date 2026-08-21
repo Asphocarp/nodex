@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
+import { registerBlockDocumentStructuralMutationParticipant } from "@/lib/block-document-mutation-registry";
 import { createDatabaseViewMutationHistory } from "./database-view-mutation-history";
 import { commitDatabaseViewBlockDrop } from "./database-view-block-drop-command";
 import type { LocalBlockDragSession } from "./block-transfer/cross-surface-drag";
@@ -6,6 +7,8 @@ import type { LocalBlockDragSession } from "./block-transfer/cross-surface-drag"
 const mocks = vi.hoisted(() => ({
   transferBlocks: vi.fn(),
   toastDanger: vi.fn(),
+  toastInfo: vi.fn(),
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -15,8 +18,8 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/ui/toast", () => ({
   toast: {
     danger: mocks.toastDanger,
-    info: vi.fn(),
-    success: vi.fn(),
+    info: mocks.toastInfo,
+    success: mocks.toastSuccess,
   },
 }));
 
@@ -40,6 +43,8 @@ describe("Database View Block drop command", () => {
   beforeEach(() => {
     mocks.transferBlocks.mockReset();
     mocks.toastDanger.mockReset();
+    mocks.toastInfo.mockReset();
+    mocks.toastSuccess.mockReset();
   });
 
   test("fails closed when the mounted source editor cannot prepare a causal head", async () => {
@@ -64,5 +69,51 @@ describe("Database View Block drop command", () => {
     expect(mocks.toastDanger).toHaveBeenCalledWith(
       "The dragged Page editor changed; start the drag again.",
     );
+  });
+
+  test("keeps ordinary literal promotions silent after Core reports no shorthand match", async () => {
+    const unregister = registerBlockDocumentStructuralMutationParticipant(session.sourceSurfaceId, {
+      prepareAndFence: async () => ({
+        documentId: "document-source",
+        storeEpoch: "epoch-1",
+        generation: 1,
+        expectedHeadSeq: 2,
+      }),
+    });
+    mocks.transferBlocks.mockResolvedValue({
+      ok: true,
+      value: {
+        undoToken: null,
+        transformationEvidence: [{ promotion: { kind: "no_match" } }],
+      },
+      localCommit: {
+        status: "committed",
+        commit: { store_epoch: "epoch-1", commit_seq: 3 },
+      },
+    });
+
+    try {
+      const committed = await commitDatabaseViewBlockDrop({
+        session,
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        dataSourceId: "data-source-1",
+        placement: {
+          kind: "direct",
+          viewId: "view-1",
+          presentationOverride: { layout: "board" },
+          groupKey: null,
+        },
+        altKey: false,
+        shiftKey: false,
+        mutationHistory: createDatabaseViewMutationHistory("view-1"),
+      });
+
+      expect(committed).toBe(true);
+      expect(mocks.toastInfo).not.toHaveBeenCalled();
+      expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
   });
 });

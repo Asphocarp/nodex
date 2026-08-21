@@ -160,6 +160,8 @@ describe("database identities", () => {
 
   test("canonicalizes tag names before applying caller-owned bounds", () => {
     expect(canonicalizeTagName("  Cafe\u0301  ")).toBe("Café");
+    expect(canonicalizeTagName("\u0085ui\u0085")).toBe("ui");
+    expect(canonicalizeTagName("\uFEFFui\uFEFF")).toBe("\uFEFFui\uFEFF");
     expect(canonicalizeTagName("  release candidate  ", { maxLength: 17 })).toBe(
       "release candidate",
     );

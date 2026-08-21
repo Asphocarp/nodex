@@ -2,7 +2,7 @@
 
 | Spec                                         | Status | Last Updated | Summary                                                                                                                                                                   |
 | -------------------------------------------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| task-shorthand-page-promotion-behavior.md    | Active | 2026-08-16   | Block → Page task shorthand grammar, Core authority, fallback, authoring preview, modifiers, typed evidence, and safe Undo                                                |
+| task-shorthand-page-promotion-behavior.md    | Active | 2026-08-21   | Block → Page task shorthand grammar, Core authority, fallback, authoring preview, modifiers, typed evidence, and safe Undo                                                |
 | new-chat-home-behavior.md                    | Active | 2026-08-15   | New Chat hero composition, Project selector, lazy glyph performance, directional 3D mark, reduced motion, and renderer handoff                                            |
 | brand-language.md                            | Active | 2026-08-14   | Product-wide Nodex naming boundary and the external ChatGPT/Codex names that remain explicit                                                                              |
 | composer-image-attachments-behavior.md       | Active | 2026-08-14   | Composer image paste, picker, drop, direct-editor thumbnail routing, first-send/queue editing, and trusted transcript replay                                              |
